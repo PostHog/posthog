@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, NamedTuple, cast
@@ -28,7 +28,12 @@ from products.alerts.backend.destination_configs import (
     AlertDestinationConfig,
     AlertDestinationData,
 )
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.api.hog_function import (
+    HogFunctionSerializer,
+    StaleHogFunctionUpdateError,
+    record_hog_function_revision,
+    snapshot_hog_function_content,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
@@ -225,6 +230,125 @@ def create_alert_destination_hog_functions(
         for team_id, hog_function_ids in hog_function_ids_by_team.items():
             _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=hog_function_ids)
     return created
+
+
+def _validate_managed_alert_destination_filters(
+    *, filters: Any, alert_id: str, event_id: str, allowed_event_ids: Collection[str]
+) -> None:
+    """Keep an alert destination attached to the alert and lifecycle event it represents.
+
+    The generic HogFunction serializer deliberately only checks that managed alert events are
+    not written through the generic API. The alert API is the trusted writer, so it must provide
+    the other half of that contract: an update may change the destination's payload, but never
+    retarget the function at another alert or event stream.
+    """
+    if not isinstance(filters, Mapping) or filters.get("source") != "events":
+        raise ValidationError({"filters": "A destination must use the events source."})
+
+    if filters.get("actions") or filters.get("data_warehouse"):
+        raise ValidationError({"filters": "A destination cannot subscribe to actions or data warehouse data."})
+
+    events = filters.get("events")
+    if not isinstance(events, list) or len(events) != 1 or not isinstance(events[0], dict):
+        raise ValidationError({"filters": "A destination must subscribe to exactly one alert event."})
+
+    event = events[0]
+    if event.get("id") not in allowed_event_ids or event.get("type") != "events":
+        raise ValidationError({"filters": "A destination must subscribe to a supported alert event."})
+    if event["id"] != event_id:
+        raise ValidationError({"filters": "The alert event kind cannot be changed."})
+
+    properties = filters.get("properties")
+    if not isinstance(properties, list) or not any(
+        isinstance(prop, dict)
+        and prop.get("key") == "alert_id"
+        and str(prop.get("value")) == alert_id
+        and prop.get("operator") == "exact"
+        and prop.get("type") == "event"
+        for prop in properties
+    ):
+        raise ValidationError({"filters": "A destination must remain attached to this alert."})
+
+
+def update_alert_destination_hog_function(
+    *,
+    team_id: int,
+    alert_id: str,
+    hog_function_id: UUID | str,
+    allowed_event_ids: Collection[str],
+    data: dict[str, Any],
+    request: Any,
+) -> HogFunction:
+    """Update one alert-owned destination while preserving its alert/event ownership.
+
+    Logs alerts fan out one logical destination into one HogFunction per lifecycle event. The
+    caller supplies the specific row so lifecycle toggles and event-specific message edits can
+    be made independently, while the ownership and event binding are checked under the same row
+    lock as the write.
+    """
+    try:
+        destination_id = UUID(str(hog_function_id))
+    except ValueError as error:
+        raise ValidationError({"hog_function_id": "A valid UUID is required."}) from error
+
+    with transaction.atomic():
+        destination = (
+            owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+            .select_for_update()
+            .filter(id=destination_id)
+            .first()
+        )
+        if destination is None:
+            raise ValidationError(
+                {
+                    "hog_function_id": [
+                        "This HogFunction does not belong to this alert. Refresh the alert and try again."
+                    ]
+                }
+            )
+
+        current_events = (destination.filters or {}).get("events", [])
+        current_event_id = (
+            current_events[0].get("id")
+            if isinstance(current_events, list) and len(current_events) == 1 and isinstance(current_events[0], dict)
+            else None
+        )
+        if current_event_id not in allowed_event_ids:
+            raise ValidationError({"filters": "This HogFunction is not a supported alert destination."})
+
+        before_content = snapshot_hog_function_content(destination)
+
+        serializer = HogFunctionSerializer(
+            destination,
+            data=data,
+            partial=True,
+            context={
+                "request": request,
+                "get_team": lambda: destination.team,
+                "allow_managed_alert_destination": True,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        base_updated_at = serializer.validated_data.pop("base_updated_at", None)
+        if base_updated_at and destination.updated_at > base_updated_at:
+            raise StaleHogFunctionUpdateError()
+        _validate_managed_alert_destination_filters(
+            filters=serializer.validated_data.get("filters", destination.filters),
+            alert_id=alert_id,
+            event_id=current_event_id,
+            allowed_event_ids=allowed_event_ids,
+        )
+        updated = serializer.save()
+        record_hog_function_revision(
+            instance=updated,
+            before=destination,
+            before_content=before_content,
+            team_id=team_id,
+            created_by=request.user if request.user.is_authenticated else None,
+        )
+        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=[updated.id])
+
+    return updated
 
 
 def _report_unreadable_destination_configs(

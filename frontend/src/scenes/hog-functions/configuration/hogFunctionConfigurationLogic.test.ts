@@ -6,7 +6,15 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
-import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    HogFunctionTemplateType,
+    HogFunctionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
+
+import { logsAlertsDestinationsUpdate } from 'products/logs/frontend/generated/api'
 
 import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
 
@@ -20,9 +28,17 @@ jest.mock('lib/api', () => ({
     },
 }))
 
+jest.mock('products/logs/frontend/generated/api', () => ({
+    __esModule: true,
+    logsAlertsDestinationsUpdate: jest.fn(),
+}))
+
 // the mock api object
 
 const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
+const mockLogsAlertDestinationUpdate = logsAlertsDestinationsUpdate as jest.MockedFunction<
+    typeof logsAlertsDestinationsUpdate
+>
 
 const HOG_TEMPLATE: HogFunctionTemplateType = {
     free: false,
@@ -113,6 +129,7 @@ const HOG_FUNCTION: HogFunctionType = {
     id: '123-456-789',
     updated_at: '2021-09-29T14:00:00Z',
     enabled: true,
+    inputs: { url: { value: 'https://example.com/hook' } },
     status: undefined,
 }
 
@@ -184,6 +201,50 @@ describe('hogFunctionConfigurationLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
             }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
+        })
+    })
+
+    describe('managed logs alert destination', () => {
+        beforeEach(() => {
+            initKeaTests()
+            mockLogsAlertDestinationUpdate.mockResolvedValue(undefined)
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                type: 'internal_destination',
+                filters: {
+                    events: [{ id: '$logs_alert_firing', type: 'events' }],
+                    properties: [
+                        {
+                            key: 'alert_id',
+                            value: 'alert-1',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                },
+            })
+        })
+
+        it('saves through the logs alert API instead of the generic HogFunction API', async () => {
+            const logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+
+            logic.actions.setConfigurationValue('enabled', false)
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
+
+            expect(mockLogsAlertDestinationUpdate).toHaveBeenCalledWith(
+                expect.any(String),
+                'alert-1',
+                HOG_FUNCTION.id,
+                expect.objectContaining({ enabled: false })
+            )
+            expect(mockApi.update).not.toHaveBeenCalled()
+            expect(mockApi.get).toHaveBeenCalledTimes(2)
+
+            logic.unmount()
         })
     })
 

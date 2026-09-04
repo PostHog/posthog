@@ -64317,6 +64317,17 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    export type PatchedLogsAlertUpdateDestinationInputs = { [key: string]: unknown };
+
+    export interface PatchedLogsAlertUpdateDestination {
+      base_updated_at?: string;
+      enabled?: boolean;
+      /** @maxLength 400 */
+      name?: string;
+      description?: string;
+      inputs?: PatchedLogsAlertUpdateDestinationInputs;
+    }
+
     export interface PatchedLogsMetricRule {
       /** Unique identifier for this metric rule. */
       readonly id?: string;

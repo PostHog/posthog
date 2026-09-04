@@ -393,6 +393,19 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Update one HogFunction belonging to this alert destination. The destination's payload, message, filters, and enabled state may be changed, but its alert and lifecycle event binding remain owned by this API.
+ */
+export const logsAlertsDestinationsUpdateBodyNameMax = 400
+
+export const LogsAlertsDestinationsUpdateBody = /* @__PURE__ */ zod.object({
+    base_updated_at: zod.iso.datetime({ offset: true }).optional(),
+    enabled: zod.boolean().optional(),
+    name: zod.string().max(logsAlertsDestinationsUpdateBodyNameMax).optional(),
+    description: zod.string().optional(),
+    inputs: zod.record(zod.string(), zod.unknown()).optional(),
+})
+
+/**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
 

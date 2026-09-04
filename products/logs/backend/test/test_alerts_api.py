@@ -1011,6 +1011,182 @@ class TestLogsAlertAPI(APIBaseTest):
         assert destinations[0]["enabled"] is False
         assert set(destinations[0]["hog_function_ids"]) == set(hog_function_ids)
 
+    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_update_destination_changes_one_lifecycle_function(
+        self, signal_reload_hog_functions, alert_reload_hog_functions
+    ):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_ids = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )
+        firing_id = next(
+            hog_function_id
+            for hog_function_id in hog_function_ids
+            if HogFunction.objects.get(id=hog_function_id).filters["events"][0]["id"] == "$logs_alert_firing"
+        )
+        signal_reload_hog_functions.reset_mock()
+        alert_reload_hog_functions.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"{self.base_url}{created['id']}/destinations/{firing_id}/",
+                {"enabled": False},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.get(id=firing_id).enabled is False
+        assert HogFunction.objects.filter(id__in=hog_function_ids, enabled=True).count() == 3
+        signal_reload_hog_functions.assert_called_once_with(team_id=self.team.id, hog_function_ids=[firing_id])
+        alert_reload_hog_functions.assert_called_once_with(team_id=self.team.id, hog_function_ids=[firing_id])
+
+    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_update_destination_changes_inputs(self, signal_reload_hog_functions, alert_reload_hog_functions):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_ids = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/old"}
+        )
+        firing_id = hog_function_ids[0]
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{firing_id}/",
+            {"inputs": {"url": {"value": "https://example.com/new"}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.get(id=firing_id).inputs["url"]["value"] == "https://example.com/new"
+        assert HogFunction.objects.get(id=hog_function_ids[1]).inputs["url"]["value"] == "https://example.com/old"
+
+    def test_update_destination_rejects_a_foreign_hog_function(self):
+        self._sync_destination_templates()
+        created_a = self._create_via_api()
+        created_b = self._create_via_api(name="Another alert")
+        a_ids = self._create_destination(created_a["id"], {"type": "webhook", "webhook_url": "https://example.com/a"})
+
+        response = self.client.patch(
+            f"{self.base_url}{created_b['id']}/destinations/{a_ids[0]}/",
+            {"enabled": False},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "hog_function_id"
+        assert "does not belong to this alert" in response.json()["detail"]
+        assert HogFunction.objects.get(id=a_ids[0]).enabled is True
+
+    def test_update_destination_rejects_an_invalid_hog_function_id(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/not-a-uuid/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("hog", "return 'changed'"), ("template_id", "template-slack"), ("filters", {})])
+    def test_update_destination_rejects_execution_or_ownership_changes(
+        self, _name: str, field: str, value: Any
+    ) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        destination_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+        before = HogFunction.objects.get(id=destination_id)
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{destination_id}/", {field: value}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        after = HogFunction.objects.get(id=destination_id)
+        assert after.hog == before.hog
+        assert after.filters == before.filters
+
+    def test_update_destination_cannot_retarget_the_alert_event(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{hog_function_id}/",
+            {
+                "filters": {
+                    "events": [{"id": "$pageview", "type": "events"}],
+                    "properties": [
+                        {
+                            "key": "alert_id",
+                            "value": created["id"],
+                            "operator": "exact",
+                            "type": "event",
+                        }
+                    ],
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert HogFunction.objects.get(id=hog_function_id).filters["events"][0]["id"] == "$logs_alert_firing"
+
+    def test_update_destination_cannot_change_the_filter_source(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{hog_function_id}/",
+            {"filters": {**hog_function.filters, "source": "person-updates"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert HogFunction.objects.get(id=hog_function_id).filters["source"] == "events"
+
+    def test_update_destination_rejects_stale_writes(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+        HogFunction.objects.filter(id=hog_function_id).update(updated_at=datetime.now(UTC))
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{hog_function_id}/",
+            {"enabled": False, "base_updated_at": "2020-01-01T00:00:00Z"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert HogFunction.objects.get(id=hog_function_id).enabled is True
+
+    @parameterized.expand([("scalar", True), ("list", [])])
+    def test_update_destination_rejects_non_object_bodies(self, _name: str, payload: object):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{hog_function_id}/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),

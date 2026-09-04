@@ -82,6 +82,8 @@ import {
     SurveyEventProperties,
 } from '~/types'
 
+import { logsAlertsDestinationsUpdate } from 'products/logs/frontend/generated/api'
+
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
@@ -98,6 +100,25 @@ export interface HogFunctionConfigurationLogicProps {
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
 const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 export const HOG_CODE_SIZE_LIMIT = 100 * 1024 // 100KB to match backend limit
+const LOGS_ALERT_EVENT_IDS = new Set([
+    '$logs_alert_firing',
+    '$logs_alert_resolved',
+    '$logs_alert_auto_disabled',
+    '$logs_alert_errored',
+])
+
+function getLogsAlertDestinationId(hogFunction: HogFunctionType | null): string | null {
+    if (hogFunction?.type !== 'internal_destination') {
+        return null
+    }
+
+    if (!hogFunction.filters?.events?.some((event) => LOGS_ALERT_EVENT_IDS.has(event.id))) {
+        return null
+    }
+
+    const alertId = hogFunction.filters?.properties?.find((property) => property.key === 'alert_id')?.value
+    return alertId === undefined || alertId === null ? null : String(alertId)
+}
 
 const VALIDATION_RULES = {
     SITE_DESTINATION_REQUIRES_MAPPINGS: (data: HogFunctionConfigurationType) =>
@@ -1024,9 +1045,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
                 upsertHogFunction: async ({ configuration }) => {
                     const isNew = !props.id || props.id === 'new'
-                    const res = isNew
-                        ? await api.hogFunctions.create(configuration)
-                        : await api.hogFunctions.update(props.id!, configuration)
+                    const logsAlertId = getLogsAlertDestinationId(values.hogFunction)
+                    let res: HogFunctionType
+                    if (logsAlertId && props.id && props.id !== 'new') {
+                        await logsAlertsDestinationsUpdate(String(values.currentProjectId), logsAlertId, props.id, {
+                            enabled: configuration.enabled,
+                            name: configuration.name,
+                            description: configuration.description,
+                            inputs: configuration.inputs,
+                        })
+                        // The alert endpoint intentionally returns no body. Re-read through the normal endpoint so
+                        // the form resets from the server's masked/compiled representation.
+                        res = await api.hogFunctions.get(props.id)
+                    } else {
+                        res = isNew
+                            ? await api.hogFunctions.create(configuration)
+                            : await api.hogFunctions.update(props.id!, configuration)
+                    }
 
                     posthog.capture('hog function saved', {
                         id: res.id,
