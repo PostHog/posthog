@@ -177,18 +177,28 @@ describe("InboxReportContextMenu", () => {
   });
 
   it("applies resolve and dismiss reasons directly", async () => {
+    const user = userEvent.setup();
     openMenu(makeReport());
 
-    fireEvent.click(screen.getByText("Resolve"));
+    await user.hover(screen.getByText("Resolve"));
     fireEvent.click(await screen.findByText("PR was merged"));
     expect(mocks.resolveWithReason).toHaveBeenCalledWith("pr_merged");
 
     fireEvent.contextMenu(screen.getByText("Report one"));
-    fireEvent.click(screen.getByText("Dismiss"));
+    await user.hover(screen.getByText("Dismiss"));
     fireEvent.click(
       await screen.findByText("Won't fix - intentional behavior"),
     );
     expect(mocks.dismissWithReason).toHaveBeenCalledWith("wontfix_intentional");
+  });
+
+  it("opens the reviewer picker on hover", async () => {
+    const user = userEvent.setup();
+    openMenu(makeReport());
+
+    await user.hover(screen.getByText("Reviewers"));
+
+    expect(await screen.findByText("Reviewer picker")).toBeVisible();
   });
 
   it("starts PR work from an eligible report", async () => {
