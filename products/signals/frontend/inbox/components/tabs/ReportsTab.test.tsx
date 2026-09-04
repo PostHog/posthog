@@ -69,12 +69,14 @@ function makeReport(id: string, status: SignalReportStatus): SignalReport {
         status,
         total_weight: 0,
         signal_count: 1,
-        relevant_user_count: null,
         artefact_count: 0,
         is_suggested_reviewer: false,
         priority: 'P2',
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
+        implementation_pr_state: null,
+        work_state: 'unclaimed',
+        assignee: null,
     } satisfies SignalReport
 }
 

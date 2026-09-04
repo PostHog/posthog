@@ -37,8 +37,8 @@ export interface ReportDetailAction {
 }
 
 /**
- * Detail-pane actions as data: Resolve, Dismiss/Restore, and Refund. Create PR and Discuss are each
- * rendered separately as a standalone dropdown button (`CreatePrButton`, `DiscussReportButton`)
+ * Detail-pane actions as data: Resolve, Dismiss/Restore, and Refund. Implement and Discuss are each
+ * rendered separately as a standalone dropdown button (`ImplementButton`, `DiscussReportButton`)
  * since they open a note popover rather than firing on click; rating a report lives at the end of
  * the body (`ReportFeedbackFooter`). Dismissing and resolving reuse the shared `useReportDismiss` /
  * `useReportResolve` dialog flows. Callers render these inline or inside a menu.

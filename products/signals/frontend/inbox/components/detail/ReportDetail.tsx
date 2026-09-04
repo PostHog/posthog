@@ -32,14 +32,15 @@ import {
 } from '../../utils/reportPresentation'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { SignalReportAssignmentLabel } from '../badges/SignalReportAssignmentLabel'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
-import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
+import { ImplementButton } from './ImplementButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
@@ -245,14 +246,9 @@ export function InboxDetailFrame({
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
-    // Create PR is the report's main call to action, so it takes the primary slot (styled like
-    // "Open in GitHub" on PR-bearing reports). The rest render inline as buttons on wide layouts
-    // and as a standard `LemonMenu` on narrow ones.
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const createPrButton = showCreatePr ? <CreatePrButton report={report} /> : null
-    // `ReportSummaryBody` renders Create PR under the Solution section, so the header only carries it
-    // when the summary has no Solution section — otherwise an actionable report shows it twice.
+    const implementButton = showCreatePr ? <ImplementButton report={report} /> : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
@@ -311,14 +307,17 @@ export function InboxDetailFrame({
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
-            {titleHeading}
+            <div className="flex flex-col items-start gap-2">
+                {titleHeading}
+                <SignalReportAssignmentLabel report={report} />
+            </div>
 
             <div>
                 {report.summary ? (
                     <ReportSummaryBody
                         summary={report.summary}
                         chartPlacements={chartPlacements}
-                        createPrButton={createPrButton}
+                        implementButton={implementButton}
                         pullRequestNote={pullRequestNote}
                     />
                 ) : (
@@ -354,6 +353,7 @@ export function InboxDetailFrame({
                 {titleHeading}
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-tertiary">
+                <SignalReportAssignmentLabel report={report} />
                 {diffStat && (
                     <>
                         <span className="flex items-center gap-1.5">
@@ -483,7 +483,7 @@ export function InboxDetailFrame({
                 </LemonButton>
                 <div className="flex items-center gap-2">
                     {primaryAction}
-                    {!summaryHasSolution && createPrButton}
+                    {!summaryHasSolution && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
@@ -598,7 +598,7 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                 prRef && prUrl ? (
                     <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
                         <span className="text-sm text-secondary">
-                            A pull request with this fix is open:{' '}
+                            A pull request with this fix is attached:{' '}
                             <span className="font-mono">
                                 {prRef.repoSlug}#{prRef.number}
                             </span>

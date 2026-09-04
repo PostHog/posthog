@@ -1,3 +1,4 @@
+import type { SignalReportAssignmentPrStateEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 export const PR_BADGE_STATE = {
@@ -24,9 +25,16 @@ export const PR_BADGE_STATE = {
 
 export type PrBadgeState = keyof typeof PR_BADGE_STATE
 
-export function derivePrState(status: SignalReportStatus | string, prMerged: boolean): PrBadgeState {
-    if (prMerged) {
+export function derivePrState(
+    status: SignalReportStatus | string,
+    prMerged: boolean,
+    prState?: SignalReportAssignmentPrStateEnumApi | null
+): PrBadgeState {
+    if (prMerged || prState === 'merged') {
         return 'merged'
+    }
+    if (prState === 'closed') {
+        return 'closed'
     }
     // A terminal report no longer points at an open PR: dismiss and resolve close the report's open
     // implementation PR, a report suppressed by its PR closing without merging is closed by

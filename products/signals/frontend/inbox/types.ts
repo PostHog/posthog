@@ -2,6 +2,7 @@ import type { UserBasicType } from '~/types'
 
 import {
     type ReportChartApi,
+    type SignalReportApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalScoutRunSummaryApi,
@@ -62,14 +63,13 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
     'requires_human_input',
 ]
 
-export interface SignalReport {
+export interface SignalReport extends Pick<SignalReportApi, 'assignee' | 'implementation_pr_state' | 'work_state'> {
     id: string
     title: string | null
     summary: string | null
     status: SignalReportStatus
     total_weight: number
     signal_count: number
-    relevant_user_count: number | null
     created_at: string
     updated_at: string
     artefact_count: number
