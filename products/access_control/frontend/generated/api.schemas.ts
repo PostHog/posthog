@@ -398,48 +398,6 @@ export type OrganizationsProjectsAccessControlRolesRetrieveParams = {
     role_id?: string
 }
 
-export type EnvironmentsAccessControlMemberObjectsRetrieveParams = {
-    /**
-     * The organization membership id, as `organization_membership_id` in the members endpoint.
-     */
-    member_id: string
-}
-
-export type EnvironmentsAccessControlMemberPropertiesRetrieveParams = {
-    /**
-     * The organization membership id, as `organization_membership_id` in the members endpoint.
-     */
-    member_id: string
-}
-
-export type EnvironmentsAccessControlMembersRetrieveParams = {
-    /**
-     * Narrow the list to one organization membership id.
-     */
-    member_id?: string
-}
-
-export type EnvironmentsAccessControlRoleObjectsRetrieveParams = {
-    /**
-     * The role id, as `role_id` in the roles endpoint.
-     */
-    role_id: string
-}
-
-export type EnvironmentsAccessControlRolePropertiesRetrieveParams = {
-    /**
-     * The role id, as `role_id` in the roles endpoint.
-     */
-    role_id: string
-}
-
-export type EnvironmentsAccessControlRolesRetrieveParams = {
-    /**
-     * Narrow the list to one role.
-     */
-    role_id?: string
-}
-
 export type PropertyAccessControlsRetrieveParams = {
     /**
      * The property definition ID to fetch access control rules for.

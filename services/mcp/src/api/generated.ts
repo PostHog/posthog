@@ -94112,66 +94112,6 @@ export namespace Schemas {
     workflow_name: string;
     };
 
-    export type EnvironmentsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsAccessControlMemberObjectsRetrieveParams = {
-    /**
-     * The organization membership id, as `organization_membership_id` in the members endpoint.
-     */
-    member_id: string;
-    };
-
-    export type EnvironmentsAccessControlMemberPropertiesRetrieveParams = {
-    /**
-     * The organization membership id, as `organization_membership_id` in the members endpoint.
-     */
-    member_id: string;
-    };
-
-    export type EnvironmentsAccessControlMembersRetrieveParams = {
-    /**
-     * Narrow the list to one organization membership id.
-     */
-    member_id?: string;
-    };
-
-    export type EnvironmentsAccessControlRoleObjectsRetrieveParams = {
-    /**
-     * The role id, as `role_id` in the roles endpoint.
-     */
-    role_id: string;
-    };
-
-    export type EnvironmentsAccessControlRolePropertiesRetrieveParams = {
-    /**
-     * The role id, as `role_id` in the roles endpoint.
-     */
-    role_id: string;
-    };
-
-    export type EnvironmentsAccessControlRolesRetrieveParams = {
-    /**
-     * Narrow the list to one role.
-     */
-    role_id?: string;
-    };
-
-    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
-    /**
-     * Name of the evaluation context to restore to suggestions.
-     */
-    context_name: string;
-    };
-
     export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
