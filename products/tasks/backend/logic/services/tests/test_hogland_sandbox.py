@@ -3,10 +3,20 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from hogland import ExecEvent, ExecResult, NotFoundError
+from hogland import (
+    AuthenticationError,
+    ExecEvent,
+    ExecResult,
+    NotFoundError,
+    PermissionDeniedError,
+    RateLimitError,
+    ServerError,
+    ValidationError,
+)
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
     SandboxProvisionError,
@@ -218,6 +228,29 @@ class TestHoglandSandboxLifecycle:
             sandbox.create_snapshot()
         with pytest.raises(SnapshotCreationError):
             sandbox.create_directory_snapshot("/tmp/workspace")
+
+    @parameterized.expand(
+        [
+            ("transient_server_error", ServerError("boom", status_code=500), False),
+            ("transient_rate_limit", RateLimitError("boom", status_code=429), False),
+            ("permanent_auth_error", AuthenticationError("boom", status_code=401), True),
+            ("permanent_permission_error", PermissionDeniedError("boom", status_code=403), True),
+            ("permanent_validation_error", ValidationError("boom", status_code=422), True),
+            ("unexpected_error", RuntimeError("boom"), True),
+        ]
+    )
+    def test_destroy_skips_capture_for_transient_faults(
+        self, _name: str, delete_error: Exception, expect_capture: bool
+    ):
+        box = _mock_box()
+        box.delete.side_effect = delete_error
+        sandbox = _running_sandbox(box)
+
+        with patch("products.tasks.backend.exceptions.capture_exception") as capture_exception:
+            with pytest.raises(SandboxCleanupError):
+                sandbox.destroy()
+
+        assert capture_exception.called == expect_capture
 
 
 class TestSandboxIdPrefixDispatch:

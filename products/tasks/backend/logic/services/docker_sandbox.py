@@ -68,6 +68,12 @@ from .sandbox import (
 
 logger = logging.getLogger(__name__)
 
+# Subprocess faults that `docker stop`/`docker rm` surface during teardown. destroy() is
+# best-effort — every caller swallows it because the container is reaped anyway — so a Docker CLI
+# blip must not mint a fresh error-tracking issue. SubprocessError covers timeouts, non-zero exits,
+# and the cancellation path.
+TRANSIENT_TERMINATE_ERRORS: tuple[type[BaseException], ...] = (subprocess.SubprocessError,)
+
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
@@ -1296,6 +1302,16 @@ class DockerSandbox(SandboxBase):
             DockerSandbox._run(["docker", "rm", self._container_id])
             DockerSandbox._registry.pop(self.id, None)
             logger.info(f"Destroyed Docker sandbox {self.id}")
+        except TRANSIENT_TERMINATE_ERRORS as e:
+            # Transient Docker CLI fault during best-effort teardown. Log at warning and skip
+            # error-tracking capture so a subprocess blip does not open a fresh issue for every caller.
+            logger.warning(f"Transient error destroying Docker sandbox {self.id}: {e}")
+            raise SandboxCleanupError(
+                f"Failed to destroy Docker sandbox: {e}",
+                {"sandbox_id": self.id, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
         except Exception as e:
             logger.exception(f"Failed to destroy Docker sandbox: {e}")
             raise SandboxCleanupError(

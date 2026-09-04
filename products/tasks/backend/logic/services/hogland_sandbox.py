@@ -30,7 +30,7 @@ from typing import Any
 from django.conf import settings
 
 import httpx
-from hogland import APIError, ExecEvent, Hogbox, Hogland, NotFoundError
+from hogland import APIError, ExecEvent, Hogbox, Hogland, NotFoundError, RateLimitError, ServerError
 
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
@@ -55,6 +55,14 @@ from products.tasks.backend.logic.services.sandbox_config import BURSTABLE_REQUE
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
+
+# Retryable hogland-side faults that delete() surfaces during teardown. destroy() is best-effort —
+# every caller swallows it because the box's idle TTL reaps it anyway — so a transient blip must not
+# mint a fresh error-tracking issue. ServerError (5xx) and RateLimitError (429) are the retryable
+# responses; TransportError covers a network drop. Permanent API faults (auth, permission,
+# validation, conflict) fall through to the captured branch because they signal a real problem to
+# investigate. A 404 never reaches here — delete() treats an already-gone box as success.
+TRANSIENT_TERMINATE_ERRORS: tuple[type[BaseException], ...] = (ServerError, RateLimitError, httpx.TransportError)
 
 # "agent" is a registered hogland kind (1h idle-TTL default) for API-driven
 # LLM sandbox runs — exactly this workload. Using it rather than an unregistered
@@ -476,6 +484,13 @@ class HoglandSandbox(AgentServerLaunchMixin):
         try:
             self._box.delete()
             logger.info(f"Destroyed hogland sandbox {self.id}")
+        except TRANSIENT_TERMINATE_ERRORS as e:
+            # Transient hogland-side fault during best-effort teardown. Log at warning and skip
+            # error-tracking capture so a server-side blip does not open a fresh issue for every caller.
+            logger.warning(f"Transient error destroying hogland sandbox {self.id}: {e}")
+            raise SandboxCleanupError(
+                f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e, capture=False
+            )
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
             raise SandboxCleanupError(

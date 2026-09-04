@@ -23,6 +23,7 @@ import requests
 from cachetools import TTLCache, cached
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InternalError as ModalInternalError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
@@ -128,6 +129,15 @@ TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
     TimeoutError,
     ConnectionError,
     asyncio.CancelledError,
+)
+
+# Modal-side faults that terminate() surfaces during teardown. destroy() is best-effort — every
+# caller swallows it because Modal's TTL reaps the sandbox anyway — so a Modal blip here (e.g. its
+# own InternalError) must not mint a fresh error-tracking issue. ModalInternalError is added on top
+# of the transient infra set because Modal returns it for server-side faults on their side.
+TRANSIENT_TERMINATE_ERRORS: tuple[type[BaseException], ...] = (
+    ModalInternalError,
+    *TRANSIENT_SNAPSHOT_ERRORS,
 )
 
 DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
@@ -1387,6 +1397,13 @@ class ModalSandbox(AgentServerLaunchMixin):
             self._sandbox.terminate()
             self._destroyed = True
             logger.info(f"Destroyed sandbox {self.id}")
+        except TRANSIENT_TERMINATE_ERRORS as e:
+            # Transient Modal-side fault during best-effort teardown. Log at warning and skip
+            # error-tracking capture so a Modal blip does not open a fresh issue for every caller.
+            logger.warning(f"Transient error destroying sandbox {self.id}: {e}")
+            raise SandboxCleanupError(
+                f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e, capture=False
+            )
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
             raise SandboxCleanupError(
