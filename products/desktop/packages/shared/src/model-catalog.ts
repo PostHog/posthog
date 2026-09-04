@@ -25,7 +25,7 @@ export {
  * prefixes the catalog knows are stripped, leaving ids that carry a slash of their own
  * (`@cf/zai-org/glm-5.2`) intact.
  */
-function normalizeModelId(modelId: string): string {
+export function normalizeModelId(modelId: string): string {
   const normalized = modelId.trim().toLowerCase();
   for (const provider of Object.values(PROVIDER_BY_RUNTIME_ADAPTER)) {
     if (normalized.startsWith(`${provider}/`)) {

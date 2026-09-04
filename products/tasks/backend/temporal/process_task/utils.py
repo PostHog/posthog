@@ -132,6 +132,19 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
     return model_catalog.models_for_runtime_adapter(adapter_value)
 
 
+def runtime_adapter_serves_model(runtime_adapter: RuntimeAdapter | str | None, model: str | None) -> bool:
+    """Whether the adapter drives the model, whichever spelling the caller sends.
+
+    An allowlist wants this rather than membership of `get_models_for_runtime_adapter`,
+    which holds canonical ids and so rejects the provider-qualified spelling the gateway
+    also serves and every resolver here accepts.
+    """
+    if runtime_adapter is None:
+        return False
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    return model_catalog.serves_model(adapter_value, model)
+
+
 # Applied at fire time when a run or loop leaves its model unset ("" / None): a blank
 # model means "let PostHog pick", so defaults can improve without rewriting stored loops.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = dict(model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER)

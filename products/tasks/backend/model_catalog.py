@@ -124,6 +124,19 @@ def models_for_runtime_adapter(runtime_adapter: str) -> tuple[str, ...]:
     return tuple(model.id for model in MODELS if model.runtime_adapter == runtime_adapter)
 
 
+def serves_model(runtime_adapter: str, model_id: str | None) -> bool:
+    """Whether this adapter drives the model, whichever spelling the caller sends.
+
+    Membership rather than the id tuple, because comparing against
+    ``models_for_runtime_adapter`` directly means comparing raw strings: the gateway
+    serves some models provider-qualified, so an allowlist built that way rejects a
+    spelling every resolver here accepts.
+    """
+    if not model_id:
+        return False
+    return normalize_model_id(model_id) in models_for_runtime_adapter(runtime_adapter)
+
+
 def normalize_model_id(model_id: str) -> str:
     """The form a model id is looked up under.
 
@@ -178,4 +191,5 @@ __all__ = [
     "models_for_runtime_adapter",
     "normalize_model_id",
     "reasoning_efforts_for",
+    "serves_model",
 ]
