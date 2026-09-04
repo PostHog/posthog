@@ -17,6 +17,7 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
+    FunnelVizType,
 )
 
 from posthog.hogql import ast
@@ -109,6 +110,8 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         1. Set the date range to match the experiment's duration, using the project's timezone.
         2. Configure the breakdown to use the feature flag key, which allows us
            to separate results for different experiment variants.
+        3. Force the steps visualization. Only that visualization returns the
+           per-step counts the statistics need.
         """
         # Clone the funnels query
         prepared_funnels_query = FunnelsQuery(**self.query.funnels_query.model_dump())
@@ -134,10 +137,11 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             breakdown_type="event",
         )
 
-        # Set the layout to vertical
+        # Set the layout to vertical, and the visualization to steps
         if prepared_funnels_query.funnelsFilter is None:
             prepared_funnels_query.funnelsFilter = FunnelsFilter()
         prepared_funnels_query.funnelsFilter.layout = FunnelLayout.VERTICAL
+        prepared_funnels_query.funnelsFilter.funnelVizType = FunnelVizType.STEPS
 
         return prepared_funnels_query
 
