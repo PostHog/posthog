@@ -1,5 +1,6 @@
 import { getTaskRepository, parseRepository } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
 
 export type CellStatus = "running" | "waiting" | "idle" | "error" | "completed";
 
@@ -26,6 +27,15 @@ export function deriveStatus(
     return "running";
 
   return "idle";
+}
+
+export function hasUnseenCompletion(
+  status: CellStatus,
+  activityAt: string,
+  timestamp: TaskTimestamp | undefined,
+): boolean {
+  if (status !== "idle" && status !== "completed") return false;
+  return isTaskUnread(activityAt, timestamp);
 }
 
 export function getRepoName(task: Task): string | null {

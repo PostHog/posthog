@@ -184,6 +184,7 @@ const cell = {
   canvasId: null,
   terminalId: null,
   terminalCwd: null,
+  hasUnseenCompletion: false,
 } satisfies CommandCenterCellData;
 
 const emptyCell = {
@@ -212,6 +213,18 @@ describe("CommandCenterPanel", () => {
     expect(mocks.openTask).toHaveBeenCalledWith(task, {
       channelId: "channel-1",
     });
+  });
+
+  it("highlights a completed task until it is opened", () => {
+    const { container } = render(
+      <CommandCenterPanel
+        cell={{ ...cell, hasUnseenCompletion: true }}
+        isActiveSession={false}
+      />,
+    );
+
+    expect(screen.getByText("Completed")).toHaveClass("bg-primary");
+    expect(container.firstElementChild).toHaveClass("ring-primary");
   });
 
   // Sending the user to the full-page composer instead abandons the grid they
