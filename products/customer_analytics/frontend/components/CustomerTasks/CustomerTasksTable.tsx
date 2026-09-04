@@ -25,12 +25,14 @@ export interface CustomerTasksTableProps {
     context: CustomerTasksContext
     canCreate?: boolean
     canViewAll?: boolean
+    embedded?: boolean
 }
 export function CustomerTasksTable({
     logic,
     context,
     canCreate = false,
     canViewAll = false,
+    embedded = true,
 }: CustomerTasksTableProps): JSX.Element {
     const { taskPage, taskPageError, taskPageLoading, tasks, pagination, hasActiveFilters, taskSorting, timezone } =
         useValues(logic)
@@ -154,6 +156,7 @@ export function CustomerTasksTable({
                 </LemonBanner>
             )}
             <LemonTable<CustomerTaskApi>
+                embedded={embedded}
                 dataSource={tasks}
                 columns={columns}
                 rowKey="id"

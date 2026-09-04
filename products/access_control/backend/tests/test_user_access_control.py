@@ -130,6 +130,21 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert self.user_access_control._user_role_ids == [self.role_a.id]
         assert self.user_access_control.get_user_access_level(self.team) == expected_level
 
+    def test_role_membership_linked_to_another_organization_is_ignored(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._create_access_control(resource_id=str(self.team.id), access_level="none")
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        RoleMembership.objects.create(role=self.role_b, user=self.user, organization_member=other_membership)
+        self._create_access_control(resource_id=str(self.team.id), access_level="admin", role=self.role_b)
+
+        self._clear_uac_caches()
+        assert self.user_access_control._user_role_ids == [self.role_a.id]
+        assert self.user_access_control.get_user_access_level(self.team) == "none"
+
     @parameterized.expand(
         [
             ("denial", "none", "member", "member"),
@@ -638,11 +653,21 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
         assert serializer.get_user_access_level(self.dashboard) == "viewer"
 
     def test_resource_level_takes_priority(self):
-        # Both resource-level and object-level; resource-level should take priority
+        # Legacy resolution: resource-level rules beat the object's own default rule
         self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
         self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
         assert serializer.get_user_access_level(self.dashboard) == "editor"
+
+    def test_object_rule_takes_priority_in_most_specific_mode(self):
+        # Most-specific resolution: the object's own rule beats the resource level
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+        self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "viewer"
 
     def test_falls_back_to_object_level(self):
         # Only object-level present
@@ -917,7 +942,77 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         )
 
         access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
-        assert access_level == "editor"  # Higher level wins
+        assert access_level == "editor"  # Legacy resolution: higher level wins across member and role rows
+
+    def test_member_row_beats_role_row_in_most_specific_mode(self):
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="editor",
+            role=self.role_a,
+        )
+
+        access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
+        assert access_level == "viewer"  # The member's own row decides, not the highest row
+
+    def test_specific_access_level_uses_member_row_in_most_specific_mode(self):
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="editor",
+            role=self.role_a,
+        )
+
+        assert self.user_access_control.specific_access_level_for_object(self.other_dashboard) == "none"
+
+    def test_specific_access_level_ignores_default_rows_in_most_specific_mode(self):
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="none",
+        )
+
+        assert self.user_access_control.specific_access_level_for_object(self.other_dashboard) is None
+
+    def test_access_level_for_team_uses_member_row_in_most_specific_mode(self):
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            role=self.role_a,
+        )
+
+        assert self.user_access_control.access_level_for_object(self.team) == "none"
 
     def test_project_level_access_for_team_objects(self):
         """Test project-level access for team objects"""

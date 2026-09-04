@@ -183,6 +183,7 @@ class TestLocalEvaluationCache(BaseTest):
         assert len(response.get("flags", [])) == 2
         assert response.get("group_type_mapping", {}) == {"0": "organization"}
         assert len(response.get("cohorts", {})) == 2
+        assert response.get("property_matching_version") == 1
 
     def test_get_flags_cache_hot(self):
         update_flag_caches(self.team)
@@ -971,18 +972,20 @@ class TestLocalEvaluationBatch(BaseTest):
         assert "group_type_mapping" in results[team_without_flags.id]
         assert "cohorts" in results[team_without_flags.id]
 
-    def test_batch_includes_minimal_flag_called_events_gate(self):
-        # Local-eval SDKs never call /flags, so the blob is their only source of the slim
-        # $feature_flag_called gate. Catches the key being dropped from the payload, a gated
-        # team reading False, or an ungated/legacy team (no config row) reading anything but
-        # False — including on the no-flags fallback path.
+    def test_batch_includes_team_rollout_settings(self):
+        # Local-eval SDKs never call /flags, so the blob is their only source of team rollout
+        # settings. This covers configured, default, and no-flags response paths.
         gated_team = self._create_team_with_project("Gated")
         gated_team_no_flags = self._create_team_with_project("Gated no flags")
         ungated_team = self._create_team_with_project("Ungated")
 
-        TeamFeatureFlagsConfig.objects.update_or_create(team=gated_team, defaults={"minimal_flag_called_events": True})
         TeamFeatureFlagsConfig.objects.update_or_create(
-            team=gated_team_no_flags, defaults={"minimal_flag_called_events": True}
+            team=gated_team,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=gated_team_no_flags,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
         )
         TeamFeatureFlagsConfig.objects.filter(team=ungated_team).delete()
 
@@ -995,12 +998,12 @@ class TestLocalEvaluationBatch(BaseTest):
         results = _get_flags_response_for_local_evaluation_batch([gated_team, gated_team_no_flags, ungated_team])
 
         assert results[gated_team.id]["minimal_flag_called_events"] is True
-        # Gated team with no flags hits the no-flags fallback path, not the main response path.
-        # Without this case, a fallback that hardcodes False instead of threading the gate would
-        # pass unnoticed, since the ungated team's expected False is indistinguishable from that.
+        assert results[gated_team.id]["property_matching_version"] == 2
         assert results[gated_team_no_flags.id]["flags"] == []
         assert results[gated_team_no_flags.id]["minimal_flag_called_events"] is True
+        assert results[gated_team_no_flags.id]["property_matching_version"] == 2
         assert results[ungated_team.id]["minimal_flag_called_events"] is False
+        assert results[ungated_team.id]["property_matching_version"] == 1
 
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):
         team = self._create_team_with_project("GTM Team")

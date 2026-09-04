@@ -39,7 +39,10 @@ jest.mock('./accountOpportunitiesLogic', () => ({ accountOpportunitiesLogic: () 
 jest.mock('./accountRelatedUsersLogic', () => ({ accountRelatedUsersLogic: () => ({ kind: 'users' }) }))
 jest.mock('./accountRelationshipsLogic', () => ({ accountRelationshipsLogic: () => ({ kind: 'relationships' }) }))
 jest.mock('./accountSummariesLogic', () => ({ accountSummariesLogic: () => ({ kind: 'summaries' }) }))
-jest.mock('./accountsExpansionLogic', () => ({ accountsExpansionLogic: { kind: 'expansion' } }))
+jest.mock('./accountsExpansionLogic', () => ({
+    ...jest.requireActual('./accountsExpansionLogic'),
+    accountsExpansionLogic: { kind: 'expansion' },
+}))
 jest.mock('./constants', () => ({ AccountsEvents: { LinkClicked: 'link clicked', NoteClicked: 'note clicked' } }))
 jest.mock('./EditAccountLinksButton', () => ({ EditAccountLinksButton: () => null }))
 
