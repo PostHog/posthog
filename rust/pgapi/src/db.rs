@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use serde_json::{json, Map, Value};
 use tokio_postgres::types::{ToSql, Type};
-use tokio_postgres::NoTls;
 
 /// Serialised-response ceiling for raw SQL. Row count is bounded by LIMIT; this bounds
 /// bytes so a wide or `repeat()`-style query can't exhaust the pod's memory.
@@ -19,10 +18,17 @@ pub struct Db {
 
 impl Db {
     pub async fn connect(url: &str) -> Result<Self> {
-        let cfg: tokio_postgres::Config = url.parse().context("parsing PGAPI_DATABASE_URL")?;
+        let mut cfg: tokio_postgres::Config = url.parse().context("parsing PGAPI_DATABASE_URL")?;
+        cfg.ssl_mode(tokio_postgres::config::SslMode::Require);
+        let tls_cfg = rustls::ClientConfig::builder()
+            .with_root_certificates(rustls::RootCertStore {
+                roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+            })
+            .with_no_client_auth();
+        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg);
         let mgr = Manager::from_config(
             cfg,
-            NoTls,
+            tls,
             ManagerConfig {
                 recycling_method: RecyclingMethod::Fast,
             },
