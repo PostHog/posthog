@@ -12,16 +12,25 @@ import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
 // graph (kea, posthog-js, scene logic, UI components) is only fetched when it renders.
-// bootApp() runs the one-time boot side effects (posthog-js, kea) after the chunks
-// load and before <App /> first renders. It lives in its own module so scenes/App
-// keeps component-only exports and stays a React Fast Refresh boundary.
+// configureZod() is imported and called on its own before the App chunk, because zod
+// binds its jitless setting when it constructs each object schema and the App graph
+// constructs some at module scope. bootApp() runs the remaining one-time boot side
+// effects (posthog-js, kea) after the chunks load and before <App /> first renders.
+// It lives in its own module so scenes/App keeps component-only exports and stays a
+// React Fast Refresh boundary.
 const App = lazy(() =>
-    Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))]).then(
-        ([appModule, bootModule]) => {
+    retryBootImport(() => import('lib/configureZod'))
+        .then(({ configureZod }) => {
+            configureZod()
+            return Promise.all([
+                retryBootImport(() => import('scenes/App')),
+                retryBootImport(() => import('scenes/bootApp')),
+            ])
+        })
+        .then(([appModule, bootModule]) => {
             bootModule.bootApp()
             return { default: appModule.App }
-        }
-    )
+        })
 )
 
 declare global {
