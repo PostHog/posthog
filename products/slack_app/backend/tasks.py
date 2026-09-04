@@ -86,13 +86,18 @@ def run_error_tracking_issue_action(
         outcome = resolve_issue_from_slack(
             uuid.UUID(issue_id), fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
         )
-        texts = {"ok": "Resolved. The thread will update in a moment.", "already": "This issue is already resolved."}
+        texts = {
+            "ok": "Resolved. The thread will update in a moment.",
+            "ok_moved": "Resolved the issue this one was merged into. This thread will not update.",
+            "already": "This issue is already resolved.",
+        }
     else:
         outcome = assign_issue_to_user_from_slack(
             uuid.UUID(issue_id), fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
         )
         texts = {
             "ok": "Assigned to you. The thread will update in a moment.",
+            "ok_moved": "Assigned the issue this one was merged into to you. This thread will not update.",
             "already": "This issue is already assigned to you.",
         }
     if outcome == "not_found":
