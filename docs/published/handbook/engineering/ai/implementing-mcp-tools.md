@@ -383,6 +383,13 @@ see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blo
   and the generated tool gets an empty schema with zero parameters.
   `ModelViewSet` with `serializer_class` works automatically.
 
+### Defaults in partially updated settings
+
+For JSON settings that merge on PATCH, leave nested `default` values out of the shared request schema.
+Orval turns them into Zod defaults, so MCP sends values the caller omitted and overwrites stored settings.
+For example, evaluation updates must preserve `allows_na` when the caller changes only `true_is_failure`, and vice versa.
+Apply creation defaults in backend validation and describe them in the field's help text.
+
 ### Root-router viewsets
 
 Viewsets mounted at root URLs (no `team_id`/`project_id` in the path) set
