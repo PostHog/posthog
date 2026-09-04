@@ -70,6 +70,12 @@ export class SessionRecordingIngesterMetrics {
         help: 'Replay messages whose clock offset could not be measured because capture recorded no usable sent_at/now pair. Counted separately so an absent measurement is not read as zero skew',
     })
 
+    private static readonly clockSkewCorrection = new Histogram({
+        name: 'recording_blob_ingestion_v2_clock_skew_correction_seconds',
+        help: 'Absolute clock skew correction actually applied to rrweb timestamps, per message. Quantized, so it differs from the raw offset in message_clock_skew_seconds',
+        buckets: [300, 900, 3600, 21600, 43200, 604800, Infinity],
+    })
+
     private static readonly unbilledNewSession = new Counter({
         name: 'recording_blob_ingestion_v2_unbilled_new_session',
         help: 'New sessions whose first message failed before the usage step, so a later message for the same session bills nothing while the report still counts the recording',
@@ -103,6 +109,10 @@ export class SessionRecordingIngesterMetrics {
 
     public static observeMessageClockSkew(direction: ClockSkewDirection, seconds: number): void {
         this.messageClockSkew.labels(direction).observe(seconds)
+    }
+
+    public static observeClockSkewCorrection(skewMs: number): void {
+        this.clockSkewCorrection.observe(Math.abs(skewMs) / 1000)
     }
 
     public static resetSessionsRevoked(): void {

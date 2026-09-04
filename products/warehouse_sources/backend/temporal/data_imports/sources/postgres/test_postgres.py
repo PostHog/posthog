@@ -1,3 +1,4 @@
+import re
 import errno
 import socket
 import threading
@@ -530,6 +531,31 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches, f"DNS resolution failure must be classified non-retryable: {error_msg}"
         assert matches[0] is not None, "DNS resolution failure must surface an actionable message, not raw driver text"
         assert "resolve" in matches[0].lower()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # ENETUNREACH — a resolved-but-unroutable host (IPv6-only, or a firewall dropping our
+            # IPs). Host/IP and port are invented, not real customer values.
+            'connection is bad: connection to server at "2600:1f18::1", port 5432 failed: Network is unreachable',
+            # EHOSTUNREACH — the routing sibling; libpq may append the "Is the server running..." hint.
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: No route to host',
+        ],
+    )
+    def test_unreachable_host_surfaces_actionable_message(self, source, error_msg):
+        # A resolved-but-unroutable host stays non-retryable, but the sync path must surface the same
+        # IPv4/firewall guidance the validate path gives rather than the raw driver text (which
+        # echoes the customer's host/IP into latest_error). Mirror the finalizer's first-match
+        # selection so a reorder that shadows it with an earlier None key, or a revert back to None,
+        # is caught.
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, f"an unreachable host must be classified non-retryable: {error_msg}"
+        assert matches[0] is not None, "an unreachable host must surface an actionable message, not raw driver text"
+        assert "IPv4" in matches[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -3159,7 +3185,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         connection = self._Connection()
@@ -3223,7 +3249,7 @@ class TestOffsetChunkingConnectTimeout:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         # Reuse the connect-conflict scaffolding: the named server cursor raises a recovery conflict
@@ -3353,7 +3379,7 @@ class TestOffsetChunkingRecoveryConflictTimeout:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
@@ -3394,6 +3420,240 @@ class TestOffsetChunkingRecoveryConflictTimeout:
         # non-retryable signal here is the type name, not the message text.
         non_retryable = PostgresSource().get_non_retryable_errors()
         assert type(exc_info.value).__name__ in non_retryable
+
+
+class TestChunkedRereadAfterRecoveryConflict:
+    """A read replica cancelling the initial read with "conflict with recovery" routes `get_rows`
+    into a chunked re-read. Paging by LIMIT/OFFSET is only correct when the query orders its rows:
+    a full-table read has no ORDER BY, so every page is a fresh scan Postgres may return in a
+    different order, which both repeats and drops rows. Such a read must page by seeking past the
+    last primary key it read, and must refuse to page at all when it cannot.
+
+    `_Scan` rotates an unordered result per statement to model that freedom deterministically.
+    """
+
+    _CONFLICT = "canceling statement due to conflict with recovery"
+    _ROWS: list[tuple[int]] = [(1,), (2,), (3,), (4,), (5,), (6,)]
+
+    class _Scan:
+        def __init__(self, rows: list[tuple[int]]):
+            self._rows = rows
+            self._statements = 0
+
+        def rows_for(self, ordered: bool) -> list[tuple[int]]:
+            if ordered:
+                return sorted(self._rows)
+            self._statements += 1
+            pivot = self._statements % len(self._rows)
+            return self._rows[pivot:] + self._rows[:pivot]
+
+    class _PageCursor:
+        def __init__(self, scan):
+            column = mock.Mock()
+            column.name = "id"
+            self.description = [column]
+            self._scan = scan
+            self._result: list[tuple[int]] = []
+
+        def execute(self, query, *args, **kwargs):
+            text = query.as_string()
+            rows = self._scan.rows_for("ORDER BY" in text)
+            seek = re.search(r'\("id"\) > \((\d+)\)', text)
+            if seek:
+                rows = [row for row in rows if row[0] > int(seek.group(1))]
+            offset = re.search(r"OFFSET (\d+)", text)
+            if offset:
+                rows = rows[int(offset.group(1)) :]
+            limit = re.search(r"LIMIT (\d+)", text)
+            self._result = rows[: int(limit.group(1))] if limit else rows
+
+        def fetchall(self):
+            return self._result
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _NamedCursor:
+        def __init__(self, rows_before_conflict: int, scan):
+            column = mock.Mock()
+            column.name = "id"
+            self.description = [column]
+            self._pending = scan.rows_for(True)[:rows_before_conflict]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, _n):
+            if self._pending:
+                page, self._pending = self._pending, []
+                return page
+            raise psycopg.errors.SerializationFailure(TestChunkedRereadAfterRecoveryConflict._CONFLICT)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, named_cursor):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._named_cursor = named_cursor
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                return self._named_cursor
+            return mock.MagicMock()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _read_ids(
+        self,
+        *,
+        should_use_incremental_field: bool,
+        rows_before_conflict: int,
+        primary_keys: list[str] | None = None,
+        nullable_value: bool | str = False,
+        has_id_column: bool = False,
+        has_duplicate_pks: bool = False,
+    ) -> list[int]:
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        # `nullable` is annotated `bool`, but `_get_table` really does pass the
+        # information_schema "YES"/"NO" string for a table. That mismatch is the bug under test,
+        # so the fake has to reproduce it rather than respect the annotation.
+        fake_table.columns = [
+            PostgreSQLColumn(name="id", data_type="integer", nullable=nullable_value)  # type: ignore[arg-type]
+        ]
+        fake_table.__contains__ = mock.Mock(return_value=has_id_column)
+
+        scan = self._Scan(list(self._ROWS))
+        connection = self._Connection(self._NamedCursor(rows_before_conflict, scan))
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=connection),
+            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=primary_keys),
+            patch(f"{module}._has_duplicate_primary_keys", return_value=has_duplicate_pks),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=2, fetch_rows=2)),
+            patch(f"{module}._get_rows_to_sync", return_value=len(self._ROWS)),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field="id" if should_use_incremental_field else None,
+                incremental_field_type=IncrementalFieldType.Integer if should_use_incremental_field else None,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=0 if should_use_incremental_field else None,
+                team_id=1,
+            )
+            return [row["id"] for table in cast(Iterable[Any], response.items()) for row in table.to_pylist()]
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,rows_before_conflict,nullable_value,primary_keys,has_id_column",
+        [
+            (False, 0, False, ["id"], False),
+            (False, 0, "NO", ["id"], False),
+            (False, 0, "NO", None, True),
+            (True, 2, False, ["id"], False),
+        ],
+        ids=[
+            "declared_key_with_boolean_nullable",
+            "declared_key_with_information_schema_nullable_string",
+            "assumed_id_that_is_unique_and_not_null",
+            "incremental_read_is_ordered_by_its_cursor",
+        ],
+    )
+    def test_chunked_reread_yields_every_row_exactly_once(
+        self, should_use_incremental_field, rows_before_conflict, nullable_value, primary_keys, has_id_column
+    ):
+        # `_get_table` reports nullability as a bool for a materialised view but as the
+        # information_schema "YES"/"NO" string for a table, and "NO" is truthy. Reading it naively
+        # made every real table look nullable, which disabled seeking for the whole fleet. The
+        # assumed-`id` case is here so a gate that rejects every fallback key cannot pass either.
+        ids = self._read_ids(
+            should_use_incremental_field=should_use_incremental_field,
+            rows_before_conflict=rows_before_conflict,
+            primary_keys=primary_keys,
+            nullable_value=nullable_value,
+            has_id_column=has_id_column,
+        )
+
+        assert sorted(ids) == [row[0] for row in self._ROWS]
+
+    def test_full_refresh_stays_retryable_when_rows_are_already_written(self):
+        with pytest.raises(psycopg.errors.SerializationFailure):
+            self._read_ids(should_use_incremental_field=False, rows_before_conflict=2, primary_keys=["id"])
+
+    @pytest.mark.parametrize(
+        "rows_before_conflict,nullable_value,has_id_column,has_duplicate_pks",
+        [
+            (0, False, False, False),
+            (2, False, False, False),
+            (0, True, True, False),
+            (0, "YES", True, False),
+            (0, "NO", True, True),
+        ],
+        ids=[
+            "no_key_at_all",
+            "no_key_at_all_after_rows_written",
+            "assumed_id_is_nullable",
+            "assumed_id_is_nullable_as_information_schema_string",
+            "assumed_id_has_duplicates",
+        ],
+    )
+    def test_full_refresh_without_a_seekable_key_fails_non_retryably(
+        self, rows_before_conflict, nullable_value, has_id_column, has_duplicate_pks
+    ):
+        # No declared key, so the assumed `id` only qualifies once proven unique and NOT NULL.
+        with pytest.raises(Exception) as exc_info:
+            self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=rows_before_conflict,
+                primary_keys=None,
+                nullable_value=nullable_value,
+                has_id_column=has_id_column,
+                has_duplicate_pks=has_duplicate_pks,
+            )
+
+        message = str(exc_info.value)
+        assert "no key that can resume a canceled read" in message
+        assert any(fragment in message for fragment in PostgresSource().get_non_retryable_errors())
 
 
 class TestSafeCloseConnection:

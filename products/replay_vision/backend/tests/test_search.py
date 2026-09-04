@@ -154,7 +154,7 @@ class TestFetchRankedObservations(APIBaseTest):
             name=scanner_name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
             origin=origin,
             # A check constraint pairs the two: an inline scanner owes a key, a configured one owes none.
             inline_key=scanner_name if origin == ScannerOrigin.INLINE else "",

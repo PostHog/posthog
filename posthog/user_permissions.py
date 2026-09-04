@@ -4,6 +4,7 @@ from uuid import UUID
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.organization_caching import get_cached_organization_memberships
 
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -96,7 +97,7 @@ class UserPermissions:
 
     @cached_property
     def organization_memberships(self) -> dict[UUID, OrganizationMembership]:
-        memberships = OrganizationMembership.objects.filter(user=self.user).select_related("organization")
+        memberships = get_cached_organization_memberships(self.user)
         return {membership.organization_id: membership for membership in memberships}
 
     @cached_property

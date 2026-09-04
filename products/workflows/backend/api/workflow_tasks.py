@@ -13,6 +13,7 @@ from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.workflow_tasks import (
+    MAX_ATTACHED_SKILLS,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
@@ -103,7 +104,17 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
     connectors = serializers.ListField(
         child=serializers.CharField(max_length=64),
         required=False,
-        help_text="MCP server installation IDs the run may mount. Must be active team-shared installations or personal ones of the workflow owner.",
+        help_text="MCP gateway server IDs the run may mount. Each must be a server shared with everyone in the project.",
+    )
+    skills = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        max_length=MAX_ATTACHED_SKILLS,
+        help_text=(
+            "Skills store skill names to name in the agent's prompt. Each resolves to its latest version when the "
+            "task is created, and the agent reads a body with skill-get over MCP. A name that no longer resolves "
+            "is skipped rather than failing the create."
+        ),
     )
     posthog_mcp_scopes = serializers.ChoiceField(
         choices=["read_only", "full"],
@@ -197,7 +208,8 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 repository=data.get("repository") or None,
                 model=data.get("model") or None,
                 reasoning_effort=data.get("reasoning_effort") or None,
-                mcp_installation_ids=data.get("connectors"),
+                connector_ids=data.get("connectors"),
+                skill_names=data.get("skills"),
                 posthog_mcp_scopes=data["posthog_mcp_scopes"],
                 max_parallel_tasks=data["max_parallel_tasks"],
                 origin_key=data.get("idempotency_key"),
@@ -209,7 +221,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(
-                {"connectors": f"MCP installation(s) not found or inactive: {error.invalid_ids}"}
+                {"connectors": f"MCP server(s) not shared with the project or disabled: {error.invalid_ids}"}
             )
         except WorkflowTaskOwnerIneligible:
             return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)

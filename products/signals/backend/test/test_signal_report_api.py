@@ -36,7 +36,14 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
@@ -201,8 +208,14 @@ class TestSignalReportListAPI(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-    def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
-        payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
+    def _actionability_artefact(
+        self, report: SignalReport, *, actionability: str, already_addressed: bool = False
+    ) -> SignalReportArtefact:
+        payload = {
+            "explanation": "x",
+            "actionability": actionability,
+            "already_addressed": already_addressed,
+        }
         art = SignalReportArtefact(
             team=self.team,
             report=report,
@@ -973,6 +986,27 @@ class TestSignalReportListAPI(APIBaseTest):
         without_pr = self.client.get(self._list_url(has_implementation_pr="false"))
         assert str(report_empty_pr.id) in {r["id"] for r in without_pr.json()["results"]}
 
+    def test_filter_has_implementation_pr_scopes_association_subqueries_to_team(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url(has_implementation_pr="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        # Both association subqueries must stay team-scoped. Without the scope the planner can
+        # invert the join and scan every team's task_run artefacts per request.
+        filter_sql = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if 'FROM "signals_signalreport"' in query["sql"] and "signals_signalreporttask" in query["sql"]
+        ]
+        assert filter_sql
+        for sql in filter_sql:
+            # Django aliases both association tables as V0; two scoped subqueries means two
+            # V0-qualified team filters.
+            assert sql.count(f'V0."team_id" = {self.team.id}') == 2
+
     def test_filter_has_implementation_pr_absent_returns_all(self):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")
@@ -1099,6 +1133,55 @@ class TestSignalReportListAPI(APIBaseTest):
         body = response.json()
         assert body["attr"] == "actionability"
         assert body["code"] == "invalid_input"
+
+    def test_inbox_view_returns_prioritized_actionable_reports_and_can_show_dismissed(self):
+        p1 = self._create_report(title="P1 actionable")
+        self._actionability_artefact(p1, actionability="immediately_actionable")
+        self._priority_artefact(p1, priority="P1")
+        p0 = self._create_report(title="P0 actionable")
+        self._actionability_artefact(p0, actionability="immediately_actionable")
+        self._priority_artefact(p0, priority="P0")
+        addressed = self._create_report(title="Already addressed")
+        self._actionability_artefact(addressed, actionability="immediately_actionable", already_addressed=True)
+        dismissed = self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(view="actionable", scope="entire_project", sort="priority"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(p0.id), str(p1.id)]
+
+        response = self.client.get(self._list_url(view="dismissed", scope="entire_project", sort="priority"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(dismissed.id)]
+
+    def test_priority_preference_uses_personal_threshold_then_project_threshold(self):
+        reports_by_priority: dict[str, SignalReport] = {}
+        for priority in ("P0", "P1", "P2"):
+            report = self._create_report(title=f"{priority} report")
+            self._priority_artefact(report, priority=priority)
+            reports_by_priority[priority] = report
+
+        team_config, _ = SignalTeamConfig.objects.get_or_create(team=self.team)
+        team_config.default_autostart_priority = "P2"
+        team_config.save(update_fields=["default_autostart_priority"])
+
+        response = self.client.get(self._list_url(use_priority_preference="true", sort="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [
+            str(reports_by_priority["P0"].id),
+            str(reports_by_priority["P1"].id),
+            str(reports_by_priority["P2"].id),
+        ]
+
+        SignalUserAutonomyConfig.objects.create(user=self.user, autostart_priority="P1")
+
+        response = self.client.get(self._list_url(use_priority_preference="true", sort="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [
+            str(reports_by_priority["P0"].id),
+            str(reports_by_priority["P1"].id),
+        ]
 
     # --- source_products ---
 
@@ -2690,10 +2773,10 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
 
 
 class TestSignalReportPrEndpoints(APIBaseTest):
-    def _create_report(self) -> SignalReport:
+    def _create_report(self, report_status: str = SignalReport.Status.READY) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
-            status=SignalReport.Status.READY,
+            status=report_status,
             title="Test report",
             summary="Test summary",
             signal_count=1,
@@ -2872,6 +2955,27 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             source="signals_pr_detail",
             priority=Priority.NORMAL,
         )
+
+    @parameterized.expand(
+        [
+            ("checks", "_checks_url", "get_pull_request_checks", "checks"),
+            ("comments", "_comments_url", "get_pull_request_comments", "comments"),
+        ]
+    )
+    def test_pr_reads_serve_a_suppressed_report(self, _name, url_attr, fetch_name, key):
+        # The Archive tab renders the PR panel of a dismissed report, so both read-only PR
+        # endpoints must reach a suppressed report by ID like `retrieve` does.
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        getattr(github.return_value, fetch_name).return_value = {"success": True, key: []}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(getattr(self, url_attr)(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {key: []}
 
     def test_pr_checks_maps_upstream_failure_to_502(self):
         report = self._create_report()

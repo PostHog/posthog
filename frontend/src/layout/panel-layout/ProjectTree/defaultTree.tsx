@@ -112,7 +112,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     marketing_analytics: {
         icon: <IconMegaphone />,
-        iconColor: ['var(--color-product-marketing-analytics-light)'],
+        iconColor: ['var(--color-product-marketing-analytics-light)', 'var(--color-product-marketing-analytics-dark)'],
     },
     managed_viewsets: {
         icon: <IconDatabase />,
@@ -214,7 +214,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     workflows: {
         icon: <IconDecisionTree />,
-        iconColor: ['var(--color-product-workflows-light)'],
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
     },
     notebook: {
         icon: <IconNotebook />,

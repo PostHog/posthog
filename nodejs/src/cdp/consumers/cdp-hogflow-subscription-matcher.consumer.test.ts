@@ -220,7 +220,6 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     // they call have been reset.
     public clearWatcherTimers(): void {
         clearInterval((this as any).watcherTeamsRefreshTimer)
-        clearInterval((this as any).watcherSweepTimer)
     }
 }
 
