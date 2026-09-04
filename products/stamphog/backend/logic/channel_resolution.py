@@ -32,7 +32,7 @@ from django.db import router
 from django.db.models import Q
 
 import structlog
-from posthog_owners.resolver import Purpose, TeamChannel, team_channel, teams_registry
+from posthog_owners.resolver import Producer, Purpose, TeamChannel, team_channel, teams_registry
 from posthog_owners.schema import TeamEntry
 
 from posthog.dataclasses import frozen
@@ -52,6 +52,8 @@ _OWNERS_FILE_PATH = "owners.yaml"
 # The digest is automation, so it asks the registry where automation posts rather than where the
 # team's people are. That falls back to the people channel when a team never separates the two.
 _CHANNEL_PURPOSE: Purpose = "notifications"
+# Named so a team can keep the daily digest out of its channel while other bots keep posting there.
+_PRODUCER: Producer = "stamphog"
 
 # Slack channel flags that mark a channel as shared beyond this workspace. Routing maps a GitHub
 # team slug onto a Slack channel by name, or by a registry entry. A shared channel with that name
@@ -235,7 +237,7 @@ def _registry_answer(context: RoutingContext, slug: str, repository: str) -> Tea
     block, which no repository has a reason to write.
     """
     registry = context.registry_by_repo.get(repository) or context.inherited_registry
-    return team_channel(slug, registry, _CHANNEL_PURPOSE)
+    return team_channel(slug, registry, _CHANNEL_PURPOSE, _PRODUCER)
 
 
 def resolve_destination(context: RoutingContext, audience_key: str, repository: str) -> Destination | None:

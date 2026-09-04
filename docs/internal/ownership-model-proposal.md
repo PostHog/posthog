@@ -142,6 +142,10 @@ Every value is a string starting with `#`, or `false` to mean "no channel, don't
 - `slack` — where the people are. This is the channel a human is pointed at.
 - `notifications` — where automation posts. It falls back to `slack`, so a team that never separates the two keeps one entry, and `notifications: false` keeps automation out without hiding the team's channel from people.
 
+`notifications` may also be a mapping of producer name to channel, so a team can silence or redirect one bot on its own.
+A `default` key answers for every producer the team does not name; without one, an unnamed producer falls through to `slack`.
+Only a producer the schema knows may be named, so a typo is a lint error rather than an opt-out that never applies.
+
 ```yaml
 # owners.yaml (repo root only)
 teams:
@@ -153,6 +157,10 @@ teams:
   quiet-team:
     slack: '#team-quiet'
     notifications: false
+  digest-free-team:
+    slack: '#team-digest-free'
+    notifications:
+      stamphog: false
   some-retired-team:
     slack: false
 ```

@@ -409,6 +409,11 @@ def test_a_repo_with_no_registry_inherits_one(team) -> None:
     "context_kwargs,reason",
     [
         ({"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(notifications=False)}}}, "silenced_by_config"),
+        # A team that silences this digest alone keeps its channel for every other bot.
+        (
+            {"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(slack="#team-apm", notifications={"stamphog": False})}}},
+            "silenced_by_config",
+        ),
         ({"channels_by_name": {}}, "no_channel_of_that_name"),
     ],
 )

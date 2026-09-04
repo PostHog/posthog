@@ -15,7 +15,15 @@ from pathlib import Path
 from typing import Literal, Protocol, TypedDict
 
 from .matcher import compile_pattern, normalize_path
-from .schema import UNSET, OwnersFile, TeamEntry, _Unset, parse_owners_file, parse_product_yaml_as_owners
+from .schema import (
+    PRODUCER_DEFAULT_KEY,
+    UNSET,
+    OwnersFile,
+    TeamEntry,
+    _Unset,
+    parse_owners_file,
+    parse_product_yaml_as_owners,
+)
 
 OWNERS_FILENAME = "owners.yaml"
 PRODUCT_FILENAME = "product.yaml"
@@ -40,15 +48,38 @@ class TeamChannel:
 Purpose = Literal["slack", "notifications"]
 DEFAULT_PURPOSE: Purpose = "slack"
 
+# One piece of automation posting on its own behalf, so a team can silence it without silencing
+# every bot. Mirrors ``schema.PRODUCERS``, which is what an ``owners.yaml`` may name.
+Producer = Literal["stamphog"]
 
-def team_channel(slug: str, teams: Mapping[str, TeamEntry], purpose: Purpose = DEFAULT_PURPOSE) -> TeamChannel:
+
+def _producer_channel(value: Mapping[str, str | bool], producer: Producer | None) -> str | bool | None:
+    """One producer's entry in a per-producer ``notifications:`` mapping, else the ``default`` key.
+
+    None means the mapping does not answer for this producer, so the lookup falls through to
+    ``slack`` exactly as an undeclared ``notifications`` does.
+    """
+    if producer is not None and producer in value:
+        return value[producer]
+    return value.get(PRODUCER_DEFAULT_KEY)
+
+
+def team_channel(
+    slug: str,
+    teams: Mapping[str, TeamEntry],
+    purpose: Purpose = DEFAULT_PURPOSE,
+    producer: Producer | None = None,
+) -> TeamChannel:
     """The Slack channel for a team slug and a purpose, else the derived ``#<slug>``.
 
     ``purpose`` is "slack" (where people are) or "notifications" (where automation posts).
     "notifications" falls back to "slack", so a team that never separates automation from people
-    keeps one channel and one entry. A per-producer form, so a team can silence one bot without
-    silencing all of them, is an additive change here later: it widens what a key may hold, and
-    callers keep the call they already make.
+    keeps one channel and one entry.
+
+    ``producer`` names the automation asking, and only matters when the team declared a per-producer
+    ``notifications`` mapping. A mapping that names neither the producer nor ``default`` falls
+    through to ``slack``, so silencing one bot leaves the others where they were. A caller that does
+    not identify itself gets the mapping's ``default``.
 
     A declared ``false`` means the team has no channel for that purpose, which is different from
     having no entry. The first is an answer and stops the lookup; the second falls through.
@@ -56,7 +87,8 @@ def team_channel(slug: str, teams: Mapping[str, TeamEntry], purpose: Purpose = D
     entry = teams.get(slug)
     if entry is not None:
         candidates = (entry.notifications, entry.slack) if purpose == "notifications" else (entry.slack,)
-        for value in candidates:
+        for candidate in candidates:
+            value = _producer_channel(candidate, producer) if isinstance(candidate, Mapping) else candidate
             if value is not None:
                 # Schema only admits `false`; any bool means "no channel".
                 return TeamChannel(channel=value if isinstance(value, str) else None, declared=True)

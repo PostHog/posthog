@@ -7,6 +7,7 @@ treated as empty), every other field ignored.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeGuard
@@ -23,6 +24,12 @@ CHANGEME_SLUG = "team-CHANGEME"
 _TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules", "teams"}
 _RULE_KEYS = {"match", "owners", "status", "inherit"}
 _TEAMS_ENTRY_KEYS = {"slack", "notifications"}
+# Automation that posts to a team's notifications channel and can be silenced on its own. A
+# producer must be listed here to be nameable in `notifications:`, so a typo is a lint error
+# rather than an opt-out that quietly never applies.
+PRODUCERS = frozenset({"stamphog"})
+# The key a per-producer mapping uses for every producer it does not name.
+PRODUCER_DEFAULT_KEY = "default"
 
 
 @dataclass(frozen=True)
@@ -32,12 +39,17 @@ class TeamEntry:
     ``slack`` is where people are. ``notifications`` is where automation posts, and it falls back
     to ``slack`` when a team never separates the two.
 
+    ``notifications`` may also be a mapping of producer name to channel, so a team can silence or
+    redirect one bot without doing it to all of them. A ``default`` key in that mapping answers for
+    every producer the team does not name; without one, an unnamed producer falls through to
+    ``slack``.
+
     ``None`` means the key was not declared, which is not the same as ``False``. The first falls
     through to the next step of the lookup; the second is a decision that there is no channel.
     """
 
     slack: str | bool | None = None
-    notifications: str | bool | None = None
+    notifications: str | bool | Mapping[str, str | bool] | None = None
 
 
 class _Unset:
@@ -111,6 +123,31 @@ def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:
     return raw is False or (isinstance(raw, str) and raw.startswith("#"))
 
 
+def _validate_producer_map(value: object, where: str, key: str, errors: list[str]) -> dict[str, str | bool] | None:
+    """A per-producer ``notifications`` mapping, or None when the value is not one.
+
+    Returns None for anything that is not a mapping so the caller can go on to the scalar form and
+    report one error for a value that is neither.
+    """
+    if not isinstance(value, dict):
+        return None
+    known = ", ".join(sorted([*PRODUCERS, PRODUCER_DEFAULT_KEY]))
+    if key != "notifications":
+        errors.append(f"{where}: '{key}' takes a single channel, not a per-producer mapping")
+        return {}
+    declared: dict[str, str | bool] = {}
+    for producer, raw in value.items():
+        if not isinstance(producer, str) or (producer not in PRODUCERS and producer != PRODUCER_DEFAULT_KEY):
+            errors.append(f"{where}: unknown producer '{producer}' (known: {known})")
+        elif _is_valid_slack(raw):
+            declared[producer] = raw
+        else:
+            errors.append(f"{where}: '{producer}' must be a string starting with '#' or false")
+    if not declared:
+        errors.append(f"{where}: '{key}' mapping declares no producer")
+    return declared
+
+
 def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
     """Validate the root-only ``teams:`` registry, a mapping of team slug to its channels.
 
@@ -133,10 +170,15 @@ def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
         if not isinstance(entry, dict):
             errors.append(f"{where}: entry must be a mapping with a {known_keys} key")
             continue
-        declared: dict[str, str | bool] = {}
+        declared: dict[str, str | bool | Mapping[str, str | bool]] = {}
         for key, raw in entry.items():
             if not isinstance(key, str) or key not in _TEAMS_ENTRY_KEYS:
                 errors.append(f"{where}: unknown field '{key}'")
+                continue
+            per_producer = _validate_producer_map(raw, where, key, errors)
+            if per_producer is not None:
+                if per_producer:
+                    declared[key] = per_producer
             elif _is_valid_slack(raw):
                 declared[key] = raw
             else:
