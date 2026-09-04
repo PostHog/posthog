@@ -150,6 +150,20 @@ describe('passkeyLogic', () => {
             )
         })
 
+        it('clears the timeout banner when the next attempt starts', async () => {
+            logic.actions.beginPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(PASSKEY_LOGIN_TIMEOUT_MS + 1000)
+            expect(loginLogic.values.generalError?.code).toBe('passkey_error')
+
+            logic.actions.beginPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(loginLogic.values.generalError).toBeFalsy()
+
+            logic.actions.cancelPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(loginLogic.values.generalError).toBeFalsy()
+        })
+
         it('stops the spinner when the user cancels the attempt', async () => {
             logic.actions.beginPasskeyLogin()
             await jest.advanceTimersByTimeAsync(0)

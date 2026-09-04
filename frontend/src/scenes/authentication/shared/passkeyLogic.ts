@@ -123,6 +123,9 @@ export interface passkeyLogicActions {
         code: string
         detail: string
     } // loginLogic
+    clearGeneralError: () => {
+        value: true
+    } // loginLogic
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
@@ -175,7 +178,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
     connect(() => ({
         actions: [
             loginLogic,
-            ['setGeneralError'],
+            ['setGeneralError', 'clearGeneralError'],
             apiStatusLogic,
             ['setTimeSensitiveAuthenticationRequired'],
             userLogic,
@@ -316,6 +319,8 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 actions.beginPasskeyLogin(allowCredentials, params)
                 return
             }
+            // Drop the banner from the previous attempt, so a retry does not spin under a stale error.
+            actions.clearGeneralError()
             // After setting credentials in reducer, start the authentication
             actions.startPasskeyAuthentication()
         },
