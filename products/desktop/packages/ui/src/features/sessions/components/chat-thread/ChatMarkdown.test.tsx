@@ -1,7 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({
+      svg: '<svg data-testid="mermaid-svg"></svg>',
+    })),
+  },
+}));
+
+vi.mock("@posthog/ui/shell/themeStore", () => ({
+  useThemeStore: (selector: (state: { isDarkMode: boolean }) => unknown) =>
+    selector({ isDarkMode: false }),
+}));
 
 const queryClient = new QueryClient();
 function renderStatic(node: ReactNode) {
@@ -46,7 +61,16 @@ vi.mock("@posthog/ui/features/pr-review/usePrChecks", () => ({
 
 import { ChatMarkdown, ChatStreamingMarkdown } from "./ChatMarkdown";
 
+const MERMAID_FENCE = "```mermaid\ngraph TD; A-->B\n```";
+
 describe("ChatMarkdown", () => {
+  it("renders mermaid fences as diagrams", async () => {
+    render(<ChatMarkdown content={MERMAID_FENCE} />);
+
+    expect(await screen.findByTestId("mermaid-svg")).toBeInTheDocument();
+    expect(screen.queryByText("graph TD; A-->B")).toBeNull();
+  });
+
   it("preserves ordered-list numbering across intervening prose", () => {
     const content = `1. First review comment
 

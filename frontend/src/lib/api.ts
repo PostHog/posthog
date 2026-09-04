@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -125,7 +125,6 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
-    FeatureFlagStatusResponse,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -1165,13 +1164,6 @@ export class ApiRequest {
                     record_id: featureFlagId,
                 })
             )
-    }
-
-    public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('feature_flags')
-            .addPathComponent(String(featureFlagId))
-            .addPathComponent('status')
     }
 
     public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
@@ -2415,12 +2407,6 @@ const api = {
             data: Partial<ScheduledChangeType>
         ): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
-        },
-        async getStatus(
-            teamId: TeamType['id'],
-            featureFlagId: FeatureFlagType['id']
-        ): Promise<FeatureFlagStatusResponse> {
-            return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
     },
 
@@ -4927,7 +4913,7 @@ const api = {
                 connection_id?: string | null
                 send_raw_query?: boolean
             }
-        ): Promise<{ run_id: string }> {
+        ): Promise<{ run_id: string; starts_sandbox?: boolean; sandbox_hourly_price?: number | null }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
         async sqlV2RunInterrupt(
@@ -7504,13 +7490,11 @@ function requestPathname(url: string): string {
  * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
  * its own error shape. Both keep the class name and the engine-specific message, so we match those
  * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ *
+ * Matching a bare `TypeError` is safe here in a way it would not be elsewhere, because this runs
+ * only after a `fetch` call rejected. `isBrowserNetworkFailure` decides the same question about an
+ * arbitrary error, so it matches the message alone.
  */
-const BROWSER_FETCH_FAILURE_MESSAGES = [
-    'Failed to fetch',
-    'Load failed',
-    'NetworkError when attempting to fetch resource',
-]
-
 function isBrowserFetchFailure(error: unknown): boolean {
     if (error instanceof TypeError) {
         return true

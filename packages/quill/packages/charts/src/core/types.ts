@@ -186,6 +186,9 @@ export interface TooltipContext<Meta = unknown> {
      *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
      *  `seriesData` entry exists. */
     hoveredSeriesKey?: string
+    /** Grouped layouts only: cursor is past the bar's filled extent, measured on the same rects
+     *  as click routing. `undefined` for other layouts and pinned rebuilds with no cursor. */
+    inTrackArea?: boolean
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -457,6 +460,9 @@ export interface BarsConfig {
      *  that segment. So a multi-series (breakdown) stack floors only its top segment — this is aimed
      *  at single-series volume charts and grouped bars. Defaults to 0 (exact heights). */
     minBarSize?: number
+    /** `hover` floors only the hover highlight and hit-testing, so the resting bar keeps its true
+     *  size (funnel charts). `always` (default) floors the static layer too. */
+    minBarSizeScope?: 'always' | 'hover'
     /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */

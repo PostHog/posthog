@@ -135,6 +135,7 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.mcp_analytics",
+    "products.mcp_registry",
     "products.web_analytics",
     "products.workflows",
     "products.actions",
@@ -543,6 +544,26 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.mcp_registry"
+depends_on = [
+    "posthog",
+    # Facade-only (enforced by mcp_registry's [[interfaces]] block): the measured-server
+    # aggregation reads new-SDK $mcp_tool_call grouping rules through mcp_analytics' facade.
+    "products.mcp_analytics",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.mcp_registry",
+]
+
+[[modules]]
 path = "products.mcp_store"
 depends_on = [
     "ee",
@@ -704,6 +725,7 @@ path = "products.replay_vision"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.alerts",
     "products.cdp",
     "products.cohorts",
@@ -869,6 +891,9 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.signals",
+    # Skills attached to workflow task nodes are read at fire time. The skills
+    # product has no facade, so this matches how review_hog and signals reach LLMSkill.
+    "products.skills",
     "products.slack_app", "products.access_control",
 ]
 layer = "modules"
@@ -1170,6 +1195,14 @@ expose = [
 ]
 from = [
     "products.error_tracking",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.tracing",
 ]
 
 [[interfaces]]

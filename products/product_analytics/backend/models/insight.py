@@ -128,7 +128,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
-    MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
+    MATERIAL_INSIGHT_FIELDS = {"name", "description", "query"}
 
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
