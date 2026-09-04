@@ -162,7 +162,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         query_will_be_saved = self._state.adding or update_fields is None or "query" in update_fields
-        previous_query = deepcopy(self._original_query)
+        previous_query = self._original_query
         query_changed = self._state.adding or self.query != previous_query
 
         # generate query metadata if needed
