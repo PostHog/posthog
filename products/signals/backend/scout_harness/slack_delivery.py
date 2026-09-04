@@ -24,14 +24,16 @@ from products.signals.backend.scout_harness.slack_charts import (
     strip_chart_blocks,
 )
 from products.signals.backend.slack_formatting import (
-    chunk_slack_mrkdwn,
+    SLACK_MARKDOWN_TEXT_MAX_LEN,
+    chunk_slack_text,
+    defuse_slack_tokens,
     escape_slack_mrkdwn,
     group_segments_to_limit,
-    markdown_to_slack_mrkdwn,
+    prepare_slack_markdown,
     slack_channel_id_from_target,
+    slack_markdown_block,
     split_markdown_by_headings,
     strip_chart_references,
-    truncate_slack_section,
 )
 
 logger = structlog.get_logger(__name__)
@@ -70,9 +72,9 @@ MAX_SCOUT_SLACK_DM_TARGETS = 5
 # before posting, since chart rendering can hold the worker long enough for the report to change.
 DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT))
 
-# Bound on the note snapshot a note-only edit carries through the Celery payload. Slack shows at
-# most SLACK_SECTION_TEXT_MAX_LEN characters after conversion, so anything past this headroom is
-# never rendered; the report keeps the full note either way.
+# Bound on the note snapshot a note-only edit carries through the Celery payload. A note past this
+# is clipped before Slack's own markdown-block cap applies; the report keeps the full note either
+# way.
 MAX_SLACK_NOTE_SNAPSHOT_LEN = 6000
 
 # Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
@@ -215,7 +217,7 @@ def _slack_channel_id(channel: str) -> str:
 
 
 def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict], str]:
-    """Render a direct scout finding with the same safe Markdown conversion as inbox signals."""
+    """Render a direct scout finding, with its description delivered as Markdown."""
     scout_name = _prettify_scout_name(emission.scout_run.skill_name)
     blocks: list[dict] = [
         {
@@ -224,9 +226,9 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
         }
     ]
 
-    rendered_description = truncate_slack_section(markdown_to_slack_mrkdwn(emission.description.strip()))
+    rendered_description = prepare_slack_markdown(emission.description.strip())
     if rendered_description:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_description}})
+        blocks.append(slack_markdown_block(rendered_description))
 
     details: list[str] = []
     if emission.severity:
@@ -345,9 +347,9 @@ def build_scout_report_slack_message(
     # Chart links in the prose still reduce to their label; the charts themselves follow the prose
     # as image blocks, the way the inbox places charts the summary doesn't reference inline.
     summary_text = strip_chart_references((report.summary or "").strip())
-    rendered_summary = truncate_slack_section(markdown_to_slack_mrkdwn(summary_text))
+    rendered_summary = prepare_slack_markdown(summary_text)
     if rendered_summary:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
+        blocks.append(slack_markdown_block(rendered_summary))
 
     # `render_budget` shares one render allowance across a delivery's initial build and any rebuild.
     blocks.extend(build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, budget=render_budget))
@@ -357,24 +359,24 @@ def build_scout_report_slack_message(
 
 
 def _report_summary_chunks(report: SignalReport) -> list[str]:
-    """Convert the report summary to mrkdwn and split it into one chunk per section.
+    """Split the report summary into one chunk of Markdown per section.
 
     Called only for a threaded delivery. The first chunk leads the channel and each later one
     becomes a reply, so the thread mirrors the report's outline at any length. Length is not the
-    test: a typical digest fits inside one Slack section, so a length test leaves it as one wall of
+    test: a typical digest fits inside one Slack block, so a length test leaves it as one wall of
     text. A section is opened by a Markdown heading or a bold label, so the summary threads whether
     the scout wrote `## Evidence` or `**Evidence**`. A summary with neither has no seam and stays
     one chunk. A summary with more sections than `MAX_THREAD_SEGMENTS` has them grouped, so one
     delivery cannot post a reply per paragraph of a malformed report. A section too long for one
-    Slack section is hard-chunked on its line ends. The split runs after `strip_chart_references`
+    Slack block is hard-chunked on its line ends. The split runs after `strip_chart_references`
     so a chart link never straddles two messages."""
     summary_text = strip_chart_references((report.summary or "").strip())
     chunks: list[str] = []
     for segment in group_segments_to_limit(split_markdown_by_headings(summary_text)):
-        rendered_segment = markdown_to_slack_mrkdwn(segment.strip())
+        rendered_segment = defuse_slack_tokens(segment.strip())
         if not rendered_segment:
             continue
-        chunks.extend(chunk_slack_mrkdwn(rendered_segment))
+        chunks.extend(chunk_slack_text(rendered_segment, SLACK_MARKDOWN_TEXT_MAX_LEN))
     return chunks
 
 
@@ -461,7 +463,7 @@ def build_scout_report_thread_slack_messages(
 
     The lead carries the scout name, the report title, the first summary chunk, the charts, and the
     report link. Every later chunk becomes a threaded reply, so the channel shows a short lead and
-    the thread holds the report's sections in order, with nothing clipped at the section cap. A
+    the thread holds the report's sections in order, with nothing clipped at the block's cap. A
     summary that opens with a heading puts that first section in the lead, so the channel never
     shows a title-only stub."""
     scout_name = _prettify_scout_name(run.skill_name)
@@ -476,13 +478,13 @@ def build_scout_report_thread_slack_messages(
 
     chunks = _report_summary_chunks(report)
     if chunks:
-        lead_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}})
+        lead_blocks.append(slack_markdown_block(chunks[0]))
     # Charts ride the lead rather than a reply: the lead is the message the channel sees, and the
     # replies only carry the summary's tail for anyone who opens the thread.
     lead_blocks.extend(build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, budget=render_budget))
     lead_blocks.append(_report_link_block(report))
 
-    reply_blocks = [[{"type": "section", "text": {"type": "mrkdwn", "text": chunk}}] for chunk in chunks[1:]]
+    reply_blocks = [[slack_markdown_block(chunk)] for chunk in chunks[1:]]
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(header[:200])}"
     return ScoutReportThreadMessages(lead_blocks=lead_blocks, fallback=fallback, reply_blocks=reply_blocks)
 
@@ -511,9 +513,9 @@ def build_scout_report_note_slack_message(
     ]
 
     note_text = strip_chart_references(note.strip())
-    rendered_note = truncate_slack_section(markdown_to_slack_mrkdwn(note_text))
+    rendered_note = prepare_slack_markdown(note_text)
     if rendered_note:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_note}})
+        blocks.append(slack_markdown_block(rendered_note))
 
     blocks.append(_report_link_block(report))
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} added a note to: {escape_slack_mrkdwn(header[:200])}"

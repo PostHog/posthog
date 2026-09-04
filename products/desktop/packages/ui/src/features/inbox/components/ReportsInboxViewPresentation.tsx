@@ -37,6 +37,7 @@ export interface ReportsInboxViewPresentationProps {
   isError: boolean;
   isEmpty: boolean;
   hasActiveFilters: boolean;
+  showConfigureAgentsEmptyState: boolean;
   triageEnabled: boolean;
   filterControl: ReactNode;
   scopeControl: ReactNode;
@@ -57,6 +58,7 @@ export function ReportsInboxViewPresentation({
   isError,
   isEmpty,
   hasActiveFilters,
+  showConfigureAgentsEmptyState,
   triageEnabled,
   filterControl,
   scopeControl,
@@ -73,16 +75,18 @@ export function ReportsInboxViewPresentation({
         <PageHeaderHeading>
           <PageHeaderTitleRow>
             <PageHeaderTitle>Self-driving</PageHeaderTitle>
-            <PageHeaderActions>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onConfigureAgents}
-              >
-                Configure agents
-              </Button>
-            </PageHeaderActions>
+            {!showConfigureAgentsEmptyState && (
+              <PageHeaderActions>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={onConfigureAgents}
+                >
+                  Configure agents
+                </Button>
+              </PageHeaderActions>
+            )}
           </PageHeaderTitleRow>
           <PageHeaderDescription>
             Issues and opportunities found in your product, ready to review
@@ -169,14 +173,22 @@ export function ReportsInboxViewPresentation({
                     : "Reports show up here as your agents find things worth acting on."}
                 </EmptyDescription>
               </EmptyHeader>
-              {hasActiveFilters && (
+              {(hasActiveFilters || showConfigureAgentsEmptyState) && (
                 <EmptyContent>
                   <Button
-                    variant="outline"
+                    variant={
+                      showConfigureAgentsEmptyState ? "primary" : "outline"
+                    }
                     size="default"
-                    onClick={onClearFilters}
+                    onClick={
+                      showConfigureAgentsEmptyState
+                        ? onConfigureAgents
+                        : onClearFilters
+                    }
                   >
-                    Clear filters
+                    {showConfigureAgentsEmptyState
+                      ? "Configure agents"
+                      : "Clear filters"}
                   </Button>
                 </EmptyContent>
               )}

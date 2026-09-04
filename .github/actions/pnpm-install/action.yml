@@ -1,11 +1,13 @@
 name: Install pnpm dependencies
 description: |
     Sets up pnpm + Node via `setup-pnpm`, restores the shared pnpm store cache,
-    installs, and saves the cache only on the default branch.
+    and installs.
 
     Single source of truth for the pnpm cache key. Every node workflow shares
     one namespace (`pnpm-<os>-<lockfile-hash>`), so the store is cached once
     instead of fragmenting across runner-arch casings or per-workflow keys.
+    Restore only: .github/workflows/pnpm-store-cache.yml writes the entry on
+    master from a cold install, and explains why no consumer may save it.
 
     Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
     every run (PRs included, and the post-save can't be gated) and keys on
@@ -48,7 +50,6 @@ runs:
           run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm store
-          id: restore
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
@@ -68,13 +69,3 @@ runs:
               npm_config_fetch_retry_mintimeout: 10000
               npm_config_fetch_retry_maxtimeout: 60000
           run: eval "$INSTALL_COMMAND"
-
-        # Save only on the default branch. Caches written on a PR/branch ref are
-        # scoped to that ref alone — no other branch can read them, they evict
-        # the shared master cache, and they only ever help that one PR's re-runs.
-        - name: Save pnpm store
-          if: github.ref == 'refs/heads/master' && steps.restore.outputs.cache-hit != 'true'
-          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-          with:
-              path: ${{ steps.pnpm-store.outputs.path }}
-              key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}

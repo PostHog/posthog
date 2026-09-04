@@ -842,6 +842,10 @@ jobs:
             - name: Install turbo
               uses: ./.github/actions/setup-turbo
 
+            # Needs pnpm from the block above, so it cannot run inside it.
+            - name: Install turbo
+              uses: ./.github/actions/setup-turbo
+
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -3819,9 +3823,15 @@ jobs:
         runs-on: ubuntu-latest
         # Headroom for downloading every shard's JUnit for the failure rollup.
         timeout-minutes: 8
-        # Intentional always(): this required gate must inspect failed and cancelled
-        # dependencies and fail closed.
-        if: always()
+        # Intentional !cancelled(): the gate inspects failed dependencies and fails
+        # closed on live runs; a superseded run records cancelled, not failure.
+        # The deterministic-failure disjuncts cover this workflow cancelling its
+        # own run: without them a real repo or OpenAPI failure would report
+        # cancelled too, and the failure-rate metric would lose it.
+        if: >
+            !cancelled()
+            || needs.repo-checks.outputs.deterministic_failure == 'true'
+            || needs.check-openapi-types.outputs.deterministic_failure == 'true'
         steps:
             - name: Summarize dependency results
               run: |
