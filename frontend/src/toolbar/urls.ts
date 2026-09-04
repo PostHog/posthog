@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { toParams } from 'lib/utils/url'
 
+import { RecordingUniversalFilters, ReplayTabs } from '~/types'
+
 // The toolbar's own copy of the `urls` helpers it links to in the PostHog app. The app's
 // `scenes/urls.ts` spreads every product manifest into its `urls` object, which would pull the
 // entire product scene graph into the customer-facing toolbar bundle — so toolbar code imports
@@ -26,6 +28,17 @@ export const urls = {
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
     productTour: (id: string, params?: string): string =>
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    replay: (
+        tab?: ReplayTabs,
+        filters?: Partial<RecordingUniversalFilters>,
+        sessionRecordingId?: string,
+        order?: string
+    ): string =>
+        combineUrl(tab ? `/replay/${tab}` : '/replay/home', {
+            ...(filters ? { filters } : {}),
+            ...(sessionRecordingId ? { sessionRecordingId } : {}),
+            ...(order ? { order } : {}),
+        }).url,
     sessionProfile: (id: string): string => `/sessions/${id}`,
     settings: (section: string = 'project', setting?: string): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
