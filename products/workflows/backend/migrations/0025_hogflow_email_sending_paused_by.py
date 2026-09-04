@@ -10,6 +10,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="hogflow",
             name="email_sending_paused_by",
-            field=models.CharField(blank=True, db_default="", default="", max_length=16),
+            field=models.CharField(
+                blank=True,
+                choices=[("auto", "auto"), ("staff", "staff")],
+                db_default="",
+                default="",
+                max_length=16,
+            ),
         ),
     ]

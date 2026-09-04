@@ -275,6 +275,48 @@ export interface TaskSearchResult {
   metadata: Record<string, unknown>;
 }
 
+/**
+ * The effective AI run defaults for the signed-in user in a project, as resolved
+ * by the tasks backend: their own preference over the project default. `source`
+ * says which level supplied them, and is `"none"` when neither is set.
+ */
+export interface TaskRunDefaults {
+  runtime_adapter: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
+  source: "user" | "team" | "none";
+}
+
+export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
+  runtime_adapter: null,
+  model: null,
+  reasoning_effort: null,
+  source: "none",
+};
+
+/**
+ * A stored preference triple. All three null means the level is unset and the one
+ * below it applies — a personal preference falls back to the project default, and
+ * the project default to each surface's built-in model.
+ */
+export interface TaskRunPreferences {
+  runtime_adapter: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
+}
+
+export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
+  runtime_adapter: null,
+  model: null,
+  reasoning_effort: null,
+};
+
+/** What the signed-in user has stored for this project, and what it resolves to. */
+export interface MyTaskRunConfig {
+  preferences: TaskRunPreferences;
+  resolved: TaskRunDefaults;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
@@ -2103,6 +2145,86 @@ export class PostHogAPIClient {
       path: { project_id: projectId.toString() },
     });
     return data as Schemas.Team;
+  }
+
+  /**
+   * The AI run triple a task run gets when the caller pins no runtime selection —
+   * the signed-in user's per-project preference over the project default.
+   *
+   * Hand-rolled rather than routed through the generated client because
+   * `tasks/@me/config/` postdates the last schema pull.
+   */
+  async getTaskRunDefaults(projectId: number): Promise<TaskRunDefaults> {
+    return (await this.getMyTaskRunConfig(projectId)).resolved;
+  }
+
+  /** The signed-in user's stored preference for this project, plus what it resolves to. */
+  async getMyTaskRunConfig(projectId: number): Promise<MyTaskRunConfig> {
+    return await this.taskRunConfigRequest(
+      "get",
+      `/api/projects/${projectId}/tasks/@me/config/`,
+    );
+  }
+
+  /**
+   * Store the signed-in user's preference for this project. All three fields null
+   * clears it, which is how "use the project default" is expressed.
+   */
+  async updateMyTaskRunPreferences(
+    projectId: number,
+    preferences: TaskRunPreferences,
+  ): Promise<MyTaskRunConfig> {
+    return await this.taskRunConfigRequest(
+      "post",
+      `/api/projects/${projectId}/tasks/@me/config/`,
+      preferences,
+    );
+  }
+
+  /**
+   * The project-wide default. Readable by any member; only project admins may change
+   * it, which is why this client offers no writer for it — the settings page links to
+   * PostHog rather than presenting a control that would 403.
+   */
+  async getTeamTaskRunPreferences(
+    projectId: number,
+  ): Promise<TaskRunPreferences> {
+    return (
+      await this.taskRunConfigRequest(
+        "get",
+        `/api/projects/${projectId}/tasks/config/`,
+      )
+    ).preferences;
+  }
+
+  private async taskRunConfigRequest(
+    method: "get" | "post",
+    urlPath: string,
+    body?: TaskRunPreferences,
+  ): Promise<MyTaskRunConfig> {
+    const response = await this.api.fetcher.fetch({
+      method,
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(`Task run config request failed: ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      ai_run_preferences?: Partial<TaskRunPreferences> | null;
+      resolved_ai_run_defaults?: TaskRunDefaults | null;
+    };
+    return {
+      // The API stores a cleared preference as `{}`, so read each field rather than
+      // assuming the triple is present.
+      preferences: {
+        runtime_adapter: payload.ai_run_preferences?.runtime_adapter ?? null,
+        model: payload.ai_run_preferences?.model ?? null,
+        reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
+      },
+      resolved: payload.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS,
+    };
   }
 
   async listSignalSourceConfigs(
