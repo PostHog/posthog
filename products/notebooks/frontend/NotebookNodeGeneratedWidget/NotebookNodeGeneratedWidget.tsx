@@ -13,6 +13,7 @@ import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from 'sce
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { applyReusableWidgetBinding, getReusableWidgetInputBinding } from '../ReusableWidget/reusableWidgetBindings'
 import {
     formatWidgetElapsed,
     loadWidgetFrame,
@@ -27,6 +28,9 @@ import { WidgetArtifactFrame } from './WidgetArtifactFrame'
 import { DEFAULT_WIDGET_MODEL, isWidgetModel, type WidgetModel } from './widgetModels'
 
 export type NotebookNodeGeneratedWidgetAttributes = {
+    id?: string
+    version?: string
+    inputs?: Record<string, { source: string; hog?: string }>
     prompt?: string
     model?: WidgetModel
 }
@@ -274,8 +278,8 @@ function ExpandedWidget({
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
-                            onReadFrame={(name, offset, limit, runId, signal) =>
-                                loadWidgetFrame(
+                            onReadFrame={async (name, offset, limit, runId, signal) => {
+                                const frame = await loadWidgetFrame(
                                     String(currentTeamId),
                                     notebookShortId,
                                     attributes.nodeId,
@@ -286,7 +290,15 @@ function ExpandedWidget({
                                     runId,
                                     signal
                                 )
-                            }
+                                return applyReusableWidgetBinding(
+                                    frame,
+                                    name,
+                                    getReusableWidgetInputBinding(status?.input_bindings ?? {}, name),
+                                    status?.input_contract
+                                        .find((input) => input.slot === name)
+                                        ?.columns?.map((column) => column.name) ?? []
+                                )
+                            }}
                             onArtifactUnavailable={markArtifactUnavailable}
                             onError={(message) =>
                                 setRuntimeError(
@@ -470,6 +482,9 @@ export const NotebookNodeGeneratedWidget = createPostHogWidgetNode<NotebookNodeG
     expandable: false,
     unmountWhenOutOfView: true,
     attributes: {
+        id: {},
+        version: {},
+        inputs: {},
         prompt: { default: '' },
         model: { default: DEFAULT_WIDGET_MODEL },
     },

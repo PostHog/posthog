@@ -1,3 +1,16 @@
+from products.notebooks.backend.reusable_widgets import (
+    attach_reusable_widget,
+    discard_reusable_widget_version,
+    fork_reusable_widget,
+    get_reusable_widget,
+    get_reusable_widget_status,
+    list_reusable_widgets,
+    publish_reusable_widget,
+    read_reusable_widget_demo_frame,
+    read_reusable_widget_source,
+    save_reusable_widget_version,
+    start_reusable_widget_generation,
+)
 from products.notebooks.backend.widget_models import (
     DEFAULT_WIDGET_MODEL,
     MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
@@ -17,6 +30,7 @@ from products.notebooks.backend.widgets import (
     read_widget_frame,
     read_widget_source,
     revert_widget_version,
+    set_widget_instance_version,
     start_widget_generation,
 )
 
@@ -28,6 +42,9 @@ __all__ = [
     "WidgetConflictError",
     "WidgetError",
     "WidgetRateLimitError",
+    "attach_reusable_widget",
+    "discard_reusable_widget_version",
+    "fork_reusable_widget",
     "cancel_widget_generation",
     "get_widget_status",
     "infer_widget_inputs",
@@ -37,5 +54,14 @@ __all__ = [
     "read_widget_frame",
     "read_widget_source",
     "revert_widget_version",
+    "set_widget_instance_version",
     "start_widget_generation",
+    "get_reusable_widget",
+    "get_reusable_widget_status",
+    "list_reusable_widgets",
+    "publish_reusable_widget",
+    "read_reusable_widget_demo_frame",
+    "read_reusable_widget_source",
+    "save_reusable_widget_version",
+    "start_reusable_widget_generation",
 ]

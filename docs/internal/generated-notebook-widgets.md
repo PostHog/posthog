@@ -22,6 +22,22 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.
 
+## Reusable widgets
+
+A generated widget can be published to the project-scoped reusable widget catalog from its action menu. Publishing gives the widget a stable ID, keeps its existing immutable version history, and saves up to 20 rows per input as a bounded demo fixture. The notebooks index exposes the catalog on its **Reusable widgets** tab. Each catalog entry has a dedicated page for its live demo, input contract, source, usage count, and shared improvement or regeneration actions.
+
+A reusable placement follows the widget's latest version by default. Selecting a historical version in the notebook and choosing **Pin this version** adds that immutable version to the placement. **Use latest** removes the pin. Shared source changes must be made from the catalog page; **Fork and edit here** copies the selected version into a private notebook widget before enabling notebook-local changes.
+
+Improving or regenerating a reusable widget creates a draft instead of changing the published version. Review the draft's runnable demo, input contract, security review, and source on the catalog detail page. **Save version** publishes it for unpinned placements, while **Discard draft** leaves the published version unchanged.
+
+`<Widget>` nodes store a stable `id`, an optional `version`, and notebook-local `inputs`. The server remains the source of truth for the placement and its bindings. A binding maps each logical contract slot to a local SQL or Python dataframe, so two instances of the same reusable widget can use different notebook data.
+
+An input binding can also include a pure Hog transform. It receives `rows` as a list of row objects, `columns`, and `frame`, and must return a list of row objects matching the widget's expected contract. Hog is compiled through the existing compiler and runs in the browser VM with no callable functions, no asynchronous steps, a 100 ms timeout, and a 16 MiB memory limit. Direct bindings retain the existing schema-hash check; transformed bindings are validated as bounded tabular output before the iframe receives them.
+
+The notebook MCP surface exposes catalog list, detail, and attach operations. Agents should search saved widgets before generating a new visualization, inspect the candidate's contract, and provide explicit `{ source, hog? }` bindings when attaching it.
+
+Reusable widgets remain behind the `notebook-generated-widgets` feature flag and preserve the generated-code trust gate described below. Publishing demo data copies project data into another team-scoped model, so the publishing dialog makes that behavior explicit.
+
 ## Generated-code trust model
 
 Generated widget source is arbitrary React and JavaScript. It is not a restricted widget schema, and PostHog does not claim to make it safe by parsing an AST, matching source text, or blocking selected syntax. JavaScript can construct equivalent behavior dynamically, so source-shape validation would create a false security boundary while breaking legitimate widgets.

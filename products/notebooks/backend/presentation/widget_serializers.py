@@ -1,5 +1,6 @@
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from products.notebooks.backend.facade.widgets import (
@@ -54,6 +55,13 @@ class WidgetCancelRequestSerializer(serializers.Serializer):
     generation_id = serializers.UUIDField(help_text="Generation job to cancel.")
 
 
+class WidgetPinRequestSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Immutable version to pin, or null to follow the reusable widget's latest version.",
+    )
+
+
 class WidgetJobSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Generation job identifier.")
     status = serializers.ChoiceField(
@@ -87,6 +95,41 @@ class WidgetSecurityReviewSerializer(serializers.Serializer):
     reviewed_at = serializers.DateTimeField(help_text="When this exact widget source was reviewed.")
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string"},
+                "hog": {"type": "string"},
+                "bytecode": {"type": "array", "items": {}},
+            },
+            "required": ["source"],
+        },
+    }
+)
+class WidgetInputBindingsField(serializers.DictField):
+    pass
+
+
+class WidgetInputContractColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Column name expected by the reusable widget.")
+    type = serializers.CharField(help_text="Column type expected by the reusable widget.")
+
+
+class WidgetInputContractItemSerializer(serializers.Serializer):
+    slot = serializers.CharField(help_text="Stable logical input name used by the reusable widget.")
+    sourceName = serializers.CharField(help_text="Original dataframe name when the widget was published.")
+    columns = WidgetInputContractColumnSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Columns the notebook-local binding must produce after its optional Hog mapping.",
+    )
+    schemaHash = serializers.CharField(help_text="Hash of the expected column schema.")
+
+
 class WidgetStatusSerializer(serializers.Serializer):
     lifecycle_status = serializers.ChoiceField(
         choices=["awaiting_generation", "generating", "building", "ready", "failed", "incompatible"],
@@ -113,7 +156,18 @@ class WidgetStatusSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Logical dataframe slots available to the selected version.",
     )
+    input_bindings = WidgetInputBindingsField(
+        help_text="Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+    )
+    input_contract = WidgetInputContractItemSerializer(
+        many=True,
+        help_text="Logical dataframe slots and output schemas required by the selected widget version.",
+    )
     current_version_id = serializers.UUIDField(allow_null=True, help_text="Selected immutable widget version.")
+    pinned_version_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Version explicitly pinned for this notebook placement, or null when it follows the latest version.",
+    )
     widget_id = serializers.UUIDField(allow_null=True, help_text="Reusable widget identity.")
     instance_id = serializers.UUIDField(allow_null=True, help_text="Placement in this notebook.")
     has_versions = serializers.BooleanField(help_text="Whether the widget has generated history.")
@@ -121,6 +175,9 @@ class WidgetStatusSerializer(serializers.Serializer):
     security_review = WidgetSecurityReviewSerializer(
         allow_null=True,
         help_text="Automated review for the selected source, or null for a legacy unreviewed version.",
+    )
+    is_reusable = serializers.BooleanField(
+        help_text="Whether this widget identity is published in the reusable widget catalog.",
     )
     build_hash = serializers.CharField(
         allow_null=True,

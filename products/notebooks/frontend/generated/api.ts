@@ -28,9 +28,18 @@ import type {
     NotebooksWidgetVersionsParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
+    ReusableWidgetAttachRequestApi,
+    ReusableWidgetDetailApi,
+    ReusableWidgetPageApi,
+    ReusableWidgetPublishRequestApi,
+    ReusableWidgetReviewRequestApi,
+    ReusableWidgetsDemoFrameParams,
+    ReusableWidgetsListParams,
+    ReusableWidgetsSourceParams,
     WidgetCancelRequestApi,
     WidgetFrameApi,
     WidgetGenerateRequestApi,
+    WidgetPinRequestApi,
     WidgetRevertRequestApi,
     WidgetSourceApi,
     WidgetStatusApi,
@@ -53,6 +62,179 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getReusableWidgetsListUrl = (projectId: string, params?: ReusableWidgetsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebook_widgets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebook_widgets/`
+}
+
+export const reusableWidgetsList = async (
+    projectId: string,
+    params?: ReusableWidgetsListParams,
+    options?: RequestInit
+): Promise<ReusableWidgetPageApi> => {
+    return apiMutator<ReusableWidgetPageApi>(getReusableWidgetsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReusableWidgetsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/`
+}
+
+export const reusableWidgetsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReusableWidgetDetailApi> => {
+    return apiMutator<ReusableWidgetDetailApi>(getReusableWidgetsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReusableWidgetsDiscardVersionUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/discard-version/`
+}
+
+export const reusableWidgetsDiscardVersion = async (
+    projectId: string,
+    id: string,
+    reusableWidgetReviewRequestApi: ReusableWidgetReviewRequestApi,
+    options?: RequestInit
+): Promise<ReusableWidgetDetailApi> => {
+    return apiMutator<ReusableWidgetDetailApi>(getReusableWidgetsDiscardVersionUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetReviewRequestApi),
+    })
+}
+
+export const getReusableWidgetsDemoFrameUrl = (
+    projectId: string,
+    id: string,
+    frameName: string,
+    params?: ReusableWidgetsDemoFrameParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebook_widgets/${id}/frames/${frameName}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebook_widgets/${id}/frames/${frameName}/`
+}
+
+export const reusableWidgetsDemoFrame = async (
+    projectId: string,
+    id: string,
+    frameName: string,
+    params?: ReusableWidgetsDemoFrameParams,
+    options?: RequestInit
+): Promise<WidgetFrameApi> => {
+    return apiMutator<WidgetFrameApi>(getReusableWidgetsDemoFrameUrl(projectId, id, frameName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReusableWidgetsGenerateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/generate/`
+}
+
+export const reusableWidgetsGenerate = async (
+    projectId: string,
+    id: string,
+    widgetGenerateRequestApi: WidgetGenerateRequestApi,
+    options?: RequestInit
+): Promise<WidgetStatusApi> => {
+    return apiMutator<WidgetStatusApi>(getReusableWidgetsGenerateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetGenerateRequestApi),
+    })
+}
+
+export const getReusableWidgetsSaveVersionUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/save-version/`
+}
+
+export const reusableWidgetsSaveVersion = async (
+    projectId: string,
+    id: string,
+    reusableWidgetReviewRequestApi: ReusableWidgetReviewRequestApi,
+    options?: RequestInit
+): Promise<ReusableWidgetDetailApi> => {
+    return apiMutator<ReusableWidgetDetailApi>(getReusableWidgetsSaveVersionUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetReviewRequestApi),
+    })
+}
+
+export const getReusableWidgetsSourceUrl = (projectId: string, id: string, params?: ReusableWidgetsSourceParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebook_widgets/${id}/source/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebook_widgets/${id}/source/`
+}
+
+export const reusableWidgetsSource = async (
+    projectId: string,
+    id: string,
+    params?: ReusableWidgetsSourceParams,
+    options?: RequestInit
+): Promise<WidgetSourceApi> => {
+    return apiMutator<WidgetSourceApi>(getReusableWidgetsSourceUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReusableWidgetsStatusUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/status/`
+}
+
+export const reusableWidgetsStatus = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WidgetStatusApi> => {
+    return apiMutator<WidgetStatusApi>(getReusableWidgetsStatusUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getNotebooksListUrl = (projectId: string, params?: NotebooksListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -540,6 +722,28 @@ export const notebooksSqlV2StateRetrieve = async (
     })
 }
 
+export const getNotebooksWidgetAttachUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/attach/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetAttach = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    reusableWidgetAttachRequestApi: ReusableWidgetAttachRequestApi,
+    options?: RequestInit
+): Promise<WidgetStatusApi> => {
+    return apiMutator<WidgetStatusApi>(getNotebooksWidgetAttachUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetAttachRequestApi),
+    })
+}
+
 export const getNotebooksWidgetCancelUrl = (projectId: string, shortId: string, nodeId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/cancel/`
 }
@@ -559,6 +763,25 @@ export const notebooksWidgetCancel = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(widgetCancelRequestApi),
+    })
+}
+
+export const getNotebooksWidgetForkUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/fork/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetFork = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    options?: RequestInit
+): Promise<WidgetStatusApi> => {
+    return apiMutator<WidgetStatusApi>(getNotebooksWidgetForkUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -620,6 +843,50 @@ export const notebooksWidgetGenerate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(widgetGenerateRequestApi),
+    })
+}
+
+export const getNotebooksWidgetPinUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/pin/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetPin = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    widgetPinRequestApi: WidgetPinRequestApi,
+    options?: RequestInit
+): Promise<WidgetStatusApi> => {
+    return apiMutator<WidgetStatusApi>(getNotebooksWidgetPinUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetPinRequestApi),
+    })
+}
+
+export const getNotebooksWidgetPublishUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/publish/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetPublish = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    reusableWidgetPublishRequestApi: ReusableWidgetPublishRequestApi,
+    options?: RequestInit
+): Promise<ReusableWidgetDetailApi> => {
+    return apiMutator<ReusableWidgetDetailApi>(getNotebooksWidgetPublishUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetPublishRequestApi),
     })
 }
 

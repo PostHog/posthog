@@ -128,12 +128,16 @@ class WidgetStatus:
     error_detail: str | None
     artifact_url: str | None
     frame_names: list[str]
+    input_bindings: dict[str, object]
+    input_contract: list[dict[str, object]]
     current_version_id: UUID | None
+    pinned_version_id: UUID | None
     widget_id: UUID | None
     instance_id: UUID | None
     has_versions: bool
     active_job: WidgetJobState | None
     security_review: WidgetSecurityReviewState | None
+    is_reusable: bool
     error_code: str | None = None
     failure_phase: str | None = None
     build_hash: str | None = None
@@ -426,6 +430,7 @@ def _version_input_contract(contract: list[dict[str, object]]) -> list[dict[str,
         {
             "slot": item.get("slot"),
             "sourceName": item.get("sourceName"),
+            "columns": item.get("columns", []),
             "schemaHash": item.get("schemaHash"),
         }
         for item in contract
@@ -658,6 +663,8 @@ def start_widget_generation(
     generation_id: UUID,
     operation: str,
     expected_current_version_id: UUID | None = None,
+    allow_reusable: bool = False,
+    input_contract_override: list[dict[str, object]] | None = None,
 ) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
     normalized_prompt = normalize_widget_prompt(prompt, operation)
@@ -717,9 +724,17 @@ def start_widget_generation(
         locked_instance = (
             NotebookWidgetInstance.objects.for_team(notebook.team_id)
             .select_for_update(of=("self", "widget"))
-            .select_related("widget", "widget__current_version")
+            .select_related("widget", "widget__current_version", "widget__pending_version")
             .get(id=instance.id)
         )
+        if (
+            locked_instance.widget.publication_status != GeneratedWidget.PublicationStatus.PRIVATE
+            and not allow_reusable
+        ):
+            raise WidgetConflictError(
+                "Open this reusable widget from the widget catalog to change it, or fork it in this notebook.",
+                "reusable_widget_shared",
+            )
         if (
             GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id)
             .filter(instance=locked_instance, status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES)
@@ -729,7 +744,21 @@ def start_widget_generation(
                 "This widget is already being generated. Cancel it before starting another version.",
                 "generation_in_progress",
             )
+        if allow_reusable and locked_instance.widget.pending_version_id is not None:
+            raise WidgetConflictError(
+                "Review or discard the pending version before generating another update.",
+                "review_pending",
+            )
         base_version = locked_instance.widget.current_version
+        if allow_reusable and (
+            base_version is None
+            or expected_current_version_id is None
+            or base_version.id != expected_current_version_id
+        ):
+            raise WidgetConflictError(
+                "This reusable widget changed since you opened it. Reload the latest version before updating it.",
+                "generation_conflict",
+            )
         if operation == GeneratedWidgetVersion.Operation.IMPROVE:
             if base_version is None:
                 raise WidgetConflictError("Generate the widget before improving it.", "version_missing")
@@ -749,6 +778,7 @@ def start_widget_generation(
             resolved_operation = GeneratedWidgetVersion.Operation.INITIAL
         elif operation == GeneratedWidgetVersion.Operation.INITIAL:
             resolved_operation = GeneratedWidgetVersion.Operation.REGENERATE
+        input_contract = input_contract_override if input_contract_override is not None else inspection.contract
         job = GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id).create(
             idempotency_key=generation_id,
             team_id=notebook.team_id,
@@ -759,8 +789,8 @@ def start_widget_generation(
             prompt=normalized_prompt,
             model=model,
             base_version=base_version,
-            input_contract=inspection.contract,
-            schema_hash=inspection.schema_hash,
+            input_contract=input_contract,
+            schema_hash=_json_hash(input_contract),
         )
         transaction.on_commit(lambda: _dispatch_widget_generation(job.id, notebook.team_id))
     return get_widget_status(notebook=notebook, node_id=node_id)
@@ -1132,10 +1162,19 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                     "This widget changed while the new version was being generated.",
                     "generation_conflict",
                 )
-            publication = canvas_facade.publish_prepared_notebook_canvas_source(
-                team_id=job.team_id,
-                user_id=job.requested_by.id,
-                prepared=prepared_source,
+            is_reusable = widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
+            publication = (
+                canvas_facade.publish_prepared_notebook_canvas_draft(
+                    team_id=job.team_id,
+                    user_id=job.requested_by.id,
+                    prepared=prepared_source,
+                )
+                if is_reusable
+                else canvas_facade.publish_prepared_notebook_canvas_source(
+                    team_id=job.team_id,
+                    user_id=job.requested_by.id,
+                    prepared=prepared_source,
+                )
             )
             prompt_history = (
                 _extend_prompt_history(_prompt_history(job.base_version), job.prompt)
@@ -1154,6 +1193,12 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 model=job.model,
                 generator_version=GENERATOR_VERSION,
                 input_contract=_version_input_contract(job.input_contract),
+                demo_data=(
+                    job.base_version.demo_data
+                    if widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
+                    and job.base_version is not None
+                    else {}
+                ),
                 schema_hash=job.schema_hash,
                 security_review_severity=security_review.severity,
                 security_review_summary=security_review.summary,
@@ -1170,11 +1215,23 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 security_reviewed_at=security_reviewed_at,
                 created_by=job.requested_by,
             )
-            widget.current_version = version
-            widget.name = title
-            widget.save(update_fields=["current_version", "name"])
-            instance.pinned_version = version
-            instance.save(update_fields=["pinned_version"])
+            if is_reusable:
+                if widget.pending_version_id is not None:
+                    raise WidgetConflictError(
+                        "Another reusable widget version is already waiting for review.",
+                        "review_pending",
+                    )
+                widget.pending_version = version
+                widget_update_fields = ["pending_version"]
+            else:
+                widget.current_version = version
+                widget_update_fields = ["current_version"]
+                widget.name = title
+                widget_update_fields.append("name")
+            widget.save(update_fields=widget_update_fields)
+            if widget.publication_status == GeneratedWidget.PublicationStatus.PRIVATE:
+                instance.pinned_version = version
+                instance.save(update_fields=["pinned_version"])
             locked_job.status = GeneratedWidgetGenerationJob.Status.COMPLETED
             locked_job.phase = "completed"
             locked_job.result_version = version
@@ -1290,7 +1347,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
     instance = (
         NotebookWidgetInstance.objects.for_team(notebook.team_id)
-        .select_related("widget", "widget__current_version", "pinned_version")
+        .select_related("widget", "widget__current_version", "widget__pending_version", "pinned_version")
         .filter(notebook=notebook, node_id=node_id)
         .first()
     )
@@ -1300,12 +1357,16 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             error_detail=None,
             artifact_url=None,
             frame_names=[],
+            input_bindings={},
+            input_contract=[],
             current_version_id=None,
+            pinned_version_id=None,
             widget_id=None,
             instance_id=None,
             has_versions=False,
             active_job=None,
             security_review=None,
+            is_reusable=False,
             error_code=None,
             failure_phase=None,
             build_hash=None,
@@ -1339,12 +1400,16 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             error_detail=job.error_detail if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None,
             artifact_url=None,
             frame_names=[],
+            input_bindings=instance.input_bindings if isinstance(instance.input_bindings, dict) else {},
+            input_contract=[],
             current_version_id=None,
+            pinned_version_id=instance.pinned_version_id,
             widget_id=instance.widget_id,
             instance_id=instance.id,
             has_versions=False,
             active_job=active_job,
             security_review=None,
+            is_reusable=instance.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED,
             error_code=job.error_code if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None,
             failure_phase=_job_failure_phase(job),
             build_hash=None,
@@ -1415,12 +1480,16 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         error_detail=error_detail,
         artifact_url=artifact_url,
         frame_names=frame_names,
+        input_bindings=instance.input_bindings if isinstance(instance.input_bindings, dict) else {},
+        input_contract=[item for item in current_version.input_contract if isinstance(item, dict)],
         current_version_id=current_version.id,
+        pinned_version_id=instance.pinned_version_id,
         widget_id=instance.widget_id,
         instance_id=instance.id,
         has_versions=True,
         active_job=active_job,
         security_review=_security_review_state(current_version),
+        is_reusable=instance.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED,
         error_code=error_code,
         failure_phase=failure_phase,
         build_hash=build_hash,
@@ -1442,6 +1511,12 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
     if instance is None:
         return WidgetVersionPage(results=[], count=0, next_offset=None)
     queryset = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(widget=instance.widget)
+    pending_version_id = instance.widget.pending_version_id
+    if (
+        instance.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
+        and pending_version_id is not None
+    ):
+        queryset = queryset.exclude(id=pending_version_id)
     count = queryset.count()
     versions = list(queryset.order_by("-created_at")[offset : offset + limit])
     canvas_versions = canvas_facade.list_notebook_canvas_versions(
@@ -1480,6 +1555,34 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
     return WidgetVersionPage(results=results, count=count, next_offset=next_offset)
 
 
+def set_widget_instance_version(*, notebook: Notebook, node_id: str, version_id: UUID | None) -> WidgetStatus:
+    assert_widget_node_exists(notebook, node_id)
+    with transaction.atomic():
+        instance = (
+            NotebookWidgetInstance.objects.for_team(notebook.team_id)
+            .select_for_update()
+            .select_related("widget")
+            .filter(notebook=notebook, node_id=node_id)
+            .first()
+        )
+        if instance is None:
+            raise WidgetError("Generate the widget before choosing a version.", "version_missing")
+        if version_id is not None:
+            versions = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(
+                id=version_id, widget_id=instance.widget_id
+            )
+            if instance.widget.pending_version_id is not None:
+                versions = versions.exclude(id=instance.widget.pending_version_id)
+            version = versions.first()
+            if version is None:
+                raise WidgetError("This widget version does not exist.", "version_missing")
+        else:
+            version = None
+        instance.pinned_version = version
+        instance.save(update_fields=["pinned_version"])
+    return get_widget_status(notebook=notebook, node_id=node_id)
+
+
 def _get_instance_and_version(
     notebook: Notebook, node_id: str, version_id: UUID | None
 ) -> tuple[NotebookWidgetInstance, GeneratedWidgetVersion]:
@@ -1493,11 +1596,12 @@ def _get_instance_and_version(
     if instance is None:
         raise WidgetError("Generate the widget before viewing its source.", "version_missing")
     if version_id is not None:
-        version = (
-            GeneratedWidgetVersion.objects.for_team(notebook.team_id)
-            .filter(id=version_id, widget=instance.widget)
-            .first()
+        versions = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(
+            id=version_id, widget=instance.widget
         )
+        if instance.widget.pending_version_id is not None:
+            versions = versions.exclude(id=instance.widget.pending_version_id)
+        version = versions.first()
     else:
         version = instance.pinned_version or instance.widget.current_version
     if version is None:
@@ -1534,6 +1638,11 @@ def revert_widget_version(
     )
 
     instance, target = _get_instance_and_version(notebook, node_id, version_id)
+    if instance.widget.publication_status != GeneratedWidget.PublicationStatus.PRIVATE:
+        raise WidgetConflictError(
+            "Open this reusable widget from the widget catalog to change it, or fork it in this notebook.",
+            "reusable_widget_shared",
+        )
     current = instance.pinned_version or instance.widget.current_version
     if current is None or current.id != expected_current_version_id:
         raise WidgetConflictError("This widget changed before the version could be restored.", "revert_conflict")
@@ -1693,14 +1802,20 @@ def read_widget_frame(
     offset: int = 0,
     limit: int = 100,
 ) -> WidgetFrameRead:
-    _instance, version = _get_instance_and_version(notebook, node_id, version_id)
+    instance, version = _get_instance_and_version(notebook, node_id, version_id)
     contract_item = next(
         (item for item in version.input_contract if isinstance(item, dict) and item.get("slot") == frame_name),
         None,
     )
     if contract_item is None:
         raise WidgetError("This dataframe is not available to this widget version.", "frame_not_allowed")
-    source_name = str(contract_item.get("sourceName") or frame_name)
+    bindings = instance.input_bindings if isinstance(instance.input_bindings, dict) else {}
+    binding = bindings.get(frame_name)
+    source_name = (
+        str(binding.get("source"))
+        if isinstance(binding, dict) and isinstance(binding.get("source"), str)
+        else str(contract_item.get("sourceName") or frame_name)
+    )
     owners = _dataframe_owners(notebook)
     node_id_for_frame = owners.get(source_name)
     if node_id_for_frame is None:
@@ -1716,7 +1831,7 @@ def read_widget_frame(
     authorize_run(run)
     envelope = run.envelope if isinstance(run.envelope, dict) else {}
     columns = _columns_from_metadata(envelope.get("types"), envelope.get("columns"))
-    expected_schema_hash = contract_item.get("schemaHash")
+    expected_schema_hash = None if isinstance(binding, dict) and binding.get("hog") else contract_item.get("schemaHash")
     if expected_schema_hash and _json_hash({"columns": columns}) != expected_schema_hash:
         raise WidgetConflictError(
             f'The columns in "{source_name}" changed. Generate a new widget version to use the new schema.',

@@ -270,16 +270,37 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
 
 
 class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
+    class PublicationStatus(models.TextChoices):
+        PRIVATE = "private", "private"
+        PUBLISHED = "published", "published"
+        DEPRECATED = "deprecated", "deprecated"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=400)
+    description = models.TextField(blank=True, default="")
+    tags: JSONField = JSONField(default=list)
+    publication_status = models.CharField(
+        choices=PublicationStatus,
+        default=PublicationStatus.PRIVATE,
+        db_default=PublicationStatus.PRIVATE,
+        max_length=16,
+    )
     canvas_id = models.UUIDField(unique=True)
     current_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    pending_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
+    published_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_generated_widget"
@@ -313,6 +334,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     model = models.CharField(max_length=64, blank=True, default="")
     generator_version = models.CharField(max_length=32)
     input_contract: JSONField = JSONField(default=list)
+    demo_data: JSONField = JSONField(default=dict)
     schema_hash = models.CharField(max_length=64)
     security_review_severity = models.CharField(
         choices=SecurityReviewSeverity,
@@ -358,6 +380,7 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="pinned_instances",
     )
+    input_bindings: JSONField = JSONField(default=dict)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )

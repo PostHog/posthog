@@ -9,6 +9,51 @@
  */
 import * as zod from 'zod'
 
+export const ReusableWidgetsDiscardVersionBody = /* @__PURE__ */ zod.object({
+    pending_version_id: zod.uuid().describe('Draft version being reviewed.'),
+    expected_current_version_id: zod.uuid().describe('Published version observed when the review action started.'),
+})
+
+export const reusableWidgetsGenerateBodyPromptMax = 50000
+
+export const reusableWidgetsGenerateBodyModelDefault = `claude-sonnet-4-6`
+export const reusableWidgetsGenerateBodyGenerationOperationDefault = `regenerate`
+
+export const ReusableWidgetsGenerateBody = /* @__PURE__ */ zod.object({
+    prompt: zod
+        .string()
+        .max(reusableWidgetsGenerateBodyPromptMax)
+        .describe(
+            'Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.'
+        ),
+    generation_id: zod.uuid().describe('Idempotency key for this generation job.'),
+    model: zod
+        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-opus-5'])
+        .describe(
+            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        )
+        .default(reusableWidgetsGenerateBodyModelDefault)
+        .describe(
+            'AI model used to generate the widget.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        ),
+    generation_operation: zod
+        .enum(['initial', 'regenerate', 'improve'])
+        .describe('\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve')
+        .default(reusableWidgetsGenerateBodyGenerationOperationDefault)
+        .describe(
+            'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
+        ),
+    expected_current_version_id: zod
+        .uuid()
+        .optional()
+        .describe('Current widget version the improvement is based on. Required for improve operations.'),
+})
+
+export const ReusableWidgetsSaveVersionBody = /* @__PURE__ */ zod.object({
+    pending_version_id: zod.uuid().describe('Draft version being reviewed.'),
+    expected_current_version_id: zod.uuid().describe('Published version observed when the review action started.'),
+})
+
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
@@ -732,6 +777,30 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const NotebooksWidgetAttachBody = /* @__PURE__ */ zod.object({
+    widget_id: zod.uuid().describe('Reusable widget to place in this notebook node.'),
+    version_id: zod
+        .uuid()
+        .nullish()
+        .describe("Version to pin, or null to follow the reusable widget's latest version."),
+    input_bindings: zod
+        .record(
+            zod.string(),
+            zod.object({
+                source: zod.string(),
+                hog: zod.string().optional(),
+                bytecode: zod.array(zod.unknown()).optional(),
+            })
+        )
+        .optional()
+        .describe(
+            'Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include a pure Hog expression plus compiled bytecode for reshaping its rows.'
+        ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const NotebooksWidgetCancelBody = /* @__PURE__ */ zod.object({
     generation_id: zod.uuid().describe('Generation job to cancel.'),
 })
@@ -772,6 +841,41 @@ export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .optional()
         .describe('Current widget version the improvement is based on. Required for improve operations.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetPinBody = /* @__PURE__ */ zod.object({
+    version_id: zod
+        .uuid()
+        .nullable()
+        .describe("Immutable version to pin, or null to follow the reusable widget's latest version."),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetPublishBodyNameMax = 400
+
+export const notebooksWidgetPublishBodyDescriptionMax = 2000
+
+export const notebooksWidgetPublishBodyTagsItemMax = 50
+
+export const notebooksWidgetPublishBodyTagsMax = 10
+
+export const NotebooksWidgetPublishBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(notebooksWidgetPublishBodyNameMax).describe('Name shown in the reusable widget catalog.'),
+    description: zod
+        .string()
+        .max(notebooksWidgetPublishBodyDescriptionMax)
+        .optional()
+        .describe('Short explanation of what the reusable widget shows and when to use it.'),
+    tags: zod
+        .array(zod.string().max(notebooksWidgetPublishBodyTagsItemMax))
+        .max(notebooksWidgetPublishBodyTagsMax)
+        .optional()
+        .describe('Searchable labels attached to the reusable widget.'),
 })
 
 /**

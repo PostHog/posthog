@@ -1,11 +1,14 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonTabs, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { base64Encode } from 'lib/utils/base64'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
@@ -17,6 +20,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ReusableWidgetCatalog } from 'products/notebooks/frontend/ReusableWidgetCatalog/ReusableWidgetCatalog'
+
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 
 export const scene: SceneExport = {
@@ -26,6 +31,11 @@ export const scene: SceneExport = {
 }
 
 export function NotebooksScene(): JSX.Element {
+    const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const reusableWidgetsEnabled = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]
+    const activeTab = reusableWidgetsEnabled && searchParams.tab === 'widgets' ? 'widgets' : 'notebooks'
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -102,8 +112,28 @@ export function NotebooksScene(): JSX.Element {
                     </>
                 }
             />
-
-            <NotebooksTable />
+            <LemonTabs
+                activeKey={activeTab}
+                sceneInset
+                tabs={[
+                    {
+                        key: 'notebooks',
+                        label: 'Notebooks',
+                        link: urls.notebooks(),
+                        content: <NotebooksTable />,
+                    },
+                    ...(reusableWidgetsEnabled
+                        ? [
+                              {
+                                  key: 'widgets',
+                                  label: 'Reusable widgets',
+                                  link: `${urls.notebooks()}?tab=widgets`,
+                                  content: <ReusableWidgetCatalog />,
+                              },
+                          ]
+                        : []),
+                ]}
+            />
         </SceneContent>
     )
 }

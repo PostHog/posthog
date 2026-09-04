@@ -1369,6 +1369,11 @@
         "params": ["resourceKind", "resourceId"],
         "scope": "project"
     },
+    "reusableWidget": {
+        "template": "/notebooks/widgets/{widgetId}",
+        "params": ["widgetId"],
+        "scope": "project"
+    },
     "revenueSettings": {
         "template": "/data-management/revenue",
         "params": [],

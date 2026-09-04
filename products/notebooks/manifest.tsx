@@ -4,10 +4,23 @@ import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Notebooks',
+    scenes: {
+        ReusableWidget: {
+            name: 'Reusable widget',
+            import: () => import('./frontend/ReusableWidget/ReusableWidgetScene'),
+            projectBased: true,
+            activityScope: 'Notebook',
+            iconType: 'notebook',
+        },
+    },
+    routes: {
+        '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
+    },
     urls: {
         notebooks: (): string => '/notebooks',
         notebook: (shortId: string): string => `/notebooks/${shortId}`,
         canvas: (): string => `/canvas`,
+        reusableWidget: (widgetId: string): string => `/notebooks/widgets/${widgetId}`,
     },
     fileSystemTypes: {
         notebook: {

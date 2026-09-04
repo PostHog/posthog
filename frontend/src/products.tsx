@@ -204,6 +204,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-servers': ['McpGateway', 'mcpGateway'],
     '/mcp-servers/:tab': ['McpGateway', 'mcpGatewayTab'],
     '/metrics': ['Metrics', 'metrics'],
+    '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
@@ -841,6 +842,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'metrics',
         docsHref: 'https://posthog.com/docs/metrics',
     },
+    ReusableWidget: { name: 'Reusable widget', projectBased: true, activityScope: 'Notebook', iconType: 'notebook' },
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
@@ -1362,6 +1364,7 @@ export const productUrls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    reusableWidget: (widgetId: string): string => `/notebooks/widgets/${widgetId}`,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
