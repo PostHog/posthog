@@ -70,25 +70,30 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
               }
             : discardDashboardFilters
     const saveAction = variablesDirty && !filtersDirty ? saveEditModeChanges : saveDashboardFilters
-    const changeLabel = variablesDirty && !filtersDirty ? 'unsaved variables' : 'unsaved filters'
-    const changes: DashboardFilterChange[] =
-        variablesDirty && !filtersDirty
-            ? Object.values(effectiveDashboardVariableOverrides).map((variable) => {
-                  const persistedVariable = dashboard?.persisted_variables?.[variable.variableId]
-                  const dashboardVariable = variables.find((candidate) => candidate.id === variable.variableId)
-                  const previous =
-                      persistedVariable ??
-                      (dashboardVariable
-                          ? { value: dashboardVariable.default_value, isNull: dashboardVariable.isNull }
-                          : undefined)
-                  return {
-                      label: variable.code_name,
-                      previousValue: formatVariableValue(previous),
-                      value: formatVariableValue(variable),
-                      status: previous ? 'changed' : 'new',
-                  }
-              })
-            : filterChanges
+    let changeLabel = 'unsaved filters'
+    if (variablesDirty && !filtersDirty) {
+        changeLabel = 'unsaved variables'
+    } else if (variablesDirty && filtersDirty) {
+        changeLabel = 'unsaved changes'
+    }
+    const variableChanges: DashboardFilterChange[] = Object.values(effectiveDashboardVariableOverrides).map(
+        (variable) => {
+            const persistedVariable = dashboard?.persisted_variables?.[variable.variableId]
+            const dashboardVariable = variables.find((candidate) => candidate.id === variable.variableId)
+            const previous =
+                persistedVariable ??
+                (dashboardVariable
+                    ? { value: dashboardVariable.default_value, isNull: dashboardVariable.isNull }
+                    : undefined)
+            return {
+                label: variable.code_name,
+                previousValue: formatVariableValue(previous),
+                value: formatVariableValue(variable),
+                status: previous ? 'changed' : 'new',
+            }
+        }
+    )
+    const changes: DashboardFilterChange[] = [...filterChanges, ...(variablesDirty ? variableChanges : [])]
     const changedCount = changes.length
     const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
 
