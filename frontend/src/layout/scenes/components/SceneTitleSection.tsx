@@ -441,6 +441,14 @@ type SceneNameProps = {
 }
 
 /**
+ * A press that opens a menu or scrolls, rather than one that starts text entry. Ctrl+click is
+ * the macOS secondary press, so it counts as one even though it reports the primary button.
+ */
+function isSecondaryPress(e: React.MouseEvent): boolean {
+    return e.button !== 0 || e.ctrlKey
+}
+
+/**
  * Enter edit mode on the press instead of waiting for the click.
  *
  * `click` only fires on release, so a press-and-drag that starts on a view mode field never
@@ -449,15 +457,11 @@ type SceneNameProps = {
  * (Arc, when its toolbar is hidden) is then free to read the drag as a window move. Preventing
  * the default claims the press for the page and puts the caret in the field.
  *
- * Only a primary press is a text entry gesture. A secondary or middle press must keep its
- * usual browser behavior, so leave it alone. Ctrl+click is the macOS secondary press and
- * counts as one too.
- *
  * A markdown description can render a link inside the button. A press on that link belongs
  * to the link, so do not claim it.
  */
 function enterEditOnPress(e: React.MouseEvent, startEditing: () => void): void {
-    if (e.button !== 0 || e.ctrlKey) {
+    if (isSecondaryPress(e)) {
         return
     }
     if ((e.target as HTMLElement).closest('a, input, textarea')) {
@@ -551,7 +555,7 @@ export function SceneName({
     //
     // A read-only name has no press to claim, so leave its text selectable.
     const claimStrayPress = (e: React.MouseEvent): void => {
-        if (e.button !== 0 || e.ctrlKey) {
+        if (isSecondaryPress(e)) {
             return
         }
         if (!onChange || !canEdit) {
