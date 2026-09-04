@@ -1,6 +1,5 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "additionalProperties": false,
     "properties": {
         "compareFilter": {
             "description": "Compare to date range. When enabled, shows the current and previous period side by side.",

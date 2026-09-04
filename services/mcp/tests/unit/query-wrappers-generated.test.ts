@@ -63,19 +63,18 @@ describe('generated query wrappers', () => {
         ).toBe(false)
     })
 
-    it.each([
-        ['query-stickiness', { ...insightQueries[3][1], aggregation_group_type_index: 0 }],
-        [
-            'query-stickiness-actors',
-            {
-                day: 1,
-                source: { ...insightQueries[3][1], aggregation_group_type_index: 0 },
-            },
-        ],
-    ])('rejects group aggregation for %s', (toolName, input) => {
-        const tool = GENERATED_TOOLS[toolName]!()
+    it('does not advertise group aggregation for stickiness queries', () => {
+        const querySchema = z.toJSONSchema(GENERATED_TOOLS['query-stickiness']!().schema, {
+            io: 'input',
+            reused: 'inline',
+        })
+        const actorsSchema = z.toJSONSchema(GENERATED_TOOLS['query-stickiness-actors']!().schema, {
+            io: 'input',
+            reused: 'inline',
+        })
 
-        expect(tool.schema.safeParse(input).success).toBe(false)
+        expect(querySchema.properties).not.toHaveProperty('aggregation_group_type_index')
+        expect(actorsSchema.properties?.source).not.toHaveProperty('properties.aggregation_group_type_index')
     })
 
     it.each([
@@ -85,15 +84,5 @@ describe('generated query wrappers', () => {
         const tool = GENERATED_TOOLS['query-stickiness']!()
 
         expect(tool.schema.safeParse({ ...insightQueries[3][1], intervalCount }).success).toBe(expected)
-    })
-
-    it('preserves actor source descriptions when making them strict', () => {
-        const tool = GENERATED_TOOLS['query-stickiness-actors']!()
-        const schema = z.toJSONSchema(tool.schema, { io: 'input', reused: 'inline' })
-
-        expect(schema.properties?.source).toMatchObject({
-            additionalProperties: false,
-            description: 'The source stickiness insight query whose bar we are drilling into.',
-        })
     })
 })

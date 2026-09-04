@@ -1,6 +1,5 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "additionalProperties": false,
     "properties": {
         "compareFilter": {
             "description": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",

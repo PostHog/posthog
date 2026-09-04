@@ -1,6 +1,5 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "additionalProperties": false,
     "properties": {
         "breakdownBy": {
             "description": "Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.",

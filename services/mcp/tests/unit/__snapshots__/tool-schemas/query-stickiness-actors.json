@@ -1,6 +1,5 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "additionalProperties": false,
     "properties": {
         "compare": {
             "description": "Whether to pull from the previous period when `compareFilter` is enabled in the source.",
@@ -45,7 +44,6 @@
             "type": "integer"
         },
         "source": {
-            "additionalProperties": false,
             "description": "The source stickiness insight query whose bar we are drilling into.",
             "properties": {
                 "compareFilter": {
