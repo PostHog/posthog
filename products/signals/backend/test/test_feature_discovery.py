@@ -166,26 +166,29 @@ def test_feature_document_rejects_oversized_code_reference_instead_of_truncating
 
 @pytest.mark.asyncio
 async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() -> None:
+    candidate_titles = ["Session replay", "Replay playlists", *[f"Replay workflow {index}" for index in range(3, 32)]]
+    responses: list[str] = []
+    for index, title in enumerate(candidate_titles):
+        responses.append(_feature(title).model_dump_json())
+        has_more = index < len(candidate_titles) - 1
+        responses.append(
+            FeatureDiscoveryContinuation(
+                has_more=has_more,
+                next_candidate_title=candidate_titles[index + 1] if has_more else None,
+                reason=(
+                    "Another distinct replay workflow still needs a report."
+                    if has_more
+                    else "The remaining code is implementation detail."
+                ),
+            ).model_dump_json()
+        )
+
     session = MagicMock()
     session.task.id = "task-id"
     session.task_run.id = "run-id"
-    session.send_followup_raw = AsyncMock(
-        side_effect=[
-            _feature().model_dump_json(),
-            FeatureDiscoveryContinuation(
-                has_more=True,
-                next_candidate_title="Replay playlists",
-                reason="The replay playlist journey still needs a report.",
-            ).model_dump_json(),
-            _feature("Replay playlists").model_dump_json(),
-            FeatureDiscoveryContinuation(
-                has_more=False,
-                reason="The remaining code is implementation detail.",
-            ).model_dump_json(),
-        ]
-    )
+    session.send_followup_raw = AsyncMock(side_effect=responses)
     session.end = AsyncMock()
-    exploration = _exploration(["Session replay", "Replay playlists"])
+    exploration = _exploration(candidate_titles)
     start_session = AsyncMock(return_value=(session, exploration.model_dump_json()))
 
     with patch(
@@ -198,15 +201,20 @@ async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() ->
             context=MagicMock(),
         )
 
-    assert [feature.title for feature in result.features] == ["Session replay", "Replay playlists"]
-    assert session.send_followup_raw.await_count == 4
+    assert [feature.title for feature in result.features] == candidate_titles
+    assert session.send_followup_raw.await_count == len(candidate_titles) * 2
     assert start_session.await_args is not None
     exploration_prompt = start_session.await_args.kwargs["prompt"]
     assert "open pull requests or merge requests" in exploration_prompt
     assert "active remote branches" in exploration_prompt
     assert "relevant open issues" in exploration_prompt
     assert "Do not infer that no work is in flight from the default branch alone" in exploration_prompt
+    assert "whether the primary repository is a fork or mirror" in exploration_prompt
+    assert "canonical parent repository" in exploration_prompt
     assert "Build `feature_candidates` as an ordered ledger" in exploration_prompt
+    assert "Do not truncate the candidate ledger" in exploration_prompt
+    exploration_schema = json.loads(exploration_prompt.split("<jsonschema>\n", 1)[1].split("\n</jsonschema>", 1)[0])
+    assert "maxItems" not in exploration_schema["properties"]["feature_candidates"]
     assert "Administrative management and public consumption are separate candidates" in exploration_prompt
     assert "Do not repeat this ledger in `codebase_overview`" in exploration_prompt
     assert "`discovery_strategy` at most 600 characters" in exploration_prompt
@@ -214,12 +222,20 @@ async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() ->
     feature_prompt = session.send_followup_raw.await_args_list[0].args[0]
     assert "Only replay features" in feature_prompt
     assert "candidate `Session replay`" in feature_prompt
+    assert '"user_goal":"Use session replay."' in feature_prompt
+    assert "exactly one fresh subagent" in feature_prompt
+    assert "at most one feature-investigation subagent active at a time" in feature_prompt
     assert "structured set of bounded sections" in feature_prompt
     assert "open_questions" in feature_prompt
     assert "Do not guess about intended behavior" in feature_prompt
     assert "two to five concise, mutually exclusive `options`" in feature_prompt
     assert "Do not add an Other option" in feature_prompt
     assert "include only active work connected to this candidate" in feature_prompt
+    assert "Search for feature flags and variants" in feature_prompt
+    assert "Search for current instrumentation" in feature_prompt
+    assert "Distinguish instrumentation that exists from monitoring that would merely be possible" in feature_prompt
+    assert "do not make the human answer a current-state fact that repository evidence can resolve" in feature_prompt
+    assert "Keep the summary internally consistent with every open question" in feature_prompt
     assert "Do not merge distinct workflows merely because they share files" in feature_prompt
     assert "target 4 to 8 contiguous lines and never exceed 10" in feature_prompt
     assert "end_line = start_line + line_count - 1" in feature_prompt
@@ -242,6 +258,44 @@ async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() ->
     assert "even if another feature mentions it or shares implementation files" in continuation_prompt
     second_feature_prompt = session.send_followup_raw.await_args_list[2].args[0]
     assert "candidate `Replay playlists`" in second_feature_prompt
+    session.end.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_feature_discovery_corrects_a_continuation_that_does_not_make_progress() -> None:
+    session = MagicMock()
+    session.task.id = "task-id"
+    session.task_run.id = "run-id"
+    session.send_followup_raw = AsyncMock(
+        side_effect=[
+            _feature().model_dump_json(),
+            FeatureDiscoveryContinuation(
+                has_more=True,
+                next_candidate_title="Session replay",
+                reason="Session replay still needs a report.",
+            ).model_dump_json(),
+            FeatureDiscoveryContinuation(
+                has_more=False,
+                reason="Every distinct feature is documented.",
+            ).model_dump_json(),
+        ]
+    )
+    session.end = AsyncMock()
+
+    with patch(
+        "products.signals.backend.features.discovery.MultiTurnSession.start_raw",
+        new=AsyncMock(return_value=(session, _exploration().model_dump_json())),
+    ):
+        result = await run_multi_turn_feature_discovery(
+            repository="PostHog/posthog",
+            focus="Only replay features",
+            context=MagicMock(),
+        )
+
+    assert [feature.title for feature in result.features] == ["Session replay"]
+    assert session.send_followup_raw.await_count == 3
+    correction_prompt = session.send_followup_raw.await_args_list[2].args[0]
+    assert "previous decision selected `Session replay`, which is already documented" in correction_prompt
     session.end.assert_awaited_once_with()
 
 
