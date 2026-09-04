@@ -114,7 +114,7 @@ deeper, so the product is half-migrated.
 
 ### Tier 4: everything else
 
-Still on `ProductIntroduction`: pulse, engineering analytics,
+Still on `ProductIntroduction`: engineering analytics,
 comments, ingestion warnings (v1 and v2),
 Max conversation history, and data pipelines destinations and transformations
 (`frontend/src/scenes/data-pipelines/DataPipelinesHogFunctions.tsx` covers the last two).

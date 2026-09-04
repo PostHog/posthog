@@ -31,6 +31,7 @@ import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsE
 import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+import { pulseEmptyState } from 'products/pulse/frontend/emptyState/pulseEmptyState'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
@@ -376,6 +377,16 @@ export const DataCatalogNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
 // Notebooks detection counts notebooks on mount - answer "none yet".
 export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(notebooksEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/notebooks/': [200, { count: 0, results: [] }] } },
+})
+
+// Pulse detection counts briefs on mount; its run button also reads the focus configs.
+export const PulseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(pulseEmptyState, 'needs-setup', {
+    mocks: {
+        get: {
+            '/api/projects/:team_id/pulse/briefs/': [200, emptyEntityList],
+            '/api/projects/:team_id/pulse/brief_configs/': [200, emptyEntityList],
+        },
+    },
 })
 
 export const HeatmapsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(heatmapsEmptyState, 'needs-setup')
