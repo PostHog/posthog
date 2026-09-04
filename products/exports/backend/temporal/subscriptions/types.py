@@ -2,6 +2,8 @@ import uuid
 import typing
 import dataclasses
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.slo.types import SloConfig
 
 # Type names of these failures never appear in recipient-facing copy. When a safe code and message
@@ -23,7 +25,7 @@ def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDe
     seen: set[int] = set()
     current: typing.Optional[BaseException] = exc
     while current is not None and id(current) not in seen:
-        if getattr(type(current), "user_safe", False) is True:
+        if isinstance(current, ExposedHogQLError) or getattr(type(current), "user_safe", False) is True:
             code = getattr(current, "code_name", None)
             if not isinstance(code, str):
                 get_codes = getattr(current, "get_codes", None)

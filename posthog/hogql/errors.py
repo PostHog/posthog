@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .ast import Expr
@@ -8,7 +8,6 @@ if TYPE_CHECKING:
 
 
 class BaseHogQLError(Exception, ABC):
-    user_safe: ClassVar[bool] = False
     message: str
     start: Optional[int]
     end: Optional[int]
@@ -42,7 +41,6 @@ class BaseHogQLError(Exception, ABC):
 class ExposedHogQLError(BaseHogQLError):
     """An exception that can be exposed to the user."""
 
-    user_safe = True
     # Surfaced as the error code on API responses so clients can tell a deterministic query
     # failure from a transient blip without matching on the message. Subclasses override this
     # fallback with a more specific value.
