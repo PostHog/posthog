@@ -1,0 +1,67 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: MCP registry
+feature: mcp_registry
+url_prefix: /mcp-registry
+tools:
+    mcp-registry-discover:
+        operation: mcp_registry_servers_discover_retrieve
+        enabled: true
+        scopes:
+            - mcp_registry:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Discover MCP servers for a task
+        description: >
+            Find the MCP servers most likely to perform a task, ranked, with the instructions to connect to each one.
+            Describe the task in `intent` the way a person would ("deploy my site to vercel"), not as keywords.
+
+
+            Each candidate carries why it ranked where it did: `liveness` from a real handshake against the server,
+            `why` with the score breakdown, and `measured` with observed call volume and success rate when PostHog
+            Analytics has seen the server in use. `connect` gives the connection methods, most automated first, with
+            each step marked for the agent to run or for a person to do.
+
+
+            The index is a global crawl of the official MCP registry rather than a table in this project, so it is not
+            queryable in SQL. Relevance is keyword-based today, so a paraphrase can miss: prefer the words a server
+            would use about itself. Use `mcp-registry-server-get` for the full tool list of one candidate.
+        include_params:
+            - intent
+            - version
+            - limit
+    mcp-registry-server-get:
+        operation: mcp_registry_servers_retrieve
+        enabled: true
+        scopes:
+            - mcp_registry:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get an MCP server
+        description: >
+            Read one registry server by id, as returned by `mcp-registry-discover`. Adds the full advertised tool list,
+            per-version ranking scores, and connection instructions to what discover returns.
+
+
+            Measured usage is limited to what the calling project may see, so a server another project measured shows
+            its ranking but not that project's figures.
+    mcp-registry-servers-compare-retrieve:
+        operation: mcp_registry_servers_compare_retrieve
+        enabled: false
+    mcp-registry-servers-list:
+        operation: mcp_registry_servers_list
+        enabled: false
+    mcp-registry-servers-measured-projects-list:
+        operation: mcp_registry_servers_measured_projects_list
+        enabled: false
+    mcp-registry-servers-versions-list:
+        operation: mcp_registry_servers_versions_list
+        enabled: false

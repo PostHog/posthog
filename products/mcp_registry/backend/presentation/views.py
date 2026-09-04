@@ -46,7 +46,12 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     serializer_class = MCPRegistryServerListSerializer
-    scope_object = "INTERNAL"
+    # A real scope rather than INTERNAL: agents reach this over the MCP server, which
+    # authenticates with a personal API key or an OAuth token, and INTERNAL refuses both.
+    # The feature flag stays the boundary that keeps the index internal.
+    scope_object = "mcp_registry"
+    scope_object_read_actions = ["list", "retrieve", "discover", "versions", "compare", "measured_projects"]
+    scope_object_write_actions: list[str] = []
     posthog_feature_flag = MCP_REGISTRY_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPRegistryPagination

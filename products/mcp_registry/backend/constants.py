@@ -23,6 +23,9 @@ MEASURED_TEAM_LIMIT = 500
 # Shallow-probe batch size per scheduled run: stalest servers first, so the whole index
 # converges over successive days without one giant sweep.
 PROBE_BATCH_SIZE = 500
+# Probes wait on third-party servers, so they run in parallel. Kept modest because the
+# index spreads over many hosts and the sweep is background work, not a load test.
+PROBE_CONCURRENCY = 20
 PROBE_TIMEOUT_SECONDS = 10
 PROBE_TOOL_LIMIT = 100
 PROBE_TOOL_DESCRIPTION_MAX_CHARS = 500
