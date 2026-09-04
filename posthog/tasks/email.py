@@ -1771,11 +1771,13 @@ def send_hog_functions_daily_digest() -> None:
     logger.info("Starting HogFunctions daily digest task")
 
     # Query ClickHouse to find all teams with failures and their hog_function_ids
+    # `inputs_failed` counts too: a destination that throws while building its inputs never
+    # runs, so it emits neither `succeeded` nor `failed` and would otherwise be silent here.
     failures_query = """
     SELECT DISTINCT team_id, app_source_id as hog_function_id
     FROM app_metrics2
     WHERE app_source = 'hog_function'
-    AND metric_name = 'failed'
+    AND metric_name IN ('failed', 'inputs_failed')
     AND count > 0
     AND timestamp >= NOW() - INTERVAL 24 HOUR
     AND timestamp < NOW()
@@ -1850,7 +1852,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
     AND app_source = 'hog_function'
     AND timestamp >= NOW() - INTERVAL 24 HOUR
     AND timestamp < NOW()
-    AND metric_name IN ('succeeded', 'failed')
+    AND metric_name IN ('succeeded', 'failed', 'inputs_failed')
     {hog_function_filter}
     GROUP BY app_source_id, metric_name
     HAVING total_count > 0
@@ -1883,7 +1885,8 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         hog_function_id, metric_name, count = str(row[0]), row[1], row[2]
         if hog_function_id not in metrics_by_function:
             metrics_by_function[hog_function_id] = {"succeeded": 0, "failed": 0}
-        metrics_by_function[hog_function_id][metric_name] = count
+        bucket = "succeeded" if metric_name == "succeeded" else "failed"
+        metrics_by_function[hog_function_id][bucket] += count
 
     # Only include functions that have failures
     failed_function_ids = [fid for fid, metrics in metrics_by_function.items() if metrics["failed"] > 0]
