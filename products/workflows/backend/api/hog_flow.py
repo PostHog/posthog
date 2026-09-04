@@ -795,6 +795,10 @@ def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
 
 
+def _is_mcp_client(request: Request) -> bool:
+    return request.headers.get("x-posthog-client") == "mcp"
+
+
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
     # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
@@ -2853,6 +2857,29 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
 
+    def _writes_to_draft(self, instance: HogFlow) -> bool:
+        # Which object this save lands in, mirroring the routing in perform_update: a content edit on an
+        # active workflow stages a draft for MCP callers and for a body that opts into stage_draft.
+        # Everything else — including an internal re-save with no request — writes the live row.
+        request = self.context.get("request")
+        if request is None or instance.status != HogFlow.State.ACTIVE:
+            return False
+        if not set(getattr(request, "data", None) or {}) & set(DRAFT_CONTENT_FIELDS):
+            return False
+        return _is_mcp_client(request) or self._stages_draft()
+
+    def _stored_conversion_base(self, instance: Optional[HogFlow]) -> Optional[dict]:
+        # The conversion a partial patch merges into: whichever copy this save is about to overwrite.
+        # A draft write composes on the staged draft (the same rule the graph endpoint follows) — it
+        # holds the newer goal, and may have deliberately cleared it, so live is the wrong base there.
+        # A live write reads live even when a draft exists, because the draft is not what it replaces.
+        if instance is None:
+            return None
+        if self._writes_to_draft(instance) and isinstance(instance.draft, dict):
+            draft_conversion = instance.draft.get("conversion")
+            return draft_conversion if isinstance(draft_conversion, dict) else None
+        return instance.conversion if isinstance(instance.conversion, dict) else None
+
     def to_internal_value(self, data):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
@@ -3092,15 +3119,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # workflow that measures nothing, with no error to say so. Carry the omitted parts over from
             # the stored value; a caller that means to clear one sends it explicitly as [].
             #
-            # Only when nothing is staged. A content edit on an active workflow routes to the draft, and
-            # the draft is where a previous edit's goal lives — merging from live there would revert it,
-            # and would un-clear a goal the draft deliberately emptied. With no draft, _write_draft bases
-            # itself on a snapshot of live, so live is the right base for both routes.
-            if self.partial and instance and not instance.draft and isinstance(instance.conversion, dict):
+            # The base is the copy this save overwrites — the staged draft for a draft write, live for a
+            # live one (see _stored_conversion_base). Reading the wrong one would revert a staged goal,
+            # or un-clear one a draft deliberately emptied.
+            stored_base = self._stored_conversion_base(instance) if self.partial else None
+            if stored_base is not None:
                 # Normalize a legacy goal (event object in `filters`) before merging: carried over raw it
                 # would land past the to_internal_value relocation, and skipping it would drop the only
                 # copy of a goal the patch never asked to change.
-                stored_conversion = _relocate_legacy_conversion_event_object(instance.conversion)
+                stored_conversion = _relocate_legacy_conversion_event_object(stored_base)
                 for key in ("filters", "events", "window_minutes"):
                     stored = stored_conversion.get(key)
                     if key in conversion or stored is None:
@@ -3877,7 +3904,7 @@ class HogFlowViewSet(
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
-        return request.headers.get("x-posthog-client") == "mcp"
+        return _is_mcp_client(request)
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,
