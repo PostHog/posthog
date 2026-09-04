@@ -1,9 +1,9 @@
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
+import { isDashboardFilterOverrideEmpty } from './dashboardFilterEmpty'
 
-describe('isDashboardFilterEmpty', () => {
+describe('isDashboardFilterOverrideEmpty', () => {
     const emptyCases: Array<[string, DashboardFilter | TileFilters | null | undefined]> = [
         ['null', null],
         ['undefined', undefined],
@@ -13,7 +13,7 @@ describe('isDashboardFilterEmpty', () => {
     ]
 
     test.each(emptyCases)('returns true for %s', (_, filter) => {
-        expect(isDashboardFilterEmpty(filter)).toBe(true)
+        expect(isDashboardFilterOverrideEmpty(filter)).toBe(true)
     })
 
     const nonEmptyCases: Array<[string, DashboardFilter | TileFilters]> = [
@@ -45,6 +45,6 @@ describe('isDashboardFilterEmpty', () => {
     ]
 
     test.each(nonEmptyCases)('returns false for %s', (_, filter) => {
-        expect(isDashboardFilterEmpty(filter)).toBe(false)
+        expect(isDashboardFilterOverrideEmpty(filter)).toBe(false)
     })
 })

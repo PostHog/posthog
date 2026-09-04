@@ -1,7 +1,7 @@
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
 
 /** True when the filter does not override a saved dashboard or tile filter. */
-export function isDashboardFilterEmpty(filter: DashboardFilter | TileFilters | null | undefined): boolean {
+export function isDashboardFilterOverrideEmpty(filter: DashboardFilter | TileFilters | null | undefined): boolean {
     return (
         !filter ||
         (filter.date_from === undefined &&
