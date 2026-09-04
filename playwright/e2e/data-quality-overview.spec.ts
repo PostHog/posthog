@@ -52,7 +52,12 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     await expect(page.getByText(CHECK_NAME)).toBeVisible()
 
     await page.getByLabel(`Actions for check ${CHECK_NAME}`).click()
+    const metadataResponse = page.waitForResponse(
+        (response) =>
+            response.url().includes('/query/HogQLMetadata/') && response.request().method() === 'POST' && response.ok()
+    )
     await page.getByRole('menuitem', { name: 'Edit' }).click()
+    await metadataResponse
     await page.getByLabel('Description').fill('Every order keeps a positive id')
     const saveButton = page.getByTestId('data-quality-check-save')
     await expect(saveButton).toBeEnabled()
