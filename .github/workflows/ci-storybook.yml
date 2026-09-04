@@ -378,25 +378,26 @@ jobs:
 
             # npm retries a failed connection, but a reset during a tarball body read
             # reaches npm as a plain stream error that neither npm nor pacote retries, so
-            # one reset fails the install on the first attempt. This loop is the only
-            # retry layer: --fetch-retries=0 stops npm adding its own attempts under each
-            # of these, which would multiply the attempts instead of adding to them, and
-            # the short fetch timeout keeps a stalled registry inside the job budget
-            # (npm waits 5 minutes by default, which alone outlasts some of these jobs).
-            # The wait is randomized because a registry incident hits every shard at once,
-            # and it grows with each attempt to spread the shards further apart the longer
-            # the incident lasts. Only the install repeats: a build failure is deterministic.
+            # one reset fails the install on the first attempt. One retry covers that:
+            # the failure is a single reset, and a registry incident that outlasts a
+            # second attempt outlasts a third as well. This is the only retry layer.
+            # --fetch-retries=0 stops npm adding its own attempts under each of these,
+            # which would multiply the attempts instead of adding to them, and the short
+            # fetch timeout keeps a stalled registry inside the job budget (npm waits
+            # 5 minutes per request by default). The wait is randomized because an
+            # incident hits every shard at once, and a fixed delay would retry them all
+            # in the same instant too. Only the install repeats: a build failure is
+            # deterministic.
             - name: Install VR CLI
               shell: bash
               working-directory: vr-cli/products/visual_review/cli
               run: |
-                  attempt=0
-                  until npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; do
-                      attempt=$((attempt + 1))
-                      [ "$attempt" -lt 3 ] || { echo "::error::VR CLI install failed after 3 attempts"; exit 1; }
-                      echo "::warning::VR CLI install attempt $attempt failed; retrying"
-                      sleep $((RANDOM % (30 * attempt)))
-                  done
+                  install() { npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; }
+                  if ! install; then
+                      echo "::warning::VR CLI install failed, retrying once"
+                      sleep $((5 + RANDOM % 26))
+                      install
+                  fi
                   npm run build
 
             - name: Save VR CLI npm cache
@@ -648,13 +649,12 @@ jobs:
               shell: bash
               working-directory: vr-cli/products/visual_review/cli
               run: |
-                  attempt=0
-                  until npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; do
-                      attempt=$((attempt + 1))
-                      [ "$attempt" -lt 3 ] || { echo "::error::VR CLI install failed after 3 attempts"; exit 1; }
-                      echo "::warning::VR CLI install attempt $attempt failed; retrying"
-                      sleep $((RANDOM % (30 * attempt)))
-                  done
+                  install() { npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; }
+                  if ! install; then
+                      echo "::warning::VR CLI install failed, retrying once"
+                      sleep $((5 + RANDOM % 26))
+                      install
+                  fi
                   npm run build
 
             # always() keeps the upload after a test-runner failure, which is the run a
@@ -940,13 +940,12 @@ jobs:
               shell: bash
               working-directory: vr-cli/products/visual_review/cli
               run: |
-                  attempt=0
-                  until npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; do
-                      attempt=$((attempt + 1))
-                      [ "$attempt" -lt 3 ] || { echo "::error::VR CLI install failed after 3 attempts"; exit 1; }
-                      echo "::warning::VR CLI install attempt $attempt failed; retrying"
-                      sleep $((RANDOM % (30 * attempt)))
-                  done
+                  install() { npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; }
+                  if ! install; then
+                      echo "::warning::VR CLI install failed, retrying once"
+                      sleep $((5 + RANDOM % 26))
+                      install
+                  fi
                   npm run build
 
             - name: Complete Visual Review run

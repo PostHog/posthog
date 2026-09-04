@@ -982,13 +982,12 @@ jobs:
               shell: bash
               working-directory: products/visual_review/cli
               run: |
-                  attempt=0
-                  until npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; do
-                      attempt=$((attempt + 1))
-                      [ "$attempt" -lt 3 ] || { echo "::error::VR CLI install failed after 3 attempts"; exit 1; }
-                      echo "::warning::VR CLI install attempt $attempt failed; retrying"
-                      sleep $((RANDOM % (30 * attempt)))
-                  done
+                  install() { npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; }
+                  if ! install; then
+                      echo "::warning::VR CLI install failed, retrying once"
+                      sleep $((5 + RANDOM % 26))
+                      install
+                  fi
                   npm run build
                   npm link
 
@@ -1293,13 +1292,12 @@ jobs:
               shell: bash
               working-directory: products/visual_review/cli
               run: |
-                  attempt=0
-                  until npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; do
-                      attempt=$((attempt + 1))
-                      [ "$attempt" -lt 3 ] || { echo "::error::VR CLI install failed after 3 attempts"; exit 1; }
-                      echo "::warning::VR CLI install attempt $attempt failed; retrying"
-                      sleep $((RANDOM % (30 * attempt)))
-                  done
+                  install() { npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=60000; }
+                  if ! install; then
+                      echo "::warning::VR CLI install failed, retrying once"
+                      sleep $((5 + RANDOM % 26))
+                      install
+                  fi
                   npm run build
                   npm link
 
