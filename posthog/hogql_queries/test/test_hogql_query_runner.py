@@ -11,6 +11,7 @@ from posthog.schema import (
     DateRange,
     EventsScanWarning,
     EventsScanWarningReason,
+    EventsScanWarningSource,
     HogQLFilters,
     HogQLPropertyFilter,
     HogQLQuery,
@@ -564,6 +565,8 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             scan_warnings = [warning for warning in response.warnings or [] if isinstance(warning, EventsScanWarning)]
             self.assertEqual([warning.reason for warning in scan_warnings], [EventsScanWarningReason.NO_TIME_BOUND])
+            self.assertEqual([warning.source for warning in scan_warnings], [EventsScanWarningSource.FILTERS])
+            self.assertIn("No date range is applied to this query", scan_warnings[0].message)
 
     def test_response_blames_the_test_account_setting_for_a_filter_it_added(self):
         self.team.test_account_filters = [

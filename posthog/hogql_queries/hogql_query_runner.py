@@ -328,12 +328,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             as_written, _ = self._parse_query()
             filters = self.query.filters
             without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None
-            if filters and find_placeholders(as_written).has_filters:
+            if find_placeholders(as_written).has_filters:
+                # Without a filters object the placeholder still became `true`, so the finding belongs to
+                # the filters the UI did not supply, not to a filter nobody can find.
+                plain_filters = (
+                    filters.model_copy(update={"filterTestAccounts": False})
+                    if filters is not None and filters.filterTestAccounts
+                    else None
+                )
                 # Called only when there is a finding to attribute, so a clean query pays no second expansion
                 without_test_accounts = (
-                    (lambda: self._expand_query(filters.model_copy(update={"filterTestAccounts": False})))
-                    if filters.filterTestAccounts
-                    else (lambda: query)
+                    (lambda: self._expand_query(plain_filters)) if plain_filters is not None else (lambda: query)
                 )
             return events_scan_warnings(query, self.shared_database, as_written, without_test_accounts)
         except Exception:
