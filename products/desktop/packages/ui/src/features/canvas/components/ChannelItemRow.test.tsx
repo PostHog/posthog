@@ -493,6 +493,33 @@ describe("ChannelItemRow", () => {
     );
   });
 
+  it("opens a canvases v2 board in a new tab at the board URL", () => {
+    const board = item({
+      key: "canvas:b1",
+      kind: "canvas",
+      id: "b1",
+      title: "Status board",
+      canvasVersion: 2,
+      authorUuid: "u-1",
+    });
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={board}
+        channelId="channel-1"
+        onAddToCommandCenter={() => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Status board"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith(
+      "/spaces/channel-1/canvases-v2/b1",
+    );
+  });
+
   it("keeps the hover sidebar open while the context menu is open", () => {
     vi.useFakeTimers();
     try {

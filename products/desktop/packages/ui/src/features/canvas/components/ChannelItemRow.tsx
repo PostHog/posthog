@@ -436,6 +436,7 @@ export function ChannelItemRow({
             kind: "canvas",
             id: item.id,
             title: item.title,
+            canvasVersion: item.canvasVersion,
             isPinned: item.pinned,
             channelId,
             ...(canFileCanvas

@@ -57,7 +57,6 @@ export function BoardFrame({
     return (
       <div
         ref={mountRef}
-        title={BOARD_FRAME_TITLE}
         className={`absolute inset-0 h-full w-full ${inertClass}`}
       />
     );

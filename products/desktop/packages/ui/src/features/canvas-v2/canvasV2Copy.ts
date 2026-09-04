@@ -11,6 +11,7 @@ export const CANVASES_V2_DESCRIPTION =
 
 export const NEW_BOARD_ACTION = "New board…";
 export const RENAME_BOARD_ACTION = "Rename…";
+export const COPY_BOARD_LINK_ACTION = "Copy link";
 export const DELETE_BOARD_ACTION = "Delete…";
 export const BACK_TO_CANVASES_ACTION = "Back to canvases";
 

@@ -45,6 +45,8 @@ export interface PendingEntry {
 export interface BoardSyncState {
   boardId: string;
   name: string;
+  /** The space the board is filed in, for a share link and a back link. */
+  channelId: string | null;
   /** The board at the head: the server snapshot folded with the log and the pending ops. */
   snapshot: CanvasV2Snapshot;
   headSeq: number;
@@ -146,6 +148,7 @@ export class BoardSyncClient {
     try {
       const board = await this.api.get(this.boardId);
       this.name = board.name;
+      this.channelId = board.channelId;
       this.baseSnapshot = board.snapshot;
       this.baseSeq = board.snapshotSeq;
       this.headSeq = board.headSeq;
@@ -648,6 +651,8 @@ export class BoardSyncClient {
     return "synced";
   }
 
+  private channelId: string | null = null;
+
   setName(name: string): void {
     if (this.name === name) return;
     this.name = name;
@@ -658,6 +663,7 @@ export class BoardSyncClient {
     return {
       boardId: this.boardId,
       name: this.name,
+      channelId: this.channelId,
       snapshot: this.snapshot,
       headSeq: this.headSeq,
       log: this.log,

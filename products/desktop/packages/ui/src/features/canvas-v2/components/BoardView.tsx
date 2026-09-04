@@ -1,4 +1,8 @@
-import { ArrowLeftIcon, SquaresFourIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  LinkIcon,
+  SquaresFourIcon,
+} from "@phosphor-icons/react";
 import {
   BOARD_FIT_MAX_ZOOM,
   boardBounds,
@@ -28,10 +32,12 @@ import {
 } from "@posthog/shared";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
+import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import {
   BACK_TO_CANVASES_ACTION,
   BOARD_LOAD_ERROR_DESCRIPTION,
   BOARD_LOAD_ERROR_TITLE,
+  COPY_BOARD_LINK_ACTION,
   DEFAULT_BOARD_NAME,
   RENAME_BOARD_ACTION,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
@@ -165,6 +171,7 @@ export function BoardView({
   useEffect(() => {
     markCanvasViewed(boardId, Date.now());
   }, [boardId, markCanvasViewed]);
+  const shareChannelId = channelId ?? state.channelId;
   const [renaming, setRenaming] = useState(false);
   const { renameBoard } = useCanvasV2BoardMutations();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -329,6 +336,20 @@ export function BoardView({
           )}
         </h1>
         <div className="ml-auto flex shrink-0 items-center gap-2.5">
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={COPY_BOARD_LINK_ACTION}
+            title={COPY_BOARD_LINK_ACTION}
+            disabled={!shareChannelId}
+            onClick={() => {
+              if (shareChannelId) {
+                void copyCanvasLink(shareChannelId, boardId, "canvas", 2);
+              }
+            }}
+          >
+            <LinkIcon />
+          </Button>
           <PresenceFaces peers={peers} />
           <SyncChip status={state.status} />
         </div>

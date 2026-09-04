@@ -6,6 +6,7 @@ import {
   CANVAS_V2_HOST_TO_FRAME_CHANNEL,
   type HostToBoardFrameMessage,
 } from "@posthog/shared";
+import { BOARD_FRAME_TITLE } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 
 export interface BoardWebviewElement extends HTMLElement {
   send(channel: string, message: unknown): void;
@@ -30,6 +31,7 @@ export function createBoardWebview(): BoardWebviewElement {
   webview.setAttribute("partition", CANVAS_V2_BOARD_PARTITION);
   webview.setAttribute("src", CANVAS_V2_BOARD_URL);
   webview.setAttribute("name", CANVAS_V2_FRAME_NAME);
+  webview.setAttribute("aria-label", BOARD_FRAME_TITLE);
   webview.className = "absolute inset-0 h-full w-full border-0";
   return webview;
 }

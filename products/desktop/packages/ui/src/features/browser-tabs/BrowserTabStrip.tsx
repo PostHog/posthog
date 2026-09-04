@@ -36,6 +36,7 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { feedIdFromHref } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
+import { useSpaceBoardsAsCanvases } from "@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
@@ -140,6 +141,7 @@ function BrowserTabStripImpl() {
   const params = useParams({ strict: false }) as {
     channelId?: string;
     dashboardId?: string;
+    boardId?: string;
     taskId?: string;
     feedId?: string;
   };
@@ -251,7 +253,13 @@ function BrowserTabStripImpl() {
   // navigate — keyed off the route, not the tab's stored (lagging) target.
   // Only poll the all-tasks list when a task tab actually needs a title.
   const hasTaskTab = snapshot.tabs.some((t) => t.taskId != null);
-  const { dashboards } = useDashboards(params.channelId);
+  const { dashboards: canvases } = useDashboards(params.channelId);
+  const boards = useSpaceBoardsAsCanvases(params.channelId);
+  const dashboards = useMemo(
+    () => (boards.length === 0 ? canvases : [...canvases, ...boards]),
+    [canvases, boards],
+  );
+  const canvasId = params.dashboardId ?? params.boardId ?? null;
   const { dashboard: activeRecord } = useDashboard(params.dashboardId);
   const { data: allTasks } = useTasks(undefined, { enabled: hasTaskTab });
   // Keyed on the active SESSION, not the path param: on Activity the session
@@ -293,9 +301,10 @@ function BrowserTabStripImpl() {
       if (activeTaskRecord?.id === sessionId) return activeTaskRecord.title;
       return allTasks?.find((t) => t.id === sessionId)?.title ?? null;
     }
-    if (params.dashboardId) {
-      if (activeRecord?.id === params.dashboardId) return activeRecord.name;
-      return dashboards.find((d) => d.id === params.dashboardId)?.name ?? null;
+    if (canvasId) {
+      if (activeRecord && activeRecord.id === canvasId)
+        return activeRecord.name;
+      return dashboards.find((d) => d.id === canvasId)?.name ?? null;
     }
     if (activeActivityReportId) {
       if (activeReportRecord?.id !== activeActivityReportId) return null;
@@ -304,7 +313,7 @@ function BrowserTabStripImpl() {
     return null;
   }, [
     activeSession.taskId,
-    params.dashboardId,
+    canvasId,
     activeActivityReportId,
     activeTaskRecord,
     allTasks,
@@ -376,7 +385,7 @@ function BrowserTabStripImpl() {
     // decision is made on: it is all-null outside its vocabulary, so two
     // unrelated routes look identical through it.
     const identity: TabIdentity = {
-      dashboardId: params.dashboardId ?? null,
+      dashboardId: canvasId,
       // `activeSession`, not `params`: Activity and a feed read a session into
       // the pane from their route's SEARCH rather than a path param, so the tab
       // would otherwise show "New tab" over an open session.
@@ -499,7 +508,7 @@ function BrowserTabStripImpl() {
     locationIsCurrent,
     settledTabId,
     params.channelId,
-    params.dashboardId,
+    canvasId,
     routeChannelSection,
     routeAppView,
     locationHref,
@@ -556,7 +565,7 @@ function BrowserTabStripImpl() {
         // route (instant) rather than its stored ids (which lag a navigation).
         const isActive = t.id === activeTabId;
         const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
-        const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
+        const dashId = isActive ? canvasId : t.dashboardId;
         const channelId = isActive
           ? (params.channelId ?? activeSession.channelId ?? null)
           : t.channelId;
@@ -665,7 +674,7 @@ function BrowserTabStripImpl() {
     activeTaskRecord,
     activeTabId,
     params.channelId,
-    params.dashboardId,
+    canvasId,
     activeSession.taskId,
     activeSession.channelId,
     activeActivityReportId,
