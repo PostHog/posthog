@@ -147,6 +147,7 @@ from products.signals.backend.scout_harness.tools.runs import (
     fleet_findings_summary,
     get_run,
     recent_runs_per_scout,
+    run_id_for_sandbox_task,
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -1271,30 +1272,32 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = request.validated_data
+        team_id = _canonical_team_id(self)
         run_id = data.get("run_id") or None
         # `run_id` only stamps best-effort `created_by_run_id` lineage — a memory write must
-        # never be lost over it. So an unverifiable `run_id` is dropped (lineage left null),
-        # not rejected. We still won't stamp a `run_id` that isn't a run on this project: the
-        # agent's MCP token pins us to a team, but `run_id` is a free field on the body and a
-        # foreign-team UUID would otherwise create a cross-team `created_by_run_id` reference.
-        # Bad UUIDs are blocked by `UUIDField` in the serializer.
-        if (
-            run_id is not None
-            and not SignalScoutRun.objects.filter(id=run_id, team_id=_canonical_team_id(self)).exists()
-        ):
+        # never be lost over it. So an unverifiable `run_id` is dropped, not rejected: the
+        # serializer coerces one it can't parse to None, and one that names no run on this project
+        # is dropped here. The project check is what keeps `run_id` from creating a cross-team
+        # `created_by_run_id` reference — the agent's MCP token pins us to a team, but `run_id`
+        # is a free field on the body.
+        if run_id is not None and not SignalScoutRun.objects.filter(id=run_id, team_id=team_id).exists():
             run_id = None
+        # Nothing usable came off the body, so fall back to the run the caller's sandbox token is
+        # bound to. A scout copies `run_id` out of its prompt by hand and a share of those copies
+        # arrive truncated, which used to cost the entry its run link; the token binding is the
+        # server's own record of which run is writing, so lineage survives the typo.
+        if run_id is None:
+            run_id = run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
         try:
             entry = remember(
-                team_id=_canonical_team_id(self),
+                team_id=team_id,
                 key=data["key"],
                 content=data["content"],
                 run_id=str(run_id) if run_id is not None else None,
                 # Derived from the token's bound task, never from the body: a report-pipeline
                 # stage has no run to point `run_id` at, and a writer that could name itself
                 # could name a scout's skill instead.
-                identity=pipeline_writer_identity(
-                    task_id=_sandbox_bound_task_id(request), team_id=_canonical_team_id(self)
-                ),
+                identity=pipeline_writer_identity(task_id=_sandbox_bound_task_id(request), team_id=team_id),
                 expires_at=data.get("expires_at"),
             )
         except InvalidScratchpadError as exc:
@@ -1444,11 +1447,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 if _may_read_reports(request, self.team.parent_team or self.team)
                 # Every derived origin quotes report content (id, title, and the reviewer's / user's
                 # text), so a caller without report read access must not see any of them.
-                else (
-                    SignalScoutNote.Origin.REPORT_DISMISSAL,
-                    SignalScoutNote.Origin.REPORT_DISCUSSION,
-                    SignalScoutNote.Origin.REPORT_FEEDBACK,
-                )
+                else SignalScoutNote.derived_origins()
             ),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)

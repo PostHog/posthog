@@ -268,6 +268,18 @@ class ExposureQueryBuilder:
 
         return event_predicate
 
+    def build_entity_key_filter(self) -> ast.Expr:
+        """
+        For group experiments, excludes exposure events that don't carry the group key.
+        SDKs emit these when the flag is evaluated before a group is set; without this
+        filter they all collapse into a single entity with entity_id = '', which can
+        absorb a large share of the traffic under one variant. Funnels apply the same
+        rule to aggregation_target when aggregating by group.
+        """
+        if self.context.entity_key == "person_id":
+            return ast.Constant(value=True)
+        return ast.Call(name="notEmpty", args=[ast.Field(chain=[self.context.entity_key])])
+
     def build_exposure_predicate(self) -> ast.Expr:
         """
         Builds the exposure predicate as an AST expression.
@@ -280,6 +292,7 @@ class ExposureQueryBuilder:
                 AND {event_predicate}
                 AND {test_accounts_filter}
                 AND {variant_property} IN {variants}
+                AND {entity_key_filter}
                 """,
                 placeholders={
                     "date_from": self.context.date_range_query.date_from_as_hogql(),
@@ -288,6 +301,7 @@ class ExposureQueryBuilder:
                     "variant_property": self.build_variant_property(),
                     "variants": ast.Constant(value=list(self.context.variants)),
                     "test_accounts_filter": self.build_test_accounts_filter(),
+                    "entity_key_filter": self.build_entity_key_filter(),
                 },
             )
         )

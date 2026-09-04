@@ -974,7 +974,7 @@ describe("AgentServer HTTP Mode", () => {
       return testServer;
     }
 
-    it("reports cumulative run token usage into TaskRun.state after each settled turn", () => {
+    it("reports cumulative run token usage into TaskRun.state after each settled turn", async () => {
       const testServer = createUsageTestServer();
       const turnUsage = {
         inputTokens: 100,
@@ -987,7 +987,9 @@ describe("AgentServer HTTP Mode", () => {
       testServer.recordTurnUsage(turnUsage);
       testServer.recordTurnUsage(turnUsage);
 
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() =>
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(2),
+      );
       expect(testServer.posthogAPI.updateTaskRun).toHaveBeenNthCalledWith(
         1,
         "task-1",

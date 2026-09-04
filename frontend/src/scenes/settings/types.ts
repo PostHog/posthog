@@ -46,6 +46,7 @@ export type SettingSectionId =
     | 'environment-secret-api-keys'
     | 'environment-surveys'
     | 'environment-task-agents'
+    | 'environment-tracing'
     | 'environment-web-analytics'
     | 'environment-workflows'
     | 'environment-danger-zone'
@@ -123,6 +124,7 @@ export type SettingId =
     | 'core-memory'
     | 'correlation-analysis'
     | 'csp-reporting'
+    | 'custom-bot-definitions'
     | 'customer-analytics-accounts'
     | 'customer-analytics-calendar-sync'
     | 'customer-analytics-dashboard-events'
@@ -168,6 +170,7 @@ export type SettingId =
     | 'feature-flag-default-evaluation-contexts'
     | 'feature-flag-default-release-conditions'
     | 'feature-flag-evaluation-context-suggestions'
+    | 'feature-flag-require-tags'
     | 'feature-flag-require-evaluation-contexts'
     | 'feature-flag-secure-api-key'
     | 'feature-flags-interface'
@@ -272,6 +275,8 @@ export type SettingId =
     | 'task-agent-my-preference'
     | 'task-agent-project-default'
     | 'theme'
+    | 'tracing-distinct-id-attribute-keys'
+    | 'tracing-session-id-attribute-keys'
     | 'user-delete'
     | 'user-groups'
     | 'variables'
@@ -341,6 +346,13 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
     searchValue?: string
+
+    /**
+     * Additional search terms that help users find this section and the settings inside it
+     * (e.g. ['usage', 'invoice'] on Billing). A section that is a top-level link has no settings
+     * to carry keywords of its own, so this is the only way to make it answer to a synonym.
+     */
+    keywords?: string[]
 
     /**
      * If the setting is restricted, the resource type and minimum access level

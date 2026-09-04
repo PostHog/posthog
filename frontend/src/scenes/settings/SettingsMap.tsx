@@ -25,6 +25,7 @@ import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
+import { CustomBotDefinitions } from 'scenes/settings/environment/CustomBotDefinitions'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
@@ -105,6 +106,7 @@ import {
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
     RequireEvaluationContexts,
+    RequireFeatureFlagTags,
 } from './environment/FeatureFlagSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
@@ -141,6 +143,8 @@ import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/Surve
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamAuthorizedURLs, TeamBusinessModel, TeamTimezone, TeamVariables } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TracingDistinctIdAttributeKeys } from './environment/TracingDistinctIdAttributeKeys'
+import { TracingSessionIdAttributeKeys } from './environment/TracingSessionIdAttributeKeys'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
@@ -306,6 +310,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
                 keywords: ['test account', 'internal', 'exclude', 'filter'],
+            },
+            {
+                // Project-wide, like internal user filtering above: these definitions feed the
+                // `Is bot` property, which is available to every query, not only web analytics.
+                id: 'custom-bot-definitions',
+                title: 'Custom bots',
+                description:
+                    'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors.',
+                docsUrl: 'https://posthog.com/docs/web-analytics/bot-detection',
+                component: <CustomBotDefinitions />,
+                keywords: ['bot', 'crawler', 'spider', 'scraper', 'user agent', 'ai'],
             },
             {
                 id: 'business-model',
@@ -754,6 +769,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Show a confirmation modal before saving changes to existing feature flags, helping prevent accidental changes to release conditions.',
                 component: <FlagChangeConfirmationSettings />,
                 keywords: ['confirmation', 'safety', 'change', 'release'],
+            },
+            {
+                id: 'feature-flag-require-tags',
+                title: 'Require tags',
+                description:
+                    'Require every new feature flag to have at least one tag, and stop a tagged flag losing its last one, so flags stay attributable to a team or workstream. Flags created for surveys, experiments, early access features, product tours, and web experiments are exempt.',
+                component: <RequireFeatureFlagTags />,
+                keywords: ['tag', 'tags', 'require', 'governance'],
             },
             {
                 id: 'feature-flag-require-evaluation-contexts',
@@ -1314,6 +1337,47 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-tracing',
+        title: 'Tracing',
+        group: 'Products',
+        flag: ['TRACING', 'TRACING_SESSION_PERSON_LINKS'],
+        settings: [
+            {
+                id: 'tracing-distinct-id-attribute-keys',
+                title: 'Link to person',
+                description: (
+                    <>
+                        The span attributes PostHog reads to identify which person a trace belongs to. A span is linked
+                        when any of these attributes holds one of the person&apos;s distinct IDs. Defaults to{' '}
+                        <code>posthogDistinctId</code>. Add keys only if your pipeline emits the person identifier under
+                        different attributes.
+                    </>
+                ),
+                searchDescription:
+                    "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
+                component: <TracingDistinctIdAttributeKeys />,
+                keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'tracing-session-id-attribute-keys',
+                title: 'Link to session',
+                description: (
+                    <>
+                        The span attributes PostHog reads to identify which session a trace belongs to, checked in order
+                        with the first match winning, followed by other common session ID attributes. Defaults to{' '}
+                        <code>sessionId</code>. Add keys only if your pipeline emits the session ID under different
+                        attributes.
+                    </>
+                ),
+                searchDescription:
+                    'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
+                component: <TracingSessionIdAttributeKeys />,
+                keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
         group: 'Products',
@@ -1762,7 +1826,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
-                keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
+                keywords: [
+                    'ai',
+                    'max',
+                    'llm',
+                    'artificial intelligence',
+                    'consent',
+                    'approve',
+                    'enable',
+                    'opt-in',
+                    'data sharing',
+                ],
                 searchDescription:
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
             },
@@ -1868,6 +1942,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],
+        keywords: ['usage', 'subscription', 'invoice', 'plan', 'payment', 'spend', 'quota', 'credits', 'card'],
     },
     {
         level: 'organization',
