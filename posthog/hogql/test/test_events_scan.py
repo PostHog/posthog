@@ -305,6 +305,13 @@ class TestFindEventsScans(TestCase):
     def test_reasons(self, _name: str, query: str, expected: list[EventsScanReason]) -> None:
         self.assertEqual(reasons(query), expected)
 
+    def test_aliases_that_multiply_each_other_stop_expanding(self) -> None:
+        # Each reference expands on its own, so `a2 = plus(a1, a1)` doubles what `a1` expands to.
+        # Expanding 40 of them in full would build a predicate of a trillion nodes.
+        chain = ", ".join(["1 AS a0", *(f"plus(a{i - 1}, a{i - 1}) AS a{i}" for i in range(1, 41))])
+        query = f"SELECT {chain} FROM events WHERE a40 > 0 AND event = 'a' AND timestamp >= today()"
+        self.assertEqual(reasons(query), [])
+
     def test_reports_each_events_read_in_ctes_and_subqueries(self) -> None:
         query = (
             "WITH subs AS (SELECT person_id FROM events WHERE properties.kind = 'sub' AND timestamp >= today() - 400) "

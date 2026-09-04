@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterable
 from enum import StrEnum
 from hashlib import sha256
 from logging import getLogger
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 from django.db import DatabaseError
@@ -71,6 +71,9 @@ _PEEK_LIMIT = 10_000
 # Caps on the "events seen with" hint: enough to point somewhere, small enough to bound the message
 _MAX_HINT_PROPERTIES = 5
 _MAX_HINT_EVENTS = 20
+# An alias can name other aliases, and every reference expands on its own, so `a2 = plus(a1, a1)`
+# doubles what `a1` expands to. A short query can then describe a huge predicate, so stop here.
+_MAX_ALIAS_EXPANSION_NODES = 10_000
 # Comparisons an `event IN (...)` list could stand in for. Exclusions like NOT IN or != cannot.
 _POSITIVE_COMPARE_OPS = frozenset(
     {
@@ -468,6 +471,10 @@ def _is_events_table(chain: list[str | int], database: "Database", cte_scopes: l
     return isinstance(table, EVENTS_TABLE_TYPES)
 
 
+class _AliasExpansionTooLarge(Exception):
+    """The expanded predicate passed `_MAX_ALIAS_EXPANSION_NODES`."""
+
+
 class _SelectAliasExpander(CloningVisitor):
     """Replace a bare name in a predicate with the select-list expression behind it.
 
@@ -481,6 +488,15 @@ class _SelectAliasExpander(CloningVisitor):
         super().__init__(clear_types=False, clear_locations=False)
         self.aliases = aliases
         self.expanding: set[str] = set()
+        self.remaining = _MAX_ALIAS_EXPANSION_NODES
+
+    def visit(self, node: ast.AST | None) -> Any:
+        # Charge only what an expansion adds. The predicate as written is already bounded by the query.
+        if node is not None and self.expanding:
+            self.remaining -= 1
+            if self.remaining < 0:
+                raise _AliasExpansionTooLarge
+        return super().visit(node)
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         if len(node.chain) != 1:
@@ -500,7 +516,12 @@ def _expand_select_aliases(predicate: ast.Expr, node: ast.SelectQuery) -> ast.Ex
     aliases = {expr.alias: expr.expr for expr in node.select or [] if isinstance(expr, ast.Alias)}
     if not aliases:
         return predicate
-    return _SelectAliasExpander(aliases).visit(predicate)
+    try:
+        return _SelectAliasExpander(aliases).visit(predicate)
+    except _AliasExpansionTooLarge:
+        # Read the predicate as written. A bound behind an alias is then missed, and the query is
+        # reported as unbounded, which is the safe direction: the warning does not block the run.
+        return predicate
 
 
 def _row_predicate(node: ast.SelectQuery) -> ast.Expr | None:
