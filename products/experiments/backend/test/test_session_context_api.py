@@ -305,7 +305,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
     ) -> None:
         # A session open across the moment an experiment starts or stops sees the flag serve one
         # variant while it runs and another outside it. Only the first is a variant the session
-        # saw, so counting both raised a false "multiple variants" warning on a session with no
+        # saw; counting both would show a false "multiple variants" warning on a session with no
         # bucketing anomaly at all.
         self._create_recording()
         self._create_experiment(start_date=start_date, end_date=end_date)
@@ -320,6 +320,21 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert results[0]["variant"] == "test"
         assert results[0]["variants_seen"] == ["test"]
         assert results[0]["multiple_variants"] is False
+
+    def test_experiment_with_only_out_of_window_evidence_is_absent(self) -> None:
+        # The experiment stops inside the recording and every piece of evidence comes after the
+        # stop. The session saw nothing of the experiment while it ran, so the experiment must
+        # not appear at all: a control-only row here would be the same false report with one
+        # variant instead of two.
+        self._create_recording()
+        self._create_experiment(start_date=EXPERIMENT_START, end_date=RUN_BOUNDARY)
+        self._create_variant_evidence("flag_call", "control", AFTER_BOUNDARY)
+        self._create_variant_evidence("stamped", "control", AFTER_BOUNDARY)
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
 
     def test_variant_evaluated_before_and_during_the_run_still_surfaces(self) -> None:
         # `test` is served on both sides of the launch. The evaluations query returns one row per
@@ -1360,6 +1375,58 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
         assert [result["flag_key"] for result in by_id[SESSION_ID]] == ["new-exp"]
         assert [result["flag_key"] for result in by_id[DAY_TWO_SESSION_ID]] == ["old-exp"]
+
+    def test_branch_slots_go_to_experiments_that_ran_in_the_chunk(self) -> None:
+        # Both experiments need a branch slot for their custom exposure event. The newer one
+        # never ran during the day-two chunk, so with one slot it must not displace the older
+        # one whose exposure event really fired there: the displaced experiment would lose its
+        # exposure moment (stamped evidence still surfaces its variant).
+        custom_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "checkout started",
+                "properties": [],
+            }
+        }
+        self._create_experiment(
+            key="old-exp",
+            name="Old experiment",
+            start_date=datetime(2025, 12, 1, tzinfo=UTC),
+            end_date=datetime(2025, 12, 31, 23, 0, tzinfo=UTC),
+            exposure_criteria=custom_criteria,
+        )
+        self._create_experiment(
+            key="new-exp",
+            name="New experiment",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            exposure_criteria=custom_criteria,
+        )
+        self._create_recording()
+        self._create_session_event(event="checkout started", properties={"$feature/new-exp": "test"})
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=DAY_TWO_SESSION_ID,
+            distinct_id="user1",
+            first_timestamp=DAY_TWO_RECORDING_START,
+            last_timestamp=DAY_TWO_RECORDING_END,
+        )
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2025-12-31T10:03:00Z",
+            properties={"$feature/old-exp": "control"},
+            session_id=DAY_TWO_SESSION_ID,
+        )
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.session_context.MAX_CANDIDATE_EXPERIMENTS", 1):
+            response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
+        assert [result["flag_key"] for result in by_id[SESSION_ID]] == ["new-exp"]
+        assert by_id[SESSION_ID][0]["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
+        assert [result["flag_key"] for result in by_id[DAY_TWO_SESSION_ID]] == ["old-exp"]
+        assert by_id[DAY_TWO_SESSION_ID][0]["first_exposure_timestamp"] == "2025-12-31T10:03:00Z"
 
     def test_batch_caps_distinct_recording_days(self) -> None:
         # Ids scattered across many days would fan one throttled HTTP request out into a scan
