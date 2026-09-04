@@ -365,6 +365,30 @@ class TestScoutReportAPI(APIBaseTest):
         judge_mock.assert_not_awaited()
         embed_mock.assert_not_called()
 
+    def test_evidence_append_is_rejected_on_a_deleted_report(self) -> None:
+        # Deleting a report tombstones the signal rows bound to it. A live row appended afterwards
+        # supersedes its tombstone and pulls later pipeline signals back into the dead group, which is
+        # why the grouping pipeline refuses to move a deleted report's counters at all. The append
+        # path reaches any report in the project, so it has to refuse the same state.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        SignalReport.objects.filter(id=created["report_id"]).update(status=SignalReport.Status.DELETED)
+        with _safe_judge(), patch(EMBED_PATH) as embed_mock:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "append_evidence": [{"description": "p99 doubled again on /cart", "source_id": "obs-2"}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        embed_mock.assert_not_called()
+        report = SignalReport.objects.get(id=created["report_id"])
+        assert report.signal_count == 1
+        assert report.total_weight == pytest.approx(1.0)
+
     def test_unsafe_evidence_edit_is_rejected_and_writes_nothing(self) -> None:
         # Evidence descriptions are embedded and rendered, so the edit path must not be an unjudged
         # door into the rail: an unsafe description rejects the whole edit, note included.
