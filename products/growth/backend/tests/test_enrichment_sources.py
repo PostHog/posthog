@@ -8,74 +8,72 @@ from django.utils import timezone
 from parameterized import parameterized
 from requests import ConnectTimeout
 
-from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted, FirecrawlNotConfigured, FirecrawlScrapeFailed
-from posthog.egress.firecrawl.client import FirecrawlScrape
+from posthog.egress.firecrawl import (
+    FirecrawlEgressBudgetExhausted,
+    FirecrawlNotConfigured,
+    FirecrawlScrapeFailed,
+    FirecrawlSearchFailed,
+)
+from posthog.egress.firecrawl.client import FirecrawlScrape, FirecrawlSearch, FirecrawlSearchResult
 from posthog.egress.limiter.policies import Priority
 
-from products.growth.backend.enrichment.labels import MAX_INPUT_VALUE_CHARS
-from products.growth.backend.enrichment.pages import ensure_pages_fetched, fetch_page, page_types_from_input_fields
+from products.growth.backend.enrichment.labels import MAX_INPUT_VALUE_CHARS, SourceSpec
+from products.growth.backend.enrichment.sources import fetch_source, resolve_sources
 from products.growth.backend.models import OrganizationEnrichment
 
-_PAGES_MODULE = "products.growth.backend.enrichment.pages"
+_SOURCES_MODULE = "products.growth.backend.enrichment.sources"
 
 
-class TestPageTypesFromInputFields(BaseTest):
-    def test_extracts_distinct_page_types(self):
-        fields = ["pages.home.markdown", "pages.pricing.markdown", "name", "pages.home.url"]
-
-        assert page_types_from_input_fields(fields) == {"home", "pricing"}
-
-    def test_ignores_malformed_pages_paths(self):
-        assert page_types_from_input_fields(["pages.home", "pages.", "pages"]) == set()
-
-    def test_returns_empty_set_when_no_pages_fields(self):
-        assert page_types_from_input_fields(["name", "funding.fundingStage"]) == set()
+def _fetch_spec(key: str = "pricing", template: str = "https://{domain}/pricing") -> SourceSpec:
+    return SourceSpec(key=key, kind="fetch", template=template)
 
 
-class TestFetchPageHome(BaseTest):
-    def test_a_missing_domain_skips_the_scrape_cleanly(self):
-        with patch(f"{_PAGES_MODULE}.scrape") as scrape:
-            record = fetch_page(self.organization.id, None, "home")
+def _search_spec(key: str = "ai_news", template: str = '"{name}" AI', limit: int = 5) -> SourceSpec:
+    return SourceSpec(key=key, kind="search", template=template, limit=limit)
 
-        assert record["error"] == "no_domain"
+
+class TestFetchSourceUnresolved(BaseTest):
+    def test_an_unresolved_fetch_template_skips_the_scrape(self):
+        with patch(f"{_SOURCES_MODULE}.scrape") as scrape:
+            record = fetch_source(self.organization.id, _fetch_spec(), domain=None, name=None)
+
+        assert record["error"] == "unresolved"
+        assert record["url"] is None
         assert "markdown" not in record
         scrape.assert_not_called()
 
-    def test_a_successful_scrape_yields_markdown_at_the_domain_root(self):
-        scraped = FirecrawlScrape(url="https://acme.example", markdown="# Acme\nWe build things.")
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            record = fetch_page(self.organization.id, "acme.example", "home")
+    def test_an_unresolved_search_template_skips_the_search(self):
+        with patch(f"{_SOURCES_MODULE}.search") as search_mock:
+            record = fetch_source(self.organization.id, _search_spec(), domain="acme.example", name=None)
 
-        assert record["url"] == "https://acme.example"
-        assert record["markdown"] == "# Acme\nWe build things."
-        assert record["domain"] == "acme.example"
+        assert record["error"] == "unresolved"
+        assert record["query"] is None
+        search_mock.assert_not_called()
+
+
+class TestFetchSourceFetch(BaseTest):
+    def test_a_successful_scrape_yields_markdown_at_the_rendered_url(self):
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown="Plans start at $10/mo")
+        with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped) as scrape:
+            record = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
+
+        assert record["kind"] == "fetch"
+        assert record["url"] == "https://acme.example/pricing"
+        assert record["markdown"] == "Plans start at $10/mo"
         assert "error" not in record
         scrape.assert_called_once_with(
-            "https://acme.example", source="growth_ai_enrichment", formats=("markdown",), priority=Priority.BATCH
+            "https://acme.example/pricing",
+            source="growth_ai_enrichment",
+            formats=("markdown",),
+            priority=Priority.BATCH,
         )
 
-    def test_uses_the_batch_priority_lane(self):
-        # This is a scheduled job's own traffic, not work on behalf of an interactive request, so
-        # it must be the first lane the shared Firecrawl budget sheds as it fills.
-        scraped = FirecrawlScrape(url="https://acme.example", markdown="content")
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            fetch_page(self.organization.id, "acme.example", "home")
-
-        assert scrape.call_args.kwargs["priority"] is Priority.BATCH
-
     def test_the_markdown_is_truncated_to_the_cap(self):
-        scraped = FirecrawlScrape(url="https://acme.example", markdown="x" * (MAX_INPUT_VALUE_CHARS + 500))
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped):
-            record = fetch_page(self.organization.id, "acme.example", "home")
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown="x" * (MAX_INPUT_VALUE_CHARS + 500))
+        with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped):
+            record = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
 
         assert len(record["markdown"]) == MAX_INPUT_VALUE_CHARS
-
-    def test_a_fresh_scrape_is_tagged_with_its_source(self):
-        scraped = FirecrawlScrape(url="https://acme.example", markdown="content")
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped):
-            record = fetch_page(self.organization.id, "acme.example", "home")
-
-        assert record["source"] == "scrape"
 
     @parameterized.expand(
         [
@@ -86,72 +84,43 @@ class TestFetchPageHome(BaseTest):
         ]
     )
     def test_a_degraded_scrape_outcome_never_raises(self, _name, error, expected_error):
-        with patch(f"{_PAGES_MODULE}.scrape", side_effect=error("boom")):
-            record = fetch_page(self.organization.id, "acme.example", "home")
+        with patch(f"{_SOURCES_MODULE}.scrape", side_effect=error("boom")):
+            record = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
 
         assert record["error"] == expected_error
 
+    @parameterized.expand(
+        [
+            ("not_configured", FirecrawlNotConfigured),
+            ("scrape_failed", FirecrawlScrapeFailed),
+            ("connect_timeout", ConnectTimeout),
+            ("budget_exhausted", FirecrawlEgressBudgetExhausted),
+        ]
+    )
+    def test_a_transient_fetch_error_is_not_cached_so_it_retries_next_run(self, _name, error):
+        with patch(f"{_SOURCES_MODULE}.scrape", side_effect=error("boom")) as scrape:
+            fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
+            fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
+
+        assert scrape.call_count == 2
+        assert not OrganizationEnrichment.objects.filter(organization=self.organization).exists()
+
     def test_a_successful_fetch_is_always_repeated_and_stores_no_markdown(self):
-        scraped = FirecrawlScrape(url="https://acme.example", markdown="content")
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            first = fetch_page(self.organization.id, "acme.example", "home")
-            second = fetch_page(self.organization.id, "acme.example", "home")
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown="content")
+        with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped) as scrape:
+            first = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
+            second = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
 
         assert scrape.call_count == 2
         assert first["markdown"] == second["markdown"] == "content"
-        assert first["source"] == second["source"] == "scrape"
-        stored = OrganizationEnrichment.objects.get(organization=self.organization).data["pages"]["home"]
+        stored = OrganizationEnrichment.objects.get(organization=self.organization).data["sources"]["pricing"]
         assert "markdown" not in stored
 
-    def test_a_fetch_older_than_the_cache_window_is_refetched(self):
-        OrganizationEnrichment.objects.create(
-            organization=self.organization,
-            data={
-                "pages": {
-                    "home": {
-                        "url": "https://acme.example",
-                        "domain": "acme.example",
-                        "error": "unreachable",
-                        "fetched_at": (timezone.now() - dt.timedelta(days=31)).isoformat(),
-                    }
-                }
-            },
-        )
-        scraped = FirecrawlScrape(url="https://acme.example", markdown="fresh")
-
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            record = fetch_page(self.organization.id, "acme.example", "home")
-
-        scrape.assert_called_once()
-        assert record["markdown"] == "fresh"
-
-    def test_a_cached_fetch_for_a_different_domain_is_not_reused(self):
-        OrganizationEnrichment.objects.create(
-            organization=self.organization,
-            data={
-                "pages": {
-                    "home": {
-                        "url": "https://old-domain.example",
-                        "domain": "old-domain.example",
-                        "error": "unreachable",
-                        "fetched_at": timezone.now().isoformat(),
-                    }
-                }
-            },
-        )
-        scraped = FirecrawlScrape(url="https://new-domain.example", markdown="fresh")
-
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            record = fetch_page(self.organization.id, "new-domain.example", "home")
-
-        scrape.assert_called_once()
-        assert record["markdown"] == "fresh"
-
     def test_a_non_2xx_status_is_cached_so_it_is_not_refetched_every_day(self):
-        scraped = FirecrawlScrape(url="https://acme.example", status_code=404, markdown=None)
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            first = fetch_page(self.organization.id, "acme.example", "home")
-            second = fetch_page(self.organization.id, "acme.example", "home")
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", status_code=404, markdown=None)
+        with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped) as scrape:
+            first = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
+            second = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
 
         scrape.assert_called_once()
         assert first["error"] == "unreachable"
@@ -159,92 +128,120 @@ class TestFetchPageHome(BaseTest):
         assert second["error"] == "unreachable"
         assert second["source"] == "cache"
 
-    def test_a_successful_status_with_no_markdown_is_cached_as_unreachable(self):
-        scraped = FirecrawlScrape(url="https://acme.example", status_code=200, markdown=None)
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped):
-            record = fetch_page(self.organization.id, "acme.example", "home")
-
-        assert record["error"] == "unreachable"
-
-    def test_a_budget_exhausted_outcome_is_not_cached_so_it_retries_next_run(self):
-        with patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlEgressBudgetExhausted("boom")) as scrape:
-            fetch_page(self.organization.id, "acme.example", "home")
-            fetch_page(self.organization.id, "acme.example", "home")
-
-        assert scrape.call_count == 2
-
-    def test_a_scrape_failure_is_not_cached_so_it_retries_next_run(self):
-        # A gateway error or bad-body response (5xx, malformed JSON) looks identical to a genuine
-        # outage at this layer - it must retry next run, not freeze into a permanent "unreachable".
-        with patch(f"{_PAGES_MODULE}.scrape", side_effect=FirecrawlScrapeFailed("boom")) as scrape:
-            first = fetch_page(self.organization.id, "acme.example", "home")
-            fetch_page(self.organization.id, "acme.example", "home")
-
-        assert scrape.call_count == 2
-        assert first["error"] == "busy"
-
-    def test_a_request_exception_is_not_cached_so_it_retries_next_run(self):
-        with patch(f"{_PAGES_MODULE}.scrape", side_effect=ConnectTimeout("boom")) as scrape:
-            first = fetch_page(self.organization.id, "acme.example", "home")
-            fetch_page(self.organization.id, "acme.example", "home")
-
-        assert scrape.call_count == 2
-        assert first["error"] == "busy"
-
-
-class TestFetchPagePricing(BaseTest):
-    def test_scrapes_the_conventional_pricing_path_directly(self):
-        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown="Plans start at $10/mo")
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            record = fetch_page(self.organization.id, "acme.example", "pricing")
-
-        scrape.assert_called_once_with(
-            "https://acme.example/pricing",
-            source="growth_ai_enrichment",
-            formats=("markdown",),
-            priority=Priority.BATCH,
+    def test_a_cached_unreachable_result_is_invalidated_by_a_changed_url(self):
+        # A changed template render (a new domain, or an edited config) must not reuse a scrape of
+        # a different address - url equality is the whole cache key now, not a separate domain check.
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={
+                "sources": {
+                    "pricing": {
+                        "kind": "fetch",
+                        "url": "https://old-domain.example/pricing",
+                        "source": "scrape",
+                        "error": "unreachable",
+                        "fetched_at": timezone.now().isoformat(),
+                    }
+                }
+            },
         )
-        assert record["url"] == "https://acme.example/pricing"
-        assert record["markdown"] == "Plans start at $10/mo"
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown="fresh")
 
-    def test_a_missing_pricing_page_is_cached_as_unreachable(self):
-        scraped = FirecrawlScrape(url="https://acme.example/pricing", status_code=404, markdown=None)
-        with patch(f"{_PAGES_MODULE}.scrape", return_value=scraped) as scrape:
-            first = fetch_page(self.organization.id, "acme.example", "pricing")
-            second = fetch_page(self.organization.id, "acme.example", "pricing")
+        with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped) as scrape:
+            record = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
 
         scrape.assert_called_once()
-        assert first["error"] == "unreachable"
-        assert "markdown" not in first
-        assert second["error"] == "unreachable"
-        assert "markdown" not in second
+        assert record["markdown"] == "fresh"
+
+    def test_a_fetch_older_than_the_cache_window_is_refetched(self):
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={
+                "sources": {
+                    "pricing": {
+                        "kind": "fetch",
+                        "url": "https://acme.example/pricing",
+                        "source": "scrape",
+                        "error": "unreachable",
+                        "fetched_at": (timezone.now() - dt.timedelta(days=31)).isoformat(),
+                    }
+                }
+            },
+        )
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown="fresh")
+
+        with patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped) as scrape:
+            record = fetch_source(self.organization.id, _fetch_spec(), domain="acme.example", name=None)
+
+        scrape.assert_called_once()
+        assert record["markdown"] == "fresh"
 
 
-class TestFetchPageUnsupportedType(BaseTest):
-    def test_an_unresolvable_page_type_degrades_without_calling_firecrawl(self):
-        with patch(f"{_PAGES_MODULE}.scrape") as scrape:
-            record = fetch_page(self.organization.id, "acme.example", "careers")
+class TestFetchSourceSearch(BaseTest):
+    def test_a_successful_search_yields_results(self):
+        found = FirecrawlSearch(
+            query='"Acme" AI',
+            results=(FirecrawlSearchResult(url="https://techcrunch.com/acme", title="Acme raises funding"),),
+        )
+        with patch(f"{_SOURCES_MODULE}.search", return_value=found) as search_mock:
+            record = fetch_source(self.organization.id, _search_spec(), domain="acme.example", name="Acme")
 
-        assert record["error"] == "unsupported_type"
-        scrape.assert_not_called()
+        assert record["kind"] == "search"
+        assert record["query"] == '"Acme" AI'
+        assert record["results"] == [
+            {"url": "https://techcrunch.com/acme", "title": "Acme raises funding", "description": None}
+        ]
+        search_mock.assert_called_once_with(
+            '"Acme" AI', source="growth_ai_enrichment", limit=5, priority=Priority.BATCH
+        )
 
-    def test_an_unsupported_type_is_not_cached(self):
-        with patch(f"{_PAGES_MODULE}.scrape"):
-            fetch_page(self.organization.id, "acme.example", "careers")
+    def test_zero_results_is_recorded_as_no_results_and_not_cached(self):
+        found = FirecrawlSearch(query='"Acme" AI', results=())
+        with patch(f"{_SOURCES_MODULE}.search", return_value=found) as search_mock:
+            first = fetch_source(self.organization.id, _search_spec(), domain="acme.example", name="Acme")
+            fetch_source(self.organization.id, _search_spec(), domain="acme.example", name="Acme")
+
+        assert first["error"] == "no_results"
+        assert search_mock.call_count == 2
+        assert not OrganizationEnrichment.objects.filter(organization=self.organization).exists()
+
+    @parameterized.expand(
+        [
+            ("not_configured", FirecrawlNotConfigured, "not_configured"),
+            ("search_failed", FirecrawlSearchFailed, "busy"),
+            ("connect_timeout", ConnectTimeout, "busy"),
+            ("budget_exhausted", FirecrawlEgressBudgetExhausted, "busy"),
+        ]
+    )
+    def test_a_degraded_search_outcome_never_raises(self, _name, error, expected_error):
+        with patch(f"{_SOURCES_MODULE}.search", side_effect=error("boom")):
+            record = fetch_source(self.organization.id, _search_spec(), domain="acme.example", name="Acme")
+
+        assert record["error"] == expected_error
+
+    def test_a_successful_search_is_never_cached(self):
+        found = FirecrawlSearch(query='"Acme" AI', results=(FirecrawlSearchResult(url="https://x.example"),))
+        with patch(f"{_SOURCES_MODULE}.search", return_value=found):
+            fetch_source(self.organization.id, _search_spec(), domain="acme.example", name="Acme")
 
         assert not OrganizationEnrichment.objects.filter(organization=self.organization).exists()
 
 
-class TestEnsurePagesFetched(BaseTest):
-    def test_fetches_every_named_type_and_keys_the_result_by_type(self):
-        # side_effect keyed by URL, not list position: {"home", "pricing"} is a set, so
-        # ensure_pages_fetched's iteration order over page_types is not guaranteed.
-        def _scrape(url, **kwargs):
-            markdown = "home content" if url == "https://acme.example" else "pricing content"
-            return FirecrawlScrape(url=url, markdown=markdown)
+class TestResolveSources(BaseTest):
+    def test_resolves_every_declared_source_keyed_by_spec_key(self):
+        scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown="pricing content")
+        found = FirecrawlSearch(query='"Acme" AI', results=())
 
-        with patch(f"{_PAGES_MODULE}.scrape", side_effect=_scrape):
-            pages = ensure_pages_fetched(self.organization.id, "acme.example", {"home", "pricing"})
+        with (
+            patch(f"{_SOURCES_MODULE}.scrape", return_value=scraped),
+            patch(f"{_SOURCES_MODULE}.search", return_value=found),
+        ):
+            resolved = resolve_sources(
+                self.organization.id,
+                domain="acme.example",
+                name="Acme",
+                specs=[_fetch_spec(key="pricing"), _search_spec(key="ai_news")],
+            )
 
-        assert pages["home"]["markdown"] == "home content"
-        assert pages["pricing"]["markdown"] == "pricing content"
+        assert resolved["pricing"]["markdown"] == "pricing content"
+        assert resolved["ai_news"]["error"] == "no_results"
