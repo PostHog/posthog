@@ -6811,6 +6811,14 @@ export enum CustomBotField {
     Host = '$host',
     Pathname = '$pathname',
     CurrentURL = '$current_url',
+    Browser = '$browser',
+    OS = '$os',
+    BrowserLanguage = '$browser_language',
+    ScreenWidth = '$screen_width',
+    ScreenHeight = '$screen_height',
+    CountryCode = '$geoip_country_code',
+    Referrer = '$referrer',
+    ReferringDomain = '$referring_domain',
 }
 
 export enum CustomBotMatcher {
