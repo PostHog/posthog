@@ -1614,6 +1614,44 @@ describe('dashboardLogic', () => {
                 expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
             })
 
+            const historyRefreshCases: [string, Record<string, any>, boolean][] = [
+                [
+                    'refreshes the tiles when browser history changes the filters',
+                    { [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }) },
+                    true,
+                ],
+                ['leaves the tiles alone when browser history changes nothing', {}, false],
+            ]
+
+            it.each(historyRefreshCases)('%s', async (_name, searchParams, expectedRefresh) => {
+                await openWithUrlFilters({})
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => insight)
+
+                try {
+                    await expectLogic(logic, () => {
+                        router.actions.locationChanged({
+                            method: 'POP',
+                            pathname: '/dashboard/5',
+                            search: '',
+                            searchParams,
+                            hash: '',
+                            hashParams: {},
+                            url: '/dashboard/5',
+                        })
+                    }).toFinishAllListeners()
+
+                    if (expectedRefresh) {
+                        expect(getInsightWithRetrySpy).toHaveBeenCalled()
+                    } else {
+                        expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
+                    }
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
             it('restores filters when browser history changes the URL', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 

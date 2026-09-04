@@ -5277,7 +5277,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setTextTileId(null)
             actions.setButtonTileId(null)
             if (method === 'POP' && values.dashboard) {
-                actions.setDashboardSettingsDraft({
+                const current = values.currentDashboardSettings
+                const settings: DashboardSettings = {
                     filters: combineDashboardFilters(
                         values.savedDashboardSettings.filters,
                         parseURLFilters(searchParams)
@@ -5287,13 +5288,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // values stay.
                     variables: values.initialVariablesLoaded
                         ? { ...values.savedDashboardSettings.variables, ...values.urlVariables }
-                        : values.currentDashboardSettings.variables,
-                })
-                if (values.canAutoPreview) {
-                    actions.refreshDashboardItems({
-                        action: RefreshDashboardItemsAction.Preview,
-                        forceRefresh: false,
-                    })
+                        : current.variables,
+                }
+
+                // Back and Forward also arrive from routes that leave the settings alone, such as the
+                // sharing page. Rebuilding the settings there would re-query every tile and cancel a
+                // refresh in flight for values the dashboard already holds.
+                if (
+                    !dashboardFiltersEqual(current.filters, settings.filters) ||
+                    !equal(current.variables, settings.variables)
+                ) {
+                    actions.setDashboardSettingsDraft(settings)
+                    if (values.canAutoPreview) {
+                        actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Preview,
+                            forceRefresh: false,
+                        })
+                    }
                 }
             }
             if (values.dashboardMode === DashboardMode.Sharing) {
