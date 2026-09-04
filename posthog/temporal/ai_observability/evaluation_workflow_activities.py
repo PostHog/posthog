@@ -22,7 +22,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
-from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -326,7 +326,7 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             if source_props.get(property_name) is not None:
                 properties[property_name] = source_props[property_name]
 
-        capture_internal_for_team(
+        capture_ai_internal_for_team(
             team_id=event_data["team_id"],
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",

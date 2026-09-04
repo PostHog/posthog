@@ -36,9 +36,11 @@ from requests.exceptions import RequestException
 from posthog.dataclasses import frozen
 from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
+    CAPTURE_AI_INTERNAL_URL,
     CAPTURE_INTERNAL_BATCH_CHUNK_SIZE,
     CAPTURE_INTERNAL_MAX_WORKERS,
     CAPTURE_INTERNAL_URL,
+    CAPTURE_V1_AI_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
@@ -52,6 +54,10 @@ logger = structlog.get_logger(__name__)
 
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
+
+# Events whose names carry this prefix belong on the AI lane (capture-ai), not the
+# analytics lane. See the lane check in `prepare_capture_internal_batch`.
+AI_EVENT_NAME_PREFIX = "$ai_"
 
 # --------------------------------------------------------------------------- #
 # Constants
@@ -313,11 +319,18 @@ def prepare_capture_internal_batch(
     event_source: str,
     historical_migration: bool = False,
     process_person_profile: bool = False,
+    ai_lane: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     """Build a v1 batch envelope from caller-supplied event dicts.
 
     Returns ``(payload, ordered_uuids)`` so callers can correlate the
     results map.
+
+    ``ai_lane`` selects which lane the batch is bound for and, with it, which
+    event names are admissible.  The two lanes are mutually exclusive: capture's
+    v1 endpoints each refuse the other's traffic, so sending an event to the
+    wrong one earns a per-event ``misrouted_event`` drop.  Catching it here
+    turns that into an immediate, actionable error at the call site instead.
     """
     _validate_batch_inputs(events, token=token, event_source=event_source)
 
@@ -332,6 +345,22 @@ def prepare_capture_internal_batch(
         if event_name in SESSION_RECORDING_EVENT_NAMES:
             raise CaptureInternalError(
                 f"capture_internal ({event_source}): '{event_name}' is a replay event; use the replay capture path"
+            )
+
+        # Lane check. Deliberately the `$ai_` prefix, not capture's narrower
+        # 11-name allowlist: keeping a copy of that list in Django would be a
+        # fourth place to drift, and every AI event this codebase emits is
+        # allowlisted anyway. A prefixed name that capture does not recognise
+        # still reaches the AI endpoint and is reported there as
+        # `misrouted_event` -- the authority stays server-side either way.
+        is_ai_event_name = event_name.startswith(AI_EVENT_NAME_PREFIX)
+        if ai_lane and not is_ai_event_name:
+            raise CaptureInternalError(
+                f"capture_ai_internal ({event_source}): '{event_name}' is not an AI event; use capture_internal"
+            )
+        if is_ai_event_name and not ai_lane:
+            raise CaptureInternalError(
+                f"capture_internal ({event_source}): '{event_name}' is an AI event; use capture_ai_internal"
             )
 
         distinct_id: str = ev.get("distinct_id", "")
@@ -397,6 +426,7 @@ def _submit_batch_chunk(
     process_person_profile: bool,
     max_attempts: int,
     timeout: float,
+    ai_lane: bool = False,
 ) -> CaptureInternalResult:
     """Submit a single chunk of events to the v1 batch endpoint with retry logic.
 
@@ -409,9 +439,15 @@ def _submit_batch_chunk(
         event_source=event_source,
         historical_migration=historical_migration,
         process_person_profile=process_person_profile,
+        ai_lane=ai_lane,
     )
 
-    url = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
+    # A different deployment, not just a different path: `/i/v1/ai/events` is
+    # mounted only on capture-ai.
+    if ai_lane:
+        url = f"{CAPTURE_AI_INTERNAL_URL}{CAPTURE_V1_AI_INTERNAL_ENDPOINT}"
+    else:
+        url = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
 
     CAPTURE_V1_BATCH_SUBMITTED.labels(event_source=event_source).inc()
     CAPTURE_V1_EVENT_SUBMITTED.labels(event_source=event_source).inc(len(uuids))
@@ -571,6 +607,7 @@ def capture_batch_internal(
     process_person_profile: bool = False,
     max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     timeout: float = 2,
+    ai_lane: bool = False,
 ) -> CaptureInternalResult:
     """
     capture_batch_internal submits multiple capture request payloads to capture-rs on
@@ -683,6 +720,7 @@ def capture_batch_internal(
             process_person_profile=process_person_profile,
             max_attempts=max_attempts,
             timeout=timeout,
+            ai_lane=ai_lane,
         )
 
     # Hot path: small batch — submit directly, no threading overhead.
@@ -755,6 +793,7 @@ def capture_internal(
     process_person_profile: bool = False,
     historical_migration: bool = False,
     timeout: float = 2,
+    ai_lane: bool = False,
 ) -> CaptureInternalResult:
     """
     capture_internal submits a single-event capture request payload to the capture-rs
@@ -838,4 +877,93 @@ def capture_internal(
         historical_migration=historical_migration,
         process_person_profile=process_person_profile,
         timeout=timeout,
+        ai_lane=ai_lane,
+    )
+
+
+def capture_ai_internal(
+    *,
+    token: str,
+    event_name: str,
+    event_source: str,
+    distinct_id: str,
+    timestamp: Optional[str | datetime] = None,
+    properties: Optional[dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
+    event_uuid: Optional[str] = None,
+    process_person_profile: bool = False,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """
+    capture_ai_internal is capture_internal for the AI lane.  Use it for every `$ai_*`
+    event submitted from the Django app on behalf of a customer team.
+
+    Same arguments, return value, retry behaviour and per-event result semantics as
+    capture_internal — see its docstring.  The difference is the destination:
+    `/i/v1/ai/events` on capture-ai rather than `/i/v1/analytics/events` on
+    capture-analytics.  That deployment is configured for AI traffic: an 8MiB per-event
+    ceiling instead of 983040 bytes, and a direct produce to the AI topic.
+
+    The two lanes are mutually exclusive and each refuses the other's traffic, so:
+
+      * a non-`$ai_` event name here raises CaptureInternalError, and
+      * an `$ai_` event name passed to capture_internal raises likewise.
+
+    Both are client-side errors raised before any HTTP call, so a misrouted call site
+    fails loudly at the point of the mistake rather than as a per-event drop later.
+
+    ``historical_migration`` is not offered: AI backfills do not run through this path.
+
+    Args:
+        see capture_internal.  ``session_id`` / ``window_id`` are omitted because they are
+        replay concepts and carry no meaning on the AI lane.
+
+    Returns:
+        CaptureInternalResult with per-event outcome, exactly as capture_internal.
+
+    Raises:
+        CaptureInternalError: on client-side validation failures — including a non-AI
+            event name — or HTTP/transport errors.
+    """
+    return capture_internal(
+        token=token,
+        event_name=event_name,
+        event_source=event_source,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        properties=properties,
+        options=options,
+        event_uuid=event_uuid,
+        process_person_profile=process_person_profile,
+        timeout=timeout,
+        ai_lane=True,
+    )
+
+
+def capture_batch_ai_internal(
+    *,
+    events: list[dict[str, Any]],
+    token: str,
+    event_source: str,
+    process_person_profile: bool = False,
+    max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """
+    capture_batch_ai_internal is capture_batch_internal for the AI lane.
+
+    Same chunking, concurrency, retry rounds and per-event result merging — see
+    capture_batch_internal's docstring.  Every event in the batch must have an `$ai_`
+    prefixed name; one that does not raises CaptureInternalError before anything is sent.
+
+    ``historical_migration`` is not offered: AI backfills do not run through this path.
+    """
+    return capture_batch_internal(
+        events=events,
+        token=token,
+        event_source=event_source,
+        process_person_profile=process_person_profile,
+        max_attempts=max_attempts,
+        timeout=timeout,
+        ai_lane=True,
     )
