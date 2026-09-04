@@ -993,23 +993,14 @@ class SessionRecordingPlaylistViewSet(
 
         # For collections, create a minimal query with only session_ids
         if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
-            # A collection is a hand-picked list, so it must not hide recordings older than the
-            # default window. bypass_date_window_for_session_ids widens the range to retention.
-            query = RecordingsQuery(session_ids=playlist_items, date_to=None)
-            bypass_date_window = True
+            query = RecordingsQuery(session_ids=playlist_items, date_from="-1y", date_to=None)
         else:
             data_dict = query_as_params_to_dict(request.GET.dict())
             query = RecordingsQuery.model_validate(data_dict)
             query.session_ids = playlist_items
-            bypass_date_window = False
 
         return list_recordings_response(
-            list_recordings_from_query(
-                query,
-                cast(User, request.user),
-                team=self.team,
-                bypass_date_window_for_session_ids=bypass_date_window,
-            ),
+            list_recordings_from_query(query, cast(User, request.user), team=self.team),
             context=self.get_serializer_context(),
         )
 
