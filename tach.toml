@@ -135,6 +135,7 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.mcp_analytics",
+    "products.mcp_registry",
     "products.web_analytics",
     "products.workflows",
     "products.actions",
@@ -541,6 +542,26 @@ depends_on = [
     "products.dashboards", "products.access_control",
 ]
 layer = "modules"
+
+[[modules]]
+path = "products.mcp_registry"
+depends_on = [
+    "posthog",
+    # Facade-only (enforced by mcp_registry's [[interfaces]] block): the measured-server
+    # aggregation reads new-SDK $mcp_tool_call grouping rules through mcp_analytics' facade.
+    "products.mcp_analytics",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.mcp_registry",
+]
 
 [[modules]]
 path = "products.mcp_store"
