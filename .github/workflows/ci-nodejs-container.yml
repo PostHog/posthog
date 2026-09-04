@@ -137,8 +137,16 @@ jobs:
                   # Prod deploys from private ECR; pause the public ghcr push during an embargo.
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
+            - name: Record build start time
+              id: build_start
+              run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
             - name: Build and push container image
               id: build
+              continue-on-error: true
+              # A hung build must end as a step failure, not a job timeout: the retry below is
+              # gated on `outcome == 'failure'`, and a cancelled job skips every step it guards.
+              timeout-minutes: 20
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: .
@@ -153,9 +161,61 @@ jobs:
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
 
+            # A Depot control-plane error kills the step in seconds, before any Dockerfile stage
+            # runs, and the same commit then builds on a rerun. A real break in the image (pnpm
+            # install, turbo build) takes minutes, and a second attempt only spends credits to
+            # fail again. So retry the fast failures and let the slow ones stay red.
+            - name: Decide whether to retry the build
+              id: retry
+              if: steps.build.outcome == 'failure'
+              env:
+                  STARTED_AT: ${{ steps.build_start.outputs.at }}
+              run: |
+                  set -euo pipefail
+                  elapsed=$(( $(date +%s) - STARTED_AT ))
+                  if [ "$elapsed" -le 60 ]; then
+                      echo "retry=true" >> "$GITHUB_OUTPUT"
+                      echo "Build failed after ${elapsed}s, before it could reach the image itself. Retrying once."
+                  else
+                      echo "retry=false" >> "$GITHUB_OUTPUT"
+                      echo "Build failed after ${elapsed}s. This looks like a real build failure, so it is not retried."
+                  fi
+
+            - name: Build and push container image (retry)
+              id: build_retry
+              if: steps.retry.outputs.retry == 'true'
+              timeout-minutes: 20
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: .
+                  buildx-fallback: false
+                  project: '00mrvlsdvh'
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  file: Dockerfile.node
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+
+            # Single source of truth for the digest, whichever attempt produced it. The first
+            # attempt swallows its own failure, so this step is also the job's verdict.
+            - name: Resolve image digest
+              id: image
+              env:
+                  DIGEST: ${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  if [ -z "$DIGEST" ]; then
+                      echo "::error::The node image build did not produce an image."
+                      exit 1
+                  fi
+                  echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
             - name: Container image digest
               env:
-                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
                   IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
               run: |
                   echo "Image digest: $IMAGE_DIGEST"
@@ -213,7 +273,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "node",
