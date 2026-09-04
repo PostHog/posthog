@@ -45,7 +45,9 @@ export function PlanChoice({
     const subscribe = (): void => {
         reportOnboardingPlanSelected('pay_as_you_go')
         // Returning the user to the same URL keeps them in the onboarding flow once payment resolves.
-        startPaymentEntryFlow(platformProduct, window.location.pathname + window.location.search)
+        // Activation goes through the platform product, but this screen sells the inbox product, so
+        // that is the one the payment modal names.
+        startPaymentEntryFlow(platformProduct, window.location.pathname + window.location.search, inboxProduct)
     }
     const continueFree = (): void => {
         reportOnboardingPlanSelected('free')

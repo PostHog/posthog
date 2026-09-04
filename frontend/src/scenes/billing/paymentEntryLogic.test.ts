@@ -86,6 +86,31 @@ describe('paymentEntryLogic', () => {
             expect(toastErrorSpy).not.toHaveBeenCalled()
         })
 
+        // The self-driving onboarding sells the inbox product but subscribes through the platform
+        // product, so the two have to stay apart: one pays, the other is named on the modal.
+        it('names the display product while activating the one it was handed', async () => {
+            let activateBody: Record<string, string> | null = null
+            useMocks({
+                post: {
+                    '/api/billing/activate': async ({ request }) => {
+                        activateBody = (await request.json()) as Record<string, string>
+                        return [200, { must_setup_payment: true }]
+                    },
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const platform = { type: 'platform_and_support', name: 'Platform and support' } as BillingProductV2Type
+            const inbox = { type: 'inbox', name: 'Inbox' } as BillingProductV2Type
+
+            await expectLogic(logic, () =>
+                logic.actions.startPaymentEntryFlow(platform, null, inbox)
+            ).toFinishAllListeners()
+
+            expect(logic.values.intentProduct).toEqual(inbox)
+            expect(activateBody).toEqual({ products: 'all_products:', intent_product: 'platform_and_support' })
+        })
+
         it('redirects with upgraded=true when activate succeeds', async () => {
             setupActivate([200, { success: true }])
             const pushSpy = jest.spyOn(router.actions, 'push')
