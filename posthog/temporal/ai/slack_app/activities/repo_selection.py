@@ -22,7 +22,7 @@ def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
     user_id: int,
-    thread_messages: list[dict[str, str]] | None = None,
+    thread_messages: list[dict[str, Any]] | None = None,
     mention_ts: str | None = None,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
@@ -90,7 +90,7 @@ def _messages_at_or_before(messages: list[dict[str, str]], mention_ts: str | Non
 
 
 def _resolve_explicit_repo(
-    event_text: str, thread_messages: list[dict[str, str]], all_repos: list[str]
+    event_text: str, thread_messages: list[dict[str, Any]], all_repos: list[str]
 ) -> PostHogCodeRepoCascadeOutcome:
     """Repo named by the mention, then by the thread, each reported under its own reason."""
     from products.slack_app.backend.api import _extract_explicit_repo, _extract_explicit_repo_from_thread
@@ -112,7 +112,7 @@ async def discover_posthog_code_repository_via_agent_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     event: dict[str, Any],
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[dict[str, Any]],
     user_id: int,
 ) -> SlackRepoSelectionOutcome:
     """Run the shared discovery agent and wrap its result for the workflow.

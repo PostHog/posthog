@@ -10,7 +10,13 @@ from posthog.egress.slack.transport import slack_request
 
 logger = structlog.get_logger(__name__)
 
-MAX_SLACK_ATTACHMENTS_PER_MESSAGE = 5
+MAX_SLACK_ATTACHMENTS_PER_MESSAGE = 15
+# What the rest of the thread may contribute, on top of the triggering message's own.
+# A thread accumulates screenshots over its life, most of them settled business by the
+# time somebody asks a new question, and each one costs a download and a slot in the
+# agent's workspace. The oldest survive the cap: the file being discussed is usually
+# the one the thread opened with.
+MAX_SLACK_ATTACHMENTS_PER_THREAD = 15
 MAX_SLACK_ATTACHMENT_BYTES = 10 * 1024 * 1024
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 15
 MAX_SLACK_DOWNLOAD_REDIRECTS = 5
@@ -246,7 +252,87 @@ def _download_slack_file(url: str, bot_token: str) -> bytes | None:
     return None
 
 
+def _file_dedupe_key(file: dict[str, Any]) -> str:
+    """What identifies a file across the messages it appears in.
+
+    Slack gives every upload a workspace-unique id that a re-share carries with it, so
+    the id is the answer wherever there is one. The download url stands in for the rare
+    file that arrives without one.
+    """
+    file_id = file.get("id")
+    if isinstance(file_id, str) and file_id:
+        return file_id
+    return _source_url(file) or ""
+
+
 def prepare_slack_file_artifacts(files: Any, bot_token: str | None) -> PreparedSlackAttachments:
+    """Fetch the attachments on one Slack message, ready to upload to the agent's workspace."""
+    return _prepare_files(
+        files,
+        bot_token,
+        max_files=MAX_SLACK_ATTACHMENTS_PER_MESSAGE,
+        over_limit_message=(
+            f"Additional Slack attachment(s) skipped: only {MAX_SLACK_ATTACHMENTS_PER_MESSAGE} files are supported per message."
+        ),
+    )
+
+
+def prepare_slack_thread_file_artifacts(
+    thread_messages: list[dict[str, Any]],
+    bot_token: str | None,
+    *,
+    already_requested: Any = None,
+) -> PreparedSlackAttachments:
+    """Fetch the attachments posted elsewhere in the thread, oldest first.
+
+    The message that tags the app is rarely the one carrying the screenshot — somebody
+    posts a chart, the discussion runs, and the ask lands several replies later. Slack
+    hands the agent no way to reach those files itself: ``url_private`` answers only to
+    a workspace token, which is exactly what a sandbox does not hold. So the bot fetches
+    them here, the same way it fetches the triggering message's own.
+
+    ``already_requested`` is that triggering message's file list, whose attachments the
+    caller prepares separately. Anything in it is left alone rather than downloaded twice.
+    """
+    seen = {_file_dedupe_key(file) for file in already_requested or [] if isinstance(file, dict)}
+    files: list[dict[str, Any]] = []
+    for message in thread_messages:
+        for file in message.get("files") or []:
+            if not isinstance(file, dict):
+                continue
+            key = _file_dedupe_key(file)
+            if key in seen:
+                continue
+            seen.add(key)
+            files.append(file)
+
+    return _prepare_files(
+        files,
+        bot_token,
+        max_files=MAX_SLACK_ATTACHMENTS_PER_THREAD,
+        over_limit_message=(
+            f"Slack attachment(s) from earlier in the thread skipped: only {MAX_SLACK_ATTACHMENTS_PER_THREAD} "
+            "thread files are supported."
+        ),
+    )
+
+
+def merge_prepared_attachments(*parts: PreparedSlackAttachments) -> PreparedSlackAttachments:
+    """One set of attachments out of several, for a turn that draws on more than one message."""
+    return PreparedSlackAttachments(
+        artifacts=[artifact for part in parts for artifact in part.artifacts],
+        skipped_messages=[message for part in parts for message in part.skipped_messages],
+        requested_count=sum(part.requested_count for part in parts),
+    )
+
+
+def _prepare_files(
+    files: Any,
+    bot_token: str | None,
+    *,
+    max_files: int,
+    over_limit_message: str,
+) -> PreparedSlackAttachments:
     if not isinstance(files, list) or not files:
         return PreparedSlackAttachments(artifacts=[], skipped_messages=[], requested_count=0)
 
@@ -262,10 +348,8 @@ def prepare_slack_file_artifacts(files: Any, bot_token: str | None) -> PreparedS
     skipped_messages: list[str] = []
 
     for index, file in enumerate(files):
-        if index >= MAX_SLACK_ATTACHMENTS_PER_MESSAGE:
-            skipped_messages.append(
-                f"Additional Slack attachment(s) skipped: only {MAX_SLACK_ATTACHMENTS_PER_MESSAGE} files are supported per message."
-            )
+        if index >= max_files:
+            skipped_messages.append(over_limit_message)
             break
         if not isinstance(file, dict):
             skipped_messages.append("A Slack attachment was skipped because its metadata was invalid.")

@@ -1,10 +1,17 @@
+from typing import Any
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.temporal.ai.slack_app.attachments import build_slack_attachment_prompt_text, prepare_slack_file_artifacts
+from posthog.temporal.ai.slack_app.attachments import (
+    MAX_SLACK_ATTACHMENTS_PER_THREAD,
+    build_slack_attachment_prompt_text,
+    prepare_slack_file_artifacts,
+    prepare_slack_thread_file_artifacts,
+)
 
 _TYPE_SKIP_SUFFIX = (
     "was skipped because only image, PDF, and plain-text attachments (logs, markdown, CSV, JSON, YAML) are supported."
@@ -115,6 +122,42 @@ class TestSlackAttachments(SimpleTestCase):
         download.assert_not_called()
         assert prepared.artifacts == []
         assert prepared.skipped_messages == ["debug.log was skipped because its download URL was not a Slack file URL."]
+
+    def test_collects_thread_files_without_refetching_the_triggering_message(self) -> None:
+        triggering_file = _slack_file(id="F_TRIGGER", name="pasted.png")
+        thread_messages: list[dict[str, Any]] = [
+            {"ts": "1.000", "files": [_slack_file(id="F_PARENT", name="chart.png")]},
+            {"ts": "2.000"},
+            # The same upload re-shared later in the thread, and the file the mention
+            # itself carries — both already accounted for, neither fetched twice.
+            {"ts": "3.000", "files": [_slack_file(id="F_PARENT", name="chart.png"), triggering_file]},
+        ]
+
+        with patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"bytes") as download:
+            prepared = prepare_slack_thread_file_artifacts(
+                thread_messages, "xoxb-token", already_requested=[triggering_file]
+            )
+
+        assert download.call_count == 1
+        assert [artifact["name"] for artifact in prepared.artifacts] == ["chart.png"]
+
+    def test_caps_how_many_thread_files_one_turn_carries(self) -> None:
+        over_cap = MAX_SLACK_ATTACHMENTS_PER_THREAD + 1
+        thread_messages: list[dict[str, Any]] = [
+            {"ts": f"{index}.000", "files": [_slack_file(id=f"F{index}", name=f"shot-{index}.png")]}
+            for index in range(over_cap)
+        ]
+
+        with patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"bytes"):
+            prepared = prepare_slack_thread_file_artifacts(thread_messages, "xoxb-token")
+
+        assert prepared.requested_count == over_cap
+        assert len(prepared.artifacts) == MAX_SLACK_ATTACHMENTS_PER_THREAD
+        assert prepared.artifacts[0]["name"] == "shot-0.png"
+        assert prepared.skipped_messages == [
+            f"Slack attachment(s) from earlier in the thread skipped: only {MAX_SLACK_ATTACHMENTS_PER_THREAD} "
+            "thread files are supported."
+        ]
 
     def test_build_prompt_handles_file_only_message(self) -> None:
         prompt = build_slack_attachment_prompt_text(

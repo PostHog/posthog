@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
@@ -56,7 +57,7 @@ AGENT_DIRECTED_MAX_RETRIES = 1
 
 def classify_task_needs_repo(
     event_text: str,
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[dict[str, Any]],
 ) -> bool:
     """Classify whether a Slack conversation requires code repository access.
 
@@ -191,7 +192,7 @@ def classify_task_needs_repo(
 @activity.defn
 def classify_posthog_code_task_needs_repo_activity(
     event_text: str,
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[dict[str, Any]],
 ) -> bool:
     return classify_task_needs_repo(event_text, thread_messages)
 
