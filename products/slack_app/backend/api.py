@@ -4563,12 +4563,16 @@ def _handle_error_tracking_issue_action(payload: dict, action: dict) -> HttpResp
     if not slack_team_id or not isinstance(integration_id, int) or not slack_user_id or not channel_id:
         return HttpResponse(status=200)
 
-    integration_exists = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-        kind=SLACK_INTEGRATION_KIND,
-        integration_id=slack_team_id,
-    ).exists()
-    if not integration_exists:
+    integration_team_id = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .values_list("team_id", flat=True)
+        .first()
+    )
+    if integration_team_id is None:
         logger.info("error_tracking_slack_action_no_integration", slack_team_id=slack_team_id)
         return HttpResponse(status=200)
 
@@ -4582,6 +4586,7 @@ def _handle_error_tracking_issue_action(payload: dict, action: dict) -> HttpResp
         fingerprint=fingerprint if isinstance(fingerprint, str) else None,
         team_id=team_id if isinstance(team_id, int) else None,
         integration_id=integration_id,
+        integration_team_id=integration_team_id,
         slack_user_id=slack_user_id,
         channel_id=channel_id,
     )
