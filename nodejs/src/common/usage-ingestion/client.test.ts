@@ -104,9 +104,9 @@ describe('UsageIngestionClient', () => {
     // reports the flush that races the teardown as Canceled or Internal. Dropping those loses
     // usage the service never saw, so they have to be retried like any other transport failure.
     test.each([
-        { name: 'Canceled from a GOAWAY teardown', code: Code.Canceled },
-        { name: 'Internal from a destroyed session', code: Code.Internal },
-    ])('retries $name until the call succeeds', async ({ code }) => {
+        { name: 'Canceled from a GOAWAY teardown', code: Code.Canceled, label: 'Canceled' },
+        { name: 'Internal from a destroyed session', code: Code.Internal, label: 'Internal' },
+    ])('retries $name until the call succeeds', async ({ code, label }) => {
         acceptedRecordIds = ['record-7']
         ;(client as any).client = {
             ingestBillingUsage: () => {
@@ -121,6 +121,10 @@ describe('UsageIngestionClient', () => {
 
         expect(calls).toBe(3)
         expect(await counted('usage_ingestion_records_sent_total')).toEqual([expect.objectContaining({ value: 1 })])
+        // A retry that lands drops nothing, so the retries read on their own counter.
         expect(await counted('usage_ingestion_records_failed_total')).toEqual([])
+        expect(await counted('usage_ingestion_retries_total')).toEqual([
+            expect.objectContaining({ labels: expect.objectContaining({ error_code: label }), value: 2 }),
+        ])
     })
 })
