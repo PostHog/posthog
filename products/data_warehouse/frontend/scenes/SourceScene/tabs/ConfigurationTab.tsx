@@ -91,6 +91,10 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     sourceConfig={sourceFieldConfig}
                     jobInputs={jobInputs}
                     initialAccessMethod={source.access_method ?? 'warehouse'}
+                    // Reconnecting an expired account has to come back to this source. Without a
+                    // redirect the form falls back to the wizard's, which lands on the new-source
+                    // flow and invites a duplicate source instead of repairing this one.
+                    oauthRedirectUrl={urls.dataWarehouseSource(source.id, 'configuration')}
                     setSourceConfigValue={setSourceConfigValue}
                 />
                 {source.access_method !== 'direct' && (

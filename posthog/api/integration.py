@@ -115,6 +115,7 @@ from products.batch_exports.backend.models.batch_export import get_batch_exports
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
+from products.warehouse_sources.backend.facade.api import resume_syncs_paused_by_auth_failure
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
@@ -679,6 +680,15 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                             "Only the person who connected this Google account or a project admin can reconnect it."
                         )
                     raise PermissionDenied("Editing an existing integration requires project admin access.")
+        # An overwrite is a reconnect, and a customer reconnects to repair an account whose
+        # authentication expired. Restart the warehouse tables that failure stopped, so they don't
+        # stay off after the repair. Outside the transaction above: this reaches Temporal.
+        if is_overwrite:
+            try:
+                resume_syncs_paused_by_auth_failure(integration_id=instance.id, team_id=team_id)
+            except Exception as e:
+                capture_exception(e, {"team_id": team_id, "integration_id": instance.id})
+
         # GitHub reports from GitHubIntegration.integration_from_installation_id instead, because it
         # is also created outside this serializer (the App installation callback, agentic
         # provisioning). This branch reaches that same helper, so reporting here too would count a

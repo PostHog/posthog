@@ -175,9 +175,7 @@ def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
     meta_ads_integration.refresh_access_token()
 
     if meta_ads_integration.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise MetaAdsTokenRefreshError(
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
-        )
+        raise MetaAdsTokenRefreshError(META_TOKEN_REFRESH_ERROR_MESSAGE)
 
     return meta_ads_integration.integration
 
@@ -444,6 +442,11 @@ META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
+)
+
+# Matched by `MetaAdsSource.get_non_retryable_errors`, so it has to stay in sync with the key there.
+META_TOKEN_REFRESH_ERROR_MESSAGE = (
+    "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
 )
 
 META_RATE_LIMIT_ERROR_MESSAGE = (

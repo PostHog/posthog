@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.source_integrations import mark_integration_auth_error
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     PersonPropertySyncActivityInputs,
@@ -368,6 +369,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             if friendly_errors and friendly_errors[0] is not None:
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
+
+            # An account the vendor rejects only starts working again once the customer
+            # reconnects it, so say so on the integration itself. Everywhere the connection is
+            # shown then reads as broken and offers to reconnect, instead of as connected.
+            if error_message_matches(internal_error_normalized, source_cls.get_auth_errors()):
+                await database_sync_to_async_pool(mark_integration_auth_error)(source)
 
             # Computed after the friendly error so the teardown records the same message
             # the job will show. Excluding this workflow keeps the disable's teardown from

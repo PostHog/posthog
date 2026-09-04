@@ -22,6 +22,9 @@ import { IntegrationType } from '~/types'
 import { integrationsLogic } from './integrationsLogic'
 import { DARK_MODE_INVERT_ICON_KINDS, getIntegrationNameFromKind } from './utils'
 
+/** `Integration.errors` value the backend writes when the connected account can no longer authenticate. */
+const TOKEN_REFRESH_FAILED = 'TOKEN_REFRESH_FAILED'
+
 export function IntegrationView({
     integration,
     suffix,
@@ -40,6 +43,7 @@ export function IntegrationView({
     })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
+    const tokenExpired = errors[0] === TOKEN_REFRESH_FAILED
     const { githubRepositoriesLoading, getGitHubRepositories, getGitHubRepositoriesTotal } =
         useValues(integrationsLogic)
     const { loadGitHubRepositories } = useActions(integrationsLogic)
@@ -93,6 +97,8 @@ export function IntegrationView({
                             <span>
                                 {installationUnavailable ? (
                                     <>No longer connected</>
+                                ) : tokenExpired ? (
+                                    <>Connection expired</>
                                 ) : refreshedAtTimestamp ? (
                                     <Tooltip
                                         title={
@@ -212,7 +218,7 @@ export function IntegrationView({
                             disabledReason: restrictedReason,
                         }}
                     >
-                        {errors[0] === 'TOKEN_REFRESH_FAILED'
+                        {tokenExpired
                             ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>

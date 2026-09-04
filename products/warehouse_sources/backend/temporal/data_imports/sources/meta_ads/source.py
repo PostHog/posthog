@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsRateLimitError,
@@ -104,7 +105,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            META_TOKEN_REFRESH_ERROR_MESSAGE: None,
             # The data warehouse source still references a `meta_ads_integration_id` whose
             # Integration row no longer exists for the team (the integration was deleted or
             # de-authorized). `get_integration` then raises Django's `Integration.DoesNotExist`
@@ -169,6 +170,13 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta couldn't return this data even at the smallest request size. Lower the sync "
                 "history for insights in your Meta Ads source settings, then run the sync again."
             ),
+        }
+
+    def get_auth_errors(self) -> set[str]:
+        return {
+            META_TOKEN_REFRESH_ERROR_MESSAGE,
+            META_AUTH_ERROR_MESSAGE,
+            "cannot be loaded due to missing permissions",
         }
 
     def get_retryable_errors(self) -> set[str]:

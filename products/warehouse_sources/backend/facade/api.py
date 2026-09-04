@@ -56,6 +56,9 @@ from products.warehouse_sources.backend.models.util import (
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.source_integrations import (
+    resume_syncs_paused_by_auth_failure as resume_syncs_paused_by_auth_failure,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from . import contracts
@@ -76,6 +79,7 @@ __all__ = [
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
+    "resume_syncs_paused_by_auth_failure",
     # framework-free helper transforms
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
