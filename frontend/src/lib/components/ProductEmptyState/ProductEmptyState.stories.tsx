@@ -22,6 +22,7 @@ import { dataCatalogEmptyState } from 'products/data_catalog/frontend/emptyState
 import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
+import { engineeringAnalyticsEmptyState } from 'products/engineering_analytics/frontend/emptyState/engineeringAnalyticsEmptyState'
 import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
@@ -413,6 +414,13 @@ export const TransformationsNeedsSetup: ProductEmptyStateStory = productEmptySta
     transformationsEmptyState,
     'needs-setup',
     { mocks: { get: { '/api/projects/:team_id/hog_functions/': [200, emptyEntityList] } } }
+)
+
+// Engineering analytics detection lists GitHub sources on mount - answer "none yet".
+export const EngineeringAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    engineeringAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/engineering_analytics/sources/': [200, []] } } }
 )
 
 export const HeatmapsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(heatmapsEmptyState, 'needs-setup')
