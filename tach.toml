@@ -135,6 +135,7 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.mcp_analytics",
+    "products.mcp_registry",
     "products.web_analytics",
     "products.workflows",
     "products.actions",
@@ -322,6 +323,7 @@ path = "products.warehouse_sources"
 depends_on = [
     "ee",
     "posthog",
+    "products.batch_exports",
     "products.cdp",
     "products.data_modeling",
     "products.data_tools",
@@ -542,6 +544,26 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.mcp_registry"
+depends_on = [
+    "posthog",
+    # Facade-only (enforced by mcp_registry's [[interfaces]] block): the measured-server
+    # aggregation reads new-SDK $mcp_tool_call grouping rules through mcp_analytics' facade.
+    "products.mcp_analytics",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.mcp_registry",
+]
+
+[[modules]]
 path = "products.mcp_store"
 depends_on = [
     "ee",
@@ -575,6 +597,7 @@ path = "products.notebooks"
 depends_on = [
     "ee",
     "posthog",
+    "products.canvas",
     "products.product_analytics",
     "products.tasks", "products.access_control",
 ]
@@ -702,6 +725,7 @@ path = "products.replay_vision"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.alerts",
     "products.cdp",
     "products.cohorts",
@@ -867,6 +891,9 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.signals",
+    # Skills attached to workflow task nodes are read at fire time. The skills
+    # product has no facade, so this matches how review_hog and signals reach LLMSkill.
+    "products.skills",
     "products.slack_app", "products.access_control",
 ]
 layer = "modules"
@@ -887,6 +914,16 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+# Canvas is still a legacy product, so notebooks use a narrow product-owned
+# integration instead of exposing its whole facade and claiming strict isolation.
+[[interfaces]]
+expose = [
+    "backend\\.notebook_integration.*",
 ]
 from = [
     "products.canvas",
@@ -983,6 +1020,9 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    # Facade-only: the Run scout action's endpoint starts a scout run through
+    # products.signals.backend.facade.api.
+    "products.signals",
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
     "products.tasks", "products.access_control",
@@ -1034,6 +1074,8 @@ expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
+    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
@@ -1089,6 +1131,8 @@ expose = [
     "backend\\.admin.*",
     "backend\\.models.*",
     "backend\\.oauth.*",
+    "backend\\.url_policy\\.check_mcp_url_policy",
+    "backend\\.url_policy\\.trust_environment_proxy",
 ]
 from = [
     "products.mcp_store",
@@ -1151,6 +1195,14 @@ expose = [
 ]
 from = [
     "products.error_tracking",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.tracing",
 ]
 
 [[interfaces]]

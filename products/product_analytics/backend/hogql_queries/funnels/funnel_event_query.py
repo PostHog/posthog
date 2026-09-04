@@ -29,10 +29,10 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserDataWarehouseConfig
-from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID, strip_user_aliases
-from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
-from posthog.hogql_queries.insights.utils.properties import Properties
+from posthog.hogql_queries.utils.aggregations import FirstTimeForUserDataWarehouseConfig
+from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID, strip_user_aliases
+from posthog.hogql_queries.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
+from posthog.hogql_queries.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.property.property import PropertyName
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode

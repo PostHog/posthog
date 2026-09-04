@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -46,6 +47,11 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             title: 'Access level',
             key: 'level',
             render: (_, member) => capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? 'Unknown'),
+        },
+        {
+            title: 'Last logged in',
+            key: 'last_login',
+            render: (_, member) => (member.last_login ? <TZLabel time={member.last_login} /> : 'Never'),
         },
     ]
 

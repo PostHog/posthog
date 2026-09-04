@@ -1,17 +1,9 @@
 ---
 name: signals-scout-data-warehouse
 description: >
-  Focused Signals scout for PostHog projects importing external data into the warehouse.
-  Watches the import side — external data sources, per-table sync schemas, webhook push
-  channels, and materialized views — for the moments an import quietly stops keeping its
-  promise: a source connection in Error, a schema Failed or stuck Running, silent
-  staleness behind a green Completed status, a broken webhook push channel, a row-volume
-  cliff, and failed materialized views. When armed imports are healthy, switches to the
-  optimization lane: reads the per-team `query_log` table for recurring, multi-user query
-  time and read-bytes concentrated on warehouse tables or repeated query shapes, filing
-  materialization candidates and unused matviews as P3 suggestions. Files each validated
-  import contradiction as an inbox report; otherwise writes durable memory and closes out
-  empty.
+  Signals scout for warehouse imports. Watches external data sources, sync schemas, webhook push
+  channels, and materialized views for failures, silent staleness, and row-volume cliffs, and
+  suggests materialization candidates from recurring query-log hot spots.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the external-data

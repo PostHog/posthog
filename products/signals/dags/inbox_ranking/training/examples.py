@@ -124,6 +124,12 @@ def build_examples(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> p
         if later is None:
             continue
         now = snapshots[date]
+        # A label column that is absent from a snapshot reads as zero, so a cumulative count present
+        # only in the later snapshot (a column that entered the schema mid-window) would pass the
+        # "not yet observed at now" guard below and mint an outcome from before `now` as a future
+        # positive. Skip the pair when the head's label cannot be read from both snapshots.
+        if any(column not in now.labels or column not in later.labels for column in head.label_columns):
+            continue
         ids = now.state.index.intersection(now.labels.index).intersection(later.labels.index)
         if len(ids) == 0:
             continue

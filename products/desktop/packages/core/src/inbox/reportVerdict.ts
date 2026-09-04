@@ -42,7 +42,7 @@ export function deriveReportVerdict(
       return {
         tone: "danger",
         title: "Run failed",
-        body: "The agent couldn't finish this report. Archive it, or start a chat to dig into what happened.",
+        body: "The agent couldn't finish this report. Dismiss it, or start a chat to dig into what happened.",
       };
     case "pending_input":
       return {
@@ -73,7 +73,7 @@ export function deriveReportVerdict(
     return {
       tone: "info",
       title: "Likely already fixed",
-      body: "The evidence suggests this was already addressed. Skim the summary and archive the report if you agree.",
+      body: "The evidence suggests this was already addressed. Skim the summary and dismiss the report if you agree.",
     };
   }
   switch (report.actionability) {
@@ -93,7 +93,7 @@ export function deriveReportVerdict(
       return {
         tone: "info",
         title: "For your awareness",
-        body: "No code change follows from this report. Read it, then archive it.",
+        body: "No code change follows from this report. Read it, then dismiss it.",
       };
     default:
       return {

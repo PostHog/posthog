@@ -23,6 +23,19 @@ from posthog.temporal.common.client import async_connect
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.run_gates import (
+    # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
+    # into the scout harness. Every decision behind them stays Signals-side.
+    ScoutRunRejectionKind as ScoutRunRejectionKind,
+)
+from products.signals.backend.scout_harness.workflow_runs import (
+    WorkflowScoutRunRejected as WorkflowScoutRunRejected,
+    WorkflowScoutRunStarted as WorkflowScoutRunStarted,
+    # Facade entrypoint for a workflow's "Run scout" step: the workflows endpoint proves which
+    # workflow is firing, and everything after that (enrolment, budget, quota, the paused-scout
+    # rule, the workflow cooldown, single-flight, dispatch) happens here.
+    start_workflow_scout_run as start_workflow_scout_run,
+)
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
@@ -948,69 +961,6 @@ def scout_reports_for_source(
             )
         )
     return reports
-
-
-@frozen
-class ScoutSummary:
-    """One scout standing on another product's object, in the shape that product needs to render
-    or manage it without reaching into scout tables."""
-
-    config_id: str
-    skill_name: str
-    source_id: str | None
-    enabled: bool
-    run_cron_schedule: str | None
-    run_interval_minutes: int
-    output_destinations: dict[str, Any]
-    description: str
-    created_at: datetime
-    created_by_id: int | None
-    last_run_at: datetime | None
-
-
-def list_scouts_for_source(
-    team_id: int, source_product: str, source_ids: list[str] | None = None
-) -> list[ScoutSummary]:
-    """The scouts a product stood up on its own objects, oldest first.
-
-    `(source_product, source_id)` was recorded at creation and is not user-editable, so the rows
-    returned are exactly the ones the calling product owns. Descriptions come from the live skill;
-    a scout whose skill was archived comes back with an empty description, matching the scout UI.
-    """
-    # Imported inside the call for the same reason as `create_scout_for_source`: keeps the skills
-    # API surface off the facade's import path.
-    from products.skills.backend.models.skills import (
-        LLMSkill,  # noqa: PLC0415 — keeps the API surface off the import path
-    )
-
-    configs_qs = SignalScoutConfig.objects.for_team(team_id).filter(source_product=source_product)
-    if source_ids is not None:
-        configs_qs = configs_qs.filter(source_id__in=source_ids)
-    configs = list(configs_qs.order_by("created_at"))
-    descriptions = dict(
-        LLMSkill.objects.filter(
-            team_id=team_id,
-            name__in=[config.skill_name for config in configs],
-            is_latest=True,
-            deleted=False,
-        ).values_list("name", "description")
-    )
-    return [
-        ScoutSummary(
-            config_id=str(config.id),
-            skill_name=config.skill_name,
-            source_id=config.source_id,
-            enabled=config.enabled,
-            run_cron_schedule=config.run_cron_schedule,
-            run_interval_minutes=config.run_interval_minutes,
-            output_destinations=config.output_destinations or {},
-            description=descriptions.get(config.skill_name, ""),
-            created_at=config.created_at,
-            created_by_id=config.created_by_id,
-            last_run_at=config.last_run_at,
-        )
-        for config in configs
-    ]
 
 
 def update_scout_for_source(

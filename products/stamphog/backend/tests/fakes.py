@@ -516,7 +516,7 @@ def approved_engine_output() -> str:
     return "uv run: resolved 1 package\n" + json.dumps(payload)
 
 
-def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, bytes]] | None = None) -> type:
+def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, bytes]] | None = None) -> type[Any]:
     """A sandbox class returning ``engine_output`` for the reviewer command, no-ops otherwise.
 
     ``write_sink``, when given, records every ``write_file`` as ``(path, payload)`` so a test can

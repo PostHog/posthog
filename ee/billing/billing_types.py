@@ -34,6 +34,7 @@ UsageType = Literal[
     "workflow_billable_invocations_in_period",
     "logs_mb_in_period",
     "logs_retention_30d_mb_in_period",
+    "logs_retention_mb_days_in_period",
     "replay_vision_credits_used_in_period",
     "data_pipelines",
     "group_analytics",
@@ -61,7 +62,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Destinations trigger events", "value": "cdp_billable_invocations_in_period"},
     {"label": "Rows exported", "value": "rows_exported_in_period"},
     {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
-    {"label": "Inbox credits", "value": "signals_credits_used_in_period"},
+    {"label": "Self-driving inbox credits", "value": "signals_credits_used_in_period"},
     {"label": "PostHog Desktop credits", "value": "posthog_code_credits_used_in_period"},
     {"label": "PostHog Desktop token credits", "value": "posthog_code_token_credits_used_in_period"},
     {"label": "Sandbox compute credits", "value": "sandbox_compute_credits_used_in_period"},
@@ -78,6 +79,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
     {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
+    {"label": "Logs retention (MB-days)", "value": "logs_retention_mb_days_in_period"},
 )
 
 USAGE_TYPE_VALUES: tuple[UsageType, ...] = cast(tuple[UsageType, ...], get_args(UsageType))

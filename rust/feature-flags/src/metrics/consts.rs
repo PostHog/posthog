@@ -417,6 +417,21 @@ pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
 // Labels: reason (missing_device_id, missing_group_type)
 pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
 
+// Incremented once per flag left out of a team's payload because its `filters` JSON
+// does not deserialize into FlagFilters. A property filter with no `"type"` key is
+// one such blob, because PropertyFilter requires prop_type, and serde fails the
+// whole outer struct. This counts every dropped flag, which is a superset of the
+// flags the two builders disagree about: Python keeps an active or referenced flag
+// that this drops, but an inactive, unreferenced flag is dropped by both builders.
+// Team id and flag key are in the companion warn log, not in metric labels (cardinality).
+pub const FLAG_MALFORMED_FILTER_COUNTER: &str = "flags_flag_malformed_filter_total";
+// Incremented once per team read that left out at least one flag for the reason
+// above. FLAG_MALFORMED_FILTER_COUNTER divided by this gives the mean flags
+// dropped per affected read. It does not measure how many teams are affected,
+// because neither counter carries a team label and one team read many times
+// inflates this denominator. Read the warn log for team identity and breadth.
+pub const FLAG_MALFORMED_FILTER_READ_COUNTER: &str = "flags_flag_malformed_filter_reads_total";
+
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label
 pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";

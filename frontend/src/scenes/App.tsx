@@ -22,6 +22,7 @@ import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { AppLoadError } from '~/layout/AppLoadError'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -164,7 +165,9 @@ function AppScene(): JSX.Element | null {
         // Scenes that declare an empty state are gated behind the product's
         // setup screen until the product has data (or the user skips).
         const resolvedNode = emptyState ? (
-            <ProductEmptyStateGate emptyState={emptyState}>{sceneNode}</ProductEmptyStateGate>
+            <ProductEmptyStateGate emptyState={emptyState} params={activeSceneComponentParams}>
+                {sceneNode}
+            </ProductEmptyStateGate>
         ) : (
             sceneNode
         )
@@ -199,7 +202,7 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        <ChunkLoadErrorBoundary>
+        <ChunkLoadErrorBoundary fallback={(error) => <AppLoadError error={error} />}>
             <Suspense
                 fallback={
                     // SpinnerOverlay is already imported here — no new lazy deps vs skeleton.

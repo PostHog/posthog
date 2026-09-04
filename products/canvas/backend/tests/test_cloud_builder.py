@@ -12,7 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
+from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -78,7 +78,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             },
             "entryHtml": "index.html",
             "dependencies": {},
-            "canvasSdkVersion": "0.1.0",
+            "canvasSdkVersion": canvas_sdk_version(),
         }
 
     def _notebook_project(self, source: str, frame_names: list[str] | None = None) -> dict[str, Any]:
@@ -203,6 +203,40 @@ class TestCanvasCloudBuilder(SimpleTestCase):
 
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         validate_builder_output(result)
+
+    def test_bundles_the_canvas_sdk_import_inline(self) -> None:
+        payload = synthetic_source_project(
+            'import React from "react"; import { ph } from "@posthog/canvas-sdk"; '
+            "export default function Canvas() { return <div>{typeof ph}</div> }"
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        javascript = "\n".join(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        self.assertIn("globalThis.ph", javascript)
+
+    @parameterized.expand(
+        [
+            ("persisted_before_the_bump", "0.1.0", "ready", []),
+            ("never_issued", "0.0.1", "failed", ["unsupported_sdk"]),
+        ]
+    )
+    def test_sdk_version_admission(
+        self, _name: str, version: str, expected_status: str, expected_codes: list[str]
+    ) -> None:
+        # Stored sources keep the canvasSdkVersion they were scaffolded with, so
+        # every version the platform ever issued must keep building.
+        payload = {
+            **synthetic_source_project('import React from "react"; export default () => <div/>'),
+            "canvasSdkVersion": version,
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], expected_status, result["diagnostics"])
+        self.assertEqual([entry["code"] for entry in result["diagnostics"]], expected_codes)
 
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))

@@ -498,7 +498,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
                             filter_test_accounts,
-                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? JSON.stringify(cohort_ids) : undefined,
                             events: eventFilterParam(events),
                             limit: UNBOUNDED_HEATMAP_LIMIT,
                         },

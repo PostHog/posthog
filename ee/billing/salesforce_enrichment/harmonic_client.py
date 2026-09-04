@@ -5,6 +5,7 @@ from django.conf import settings
 
 import aiohttp
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from .constants import (
@@ -13,6 +14,23 @@ from .constants import (
     HARMONIC_DOMAIN_VARIATIONS,
     HARMONIC_REQUEST_TIMEOUT_SECONDS,
 )
+
+
+@frozen
+class HarmonicCompanyLookup:
+    """Result of a strict company lookup: the company payload plus its tracking URN.
+
+    enrichment_urn is set on every not-found (the enrichment Harmonic just queued for this
+    domain) and on a hit only when a refresh is pending; it is None on a fresh hit. On a
+    miss seen across multiple domain variations, the first non-null URN wins.
+    """
+
+    company: Optional[dict[str, Any]]
+    enrichment_urn: Optional[str]
+
+
+# Harmonic rate limit is 5 req/s; well under that at one request per batch.
+_ENRICHMENT_STATUS_BATCH_SIZE = 50
 
 
 class AsyncHarmonicClient:
@@ -101,18 +119,18 @@ class AsyncHarmonicClient:
 
         return None
 
-    async def enrich_company_by_domain_strict(self, domain: str) -> Optional[dict[str, Any]]:
+    async def enrich_company_by_domain_strict(self, domain: str) -> HarmonicCompanyLookup:
         """Like enrich_company_by_domain, but distinguishes not-found from operational failure.
 
-        Returns None for a genuine not-found: at least one domain variation returned a clean
-        GraphQL response with companyFound false, and no variation found the company. A clean
-        not-found is an authoritative Harmonic answer even when the other variation errored —
-        raising in that mixed case let one failing variation exhaust the caller's retries and
-        fail the whole lookup with no archive row. In practice that mixed case has been rare
-        (a prod trace attributed almost all no-archive-row orgs to DB errors before the lookup,
-        not to this path); the point of returning the miss is that every terminal outcome now
-        leaves an archived row, and a row is what the recheck, the backfill, and the
-        re-enrichment sweep act on — an activity failure feeds none of them.
+        Returns a company-less lookup for a genuine not-found: at least one domain variation
+        returned a clean GraphQL response with companyFound false, and no variation found the
+        company. A clean not-found is an authoritative Harmonic answer even when the other
+        variation errored. Raising in that mixed case let one failing variation exhaust the
+        caller's retries and fail the whole lookup with no archive row. In practice that mixed
+        case has been rare (a prod trace attributed almost all no-archive-row orgs to DB errors
+        before the lookup, not to this path); the point of returning the miss is that every
+        terminal outcome now leaves an archived row, and a row is what the recheck, the
+        backfill, and the re-enrichment sweep act on. An activity failure feeds none of them.
 
         Operational failures on EVERY variation (network errors, non-2xx status, JSON decode,
         GraphQL errors) still re-raise, so callers retry and alert instead of mistaking an
@@ -127,6 +145,7 @@ class AsyncHarmonicClient:
         last_error: Optional[Exception] = None
         last_error_variation: Optional[str] = None
         saw_clean_not_found = False
+        not_found_urn: Optional[str] = None
         for domain_variation in domain_variations:
             try:
                 variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
@@ -148,9 +167,12 @@ class AsyncHarmonicClient:
 
                     result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
                     if result.get("companyFound"):
-                        return result.get("company")
+                        return HarmonicCompanyLookup(
+                            company=result.get("company"), enrichment_urn=result.get("enrichmentUrn")
+                        )
                     if result.get("companyFound") is False:
                         saw_clean_not_found = True
+                        not_found_urn = not_found_urn or result.get("enrichmentUrn")
             except Exception as e:
                 last_error = e
                 last_error_variation = domain_variation
@@ -160,7 +182,7 @@ class AsyncHarmonicClient:
             raise last_error
         if last_error is not None:
             capture_exception(last_error, {"domain": domain, "failed_variation": last_error_variation})
-        return None
+        return HarmonicCompanyLookup(company=None, enrichment_urn=not_found_urn)
 
     async def get_company_by_urn(self, urn: str) -> Optional[dict[str, Any]]:
         """Resolve a Harmonic company URN (e.g. from relatedCompanies) via the REST profile endpoint.
@@ -185,6 +207,37 @@ class AsyncHarmonicClient:
                 return None
             response.raise_for_status()
             return await response.json()
+
+    async def get_enrichment_status(self, urns: list[str]) -> dict[str, dict[str, Any]]:
+        """Poll Harmonic's /enrichment_status for a set of tracking URNs, keyed by entity_urn.
+
+        Batches at most 50 URNs per request. Raises on a non-2xx response or a body that
+        isn't a list, rather than silently reporting every URN as unqueried.
+        """
+        if self.session is None:
+            raise RuntimeError("HTTP session not initialized. Use async context manager.")
+
+        statuses: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(urns), _ENRICHMENT_STATUS_BATCH_SIZE):
+            batch = urns[start : start + _ENRICHMENT_STATUS_BATCH_SIZE]
+            await asyncio.sleep(0.2)
+            # Same short cap as get_company_by_urn: this shares the recheck activity's 90s
+            # budget with the domain lookup, so it must not inherit the session's 30s total.
+            async with self.session.get(
+                f"{HARMONIC_BASE_URL}/enrichment_status",
+                params=[("urns", urn) for urn in batch],
+                headers={"apikey": self.api_key},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
+
+            if not isinstance(data, list):
+                raise ValueError(f"unexpected enrichment_status body: {type(data).__name__}")
+            for entry in data:
+                if isinstance(entry, dict) and isinstance(entry.get("entity_urn"), str):
+                    statuses[entry["entity_urn"]] = entry
+        return statuses
 
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently.

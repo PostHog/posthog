@@ -23,7 +23,7 @@ import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEdi
 import { QuietHoursFields } from 'products/alerts/frontend/components/QuietHoursFields'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
-import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 
@@ -171,8 +171,8 @@ export function LogsAlertTrigger(): JSX.Element {
                         value={alertForm.thresholdOperator}
                         onChange={(value) => setAlertFormValue('thresholdOperator', value)}
                         options={[
-                            { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
-                            { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
+                            { value: LogsAlertConfigurationThresholdOperatorEnumApi.Above, label: 'above' },
+                            { value: LogsAlertConfigurationThresholdOperatorEnumApi.Below, label: 'below' },
                         ]}
                         size="small"
                     />
