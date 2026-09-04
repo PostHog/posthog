@@ -208,12 +208,13 @@ class TestReportDiagnosticCounts:
                 for i, ok in enumerate(oks)
             ),
         )
-        assert _report_diagnostic_counts(result) == DiagnosticCounts(
+        counts = _report_diagnostic_counts(result)
+        assert counts == DiagnosticCounts(
             failed_step_count=expected_failed,
             total_step_count=expected_total,
-            error_types=expected_types,
             query_errors=expected_errors,
         )
+        assert counts.error_types == expected_types
 
     def test_distinct_error_types_are_sorted_and_deduped(self):
         result = AiReportResult(
@@ -225,16 +226,17 @@ class TestReportDiagnosticCounts:
                 QueryStepDiagnostic(description="c", hogql="z", ok=False, error_type="ResolutionError"),
             ),
         )
-        assert _report_diagnostic_counts(result) == DiagnosticCounts(
+        counts = _report_diagnostic_counts(result)
+        assert counts == DiagnosticCounts(
             failed_step_count=3,
             total_step_count=3,
-            error_types=["ExposedHogQLError", "ResolutionError"],
             query_errors=[
                 {"type": "ResolutionError", "code": None, "message": None},
                 {"type": "ExposedHogQLError", "code": None, "message": None},
                 {"type": "ResolutionError", "code": None, "message": None},
             ],
         )
+        assert counts.error_types == ["ExposedHogQLError", "ResolutionError"]
 
     def test_pairs_each_safe_query_error_with_its_type(self):
         result = AiReportResult(
@@ -263,7 +265,6 @@ class TestReportDiagnosticCounts:
         assert _report_diagnostic_counts(result) == DiagnosticCounts(
             failed_step_count=2,
             total_step_count=2,
-            error_types=["ClickHouseQueryMemoryLimitExceeded", "ResolutionError"],
             query_errors=[
                 {
                     "type": "ClickHouseQueryMemoryLimitExceeded",
@@ -306,7 +307,6 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
     assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == DiagnosticCounts(
         failed_step_count=1,
         total_step_count=2,
-        error_types=["ResolutionError"],
         query_errors=[
             {
                 "type": "ResolutionError",
@@ -320,6 +320,6 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
 async def test_snapshot_diagnostic_counts_handles_missing_diagnostics(team, user) -> None:
     delivery = await _create_delivery(team, user)
     # Empty content_snapshot (nothing persisted yet) and a fully-missing snapshot both report nothing failed.
-    empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[], query_errors=[])
+    empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, query_errors=[])
     assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == empty_counts
     assert _snapshot_diagnostic_counts(None) == empty_counts

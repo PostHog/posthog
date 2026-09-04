@@ -10,6 +10,7 @@ from rest_framework.exceptions import APIException
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
@@ -151,6 +152,14 @@ def _wrap(
             },
         ),
         (
+            ExposedCHQueryError("Invalid aggregate", code_name="illegal_aggregation"),
+            {
+                "type": "ExposedCHQueryError",
+                "code": "illegal_aggregation",
+                "message": "Invalid aggregate",
+            },
+        ),
+        (
             _wrap(Exception("outer"), cause=ResolutionError("Unknown field: signups")),
             {
                 "type": "ResolutionError",
@@ -162,12 +171,24 @@ def _wrap(
             _wrap(RuntimeError("outer"), context=ExposedHogQLError("Unknown field: revenue")),
             {"type": "ExposedHogQLError", "code": "hogql_error", "message": "Unknown field: revenue"},
         ),
-        # Only explicitly allowlisted API exceptions are safe. A generic one may carry team-scoped detail.
+        # Only explicitly marked API exceptions are safe. A generic one may carry team-scoped detail.
         (APIException("internal detail with a team-scoped id"), None),
     ],
 )
 def test_safe_query_error_details_matches_query_api(exc: BaseException, expected: dict[str, str] | None) -> None:
     assert safe_query_error_details(exc) == expected
+
+
+def test_safe_query_error_details_uses_exception_safety_marker() -> None:
+    class UserSafeQueryError(Exception):
+        is_user_safe = True
+        code_name = "safe_query_error"
+
+    assert safe_query_error_details(UserSafeQueryError("Safe detail")) == {
+        "type": "UserSafeQueryError",
+        "code": "safe_query_error",
+        "message": "Safe detail",
+    }
 
 
 def test_resolution_error_owns_its_stable_error_code() -> None:

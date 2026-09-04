@@ -15,6 +15,17 @@ def test_undisclosed_query_error_types_track_the_exception_class() -> None:
 
 
 class TestGenerateAIReportResult:
+    def test_query_error_types_are_derived_for_new_results(self) -> None:
+        result = GenerateAIReportResult(
+            query_errors=[
+                {"type": "ResolutionError", "code": "hogql_resolution_error", "message": "Unknown field"},
+                {"type": "ExposedHogQLError", "code": "hogql_error", "message": "Invalid query"},
+                {"type": "ResolutionError", "code": "hogql_resolution_error", "message": "Unknown field"},
+            ]
+        )
+
+        assert result.query_error_types == ["ExposedHogQLError", "ResolutionError"]
+
     # all_queries_failed is the single source of truth for the workflow's FAILED-vs-COMPLETED decision,
     # so a regression here (dropping the zero-steps guard, or flipping >= ) would silently mislabel a
     # fully-degraded report as completed.
@@ -66,7 +77,7 @@ class TestGenerateAIReportResult:
             (
                 "memory_limit_has_actionable_reason",
                 1,
-                ["ClickHouseQueryMemoryLimitExceeded"],
+                [],
                 [
                     {
                         "type": "ClickHouseQueryMemoryLimitExceeded",
@@ -79,13 +90,18 @@ class TestGenerateAIReportResult:
             (
                 "timeout_has_actionable_reason",
                 2,
-                ["ClickHouseQueryTimeOut", "ResolutionError"],
+                [],
                 [
                     {
                         "type": "ClickHouseQueryTimeOut",
                         "code": ClickHouseQueryTimeOut.default_code,
                         "message": ClickHouseQueryTimeOut.default_detail,
-                    }
+                    },
+                    {
+                        "type": "ResolutionError",
+                        "code": "hogql_resolution_error",
+                        "message": "Unknown field",
+                    },
                 ],
                 "All 2 queries the AI generated failed to run (ClickHouseQueryTimeOut, ResolutionError), so the report could not be computed.",
             ),

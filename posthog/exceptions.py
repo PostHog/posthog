@@ -101,11 +101,13 @@ class ClickHouseBytesLimitExceeded(ValidationError):
 
 
 class ClickHouseQueryTimeOut(APIException):
+    is_user_safe = True
     status_code = 504
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
+    is_user_safe = True
     # Custom code in the actionable-validation family (400/512/513) the frontend routes to the
     # "problem with this query" panel. Distinct from 512 (query-too-slow) so an out-of-memory
     # failure is never mistaken for a timeout on either the client or in status-based alerting.

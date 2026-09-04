@@ -82,8 +82,11 @@ def _snapshot_report(snapshot: dict | None) -> str | None:
 class DiagnosticCounts:
     failed_step_count: int
     total_step_count: int
-    error_types: list[str]
     query_errors: list[QueryErrorDetails]
+
+    @property
+    def error_types(self) -> list[str]:
+        return sorted({error["type"] for error in self.query_errors if error["type"]})
 
 
 def _query_error_details(error_type: object, error_code: object, error_message: object) -> QueryErrorDetails:
@@ -98,11 +101,9 @@ def _tally_diagnostics(steps: list[QueryErrorDetails | None]) -> DiagnosticCount
     # One typed object keeps every failed query's type, code, and safe message paired. None marks a
     # successful step. The same representation is built from persisted and in-memory diagnostics.
     query_errors = [step for step in steps if step is not None]
-    error_types = sorted({error["type"] for error in query_errors if error["type"]})
     return DiagnosticCounts(
         failed_step_count=len(query_errors),
         total_step_count=len(steps),
-        error_types=error_types,
         query_errors=query_errors,
     )
 
@@ -111,7 +112,7 @@ def _snapshot_diagnostic_counts(snapshot: dict | None) -> DiagnosticCounts:
     # The prior run's failure shape, read back from the persisted diagnostics on Temporal redispatch.
     diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if snapshot else None
     if not isinstance(diagnostics, list):
-        return DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[], query_errors=[])
+        return DiagnosticCounts(failed_step_count=0, total_step_count=0, query_errors=[])
     # Only well-formed dict entries count — a malformed one would inflate the total and mask an
     # all-failed report; `ok is not False` keeps a missing/None ok out of the failed set.
     return _tally_diagnostics(
@@ -257,7 +258,6 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             aborted=False,
             failed_step_count=counts.failed_step_count,
             total_step_count=counts.total_step_count,
-            query_error_types=counts.error_types,
             query_errors=counts.query_errors,
             target_type=subscription.target_type,
         )
@@ -350,7 +350,6 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         aborted=False,
         failed_step_count=counts.failed_step_count,
         total_step_count=counts.total_step_count,
-        query_error_types=counts.error_types,
         query_errors=counts.query_errors,
         target_type=subscription.target_type,
     )

@@ -9,18 +9,6 @@ from posthog.slo.types import SloConfig
 # has no persisted details. The type still lands in diagnostics, logs, and error tracking.
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
-# Explicit allowlist for exception families whose messages are safe to show to a query-access owner.
-# Names keep this module free of Django/DRF imports for the Temporal workflow sandbox. Matching the
-# exception MRO preserves subclass behavior without making every query exception safe by default.
-SAFE_QUERY_ERROR_BASE_TYPES = frozenset(
-    {
-        "ClickHouseQueryMemoryLimitExceeded",
-        "ClickHouseQueryTimeOut",
-        "ExposedHogQLError",
-        "ResolutionError",
-    }
-)
-
 
 class QueryErrorDetails(typing.TypedDict):
     """A failed query's type paired with its optional safe code and message."""
@@ -35,8 +23,7 @@ def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDe
     seen: set[int] = set()
     current: typing.Optional[BaseException] = exc
     while current is not None and id(current) not in seen:
-        exception_type_names = {cls.__name__ for cls in type(current).__mro__}
-        if exception_type_names & SAFE_QUERY_ERROR_BASE_TYPES:
+        if getattr(type(current), "is_user_safe", False) is True:
             code = getattr(current, "code_name", None)
             if not isinstance(code, str):
                 get_codes = getattr(current, "get_codes", None)
@@ -291,10 +278,16 @@ class GenerateAIReportResult:
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
     failed_step_count: int = 0
     total_step_count: int = 0
+    # Kept for Temporal histories written before query_errors existed. New results derive it in
+    # __post_init__ so callers only provide the richer representation.
     query_error_types: list[str] = dataclasses.field(default_factory=list)
     target_type: str = ""
     # Appended to preserve the positional shape of this Temporal activity result.
     query_errors: list[QueryErrorDetails] = dataclasses.field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.query_error_types and self.query_errors:
+            self.query_error_types = sorted({error["type"] for error in self.query_errors if error["type"]})
 
     @property
     def all_queries_failed(self) -> bool:
