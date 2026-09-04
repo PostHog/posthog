@@ -2942,7 +2942,7 @@ CREATE VIEW posthog.events_batch_export AS SELECT
   nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
 FROM posthog.events
 PREWHERE
-  (coalesce(events.inserted_at, events._timestamp) >= {interval_start: DateTime64}) AND (coalesce(events.inserted_at, events._timestamp) < {interval_end: DateTime64})
+  (events.inserted_at >= {interval_start: DateTime64}) AND (events.inserted_at < {interval_end: DateTime64})
 WHERE
   (team_id = {team_id: Int64})
 AND
@@ -2973,7 +2973,7 @@ CREATE VIEW posthog.events_batch_export_unbounded AS SELECT
   nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
 FROM posthog.events
 PREWHERE
-  (coalesce(events.inserted_at, events._timestamp) >= {interval_start: DateTime64}) AND (coalesce(events.inserted_at, events._timestamp) < {interval_end: DateTime64})
+  (events.inserted_at >= {interval_start: DateTime64}) AND (events.inserted_at < {interval_end: DateTime64})
 WHERE
   (team_id = {team_id: Int64})
 AND
@@ -3079,11 +3079,12 @@ CREATE VIEW posthog.raw_sessions_v3_v AS SELECT
   session_timestamp,
   team_id,
   argMaxMerge(distinct_id) AS distinct_id,
+  argMaxMerge(person_id) AS person_id,
   groupUniqArrayMerge(distinct_ids) AS distinct_ids,
   min(min_timestamp) AS min_timestamp,
   max(max_timestamp) AS max_timestamp,
   max(max_inserted_at) AS max_inserted_at,
-  groupUniqArrayArray(2000)(urls) AS urls,
+  arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
   argMinMerge(entry_url) AS entry_url,
   argMaxMerge(end_url) AS end_url,
   argMaxMerge(last_external_click_url) AS last_external_click_url,
@@ -3116,14 +3117,8 @@ CREATE VIEW posthog.raw_sessions_v3_v AS SELECT
   uniqExactMerge(pageview_uniq) AS pageview_uniq,
   uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
   uniqExactMerge(screen_uniq) AS screen_uniq,
-  uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
-  max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
-  groupUniqArrayArray(flag_keys) AS flag_keys,
-  groupUniqArrayArray(2000)(event_names) AS event_names,
-  groupUniqArrayArray(100)(hosts) AS hosts,
-  groupUniqArrayArray(10)(emails) AS emails,
-  max(has_replay_events) AS has_replay_events
+  uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) AS page_screen_autocapture_uniq_up_to,
+  groupUniqArrayMapMerge(flag_values) AS flag_values
 FROM posthog.raw_sessions_v3
 GROUP BY
   session_id_v7, session_timestamp, team_id;
@@ -3155,9 +3150,6 @@ CREATE VIEW posthog.sessions_v AS SELECT
   argMinMerge(initial_mc_cid) AS initial_mc_cid,
   argMinMerge(initial_igshid) AS initial_igshid,
   argMinMerge(initial_ttclid) AS initial_ttclid,
-  argMinMerge(initial_epik) AS initial_epik,
-  argMinMerge(initial_qclid) AS initial_qclid,
-  argMinMerge(initial_sccid) AS initial_sccid,
   sumMap(event_count_map) AS event_count_map,
   sum(pageview_count) AS pageview_count,
   sum(autocapture_count) AS autocapture_count
