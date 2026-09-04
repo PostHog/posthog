@@ -46,6 +46,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
+from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
@@ -297,6 +298,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             else:
                 limit_context = None
 
+            reset_request_query_cost()
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
                 process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
@@ -354,7 +356,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                     if formatted is not None:
                         result["formatted_results"] = formatted
 
-            return Response(result, status=response_status)
+            response = Response(result, status=response_status)
+            cost = get_request_query_cost()
+            if cost is not None and get_query_tag_value("access_method") == "personal_api_key":
+                response["X-PostHog-Query-Bytes-Read"] = str(cost.bytes_read)
+                if cost.remaining_bytes is not None:
+                    response["X-PostHog-Query-Budget-Remaining-Bytes"] = str(int(cost.remaining_bytes))
+            return response
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             detail = str(e)
             extra: dict | None = None
@@ -384,6 +392,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             self._raise_concurrency_throttled(c)
         except QuotaLimitExceeded:
             # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
+        except Throttled:
+            # Same for the hourly query budget: a 429 with Retry-After is the caller's signal, not ours.
             raise
         except Exception as e:
             # Breaker replays were already captured when the original failure happened.
@@ -512,6 +523,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             self._raise_concurrency_throttled(c)
         except QuotaLimitExceeded:
             # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
+        except Throttled:
+            # Same for the hourly query budget: a 429 with Retry-After is the caller's signal, not ours.
             raise
         except Exception as e:
             # Breaker replays were already captured when the original failure happened.
