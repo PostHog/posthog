@@ -1518,6 +1518,9 @@ class AccountViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    # The default derivation only knows list and retrieve. A custom read action left out of this
+    # list gets no scope at all, which refuses every scoped token that calls it.
+    scope_object_read_actions = ["list", "retrieve", "summaries", "meetings"]
     serializer_class = AccountSerializer
     queryset = None
     bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.

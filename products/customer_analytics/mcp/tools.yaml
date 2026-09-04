@@ -250,9 +250,17 @@ tools:
             List synced calendar meetings for one Customer analytics account, newest first. Each meeting includes its
             title, start and end times, organizer, status, optional Gong call URL, and participants. Each participant
             includes their email, display name, RSVP status, organizer status, and resolved PostHog person UUID when
-            available. Pass `search` to filter by meeting title, attendee email, or attendee name. The account must be
-            accessible to the caller. Meetings and participants are read-only because they sync from connected
-            calendars.
+            available. Covers one account at a time, so pass that account's UUID as `id`. Pass `search` to filter by
+            meeting title, attendee email, or attendee name. The account must be accessible to the caller. Meetings and
+            participants are read-only because they sync from connected calendars.
+        param_overrides:
+            id:
+                description: >
+                    UUID of the account to read meetings for, as returned in the `id` field of `accounts-list` or
+                    `accounts-retrieve`. Not the account's `external_id`.
+                aliases:
+                    - account_id
+                    - accountId
         feature_flag: customer-analytics-csp
         response:
             informational_wrapper:
@@ -441,8 +449,17 @@ tools:
             account's `slack_summary_cadence` setting — and includes `period_start`/`period_end`, Markdown `content`
             citing the original Slack messages with permalinks, `message_count`, and `generated_at`. The summarized
             channel is the account's `slack_channel_id` property; each summary keeps the `slack_channel_id` it actually
-            covered, even if the account is later rebound to another channel. Returns an empty list when the account has
-            no bound channel, summaries are off (`slack_summary_cadence` is null), or nothing has been generated yet.
+            covered, even if the account is later rebound to another channel. Covers one account at a time, so pass that
+            account's UUID as `id`. Returns an empty list when the account has no bound channel, summaries are off
+            (`slack_summary_cadence` is null), or nothing has been generated yet.
+        param_overrides:
+            id:
+                description: >
+                    UUID of the account to read summaries for, as returned in the `id` field of `accounts-list` or
+                    `accounts-retrieve`. Not the account's `external_id`.
+                aliases:
+                    - account_id
+                    - accountId
         feature_flag: customer-analytics-csp
     accounts-support-ticket-messages-list:
         operation: accounts_support_ticket_messages_list

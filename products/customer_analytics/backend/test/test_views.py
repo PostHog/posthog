@@ -3435,3 +3435,47 @@ class TestAccountMeetingViewSet(APIBaseTest):
         self.assertEqual([m["id"] for m in by_title["results"]], [str(review.id)])
         by_attendee = self.client.get(endpoint, {"search": "jane"}).json()
         self.assertEqual([m["id"] for m in by_attendee["results"]], [str(kickoff.id)])
+
+
+class TestAccountReadScopes(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id, name="Acme Corp")
+
+    def _token(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="account read",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return value
+
+    @parameterized.expand(
+        [
+            ("summaries_granted", "summaries", ["account:read"], status.HTTP_200_OK),
+            ("summaries_denied", "summaries", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("meetings_granted", "meetings", ["account:read"], status.HTTP_200_OK),
+            ("meetings_denied", "meetings", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_account_read_scope_gates_custom_read_actions(self, _name, action, scopes, expected):
+        # Custom actions reach the scope derivation only through scope_object_read_actions.
+        # Without an entry there, every scoped token is refused, whatever scopes it carries.
+        token = self._token(scopes)
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/accounts/{self.account.id}/{action}/",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == expected, response.content
+
+    def test_ticket_content_still_needs_ticket_read(self):
+        token = self._token(["account:read"])
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/accounts/{self.account.id}/support_tickets/",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
