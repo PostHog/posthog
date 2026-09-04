@@ -2427,10 +2427,11 @@ class TaskRun(models.Model):
         if not agent_active:
             return
 
-        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.redis import tasks_cache_add
 
         cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
-        if not get_tasks_cache().add(cache_key, True, timeout=60):
+        # Keep heartbeating the run alive even if the throttle's Redis is down.
+        if not tasks_cache_add(cache_key, True, timeout=60, on_error=True):
             return
 
         import asyncio
@@ -2468,10 +2469,11 @@ class TaskRun(models.Model):
             return False
 
     def signal_client_activity(self) -> None:
-        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.redis import tasks_cache_add
 
         cache_key = f"tasks:task_run:client_activity:{self.id}"
-        if not get_tasks_cache().add(cache_key, True, timeout=60):
+        # Keep forwarding client activity even if the throttle's Redis is down.
+        if not tasks_cache_add(cache_key, True, timeout=60, on_error=True):
             return
 
         import asyncio

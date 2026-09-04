@@ -22,6 +22,7 @@ from django.utils import timezone as django_timezone
 
 import jwt
 import requests
+import redis.exceptions
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -5959,6 +5960,23 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIn("log_url", data)
         self.assertIsNotNone(data["log_url"])
         self.assertTrue(data["log_url"].startswith("http"))
+
+    @patch("products.tasks.backend.redis.get_tasks_cache")
+    def test_retrieve_run_survives_tasks_cache_outage(self, mock_get_cache):
+        # A Redis failover on the log-url cache must degrade to a served run, not a 500.
+        failing_cache = MagicMock()
+        failing_cache.get.side_effect = redis.exceptions.BusyLoadingError("loading")
+        failing_cache.set.side_effect = redis.exceptions.BusyLoadingError("loading")
+        mock_get_cache.return_value = failing_cache
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        run.append_log([{"type": "info", "message": "Test log output"}])
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The cache read raised, so we presign fresh instead of failing the whole response.
+        self.assertIsNotNone(response.json()["log_url"])
 
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")

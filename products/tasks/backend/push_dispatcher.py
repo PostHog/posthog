@@ -33,7 +33,7 @@ from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.models import Task, TaskPresence
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import tasks_cache_add
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
@@ -289,7 +289,8 @@ def _enqueue_user(
         return
 
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
-    if not get_tasks_cache().add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
+    # Fail closed so a Redis outage cannot spam duplicate pushes past the cooldown.
+    if not tasks_cache_add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind], on_error=False):
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="cooldown_deduped").inc()
         logger.debug("push_dispatcher.cooldown_hit", subject=cooldown_subject, kind=kind)
         return
