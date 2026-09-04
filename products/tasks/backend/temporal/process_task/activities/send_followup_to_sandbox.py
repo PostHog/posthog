@@ -83,6 +83,7 @@ REFRESH_RETRY_DELAY_SECONDS = 0.5
 SANDBOX_STOPPED_MESSAGE = (
     "This run's sandbox has stopped, so your message wasn't delivered. Start a new run to continue."
 )
+RUN_STOPPING_MESSAGE = "This run is stopping, so your message wasn't delivered. Start a new run to continue."
 PEER_SANDBOX_STOPPED_MESSAGE = "The recipient run's sandbox has stopped"
 DENIED_PERMISSION_STOP_MESSAGE = (
     "Stopped after the denied action. Send a new message to continue with a different approach."
@@ -305,6 +306,18 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         # Raise so the workflow can mark the run as failed. Without this,
         # background-mode runs hang until the inactivity timeout because
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+
+    # Reject the marker written by user-initiated cancel, and the bare CANCELLED status that
+    # loop overlap and lifecycle cancellation set without that marker (loop_runs.py,
+    # loop_lifecycle.py). Either means the run is winding down, so no follow-up should rebind
+    # credentials or reach the sandbox.
+    if (task_run.state or {}).get("cancel_requested_at") or task_run.status == TaskRun.Status.CANCELLED:
+        if peer_message_id is not None:
+            _mark_peer_delivery_outcome(
+                peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "run_stopping", RUN_STOPPING_MESSAGE
+            )
+            raise ApplicationError(f"peer message delivery failed: {RUN_STOPPING_MESSAGE}", non_retryable=True)
+        raise ApplicationError(RUN_STOPPING_MESSAGE, non_retryable=True)
 
     if peer_message_id is not None:
         return _deliver_peer_message(input, task_run, peer_message_id)

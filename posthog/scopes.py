@@ -221,6 +221,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
     ("loop", "write"),
+    # Read-only export of experiment definitions (list/retrieve), so services syncing
+    # experiments into a warehouse don't need a credential tied to one person's account.
+    ("experiment", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
