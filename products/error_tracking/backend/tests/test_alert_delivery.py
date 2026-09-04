@@ -465,6 +465,10 @@ class TestSlackThreadDelivery(AlertTestMixin):
                 "products.error_tracking.backend.temporal.alerts.activities.deliver_alert_notifications",
                 side_effect=AlertThreadBusyError("busy"),
             ),
+            patch(
+                "products.error_tracking.backend.temporal.alerts.activities.activity.info",
+                return_value=MagicMock(attempt=1),
+            ),
             self.assertRaises(ApplicationError) as raised,
         ):
             deliver_alert_notifications_activity(self._inputs("$error_tracking_issue_created"))
@@ -1106,6 +1110,22 @@ class TestAlertThrottlingAndOutcomes(AlertTestMixin):
         deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
 
         assert get_client().get(f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{self.issue.id}") is None
+
+    def test_final_attempt_releases_the_window_of_a_still_failing_opener(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        client.chat_postMessage.side_effect = Exception("transient")
+        inputs = self._inputs("$error_tracking_issue_created")
+        key = f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{self.issue.id}"
+
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(inputs)
+        assert get_client().get(key) == b"notif-1"
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(inputs, final_attempt=True)
+
+        assert get_client().get(key) is None
 
     def test_retry_that_turns_terminal_releases_the_window(self):
         # The first attempt claimed the window and left an unrooted row; the retry
