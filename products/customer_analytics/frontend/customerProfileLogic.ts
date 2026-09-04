@@ -1,7 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,8 +10,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { CustomerProfileScope, GroupTypeIndex } from '~/types'
 
+import { sourceSummariesLogic } from 'products/data_warehouse/frontend/shared/logics/sourceSummariesLogic'
+
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
 import type { CustomerProfileConfigType, TeamPublicType, TeamType } from '../../../frontend/src/types'
+import type { PaginatedExternalDataSourceSummaryListApi } from '../../warehouse_sources/frontend/generated/api.schemas'
 import { customerProfileConfigLogic } from './customerProfileConfigLogic'
 
 export const DEFAULT_PERSON_PROFILE_SIDEBAR: JSONContent[] = [
@@ -52,8 +53,7 @@ export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
 interface PanelAvailability {
     isJourneysEnabled: boolean
     isSupportEnabled: boolean
-    hasZendeskSource: boolean
-    hasZendeskSourceLoading: boolean
+    hasZendeskSourceLoading: boolean // sourceSummariesLogic
 }
 
 // Panels backed by a product or warehouse source that may not be set up must be filtered out of
@@ -101,12 +101,13 @@ export interface PersonProfileLogicProps {
 export interface customerProfileLogicValues {
     customerProfileConfig: CustomerProfileConfigType | undefined // customerProfileConfigLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    hasZendeskSourceLoading: boolean // sourceSummariesLogic
+    sourceSummaries: PaginatedExternalDataSourceSummaryListApi | null // sourceSummariesLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     changed: boolean
     content: JSONContent[]
     defaultContent: JSONContent[]
     hasZendeskSource: boolean
-    hasZendeskSourceLoading: boolean
     isProfileConfigEnabled: boolean | string | undefined
     profileLocalContent: JSONContent[] | null
     scopedAddAttrFunction: ({ attrs, node, children }: AddAttrsToNodeProps) => JSONContent
@@ -174,23 +175,28 @@ export interface customerProfileLogicActions {
         jsonContent: JSONContent
         skipCapture: any
     } // notebookLogic
-    addNode: (nodeType: string) => {
-        nodeType: string
-    }
-    loadZendeskSource: () => any
-    loadZendeskSourceFailure: (
+    loadSourceSummariesFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
-    }
-    loadZendeskSourceSuccess: (
-        hasZendeskSource: boolean,
-        payload?: any
+    } // sourceSummariesLogic
+    loadSourceSummariesSuccess: (
+        sourceSummaries: import('products/warehouse_sources/frontend/generated/api.schemas').PaginatedExternalDataSourceSummaryListApi,
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
-        hasZendeskSource: boolean
-        payload?: any
+        payload?: {
+            value: true
+        }
+        sourceSummaries: import('products/warehouse_sources/frontend/generated/api.schemas').PaginatedExternalDataSourceSummaryListApi
+    } // sourceSummariesLogic
+    addNode: (nodeType: string) => {
+        nodeType: string
     }
     removeNode: (nodeType: string) => {
         nodeType: string
@@ -210,6 +216,7 @@ export interface customerProfileLogicActions {
 export interface customerProfileLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        hasZendeskSource: (sourceSummaries: any) => boolean
         changed: (
             profileLocalContent: JSONContent[] | null,
             storedContent: JSONContent[] | null,
@@ -264,6 +271,8 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             ['customerProfileConfig'],
             featureFlagLogic,
             ['featureFlags'],
+            sourceSummariesLogic,
+            ['sourceSummaries', 'sourceSummariesLoading as hasZendeskSourceLoading'],
             teamLogic,
             ['currentTeam'],
         ],
@@ -272,6 +281,8 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             ['createConfig', 'updateConfig', 'loadConfigsSuccess', 'updateConfigSuccess', 'createConfigSuccess'],
             notebookLogic({ shortId: props.canvasShortId, mode: 'canvas' }),
             ['setLocalContent'],
+            sourceSummariesLogic,
+            ['loadSourceSummariesSuccess', 'loadSourceSummariesFailure'],
         ],
     })),
 
@@ -281,18 +292,6 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
         resetToDefaults: true,
         setProfileLocalContent: (content: JSONContent[] | null) => ({ content }),
         saveChanges: true,
-    }),
-
-    loaders({
-        hasZendeskSource: [
-            false,
-            {
-                loadZendeskSource: async () => {
-                    const sources = await api.externalDataSources.listSummaries()
-                    return sources.results.some((source) => source.source_type === 'Zendesk')
-                },
-            },
-        ],
     }),
 
     reducers({
@@ -307,6 +306,11 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
     }),
 
     selectors({
+        hasZendeskSource: [
+            (s) => [s.sourceSummaries],
+            (sourceSummaries): boolean =>
+                sourceSummaries?.results.some((source) => source.source_type === 'Zendesk') ?? false,
+        ],
         changed: [
             (s) => [s.profileLocalContent, s.storedContent, s.defaultContent],
             (
@@ -519,16 +523,15 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
         // The source summary loads asynchronously, so the initial mount sync can run before we
         // know whether a Zendesk source exists. Re-sync once it resolves so the Zendesk and
         // Support panels appear/disappear to match the actual source and support state.
-        loadZendeskSourceSuccess: () => {
+        loadSourceSummariesSuccess: () => {
             actions.setLocalContent(values.content)
         },
-        loadZendeskSourceFailure: () => {
+        loadSourceSummariesFailure: () => {
             actions.setLocalContent(values.content)
         },
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadZendeskSource()
         if (values.content) {
             actions.setLocalContent(values.content)
         }

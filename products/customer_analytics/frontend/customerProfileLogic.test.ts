@@ -13,6 +13,7 @@ describe('customerProfileLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.spyOn(api.customerProfileConfigs, 'list').mockResolvedValue({ results: [] })
+        jest.spyOn(api.externalDataSources, 'wizard').mockResolvedValue({})
         jest.spyOn(api.externalDataSources, 'listSummaries').mockResolvedValue({
             count: 1,
             next: null,
@@ -30,7 +31,7 @@ describe('customerProfileLogic', () => {
         })
 
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadZendeskSourceSuccess']).toMatchValues({
+        await expectLogic(logic).toDispatchActions(['loadSourceSummariesSuccess']).toMatchValues({
             hasZendeskSource: true,
             hasZendeskSourceLoading: false,
         })
