@@ -10,7 +10,7 @@ logger = get_logger(__name__)
 def evaluate_health_check_for_team(kind: str, team_id: int) -> None:
     # Deferred: posthog.dags.__init__ calls django.setup() and would re-enter if loaded during boot.
     from posthog.temporal.health_checks.processing import _process_batch_detection
-    from posthog.temporal.health_checks.registry import ensure_registry_loaded, get_detect_fn
+    from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 
     ensure_registry_loaded()
     try:
@@ -19,4 +19,10 @@ def evaluate_health_check_for_team(kind: str, team_id: int) -> None:
         logger.warning("evaluate_health_check_for_team.unknown_kind", kind=kind, team_id=team_id)
         return
 
-    _process_batch_detection(team_ids=[team_id], kind=kind, detect_fn=detect_fn)
+    registration = HEALTH_CHECKS.get(kind)
+    _process_batch_detection(
+        team_ids=[team_id],
+        kind=kind,
+        detect_fn=detect_fn,
+        dry_run=registration.dry_run if registration is not None else False,
+    )
