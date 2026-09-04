@@ -20,25 +20,46 @@ pub fn tls_policy(url: &str) -> tokio_postgres::config::SslMode {
     }
 }
 
-pub fn tls_connector() -> tokio_postgres_rustls::MakeRustlsConnect {
-    let mut roots = rustls::RootCertStore::empty();
-    let native = rustls_native_certs::load_native_certs();
-    for err in &native.errors {
-        tracing::warn!(error = %err, "failed to load a native certificate");
-    }
-    for cert in native.certs {
-        if let Err(e) = roots.add(cert) {
-            tracing::warn!(error = %e, "failed to add a native certificate to root store");
+pub fn tls_connector() -> postgres_native_tls::MakeTlsConnector {
+    let mut builder = native_tls::TlsConnector::builder();
+    load_rds_ca_certs(&mut builder);
+    let connector = builder.build().expect("failed to build TLS connector");
+    postgres_native_tls::MakeTlsConnector::new(connector)
+}
+
+fn load_rds_ca_certs(builder: &mut native_tls::TlsConnectorBuilder) {
+    let path = match std::env::var("RDS_CA_CERT_PATH") {
+        Ok(p) if !p.is_empty() => p,
+        _ => {
+            tracing::warn!("RDS_CA_CERT_PATH not set; TLS will use system certs only");
+            return;
+        }
+    };
+    let pem = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(path, error = %e, "could not read RDS CA bundle");
+            return;
+        }
+    };
+    let mut added = 0u32;
+    for block in pem.split("-----END CERTIFICATE-----") {
+        let trimmed = block.trim();
+        if trimmed.is_empty() || !trimmed.contains("-----BEGIN CERTIFICATE-----") {
+            continue;
+        }
+        let cert_pem = format!("{trimmed}\n-----END CERTIFICATE-----\n");
+        match native_tls::Certificate::from_pem(cert_pem.as_bytes()) {
+            Ok(cert) => {
+                builder.add_root_certificate(cert);
+                added += 1;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "skipping malformed certificate in RDS CA bundle");
+            }
         }
     }
-    if roots.is_empty() {
-        tracing::info!("no native certs found, falling back to webpki-roots");
-        roots.roots = webpki_roots::TLS_SERVER_ROOTS.to_vec();
-    }
-    let tls_cfg = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg)
+    tracing::info!(path, added, "loaded RDS CA certificates");
 }
 
 pub async fn connect(
