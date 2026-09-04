@@ -50,6 +50,16 @@ describe('parseStackFrames', () => {
     })
 
     it.each([
+        ['a V8 eval frame', '    at Object.eval (<anonymous>:12:9)', '<anonymous>'],
+        ['a bare V8 anonymous frame', '    at <anonymous>:1:2', '<anonymous>'],
+        ['a V8 Safari extension frame', '    at fn (webkit-masked-url://hidden/:1:2)', 'webkit-masked-url://hidden/'],
+        ['a Gecko Safari extension frame', 'fn@webkit-masked-url://hidden/:1:2', 'webkit-masked-url://hidden/'],
+        ['an unnamed Safari extension frame', '@webkit-masked-url://hidden/:3:14', 'webkit-masked-url://hidden/'],
+    ])('does not mark %s as application code', (_label, line, filename) => {
+        expect(parseStackFrames(line)).toEqual([expect.objectContaining({ filename, in_app: false })])
+    })
+
+    it.each([
         ['no stack', undefined],
         ['empty stack', ''],
         ['a stack with no frame the parser recognizes', 'TypeError: Load failed'],

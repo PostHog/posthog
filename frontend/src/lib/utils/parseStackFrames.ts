@@ -19,6 +19,16 @@ const V8_LINE = /^\s*at (?:async )?(?:(.+?) \()?(.+?):(\d+):(\d+)\)?\s*$/
 const GECKO_LINE = /^\s*(.*?)@(.+?):(\d+):(\d+)\s*$/
 
 /**
+ * Browsers report injected code with two filenames: an `eval` frame as `<anonymous>`, and a Safari
+ * extension frame as `webkit-masked-url://`. posthog-js keeps both out of `in_app`, and the server
+ * copies the flag through for any frame that carries a line and a column. A frame marked as
+ * application code here feeds the issue fingerprint and fills the default app-frame view.
+ */
+function isApplicationFrame(filename: string): boolean {
+    return filename !== '<anonymous>' && !filename.startsWith('webkit-masked-url://')
+}
+
+/**
  * Minimal, dependency-free stack parser for the boot beacon. posthog-js has a full parser, but it
  * lives in the App chunk, which is the chunk a boot failure means we do not have.
  *
@@ -35,13 +45,14 @@ export function parseStackFrames(stack: string | undefined): RawStackFrame[] {
         if (!match) {
             continue
         }
+        const filename = match[2]
         frames.push({
             platform: 'web:javascript',
-            filename: match[2],
+            filename,
             function: match[1] || '?',
             lineno: Number(match[3]),
             colno: Number(match[4]),
-            in_app: true,
+            in_app: isApplicationFrame(filename),
         })
         if (frames.length === MAX_FRAMES) {
             break
