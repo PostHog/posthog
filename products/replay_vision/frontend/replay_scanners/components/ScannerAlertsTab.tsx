@@ -137,9 +137,13 @@ function ScannerAlertsTabContent({ scannerId }: { scannerId: string }): JSX.Elem
         },
     ]
 
+    // A failed load keeps any alerts already on screen. With nothing cached the table would print
+    // "No alerts on this scanner yet" under the error banner, so the banner stands alone then.
+    const showAlertsTable = !alertsFailed || !!alerts?.length
+
     return (
         <div className="flex flex-col gap-2">
-            {alerts === null && alertsFailed ? (
+            {alertsFailed && (
                 <LemonBanner
                     type="error"
                     action={{ children: 'Try again', onClick: () => loadAlerts() }}
@@ -147,7 +151,8 @@ function ScannerAlertsTabContent({ scannerId }: { scannerId: string }): JSX.Elem
                 >
                     Couldn't load this scanner's alerts.
                 </LemonBanner>
-            ) : (
+            )}
+            {showAlertsTable && (
                 <LemonTable
                     columns={columns}
                     dataSource={alerts ?? []}
