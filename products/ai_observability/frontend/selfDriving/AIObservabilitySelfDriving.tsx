@@ -167,16 +167,43 @@ const TEMPLATE_ICONS: Record<AIObservabilityScoutTemplate['key'], JSX.Element> =
  * place. Hosted beside the cards rather than inside one, since the URL can open it for any of them.
  */
 function ScoutTemplateModal(): JSX.Element | null {
-    const { openScoutTemplateKey } = useValues(aiObservabilitySelfDrivingLogic)
+    const { openScoutTemplateKey, openScoutTemplateSurface } = useValues(aiObservabilitySelfDrivingLogic)
     const { setOpenScoutTemplateKey } = useActions(aiObservabilitySelfDrivingLogic)
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
 
     return (
         <ScoutCreateModalHost
             initialValues={findAIObservabilityScoutTemplate(openScoutTemplateKey)?.initialValues ?? null}
+            surface={openScoutTemplateSurface}
             onClose={() => setOpenScoutTemplateKey(null)}
             onCreated={() => loadScoutConfigs()}
         />
+    )
+}
+
+/**
+ * Offered when the fleet is empty. It opens a template rather than pointing back at the cards
+ * above, so the state a project lands on before its first scout carries the next step itself.
+ */
+function ScoutsEmptyState(): JSX.Element {
+    const { setOpenScoutTemplateKey } = useActions(aiObservabilitySelfDrivingLogic)
+    const creationDisabledReason = useScoutCreateDisabledReason()
+    const firstTemplate = AI_OBSERVABILITY_SCOUT_TEMPLATES[0]
+
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col items-start gap-3 p-4">
+            <p className="m-0 text-sm text-muted">No AI observability scouts yet.</p>
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlus />}
+                disabledReason={creationDisabledReason ?? undefined}
+                onClick={() => setOpenScoutTemplateKey(firstTemplate.key, 'empty_state')}
+                data-attr="create-scout-from-empty-state"
+            >
+                Use the {firstTemplate.title.toLowerCase()} template
+            </LemonButton>
+        </LemonCard>
     )
 }
 
@@ -336,11 +363,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
             </LemonBanner>
         )
     } else if (aiObservabilityScouts.length === 0) {
-        scoutsContent = (
-            <LemonCard hoverEffect={false} className="p-4 text-sm text-muted">
-                No AI observability scouts yet. Use a template above to create one.
-            </LemonCard>
-        )
+        scoutsContent = <ScoutsEmptyState />
     } else {
         scoutsContent = (
             <div className="flex flex-col gap-2">
@@ -401,13 +424,15 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                                 title="Each template is a pre-defined scout: a scheduled agent that explores your AI observability data and surfaces findings worth reviewing. Actionable scout reports land in your inbox."
                                                 docLink={SCOUTS_DOCS_URL}
                                             >
-                                                <span
-                                                    className="inline-flex items-center gap-1 text-xs text-muted hover:text-default cursor-pointer transition-colors"
+                                                <Link
+                                                    to={SCOUTS_DOCS_URL}
+                                                    target="_blank"
+                                                    className="inline-flex items-center gap-1 text-xs text-muted hover:text-default transition-colors"
                                                     data-attr="ai-observability-scout-templates-what-is-this"
                                                 >
                                                     <IconQuestion className="text-sm" />
                                                     What is this?
-                                                </span>
+                                                </Link>
                                             </Tooltip>
                                         </div>
                                         <p className="m-0 text-sm text-muted">

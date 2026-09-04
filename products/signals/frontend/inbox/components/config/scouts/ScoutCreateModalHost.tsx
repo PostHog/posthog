@@ -6,7 +6,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { captureScoutAction } from '../../../inboxAnalytics'
+import { type ScoutSurface, captureScoutAction } from '../../../inboxAnalytics'
 import type { ScoutCreateInitialValues } from '../../../logics/scoutCreateModalLogic'
 
 const LazyScoutCreateModal = React.lazy(async () => {
@@ -24,6 +24,11 @@ export interface ScoutCreateModalHostProps {
     initialValues: ScoutCreateInitialValues | null
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
+    /**
+     * Which affordance opened the modal, for the `create_scout` event. A caller that opens one host
+     * from several places has to pass it, or every create it reports reads as the same surface.
+     */
+    surface?: ScoutSurface
 }
 
 /**
@@ -37,6 +42,7 @@ export function ScoutCreateModalHost({
     initialValues,
     onClose,
     onCreated,
+    surface = 'fleet_list',
 }: ScoutCreateModalHostProps): JSX.Element | null {
     const isOpen = initialValues !== null
     // Open is the top of the create funnel. Without it only a successful create was captured, so an
@@ -59,7 +65,7 @@ export function ScoutCreateModalHost({
                 onCreated={(scout) => {
                     captureScoutAction({
                         actionType: 'create_scout',
-                        surface: 'fleet_list',
+                        surface,
                         skillName: scout.config.skill_name,
                     })
                     onCreated?.(scout)
