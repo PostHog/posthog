@@ -1364,6 +1364,30 @@ class TestConnectionDropped:
 
     @parameterized.expand(
         [
+            # duckgres reaps a client session that idled past duckgres.idle_timeout
+            # (the backfill holds its connection across the ClickHouse->S3 export).
+            # It sends a FATAL 57P05 before closing; older builds just dropped the
+            # socket, which landed in the transport-marker branch instead. Both the
+            # sqlstate and the message are pinned so either shape keeps retrying.
+            (
+                "idle_session_timeout",
+                psycopg.errors.IdleSessionTimeout(
+                    "terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"
+                ),
+            ),
+            (
+                "idle_timeout_message_without_sqlstate",
+                psycopg.OperationalError("terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"),
+            ),
+        ]
+    )
+    def test_idle_session_reap_is_dropped(self, _label, exc):
+        # Safest possible replay: the session was idle, so no statement was in
+        # flight and a retry cannot double-apply.
+        assert _connection_dropped(exc) is True
+
+    @parameterized.expand(
+        [
             ("disk_full", psycopg.errors.DiskFull()),
             ("undefined_table", psycopg.errors.UndefinedTable()),
             ("value_error", ValueError("nope")),
@@ -1704,7 +1728,10 @@ class TestDuckgresBackfillOptions:
     """
 
     def test_enabled_requests_small_colocated_worker(self):
-        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", True):
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", True),
+            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_BACKFILL_IDLE_TIMEOUT", ""),
+        ):
             assert (
                 _duckgres_backfill_options()
                 == "-c duckgres.colocate=true -c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
@@ -1712,8 +1739,30 @@ class TestDuckgresBackfillOptions:
 
     def test_disabled_returns_empty_string(self):
         # Disabled → no startup options → falls back to the default exclusive worker.
-        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", False):
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", False),
+            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_BACKFILL_IDLE_TIMEOUT", ""),
+        ):
             assert _duckgres_backfill_options() == ""
+
+    def test_idle_timeout_requested_when_configured(self):
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", True),
+            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_BACKFILL_IDLE_TIMEOUT", "30m"),
+        ):
+            assert _duckgres_backfill_options() == (
+                "-c duckgres.idle_timeout=30m -c duckgres.colocate=true "
+                "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
+            )
+
+    def test_idle_timeout_survives_disabled_worker_profile(self):
+        # The idle reap is a property of the connection, not the worker shape —
+        # turning the profile off must not silently drop the requested timeout.
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", False),
+            patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_BACKFILL_IDLE_TIMEOUT", "30m"),
+        ):
+            assert _duckgres_backfill_options() == "-c duckgres.idle_timeout=30m"
 
     @parameterized.expand([("enabled", True), ("disabled", False)])
     def test_never_sets_statement_timeout(self, _label, enabled):

@@ -165,6 +165,18 @@ DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLE
 DUCKGRES_BACKFILL_COLOCATE_CPU = "4"
 DUCKGRES_BACKFILL_COLOCATE_MEMORY = "16Gi"
 
+# Optional client-requested idle timeout. The backfill holds its duckgres connection
+# open and untouched across the ClickHouse->S3 export; when that gap outruns the
+# server's duckgres.idle_timeout the session is reaped and the next statement pays a
+# reconnect-and-replay (see 57P05 in _CONNECTION_DROPPED_SQLSTATES). Raising the
+# timeout avoids that churn, but duckgres REJECTS a value above its configured
+# DUCKGRES_CLIENT_IDLE_TIMEOUT_MAX with a FATAL at connect — and that ceiling is unset
+# (client overrides disabled) by default — so this is opt-in per deployment and empty
+# here. Correctness does not depend on it: the 57P05 retry handles the reap either way.
+# Each deployment sets its own ceiling, so check the target environment's configured
+# maximum before setting a value — an over-ceiling request fails the connection outright.
+DUCKGRES_BACKFILL_IDLE_TIMEOUT = os.environ.get("DUCKGRES_BACKFILL_IDLE_TIMEOUT", "").strip()
+
 
 def _duckgres_backfill_options() -> str:
     """libpq startup `options` for a backfill connection.
@@ -173,19 +185,23 @@ def _duckgres_backfill_options() -> str:
     colocated worker shape. Returns a single space-joined `-c key=value` string —
     psycopg forwards it as the startup `options` parameter, which duckgres parses
     to size/schedule the worker. No statement_timeout is set (see
-    DUCKGRES_CONNECT_TIMEOUT note above). Returns "" when the profile is disabled,
-    so the connection falls back to the default exclusive worker with no extra
-    startup options.
+    DUCKGRES_CONNECT_TIMEOUT note above). With the profile disabled and no idle
+    timeout requested this is "", so the connection falls back to the default
+    exclusive worker with no extra startup options.
     """
-    if not DUCKGRES_WORKER_PROFILE_ENABLED:
-        return ""
-    return " ".join(
-        [
+    opts: list[str] = []
+    # Emitted independently of the worker profile: the idle reap is a property of the
+    # connection, not of the worker shape, so disabling the profile must not silently
+    # drop it.
+    if DUCKGRES_BACKFILL_IDLE_TIMEOUT:
+        opts.append(f"-c duckgres.idle_timeout={DUCKGRES_BACKFILL_IDLE_TIMEOUT}")
+    if DUCKGRES_WORKER_PROFILE_ENABLED:
+        opts += [
             "-c duckgres.colocate=true",
             f"-c duckgres.worker_cpu={DUCKGRES_BACKFILL_COLOCATE_CPU}",
             f"-c duckgres.worker_memory={DUCKGRES_BACKFILL_COLOCATE_MEMORY}",
         ]
-    )
+    return " ".join(opts)
 
 
 @retry(
@@ -423,6 +439,14 @@ _CONNECTION_DROPPED_SQLSTATES = {
     "57P01",  # admin_shutdown
     "57P02",  # crash_shutdown
     "57P03",  # cannot_connect_now
+    # idle_session_timeout: duckgres reaped an idle client session (the backfill
+    # holds its connection open across the ClickHouse->S3 export, which can outrun
+    # the server's duckgres.idle_timeout). Older duckgres just closed the socket,
+    # so this arrived as a transport error matching _CONNECTION_DROPPED_MARKERS;
+    # it now sends a proper FATAL first, which is a cleaner signal but a different
+    # shape. Safest possible replay: the session was idle, so no statement was
+    # in flight and a retry cannot double-apply.
+    "57P05",
 }
 
 # Transport/connection-loss phrases ONLY. Deliberately NOT "flight execute":
@@ -448,6 +472,7 @@ _CONNECTION_DROPPED_MARKERS = (
     "error reading from server",
     "server closed the connection",
     "terminating connection due to administrator command",
+    "terminating connection due to idle timeout",
     "transport:",
 )
 
