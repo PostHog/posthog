@@ -80,6 +80,19 @@ class TestStartTaskFromEmail(APIBaseTest):
         assert second.task_id == first.task_id
         assert Task.objects.filter(origin_key="email:<abc@example.com>").count() == 1
 
+    def test_same_message_id_to_two_projects_creates_a_task_in_each(self, _workflow, _quota, _email):
+        # origin_key is unique per team, so one email addressed to two project inboxes must not have
+        # the second project's delivery collapse onto the first project's task.
+        other_team = Team.objects.create(organization=self.organization, name="Second project")
+
+        first = email_intake.start_task_from_email(self.team, _inbound(sender_email=self.user.email))
+        second = email_intake.start_task_from_email(other_team, _inbound(sender_email=self.user.email))
+
+        assert first.outcome == "created"
+        assert second.outcome == "created"
+        assert second.task_id != first.task_id
+        assert _created_task(second).team_id == other_team.id
+
     def test_unauthenticated_sender_is_refused(self, _workflow, _quota, _email):
         intake = email_intake.start_task_from_email(
             self.team, _inbound(sender_email=self.user.email, sender_authenticated=False)

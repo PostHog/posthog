@@ -144,7 +144,7 @@ def start_task_from_email(team: Team, email: InboundTaskEmail) -> EmailTaskIntak
         return EmailTaskIntake(outcome="empty")
 
     origin_key = _origin_key(email.message_id)
-    existing_id = _task_id_for_origin_key(origin_key)
+    existing_id = _task_id_for_origin_key(team.id, origin_key)
     if existing_id is not None:
         return EmailTaskIntake(outcome="duplicate", task_id=existing_id)
 
@@ -166,8 +166,8 @@ def start_task_from_email(team: Team, email: InboundTaskEmail) -> EmailTaskIntak
             interaction_origin="email",
         )
     except IntegrityError:
-        # A Mailgun retry raced the first delivery; the unique origin_key index gives the first insert the task.
-        existing_id = _task_id_for_origin_key(origin_key)
+        # A Mailgun retry raced the first delivery; the unique (team, origin_key) index gives the first insert the task.
+        existing_id = _task_id_for_origin_key(team.id, origin_key)
         if existing_id is None:
             raise
         return EmailTaskIntake(outcome="duplicate", task_id=existing_id)
@@ -210,8 +210,8 @@ def _origin_key(message_id: str) -> str:
     return f"email:{message_id.strip()}"[:128]
 
 
-def _task_id_for_origin_key(origin_key: str) -> UUID | None:
-    return Task.objects.filter(origin_key=origin_key).values_list("id", flat=True).first()
+def _task_id_for_origin_key(team_id: int, origin_key: str) -> UUID | None:
+    return Task.objects.filter(team_id=team_id, origin_key=origin_key).values_list("id", flat=True).first()
 
 
 def _send_started_email(email: InboundTaskEmail, team: Team, title: str, task_id: UUID) -> None:
