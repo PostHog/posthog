@@ -10,6 +10,8 @@ from django.test import SimpleTestCase
 
 from posthog.models.team import Team
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.api import insight_data_model_dependencies_by_saved_query_ids
 from products.product_analytics.backend.lineage.extraction import extract_saved_query_names, query_fingerprint
@@ -266,6 +268,26 @@ class TestInsightDataModelDependencySynchronization(BaseTest):
         dependencies = InsightDataModelDependency.objects.for_team(self.team.id)
         assert dependencies.count() == 2
         assert set(dependencies.values_list("saved_query_id", flat=True)) == {saved_query.id}
+
+    def test_backfill_covers_unsaved_insights_that_sit_on_a_dashboard(self) -> None:
+        saved_query = self._saved_query("orders")
+        query = {"kind": "HogQLQuery", "query": "SELECT * FROM orders"}
+        on_dashboard = Insight.objects.create(team=self.team, query=query, saved=False)
+        DashboardTile.objects.create(
+            insight=on_dashboard,
+            dashboard=Dashboard.objects.create(team=self.team, name="the dashboard"),
+        )
+        loose = Insight.objects.create(team=self.team, query=query, saved=False)
+
+        call_command(
+            "backfill_insight_data_model_dependencies",
+            apply=True,
+            team_id=self.team.id,
+            stdout=StringIO(),
+        )
+
+        assert self._dependency_ids(on_dashboard) == {saved_query.id}
+        assert self._dependency_ids(loose) == set()
 
     def test_backfill_reports_failure_after_processing_the_batch(self) -> None:
         saved_query = self._saved_query("orders")

@@ -4,6 +4,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import Q
 
+from products.dashboards.backend.facade.api import insight_has_listed_tile
 from products.product_analytics.backend.lineage.extraction import query_fingerprint, query_may_reference_data_models
 from products.product_analytics.backend.lineage.synchronization import synchronize_insight_data_model_dependencies
 from products.product_analytics.backend.models.insight import Insight
@@ -33,9 +34,11 @@ class Command(BaseCommand):
         if (after_team_id is None) != (after_insight_id is None):
             raise CommandError("--after-team-id and --after-insight-id must be set together")
 
+        # Matches how the list endpoint decides an insight is saved: `saved=True`, or a tile
+        # on a listed dashboard. Legacy rows and some API writes leave `saved=False`.
         insights = Insight.objects_including_soft_deleted.filter(
+            Q(saved=True) | insight_has_listed_tile(),
             deleted=False,
-            saved=True,
             query__isnull=False,
         ).only("id", "team_id", "query")
         if options["team_id"] is not None:
