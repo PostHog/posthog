@@ -1,5 +1,7 @@
+import featureFlagKeys from "./feature-flag-keys.json" with { type: "json" };
+
 export const SELF_DRIVING_SETUP_TASK_FLAG =
-  "posthog-code-self-driving-setup-task";
+  featureFlagKeys.SELF_DRIVING_SETUP_TASK_FLAG;
 export const POSTHOG_CODE_INTERNAL_CHILD_ENV = "POSTHOG_CODE_INTERNAL_CHILD";
 
 /**

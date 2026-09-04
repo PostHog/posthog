@@ -40,6 +40,7 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerModel, ScannerType
+from products.replay_vision.backend.queries.action_volume import recent_action_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE, SAMPLE_RATE_PRECISION
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
@@ -288,6 +289,9 @@ class _MatchedAction:
 
     name: str
     action_id: int
+    # Sessions the action fired in over the volume query's window. Shown in the briefing so the model
+    # can prefer a busy action when several match the goal.
+    recent_sessions: int = 0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -837,7 +841,9 @@ Pick the single type that best fits the goal, then draft the scanner:
 - filter_actions: the briefing may list the team's saved actions matching the goal. An action is the
   team's own curated definition of a behavior, so when one covers the goal, prefer it over hand-picking
   events or pages. Copy the name exactly; anything not in the list is discarded. Actions AND with every
-  other filter, so the one strongest action usually stands alone.
+  other filter, so the one strongest action usually stands alone. Each action shows the sessions it
+  fired in recently: when several fit the goal, pick the busier one, and prefer an event or a page over
+  an action that barely fires.
 - filter_cohorts: the briefing may list the team's cohorts matching the goal. A cohort is a saved
   audience, so use one when the goal is about WHO the user is ('what do power users struggle with')
   rather than what they did. Copy the name exactly; anything not in the list is discarded. Usually
@@ -949,10 +955,11 @@ def _build_user_content_v2(
             "\n"
             + as_untrusted_data(
                 "matching-actions",
-                [f'"{a.name}"' for a in actions],
+                [f'"{a.name}" ({a.recent_sessions} sessions last 7 days)' for a in actions],
                 source=(
-                    "the team's saved actions whose names match the goal. Each is a curated definition "
-                    "of a behavior; copy a name into filter_actions to scan only sessions containing it"
+                    "the team's saved actions whose names match the goal, each with the sessions it "
+                    "fired in recently. Each is a curated definition of a behavior; copy a name into "
+                    "filter_actions to scan only sessions containing it"
                 ),
             )
         )
@@ -1116,6 +1123,34 @@ def _goal_entity_matches(
     return _GoalEntityMatches(
         surveys=list(surveys.values()), actions=list(actions.values()), cohorts=list(cohorts.values())
     )
+
+
+def _live_actions(team: Team, actions: list[_MatchedAction]) -> list[_MatchedAction]:
+    """The matched actions that still fire, each carrying its recent session count.
+
+    A name match cannot tell a current action from one whose definition stopped matching years ago.
+    An autocapture action keyed to a button's text dies when the copy changes, while its name keeps
+    matching a goal about that feature. Offering a dead action costs the whole scanner, because an
+    action ANDs with every other filter and takes the session count to zero.
+
+    Fails open, because name matches without their counts still beat no matches at all.
+    """
+    if not actions:
+        return []
+    try:
+        sessions = recent_action_sessions(team=team, action_ids=[action.action_id for action in actions])
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.action_volume_failed", team_id=team.id, exc_info=True)
+        return actions
+    live = [replace(a, recent_sessions=count) for a in actions if (count := sessions.get(a.action_id, 0)) > 0]
+    if len(live) < len(actions):
+        logger.info(
+            "replay_vision.scanner_draft.dead_actions_dropped",
+            team_id=team.id,
+            matched=len(actions),
+            dropped=len(actions) - len(live),
+        )
+    return live
 
 
 def _page_filter_regex(pathname: str) -> str | None:
@@ -1411,6 +1446,9 @@ def draft_scanner_from_goal_v2(
         else ""
     )
     matches = _goal_entity_matches(team, goal, user_access_control, allowed_scopes)
+    # Measured here rather than inside the match, so the access-control helper stays free of a
+    # ClickHouse query its other callers do not need.
+    matches = replace(matches, actions=_live_actions(team, matches.actions))
     if matches.surveys:
         # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
         # the survey events may not have matched on their own. A property filter is useless without
@@ -1461,9 +1499,107 @@ def draft_scanner_from_goal_v2(
         # A slow count must not throw away a good draft; the wizard falls back to its defaults.
         logger.warning("replay_vision.scanner_draft.budget_solve_failed", team_id=team.id, exc_info=True)
         return replace(draft, sampling_mode=None, sampling_rate=None, estimated_monthly_observations=None)
+    if solution.estimated_monthly_observations == 0:
+        draft, solution = _fall_back_to_pages(
+            team=team,
+            user=user,
+            draft=draft,
+            solution=solution,
+            monthly_credit_budget=monthly_credit_budget,
+        )
     return replace(
         draft,
         sampling_mode=solution.sampling_mode,
         sampling_rate=solution.sampling_rate,
         estimated_monthly_observations=solution.estimated_monthly_observations,
     )
+
+
+def _pages_only(query: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The draft's page and cohort filters, without its events and actions. None when the draft has
+    no page filter to fall back to.
+
+    Cohorts stay because a cohort says who the goal is about, not what the product still emits.
+    Dropping one would scan those pages for everybody, spending credits on sessions the goal never
+    asked about. When the cohort is itself what matched nothing, the caller's re-estimate comes back
+    zero again and the original draft is kept.
+
+    Keeps `filter_test_accounts`, because dropping it would widen the scan to internal traffic while
+    trying to make the filter match.
+    """
+    if not query:
+        return None
+    properties = query.get("properties") or []
+    pages = [p for p in properties if p.get("key") == "visited_page"]
+    if not pages:
+        return None
+    cohorts = [p for p in properties if p.get("type") == "cohort"]
+    return {
+        "kind": "RecordingsQuery",
+        "properties": [*pages, *cohorts],
+        "filter_test_accounts": query.get("filter_test_accounts", True),
+    }
+
+
+def _fall_back_to_pages(
+    *,
+    team: Team,
+    user: User,
+    draft: ScannerDraft,
+    solution: _BudgetSolution,
+    monthly_credit_budget: int,
+) -> tuple[ScannerDraft, _BudgetSolution]:
+    """Replace a filter that matches no sessions with the draft's page filter.
+
+    Events and actions AND with everything else, so one that the product stopped emitting takes the
+    whole filter to zero and the scanner never runs. The pages come from measured traffic, which
+    makes them the one part of the filter that cannot be dead.
+
+    Returns the draft and solution unchanged when the draft has no page filter, when the estimate
+    fails, or when the pages match nothing either, because widening to every session would scan a
+    product the goal never asked about.
+    """
+    fallback = _pages_only(draft.query)
+    if fallback is None:
+        return draft, solution
+    try:
+        relaxed = _solve_budget(
+            team=team,
+            user=user,
+            query=fallback,
+            monthly_credit_budget=monthly_credit_budget,
+            credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
+            model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
+        )
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.fallback_solve_failed", team_id=team.id, exc_info=True)
+        return draft, solution
+    if relaxed.estimated_monthly_observations == 0:
+        return draft, solution
+
+    dropped_events = len(draft.query.get("events") or []) if draft.query else 0
+    dropped_actions = len(draft.query.get("actions") or []) if draft.query else 0
+    logger.warning(
+        "replay_vision.scanner_draft.filters_matched_nothing",
+        team_id=team.id,
+        dropped_events=dropped_events,
+        dropped_actions=dropped_actions,
+    )
+    rationale = _fallback_rationale(draft.rationale, dropped_events=dropped_events, dropped_actions=dropped_actions)
+    return replace(draft, query=fallback, rationale=rationale), relaxed
+
+
+def _fallback_rationale(rationale: str, *, dropped_events: int, dropped_actions: int) -> str:
+    """The draft's rationale plus a note that the filter it describes was replaced.
+
+    The rationale still describes the filter the model picked, so leaving it alone would tell the
+    user this scanner watches something it no longer watches.
+
+    Trims the model's own text rather than the note, so the note cannot be cut in half by the cap.
+    """
+    if dropped_events and dropped_actions:
+        filters = "event and action filters"
+    else:
+        filters = "event filter" if dropped_events else "action filter"
+    note = f"The {filters} matched no recent recordings, so this scans the pages instead."
+    return f"{rationale[: _MAX_RATIONALE_LENGTH - len(note) - 1].strip()} {note}".strip()
