@@ -68484,6 +68484,7 @@ export namespace Schemas {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `canvas` - Canvas
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -68510,6 +68511,7 @@ export namespace Schemas {
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
       Slack: 'slack',
+      Canvas: 'canvas',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
@@ -68574,6 +68576,7 @@ export namespace Schemas {
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
        * * `slack` - Slack
+       * * `canvas` - Canvas
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
@@ -85221,6 +85224,7 @@ export namespace Schemas {
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
        * * `slack` - Slack
+       * * `canvas` - Canvas
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
@@ -86626,6 +86630,7 @@ export namespace Schemas {
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
        * * `slack` - Slack
+       * * `canvas` - Canvas
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
@@ -101147,6 +101152,7 @@ export namespace Schemas {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `canvas` - Canvas
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -101282,6 +101288,7 @@ export namespace Schemas {
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
       Slack: 'slack',
+      Canvas: 'canvas',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',

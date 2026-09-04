@@ -1755,6 +1755,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
  * * `slack` - Slack
+ * * `canvas` - Canvas
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
  * * `posthog_ai` - PostHog AI
@@ -1780,6 +1781,7 @@ export const TaskOriginProductEnumApi = {
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
     Slack: 'slack',
+    Canvas: 'canvas',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
@@ -1844,6 +1846,7 @@ export interface TaskCreateApi {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `canvas` - Canvas
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -2005,6 +2008,7 @@ export interface TaskWriteApi {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `canvas` - Canvas
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -2144,6 +2148,7 @@ export interface PatchedTaskWriteApi {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `canvas` - Canvas
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -5051,6 +5056,7 @@ export type TasksListParams = {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `canvas` - Canvas
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -5184,6 +5190,7 @@ export const TasksListExcludeOriginProduct = {
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
     Slack: 'slack',
+    Canvas: 'canvas',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
