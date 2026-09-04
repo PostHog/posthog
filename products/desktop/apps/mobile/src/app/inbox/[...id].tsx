@@ -54,6 +54,7 @@ import {
 import { RefundReportSheet } from "@/features/inbox/components/RefundReportSheet";
 import { ReportActivity } from "@/features/inbox/components/ReportActivity";
 import { ReportFeedbackFooter } from "@/features/inbox/components/ReportFeedbackFooter";
+import { ReportOwnerChip } from "@/features/inbox/components/ReportOwnerChip";
 import { ReportVerdictBanner } from "@/features/inbox/components/ReportVerdictBanner";
 import { SignalCard } from "@/features/inbox/components/SignalCard";
 import {
@@ -517,6 +518,7 @@ export default function ReportDetailScreen() {
             </Text>
           </View>
           <Text className="text-[12px] text-gray-9">Updated {timeDisplay}</Text>
+          <ReportOwnerChip report={report} showState />
           {report.implementation_pr_url ? (
             <View className="ml-auto">
               <PrStatusBadge

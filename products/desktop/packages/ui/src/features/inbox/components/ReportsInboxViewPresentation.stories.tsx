@@ -22,6 +22,14 @@ const reviewAndMerge = [
   }),
 ];
 
+const claimedByAgent = inboxStoryReport({
+  id: "claimed-1",
+  title: "fix(inbox): show who is working on a claimed report",
+  priority: "P2",
+  assignee: { kind: "agent", agent: "scout-runner" },
+  work_state: "working",
+});
+
 const needsPr = Array.from({ length: 8 }, (_, index) =>
   inboxStoryReport({
     id: `needs-pr-${index + 1}`,
@@ -50,6 +58,7 @@ const resolved = [
 ];
 
 const reports = [
+  claimedByAgent,
   reviewAndMerge[0],
   needsPr[0],
   resolved[0],

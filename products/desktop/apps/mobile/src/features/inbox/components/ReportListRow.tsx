@@ -10,6 +10,7 @@ import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { useThemeColors } from "@/lib/theme";
 import { formatReportTimestamp } from "../utils";
 import { ConventionalCommitTag } from "./ConventionalCommitTag";
+import { ReportOwnerChip } from "./ReportOwnerChip";
 import { SuggestedReviewerAvatarStack } from "./SuggestedReviewerAvatarStack";
 
 interface ReportListRowProps {
@@ -99,6 +100,7 @@ function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
           <Text className="flex-1 text-[11px] text-gray-9" numberOfLines={1}>
             {timeDisplay}
           </Text>
+          <ReportOwnerChip report={report} />
           <SuggestedReviewerAvatarStack report={report} />
         </View>
       </View>

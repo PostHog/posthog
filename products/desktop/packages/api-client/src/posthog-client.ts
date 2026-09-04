@@ -1172,6 +1172,17 @@ function extractRequestErrorMessage(error: unknown, fallback: string): string {
   return `${fallback} (HTTP ${match[1]})`;
 }
 
+/**
+ * The report moved out of a claimable state before the claim landed. Recoverable:
+ * refetch the report and the owner shown to the user is the current one.
+ */
+export class SignalReportClaimConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SignalReportClaimConflictError";
+  }
+}
+
 type AnyArtefact =
   | SignalReportArtefact
   | PriorityJudgmentArtefact
@@ -5404,6 +5415,48 @@ export class PostHogAPIClient {
       throw new Error("Unexpected response updating suggested reviewers");
     }
     return parsed as SuggestedReviewersArtefact;
+  }
+
+  /**
+   * Claim or release a report. A claim records the caller as the owner and can
+   * attach a pull request; `release` clears ownership but keeps the PR.
+   *
+   * A 409 means the report cannot be claimed in its current state (for example
+   * it was resolved first). It surfaces as {@link SignalReportClaimConflictError}
+   * so callers can refresh and offer the action again instead of failing hard.
+   */
+  async claimSignalReport(
+    reportId: string,
+    input: { pr_url?: string; release?: boolean } = {},
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/claim/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      const message = extractRequestErrorMessage(
+        error,
+        input.release
+          ? "Couldn’t release this report."
+          : "Couldn’t claim this report.",
+      );
+      if (requestErrorStatus(error) === 409) {
+        throw new SignalReportClaimConflictError(message);
+      }
+      throw new Error(message);
+    }
+
+    return (await response.json()) as SignalReport;
   }
 
   async deleteSignalReport(reportId: string): Promise<{

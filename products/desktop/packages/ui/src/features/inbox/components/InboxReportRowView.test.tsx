@@ -55,6 +55,22 @@ describe("InboxReportRowView resolved badge", () => {
     expect(screen.queryByText("Shipped")).toBeNull();
   });
 
+  it("names the external agent that claimed the report", () => {
+    render(
+      <InboxReportRowView
+        report={fakeReport({
+          status: "ready",
+          assignee: { kind: "agent", agent: "scout-runner" },
+          work_state: "working",
+        })}
+        onOpen={vi.fn()}
+        onOpenPr={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("scout-runner")).toBeTruthy();
+  });
+
   it("labels a reasonless suppressed report Archived", () => {
     render(
       <InboxReportRowView

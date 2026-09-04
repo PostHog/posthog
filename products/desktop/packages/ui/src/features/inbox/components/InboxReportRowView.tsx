@@ -13,6 +13,7 @@ import { dismissalReasonLabel } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
+import { ReportOwnerBadge } from "@posthog/ui/features/inbox/components/ReportOwnerBadge";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import type { HTMLAttributes, ReactNode } from "react";
@@ -145,6 +146,7 @@ export function InboxReportRowView({
               Resolved
             </span>
           ))}
+        <ReportOwnerBadge report={report} />
         {reviewers}
         <SignalReportPriorityBadge priority={report.priority} />
         {/* biome-ignore lint/a11y/noStaticElementInteractions: This span only stops nested controls from opening the row. */}
