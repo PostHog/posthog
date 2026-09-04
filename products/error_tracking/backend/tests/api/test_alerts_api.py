@@ -4,8 +4,10 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal
 
 from products.error_tracking.backend.logic.alerts import NATIVE_ALERTS_FLAG
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination, ErrorTrackingIssue
@@ -389,6 +391,9 @@ class TestErrorTrackingAlertPreview(APIBaseTest):
     def test_preview_renders_the_thread_for_the_latest_issue(self):
         ErrorTrackingIssue.objects.create(team=self.team, name="Old", description="older")
         latest = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError", description="boom")
+        # Access is per environment, so a newer issue in a sibling environment is not sampled.
+        sibling = Team.objects.create(organization=self.organization, project_id=self.team.project_id, name="staging")
+        ErrorTrackingIssue.objects.create(team=sibling, name="Sibling secret", description="hidden")
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/error_tracking/alerts/preview/", {"trigger": "issue_reopened"}
@@ -402,7 +407,53 @@ class TestErrorTrackingAlertPreview(APIBaseTest):
         root = body["messages"][0]
         assert root["event"] == "$error_tracking_issue_reopened"
         assert "TypeError" in root["text"]
+        assert "Sibling secret" not in str(body)
         assert root["blocks"][0]["type"] == "header"
+
+        # The editor names its active environment; a member sees that environment's issue.
+        scoped = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/preview/",
+            {"trigger": "issue_reopened", "environment_id": sibling.id},
+        )
+        assert scoped.status_code == 200, scoped.json()
+        assert "Sibling secret" in scoped.json()["messages"][0]["text"]
+
+        other_project = Team.objects.create(organization=self.organization, name="elsewhere")
+        assert (
+            self.client.get(
+                f"/api/projects/{self.team.id}/error_tracking/alerts/preview/",
+                {"trigger": "issue_reopened", "environment_id": other_project.id},
+            ).status_code
+            == 404
+        )
+        with patch(
+            "products.error_tracking.backend.presentation.views.alerts.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            denied = self.client.get(
+                f"/api/projects/{self.team.id}/error_tracking/alerts/preview/",
+                {"trigger": "issue_reopened", "environment_id": sibling.id},
+            )
+        assert denied.status_code == 403
+        assert "Sibling secret" not in str(denied.json())
+
+        # A key confined to the root environment cannot widen its reach through the parameter.
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["error_tracking:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        scoped_key = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/preview/",
+            {"trigger": "issue_reopened", "environment_id": sibling.id},
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+        assert scoped_key.status_code == 403, scoped_key.json()
+        assert "Sibling secret" not in str(scoped_key.json())
         assert body["messages"][2]["text"] == "✅ Resolved"
         assert self.user.email not in str(body)
         assert "Resolved" in body["messages"][3]["text"] or any(

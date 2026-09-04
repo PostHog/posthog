@@ -306,7 +306,13 @@ export const nativeAlertEditorLogic = kea<nativeAlertEditorLogicType>([
             {
                 loadPreview: async ({ trigger }: { trigger: TriggersEnumApi }, breakpoint) => {
                     await breakpoint(150)
-                    const preview = await errorTrackingAlertsPreviewRetrieve(projectId(), { trigger })
+                    // Project routes resolve to the root environment; name the active one so the
+                    // sample issue comes from where the person actually works.
+                    const environmentId = teamLogic.values.currentTeamId
+                    const preview = await errorTrackingAlertsPreviewRetrieve(projectId(), {
+                        trigger,
+                        ...(environmentId ? { environment_id: environmentId } : {}),
+                    })
                     breakpoint()
                     return preview
                 },

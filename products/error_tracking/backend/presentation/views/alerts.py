@@ -9,8 +9,12 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scoped_team_ids
+from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.error_tracking.backend.facade import alerts as alerts_facade
 
 # PostgreSQL integer column bound; larger values would 500 on save.
@@ -200,6 +204,10 @@ class ErrorTrackingAlertPreviewParamsSerializer(serializers.Serializer):
         default="issue_created",
         help_text="Trigger whose opener message roots the previewed thread.",
     )
+    environment_id = serializers.IntegerField(
+        required=False,
+        help_text="Environment whose latest issue seeds the preview. Must belong to the project and be readable by the caller; defaults to the project's root environment.",
+    )
 
 
 class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -290,9 +298,35 @@ class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         """The Slack thread an alert would open, rendered from the project's most recent issue."""
         params = ErrorTrackingAlertPreviewParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
+        sample_team = self._sample_environment(request, params.validated_data.get("environment_id"))
         # A scoped read token must not learn its owner's email from the sample replies.
         try:
-            preview = alerts_facade.preview_alert_messages(self.team.id, params.validated_data["trigger"], None)
+            preview = alerts_facade.preview_alert_messages(
+                self.team.id, params.validated_data["trigger"], None, sample_team_id=sample_team.id
+            )
         except alerts_facade.AlertValidationError as err:
             raise ValidationError(str(err)) from err
         return Response(ErrorTrackingAlertPreviewSerializer(preview).data)
+
+    def _sample_environment(self, request: Request, environment_id: int | None) -> Team:
+        """The environment the preview samples from.
+
+        Project routes resolve to the root environment, but the editor runs in the active
+        one. Access control is per environment, so a requested sibling must pass the same
+        membership and error tracking read checks its own routes apply.
+        """
+        if environment_id is None or environment_id == self.team.id:
+            return self.team
+        team = Team.objects.filter(id=environment_id, project_id=self.team.project_id).first()
+        if team is None:
+            raise NotFound("Environment not found in this project.")
+        # A token confined to some environments must not widen its reach through this parameter.
+        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_teams is not None and team.id not in scoped_teams:
+            raise PermissionDenied("This key does not have access to this environment.")
+        user = request.user
+        if not isinstance(user, User) or UserPermissions(user).team(team).effective_membership_level is None:
+            raise PermissionDenied("You do not have access to this environment.")
+        if not UserAccessControl(user, team=team).check_access_level_for_resource("error_tracking", "viewer"):
+            raise PermissionDenied("You do not have access to error tracking in this environment.")
+        return team

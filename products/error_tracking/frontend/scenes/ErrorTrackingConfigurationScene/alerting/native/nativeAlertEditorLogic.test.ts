@@ -85,12 +85,18 @@ describe('nativeAlertEditorLogic', () => {
         await expectLogic(logic, () => logic.actions.openEditor())
             .toDispatchActions(['loadPreview', 'loadPreviewSuccess'])
             .toMatchValues({ isOpen: true, saveDisabledReason: 'Give the alert a name' })
-        expect(mockPreview).toHaveBeenLastCalledWith(expect.any(String), { trigger: 'issue_created' })
+        expect(mockPreview).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ trigger: 'issue_created' })
+        )
 
         logic.actions.setDraft({ name: 'Spikes' })
         logic.actions.setTriggerEnabled('issue_created', false)
         await expectLogic(logic, () => logic.actions.setTriggerEnabled('issue_spiking', true)).toFinishAllListeners()
-        expect(mockPreview).toHaveBeenLastCalledWith(expect.any(String), { trigger: 'issue_spiking' })
+        expect(mockPreview).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ trigger: 'issue_spiking' })
+        )
         expect(logic.values.saveDisabledReason).toEqual('Pick a Slack workspace and channel')
 
         logic.actions.updateDestination(0, { integrationId: 7 })
