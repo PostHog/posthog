@@ -1,3 +1,4 @@
+import struct
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
@@ -51,6 +52,8 @@ tracer = trace.get_tracer(__name__)
 # Neutral mid-pack score for sessions the surfacing scorer has not reached; shared with the
 # replay-vision sweep so list eligibility and sweep eligibility agree on unscored sessions.
 UNSCORED_SURFACING_SCORE = 0.36
+# Match the Float32 storage precision so a score equal to the cutoff stays excluded after promotion.
+RECOMMENDED_SURFACING_SCORE_THRESHOLD = struct.unpack("!f", struct.pack("!f", 0.36))[0]
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -733,12 +736,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
 
         if self._query.recommended_only:
-            # Strict `>` excludes unscored recordings because the query maps them to this fallback value.
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
-                    left=ast.Field(chain=["surfacing_score"]),
-                    right=ast.Constant(value=UNSCORED_SURFACING_SCORE),
+                    left=ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
+                    right=ast.Constant(value=RECOMMENDED_SURFACING_SCORE_THRESHOLD),
                 )
             )
 

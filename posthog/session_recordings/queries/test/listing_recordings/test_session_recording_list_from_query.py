@@ -129,6 +129,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         recommended_session_id = str(uuid7())
         for session_id, surfacing_score in (
             (recommended_session_id, 0.8),
+            (str(uuid7()), 0.36),
             (str(uuid7()), 0.2),
             (str(uuid7()), None),
         ):

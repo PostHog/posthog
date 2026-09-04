@@ -197,5 +197,6 @@ export function recordingsQueryToUniversalFilters(
         // Not editable in the universal-filters UI, but a stored scanner query can carry it;
         // dropping it on the round-trip would silently widen the scanner to every recording.
         experiment_exposure: query?.experiment_exposure,
+        recommended_only: query?.recommended_only,
     }
 }

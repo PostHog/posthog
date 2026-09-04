@@ -1572,6 +1572,25 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({ filters: { ...recommendedFilters, recommended_only: false } })
         })
+
+        it.each([
+            ['test', true],
+            ['control', false],
+        ])('waits for a delayed %s variant before cleaning persisted state', async (variant, expected) => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: `delayed-${variant}-recommended-filter`,
+                filters: recommendedFilters,
+            })
+            logic.mount()
+
+            expect(logic.values.filters.recommended_only).toBe(true)
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
+                })
+            }).toMatchValues({ filters: { ...recommendedFilters, recommended_only: expected } })
+        })
     })
 
     describe('asUniversalFilters', () => {

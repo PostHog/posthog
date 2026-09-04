@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 SURFACING_SCORE_ORDER_FLAG = "replay-playlist-surfacing-score"
+RECOMMENDED_RECORDINGS_FILTER_FLAG = "replay-recommended-recordings-filter-experiment"
 
 
 def recordings_query_has_event_filters(query: RecordingsQuery) -> bool:
@@ -35,6 +36,19 @@ def gate_surfacing_score_order(query: RecordingsQuery, user: "User | None") -> N
         query.order = RecordingOrder.START_TIME
 
 
+def gate_recommended_recordings_filter(query: RecordingsQuery, user: "User | None") -> None:
+    if not query.recommended_only:
+        return
+
+    if user is None or not _can_filter_recommended_recordings(user):
+        query.recommended_only = False
+
+
+def gate_replay_relevance(query: RecordingsQuery, user: "User | None") -> None:
+    gate_surfacing_score_order(query, user)
+    gate_recommended_recordings_filter(query, user)
+
+
 def _can_order_by_surfacing_score(user: "User") -> bool:
     distinct_id = str(user.distinct_id)
     person_properties = {"email": user.email}
@@ -46,6 +60,18 @@ def _can_order_by_surfacing_score(user: "User") -> bool:
             send_feature_flag_events=False,
         )
         is True
+    )
+
+
+def _can_filter_recommended_recordings(user: "User") -> bool:
+    return (
+        posthoganalytics.get_feature_flag(
+            RECOMMENDED_RECORDINGS_FILTER_FLAG,
+            str(user.distinct_id),
+            person_properties={"email": user.email},
+            send_feature_flag_events=False,
+        )
+        == "test"
     )
 
 

@@ -478,6 +478,7 @@ const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !
 export interface sessionRecordingsPlaylistLogicValues {
     deletedRecordingIds: Set<string> // deletedRecordingsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    receivedFeatureFlags: boolean // featureFlagLogic
     autoplayDirection: AutoplayDirection // playerSettingsLogic
     hideViewedRecordings: HideViewedRecordingsOptions // playerSettingsLogic
     activeSessionRecording: SessionRecordingType | undefined
@@ -531,6 +532,13 @@ export interface sessionRecordingsPlaylistLogicActions {
     addDeletedRecordings: (ids: string[]) => {
         ids: string[]
     } // deletedRecordingsLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     setHideViewedRecordings: (hideViewedRecordings: HideViewedRecordingsOptions) => {
         hideViewedRecordings: HideViewedRecordingsOptions
     } // playerSettingsLogic
@@ -841,6 +849,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     ),
     connect(() => ({
         actions: [
+            featureFlagLogic,
+            ['setFeatureFlags'],
             sessionRecordingEventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
@@ -854,7 +864,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
         values: [
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'receivedFeatureFlags'],
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
             deletedRecordingsLogic,
@@ -1297,6 +1307,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
 
         return {
+            setFeatureFlags: () => {
+                if (!values.filters.recommended_only) {
+                    return
+                }
+                if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
+                    actions.loadSessionRecordings()
+                } else {
+                    actions.setFilters({ recommended_only: false })
+                }
+            },
             loadAllRecordings: () => {
                 actions.loadSessionRecordings()
                 actions.loadPinnedRecordings()
@@ -2125,11 +2145,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
 
         if (
+            values.receivedFeatureFlags &&
             values.filters.recommended_only &&
             values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] !== 'test'
         ) {
             actions.setFilters({ recommended_only: false })
-            return
         }
 
         if (props.pinnedFilters) {
