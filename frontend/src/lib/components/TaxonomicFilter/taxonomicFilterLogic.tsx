@@ -419,6 +419,7 @@ export interface taxonomicFilterLogicValues {
     selectedItemMeta: any
     selectedProperties: TaxonomicFilterGroupValueMap
     showNumericalPropsOnly: any
+    suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
     suggestedFiltersLabel: any
     taxonomicFilterLogicKey: string
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -594,12 +595,12 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -630,20 +631,22 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[]
         ) => string
+        suggestedFilterGroupOrder: (
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            metaGroupTypes: Set<string>
+        ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
             topMatchItems: (TaxonomicDefinitionTypes & {
                 group: TaxonomicFilterGroupType
             })[],
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
+            suggestedFilterGroupOrder: any
         ) => TopMatchItem[]
         topMatchItemsWithSkeletons: (
             redistributedTopMatchItems: TopMatchItem[],
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            suggestedFilterGroupOrder: any,
             loadingGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[],
             searchQuery: string,
-            metaGroupTypes: Set<string>,
             revealBarrierOpen: boolean
         ) => (SkeletonItem | TopMatchItem)[]
     }
