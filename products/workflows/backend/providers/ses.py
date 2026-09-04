@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from itertools import batched
 from time import monotonic
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 
@@ -18,6 +18,8 @@ from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.ses.limiter import SESRecommendationsBudgetExhausted, consume_ses_recommendations_sync
 
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
@@ -45,6 +47,18 @@ METRIC_CALL_WORST_CASE_SECONDS = METRIC_CONNECT_TIMEOUT_SECONDS + METRIC_READ_TI
 # The budget covers every call the breakdown makes, ranking included, and a call starts only with
 # its worst case still inside it — so the ceiling holds even when SES answers slowly.
 METRIC_QUERY_BUDGET_SECONDS = 20
+
+# AWS meters ListRecommendations at about one request a second account-wide, so a throttled call
+# has to wait out most of a second before it can succeed. botocore's legacy default gives up long
+# before that: five attempts of roughly half a second of exponential backoff, exhausted in about
+# two seconds while the quota is still full. Adaptive mode adds the client-side rate limiter a
+# per-second quota needs, which learns the rate from the throttling responses it gets back.
+SES_API_RETRY_MODE: Literal["adaptive"] = "adaptive"
+SES_API_MAX_ATTEMPTS = 6
+
+# The most ListRecommendations returns in one page, which is the AWS ceiling for PageSize. Asking
+# for it makes a listing cost as few calls against the shared quota as AWS allows.
+RECOMMENDATIONS_PAGE_SIZE = 100
 
 
 @frozen
@@ -200,7 +214,13 @@ class SESProvider:
     ses_v2_client: "SESV2Client"
     ses_v2_metrics_client: "SESV2Client"
 
-    def __init__(self):
+    def __init__(self, *, priority: Priority = Priority.NORMAL, source: str = "unknown"):
+        # ListRecommendations draws on one account-wide budget shared by every caller, so a caller
+        # declares how sheddable it is and where the calls come from. Only the BATCH lane is ever
+        # denied; see _iter_open_recommendations.
+        self.egress_priority = priority
+        self.egress_source = source
+
         # Initialize the boto3 clients
         self.sts_client = boto3.client(
             "sts",
@@ -219,6 +239,7 @@ class SESProvider:
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            config=Config(retries={"mode": SES_API_RETRY_MODE, "max_attempts": SES_API_MAX_ATTEMPTS}),
         )
         # Separate client for the metric fan-out only, so bounding it cannot slow identity and
         # tenant calls, which are allowed to take longer.
@@ -295,8 +316,18 @@ class SESProvider:
         STATUS check exists for RESOURCE_ARN-filtered calls: AWS documents STATUS as combinable
         only with IMPACT or TYPE, so tenant-scoped listings must drop FIXED entries client-side.
         """
-        kwargs: dict[str, Any] = {"Filter": finding_filter} if finding_filter else {}
+        kwargs: dict[str, Any] = {"PageSize": RECOMMENDATIONS_PAGE_SIZE}
+        if finding_filter:
+            kwargs["Filter"] = finding_filter
         while True:
+            if not consume_ses_recommendations_sync(priority=self.egress_priority, source=self.egress_source):
+                # A non-sheddable lane proceeds and lets SES's own throttling be the backstop, the
+                # rule the egress transport applies too. It asks for a few calls, and either a
+                # person is waiting on the answer or the SES alerts are.
+                if self.egress_priority is Priority.BATCH:
+                    raise SESRecommendationsBudgetExhausted(
+                        "SES ListRecommendations egress budget exhausted; another caller holds the account quota"
+                    )
             page = self.ses_v2_client.list_recommendations(**kwargs)
             for recommendation in page.get("Recommendations", []):
                 if recommendation.get("Status") == "OPEN":

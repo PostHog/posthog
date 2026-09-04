@@ -254,19 +254,22 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # SES tenant reputation reconciliation - daily at 6:30 AM UTC. EventBridge events are the
-    # real-time path; this sweep catches missed deliveries. Sequential SES API calls per team
-    # with an SES email integration, so kept daily to stay well inside SES API rate limits.
+    # real-time path; this sweep catches missed deliveries. It walks every team with an SES email
+    # integration and paces itself to stay inside the account's shared SES API quota, so its run
+    # time grows with the number of those teams.
     sender.add_periodic_task(
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
     )
 
-    # Workflow email trust tiers - daily at 7:15 AM UTC, after the tenant reconciliation above.
-    # Promotion is intentionally slow (a team must hold a tier for days), so a daily pass is enough.
-    # Demotions do not wait for it: the staff suspension action recomputes the team directly.
+    # Workflow email trust tiers - daily at 8:30 AM UTC. It reads the tenant state the sweep above
+    # writes, so it starts two hours later: that is room for the sweep to finish, and for a retry
+    # after a partial run, before the tiers are computed from what it stored. Promotion is
+    # intentionally slow (a team must hold a tier for days), so a daily pass is enough. Demotions
+    # do not wait for it: the staff suspension action recomputes the team directly.
     sender.add_periodic_task(
-        crontab(hour="7", minute="15"),
+        crontab(hour="8", minute="30"),
         recompute_workflows_email_sending_tiers.s(),
         name="workflows email sending tier recomputation",
     )

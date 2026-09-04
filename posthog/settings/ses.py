@@ -14,6 +14,11 @@ else:
 
 SES_REGION = os.getenv("SES_REGION", "us-east-1")
 
+# Calls a minute PostHog allows itself against the account-wide SESv2 ListRecommendations quota,
+# shared by the reputation poller, the tenant reconciliation sweep, and the Reputation tab. See
+# posthog/egress/ses/limiter.py for how the share is split between them.
+SES_RECOMMENDATIONS_EGRESS_PER_MINUTE_BUDGET = int(os.getenv("SES_RECOMMENDATIONS_EGRESS_PER_MINUTE_BUDGET", "45"))
+
 # Configuration sets referenced by workflow email sends. With tenant attribution, SES requires
 # every resource a send references — the configuration set included, not just the sending
 # identity — to be associated with the tenant, so provisioning associates these with each tenant.

@@ -8,7 +8,7 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 ## Where the pieces live
 
 - Tier state: `email_sending_tier`, `email_sending_tier_updated_at` (dwell anchor), `email_sending_tier_demoted_at` (demotion cooldown anchor), and `email_sending_tier_pinned` on `TeamWorkflowsConfig`.
-- Tier movement: a daily Celery sweep (07:15 UTC, after the SES tenant-state reconcile at 07:00) in `products/workflows/backend/services/email_sending_tier.py`.
+- Tier movement: a daily Celery sweep (08:30 UTC, two hours after the SES tenant-state reconcile at 06:30, which is the state it reads) in `products/workflows/backend/services/email_sending_tier.py`.
 - Batch audience cap: `get_hogflow_batch_trigger_limit` in `products/workflows/backend/utils/batch_trigger_limit.py`, applied at batch dispatch and shown in the blast radius preview.
 - Send-time caps: two Valkey token buckets per team in the CDP email worker (`claimTeamSendingBudget` in `nodejs/src/cdp/services/messaging/email.service.ts`).
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).

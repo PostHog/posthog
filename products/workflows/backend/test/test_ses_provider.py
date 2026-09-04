@@ -14,7 +14,14 @@ import dns.resolver
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
-from products.workflows.backend.providers.ses import METRIC_QUERY_BUDGET_SECONDS, SESProvider
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.ses.limiter import SESRecommendationsBudgetExhausted
+
+from products.workflows.backend.providers.ses import (
+    METRIC_QUERY_BUDGET_SECONDS,
+    METRIC_READ_TIMEOUT_SECONDS,
+    SESProvider,
+)
 
 TEST_DOMAIN = "test.posthog.com"
 
@@ -47,6 +54,22 @@ class TestSESProvider(TestCase):
         ses_provider = SESProvider()
         if TEST_DOMAIN in ses_provider.ses_client.list_identities()["Identities"]:
             ses_provider.delete_identity(TEST_DOMAIN)
+
+    def test_the_sesv2_client_retries_throttling_with_the_adaptive_limiter(self):
+        # SES meters ListRecommendations per second, so botocore's legacy default gives up while the
+        # quota is still full. Nothing else observable catches this config going missing again.
+        assert self.mock_boto3_client is not None
+        self.mock_boto3_client.reset_mock()
+        SESProvider()
+
+        # The metrics client is the other sesv2 client, told to give up fast to bound a web request.
+        config = next(
+            call.kwargs["config"]
+            for call in self.mock_boto3_client.call_args_list
+            if call.args[0] == "sesv2" and call.kwargs["config"].read_timeout != METRIC_READ_TIMEOUT_SECONDS
+        )
+        assert config.retries["mode"] == "adaptive"
+        assert config.retries["max_attempts"] > 1
 
     def test_init_with_valid_credentials(self):
         with override_settings(
@@ -579,6 +602,22 @@ class TestGetAccountReputation(TestCase):
         first_call, second_call = self.mock_client.list_recommendations.call_args_list
         assert first_call.kwargs["Filter"] == {"STATUS": "OPEN"}
         assert second_call.kwargs["NextToken"] == "page-2"
+
+    @parameterized.expand([("batch", Priority.BATCH, True), ("normal", Priority.NORMAL, False)])
+    def test_a_spent_budget_sheds_only_the_bulk_lane(self, _name, priority, expect_shed):
+        # The reconciliation sweep must give the quota back when another caller needs it, while the
+        # poller and the Reputation tab proceed and let SES's own throttling be the backstop.
+        provider = SESProvider(priority=priority)
+        self.mock_client.get_account.return_value = {"EnforcementStatus": "HEALTHY"}
+        self.mock_client.list_recommendations.return_value = {"Recommendations": []}
+
+        with patch("products.workflows.backend.providers.ses.consume_ses_recommendations_sync", return_value=False):
+            if expect_shed:
+                with pytest.raises(SESRecommendationsBudgetExhausted):
+                    provider.get_account_reputation()
+                self.mock_client.list_recommendations.assert_not_called()
+            else:
+                assert provider.get_account_reputation() == {"enforcement_status": "HEALTHY", "findings": []}
 
     def test_missing_enforcement_status_fails_the_poll(self):
         self.mock_client.get_account.return_value = {}

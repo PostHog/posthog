@@ -81,6 +81,13 @@ One scrape is one credit, so those numbers cap a bill as much as a rate; they ar
 Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
 `FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
 
+AWS SES (`ses/`) is metered by AWS per account and region, and one operation is far tighter than the rest: `ListRecommendations` allows roughly one call a second, where `GetTenant` and `GetAccount` allow much more.
+So the domain budgets that one operation, under `ses_recommendations`, keyed by the region that names the metered account.
+`SES_RECOMMENDATIONS_EGRESS_PER_MINUTE_BUDGET` (default 45) holds PostHog under AWS's own ceiling so botocore's retries absorb the drift the counter cannot see.
+Three callers share it, and only the daily tenant reconciliation sweep is big enough to spend the whole quota on its own, so the sweep runs `BATCH` and the reserved floor keeps 40% for the account reputation poller and the Reputation tab.
+The sweep also asks `pace_ses_recommendations_seconds` how long to wait between teams, because a caller that walks every team spends its whole share whether or not the window currently holds headroom.
+This domain has no `transport.py`: SES is reached through boto3 rather than `requests`, so the calls are gated at the provider (`products/workflows/backend/providers/ses.py`) and botocore's adaptive retry mode is the reactive backstop.
+
 ### Priority lanes
 
 Priority (`CRITICAL` / `NORMAL` / `BATCH`) controls how sheddable a call is when the budget gets tight.
