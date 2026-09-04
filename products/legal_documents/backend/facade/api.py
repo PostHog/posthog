@@ -349,6 +349,7 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     # live signings. Staggering one archive per second keeps a backlog drain from
     # starving a customer signing right now, and holds regardless of worker count.
     scheduled_archives = 0
+    recreate_attempts = 0
     signed_this_run: set[UUID] = set()
     # One scoped client for the whole loop, not one per row: this runs in a Celery
     # worker, where the global client's background flush may never run before the
@@ -377,7 +378,9 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
                 elif (
                     pandadoc_status == logic.PANDADOC_ENVELOPE_MISSING
                     and _time_since_touched(document) >= logic.RECONCILE_RECREATE_MIN_AGE
+                    and recreate_attempts < logic.RECONCILE_MAX_RECREATES_PER_RUN
                 ):
+                    recreate_attempts += 1
                     if _recreate_lost_envelope(document):
                         envelopes_recreated += 1
                     else:
@@ -398,8 +401,16 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
         )
 
     for document in logic.list_pending_documents_missing_envelope():
+        if recreate_attempts >= logic.RECONCILE_MAX_RECREATES_PER_RUN:
+            logger.warning(
+                "legal_document_reconcile_recreate_cap_reached",
+                attempted=recreate_attempts,
+                cap=logic.RECONCILE_MAX_RECREATES_PER_RUN,
+            )
+            break
         if _time_since_touched(document) < logic.RECONCILE_RECREATE_MIN_AGE:
             continue
+        recreate_attempts += 1
         try:
             if logic.retry_pandadoc_envelope(document):
                 envelopes_recreated += 1

@@ -19,6 +19,7 @@ from rest_framework import status
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.legal_documents.backend import logic
 from products.legal_documents.backend.facade import api as legal_api
 from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 from products.legal_documents.backend.logic.pandadoc import PandaDocError
@@ -1179,6 +1180,46 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         self.assertEqual(create_mock.called, bool(expected_recreated))
         document.refresh_from_db()
         self.assertEqual(document.pandadoc_document_id, "doc_new" if expected_recreated else "")
+
+    @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_caps_envelope_recreates_per_run(self, status_mock, create_mock) -> None:
+        status_mock.return_value = "document.sent"
+        create_mock.return_value = pandadoc_module.PandaDocDocument(id="doc_new", status="document.uploaded", name="x")
+        documents = []
+        for i, created_age in enumerate((timedelta(hours=4), timedelta(hours=3), timedelta(hours=2))):
+            org = self.create_organization_with_features([])
+            document = LegalDocument.objects.create(
+                organization=org,
+                document_type="DPA",
+                company_name=f"No Envelope Co {i}",
+                company_address="Nowhere",
+                representative_email=f"noenv{i}@other.example",
+                pandadoc_document_id="",
+                created_by=self.user,
+            )
+            LegalDocument.objects.filter(id=document.id).update(
+                updated_at=timezone.now() - timedelta(hours=2),
+                created_at=timezone.now() - created_age,
+            )
+            documents.append(document)
+
+        with patch.object(logic, "RECONCILE_MAX_RECREATES_PER_RUN", 2):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(create_mock.call_count, 2)
+        self.assertEqual(result.envelopes_recreated, 2)
+        documents[2].refresh_from_db()
+        self.assertEqual(documents[2].pandadoc_document_id, "")
+
+        create_mock.reset_mock()
+        with patch.object(logic, "RECONCILE_MAX_RECREATES_PER_RUN", 2):
+            legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(create_mock.call_count, 1)
+        documents[2].refresh_from_db()
+        self.assertEqual(documents[2].pandadoc_document_id, "doc_new")
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     def test_reconcile_schedules_archive_once_for_newly_signed_row(self, status_mock) -> None:

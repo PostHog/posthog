@@ -191,6 +191,10 @@ RECONCILE_RECREATE_MIN_AGE = timedelta(hours=1)
 _RECONCILE_LOOKBACK = timedelta(days=14)
 RECONCILE_MAX_PER_RUN = 500
 
+# Spreads a burst of re-creates across ticks so one tick stays under PandaDoc's
+# per-minute rate limit.
+RECONCILE_MAX_RECREATES_PER_RUN = 20
+
 
 def list_pending_signature_documents() -> QuerySet[LegalDocument]:
     """
