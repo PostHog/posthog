@@ -108,13 +108,21 @@ describe('AIEnrichmentSaveControls', () => {
         ;(useActions as jest.Mock).mockReturnValue({ saveVersion })
     })
 
-    function renderSaveControls(editorSources: unknown[]): void {
+    const OUTPUT_FIELDS_WITH_EVIDENCE_URL = [
+        { key: 'verdict', type: 'boolean', description: '' },
+        { key: 'evidence_url', type: 'string', description: '' },
+    ]
+
+    function renderSaveControls(
+        editorSources: unknown[],
+        editorOutputFields: unknown[] = OUTPUT_FIELDS_WITH_EVIDENCE_URL
+    ): void {
         ;(useValues as jest.Mock).mockReturnValue({
             saveResultLoading: false,
             selectedLabel: 'test_label',
             isRunning: false,
             editorInputFields: ['name'],
-            editorOutputFields: [{ key: 'verdict', type: 'boolean', description: '' }],
+            editorOutputFields,
             editorSources,
             versions: [],
         })
@@ -139,5 +147,18 @@ describe('AIEnrichmentSaveControls', () => {
 
         fireEvent.click(button)
         expect(openForm).toHaveBeenCalled()
+    })
+
+    it('disables Save with a reason when sources are added without a matching evidence_url output field', () => {
+        renderSaveControls(
+            [{ key: 'pricing', kind: 'fetch', url: 'https://{domain}/pricing' }],
+            [{ key: 'verdict', type: 'boolean', description: '' }]
+        )
+
+        const button = document.querySelector('[data-attr="ai-enrichment-save"]') as HTMLElement
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+
+        fireEvent.click(button)
+        expect(openForm).not.toHaveBeenCalled()
     })
 })

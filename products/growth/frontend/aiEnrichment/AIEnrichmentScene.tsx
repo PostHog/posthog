@@ -462,7 +462,7 @@ function AIEnrichmentTestRunControls(): JSX.Element {
     const { setSampleSize, runClassification } = useActions(aiEnrichmentLogic)
     const inputReason = inputFieldsDisabledReason(editorInputFields)
     const outputReason = outputFieldsDisabledReason(editorOutputFields)
-    const sourcesReason = sourcesDisabledReason(editorSources)
+    const sourcesReason = sourcesDisabledReason(editorSources, editorOutputFields)
 
     return (
         <div className="flex flex-wrap items-end gap-2">
@@ -513,7 +513,7 @@ export function AIEnrichmentSaveControls(): JSX.Element {
     const { saveVersion } = useActions(aiEnrichmentLogic)
     const inputReason = inputFieldsDisabledReason(editorInputFields)
     const outputReason = outputFieldsDisabledReason(editorOutputFields)
-    const sourcesReason = sourcesDisabledReason(editorSources)
+    const sourcesReason = sourcesDisabledReason(editorSources, editorOutputFields)
 
     return (
         <div className="flex items-center gap-2">
