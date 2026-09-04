@@ -172,6 +172,14 @@ _RASTERIZER_NO_SNAPSHOTS_TYPE = "NO_SNAPSHOTS"
 # walking the pod into its memory limit. That size is a fixed property of the recording, so no retry helps.
 _RASTERIZER_TOO_LARGE_TYPE = "RECORDING_TOO_LARGE"
 
+# Rasterizer codes that mean a PostHog-side dependency the renderer talks to was unreachable or slow — the
+# recording-api it fetches the block listing and data from, or the object storage it uploads the video to — not
+# that the recording itself can't render. They belong in the same transient bucket as an activity timeout against
+# those dependencies (see `_activity_timeout_kind`), so the user gets a retry prompt, not a "known issue" label.
+_RASTERIZER_INFRA_TRANSIENT_TYPES = frozenset(
+    {"BLOCK_LISTING_FAILED", "DATA_LOAD_FAILED", "S3_UPLOAD_FAILED", "S3_UPLOAD_UNDECODABLE_RESPONSE"}
+)
+
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
     """Map an activity start-to-close/heartbeat timeout onto whichever side ran out of time."""
@@ -190,6 +198,12 @@ def _failure_type(e: BaseException) -> str | None:
     return getattr(cause, "type", None)
 
 
+def _failure_non_retryable(e: BaseException) -> bool:
+    """Whether the leaf ApplicationError was flagged non-retryable, surviving the same wrapping."""
+    cause = unwrap_temporal_cause(e) or e
+    return bool(getattr(cause, "non_retryable", False))
+
+
 def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
     """Pull a kind string off a kinded ApplicationError, surviving Temporal's ActivityError wrap."""
     if _failure_type(e) != expected_type:
@@ -204,6 +218,16 @@ def _root_cause_message(e: BaseException) -> str:
     cause = unwrap_temporal_cause(e) or e
     msg = getattr(cause, "message", None) or str(cause) or type(cause).__name__
     return truncate_for_temporal_payload(msg, MAX_ERROR_MESSAGE_CHARS)
+
+
+def _normalized_rasterizer_infra_message(code: str) -> str:
+    """A stable message for a transient rasterizer dependency failure, keyed on the code alone.
+
+    The raw text carries the errno, the pod address and the pooler wording, all of which vary per
+    occurrence, so copying it verbatim mints a fresh error-tracking issue for one root cause. Keying
+    the message on the code collapses those variants back into a single issue.
+    """
+    return f"rasterizer could not reach a PostHog dependency ({code})"
 
 
 def _encode_reason(kind: str, message: str) -> str:
@@ -437,6 +461,27 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             ):
                 # Gate as ineligible, not failed, so the user reads "too large" instead of a "known issue" retry prompt.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.TOO_LARGE) from e
+            rasterizer_type = _failure_type(e)
+            # The rasterizer flags a genuine transport blip (5xx, timeout, dropped connection) as retryable
+            # but a permanent 4xx or a malformed listing as non-retryable. Only the retryable ones are the
+            # "dependency was slow" story; a non-retryable leaf keeps the RASTERIZATION_FAILED path below, so
+            # it gets neither a false retry prompt nor a message that merges it into the transient-outage issue.
+            if rasterizer_type in _RASTERIZER_INFRA_TRANSIENT_TYPES and not _failure_non_retryable(e):
+                # A PostHog dependency blip, not a broken recording. Classify transient so the observation
+                # stays retryable, and keep the raw errno and pod address in the worker log only: `from None`
+                # drops the volatile cause so error tracking groups the outage by the stable message alone
+                # instead of minting a fresh issue per errno and pod address.
+                # Interpolate the code and detail into the message text, not `extra={...}`: the worker's
+                # stdlib formatter chain has no `ExtraAdder`, so record attributes never reach the rendered
+                # line, and the promised on-call copy would carry neither field.
+                wf.logger.warning(
+                    "replay_vision.rasterizer_infra_transient code=%s detail=%s",
+                    rasterizer_type,
+                    _root_cause_message(e),
+                )
+                raise ScannerFailureError(
+                    _normalized_rasterizer_infra_message(rasterizer_type), kind=FailureKind.INFRA_TRANSIENT
+                ) from None
             # Direct cause only: a nested activity timeout inside the child already bumped the
             # counter there, and matching it here would double-count one run.
             if (

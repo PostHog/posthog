@@ -7,8 +7,9 @@ from django.core.cache import cache
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
@@ -330,6 +331,22 @@ class TestAccessControlFiltering(BaseTest):
         self.user = User.objects.create_and_join(self.organization, "ac1@test.com", "password")
         self.user2 = User.objects.create_and_join(self.organization, "ac2@test.com", "password")
         self.resolver = RecipientsResolver()
+
+    def test_role_recipient_ignores_membership_from_another_organization(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user,
+            organization_member=OrganizationMembership.objects.get(
+                organization=self.organization,
+                user=self.user,
+            ),
+        )
+
+        result = self.resolver.resolve(TargetType.ROLE, str(role.id), self.team.id)
+
+        assert result == []
 
     def test_passthrough_when_org_lacks_access_control(self):
         self.organization.available_product_features = []
