@@ -25,6 +25,13 @@ class SubscriptionContext(TeamScopedRootMixin, UUIDModel):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def has_live_target_for_team(self, team_id: int) -> bool:
+        if self.dashboard_id is not None:
+            return self.dashboard is not None and self.dashboard.team_id == team_id and not self.dashboard.deleted
+        if self.insight_id is not None:
+            return self.insight is not None and self.insight.team_id == team_id and not self.insight.deleted
+        return False
+
     def clean(self) -> None:
         super().clean()
         if self.subscription_id and self.subscription.team_id != self.team_id:

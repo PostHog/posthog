@@ -559,29 +559,26 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
         contexts: list[dict[str, str | int]] = []
         for context in cls._context_rows(obj):
-            if (
-                context.dashboard_id
-                and context.dashboard is not None
-                and context.dashboard.team_id == obj.team_id
-                and not context.dashboard.deleted
-            ):
+            if not context.has_live_target_for_team(obj.team_id):
+                continue
+
+            if context.dashboard_id is not None:
+                dashboard = context.dashboard
+                assert dashboard is not None
                 contexts.append(
                     {
                         "dashboard_id": context.dashboard_id,
-                        "dashboard_name": context.dashboard.name or "Untitled dashboard",
+                        "dashboard_name": dashboard.name or "Untitled dashboard",
                     }
                 )
-            elif (
-                context.insight_id
-                and context.insight is not None
-                and context.insight.team_id == obj.team_id
-                and not context.insight.deleted
-            ):
+            elif context.insight_id is not None:
+                insight = context.insight
+                assert insight is not None
                 contexts.append(
                     {
                         "insight_id": context.insight_id,
-                        "insight_short_id": context.insight.short_id,
-                        "insight_name": str(context.insight),
+                        "insight_short_id": insight.short_id,
+                        "insight_name": str(insight),
                     }
                 )
         return contexts
@@ -1083,19 +1080,12 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def _replaceable_context_identifiers(cls, instance: Subscription) -> set[tuple[str, int]]:
         identifiers: set[tuple[str, int]] = set()
         for context in cls._context_rows(instance):
-            if (
-                context.dashboard_id is not None
-                and context.dashboard is not None
-                and context.dashboard.team_id == instance.team_id
-                and not context.dashboard.deleted
-            ):
+            if not context.has_live_target_for_team(instance.team_id):
+                continue
+
+            if context.dashboard_id is not None:
                 identifiers.add(("dashboard", context.dashboard_id))
-            elif (
-                context.insight_id is not None
-                and context.insight is not None
-                and context.insight.team_id == instance.team_id
-                and not context.insight.deleted
-            ):
+            elif context.insight_id is not None:
                 identifiers.add(("insight", context.insight_id))
         return identifiers
 
