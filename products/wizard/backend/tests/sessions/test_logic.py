@@ -3,18 +3,18 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from django.db import DatabaseError
 from django.test import override_settings
+
+from kombu.exceptions import OperationalError
 
 from posthog.models import Team, User
 
 from products.event_definitions.backend.models import EventDefinition
 from products.wizard.backend.facade import api as wizard_facade
-from products.wizard.backend.facade.contracts import (
-    UpsertWizardSessionInput,
-    WizardSessionOwnershipError,
-    WizardTaskDTO,
-)
-from products.wizard.backend.facade.enums import RunPhase, TaskStatus
+from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardTaskDTO
+from products.wizard.backend.facade.enums import WizardSessionRunPhase, WizardSessionTaskStatus
+from products.wizard.backend.facade.errors import WizardSessionOwnershipError
 from products.wizard.backend.metrics import WIZARD_SESSIONS_FINISHED_TOTAL
 from products.wizard.backend.tasks.tasks import sync_wizard_event_definitions
 
@@ -28,8 +28,8 @@ def _input(team_id: int, **overrides) -> UpsertWizardSessionInput:
         "workflow_id": "onboarding",
         "skill_id": "nextjs",
         "started_at": datetime(2026, 5, 19, 10, 0, 0, tzinfo=UTC),
-        "run_phase": RunPhase.RUNNING,
-        "tasks": (WizardTaskDTO(id="1", title="Install SDK", status=TaskStatus.IN_PROGRESS),),
+        "run_phase": WizardSessionRunPhase.RUNNING,
+        "tasks": (WizardTaskDTO(id="1", title="Install SDK", status=WizardSessionTaskStatus.IN_PROGRESS),),
         "event_plan": None,
         "error": None,
         "pending_input": None,
@@ -45,9 +45,10 @@ def test_upsert_creates_new_session(team):
     assert created is True
     assert dto.session_id == "onboarding-nextjs-2026-05-19T10:00:00Z"
     assert dto.team_id == team.id
-    assert dto.run_phase == RunPhase.RUNNING
+    assert dto.run_phase == WizardSessionRunPhase.RUNNING
     assert len(dto.tasks) == 1
-    assert dto.tasks[0].status == TaskStatus.IN_PROGRESS
+    assert dto.tasks[0].status == WizardSessionTaskStatus.IN_PROGRESS
+    assert not hasattr(dto, "run_id")
 
 
 @pytest.mark.django_db
@@ -82,7 +83,7 @@ def test_upsert_handoff_text_survives_pushes_without_it(team):
 
 
 @pytest.mark.django_db
-@patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay")
+@patch("products.wizard.backend.logic.sessions.lifecycle.sync_wizard_event_definitions.apply_async")
 def test_upsert_with_same_session_id_replaces_state(_mock_sync, team):
     _, first_created = wizard_facade.upsert(_input(team.id))
     assert first_created is True
@@ -90,14 +91,14 @@ def test_upsert_with_same_session_id_replaces_state(_mock_sync, team):
     updated, second_created = wizard_facade.upsert(
         _input(
             team.id,
-            run_phase=RunPhase.COMPLETED,
-            tasks=(WizardTaskDTO(id="1", title="Install SDK", status=TaskStatus.COMPLETED),),
+            run_phase=WizardSessionRunPhase.COMPLETED,
+            tasks=(WizardTaskDTO(id="1", title="Install SDK", status=WizardSessionTaskStatus.COMPLETED),),
         )
     )
 
     assert second_created is False
-    assert updated.run_phase == RunPhase.COMPLETED
-    assert updated.tasks[0].status == TaskStatus.COMPLETED
+    assert updated.run_phase == WizardSessionRunPhase.COMPLETED
+    assert updated.tasks[0].status == WizardSessionTaskStatus.COMPLETED
     assert len(wizard_facade.list_for_team(team.id, limit=100)) == 1
 
 
@@ -108,11 +109,11 @@ def test_completed_transition_creates_event_definitions_once(team, django_captur
     wizard_facade.upsert(_input(team.id, event_plan=event_plan))
 
     with django_capture_on_commit_callbacks(execute=True):
-        completed_session, _ = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED))
+        completed_session, _ = wizard_facade.upsert(_input(team.id, run_phase=WizardSessionRunPhase.COMPLETED))
     wizard_facade.upsert(
         _input(
             team.id,
-            run_phase=RunPhase.COMPLETED,
+            run_phase=WizardSessionRunPhase.COMPLETED,
             event_plan={"events": [{"name": "completed_push_only"}]},
         )
     )
@@ -132,7 +133,7 @@ def test_completed_transition_creates_enterprise_description(team, django_captur
         wizard_facade.upsert(
             _input(
                 team.id,
-                run_phase=RunPhase.COMPLETED,
+                run_phase=WizardSessionRunPhase.COMPLETED,
                 event_plan={"events": [{"name": "subscription_started", "description": "A subscription was started"}]},
             )
         )
@@ -149,7 +150,7 @@ def test_completed_transition_creates_enterprise_description(team, django_captur
 def test_completed_transition_skips_invalid_event_names(team, django_capture_on_commit_callbacks, event_name):
     with django_capture_on_commit_callbacks(execute=True):
         wizard_facade.upsert(
-            _input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": event_name}]})
+            _input(team.id, run_phase=WizardSessionRunPhase.COMPLETED, event_plan={"events": [{"name": event_name}]})
         )
 
     assert not EventDefinition.objects.filter(team=team).exists()
@@ -166,7 +167,7 @@ def test_completed_transition_caps_valid_unique_event_definitions(team, django_c
         wizard_facade.upsert(
             _input(
                 team.id,
-                run_phase=RunPhase.COMPLETED,
+                run_phase=WizardSessionRunPhase.COMPLETED,
                 event_plan={
                     "events": invalid_and_duplicate_events + [{"name": f"planned_event_{index}"} for index in range(51)]
                 },
@@ -180,34 +181,47 @@ def test_completed_transition_caps_valid_unique_event_definitions(team, django_c
 
 @pytest.mark.django_db
 @patch(
-    "products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay",
-    side_effect=RuntimeError("task dispatch failed"),
+    "products.wizard.backend.logic.sessions.lifecycle.sync_wizard_event_definitions.apply_async",
+    side_effect=OperationalError("task dispatch failed"),
 )
 def test_event_definition_dispatch_failure_does_not_break_completed_upsert(
     _mock_sync, team, django_capture_on_commit_callbacks
 ):
     with django_capture_on_commit_callbacks(execute=True):
         session, created = wizard_facade.upsert(
-            _input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": "checkout_started"}]})
+            _input(
+                team.id,
+                run_phase=WizardSessionRunPhase.COMPLETED,
+                event_plan={"events": [{"name": "checkout_started"}]},
+            )
         )
 
     assert created is True
-    assert session.run_phase == RunPhase.COMPLETED
+    assert session.run_phase == WizardSessionRunPhase.COMPLETED
+    _mock_sync.assert_called_once_with(
+        args=(team.id, "onboarding-nextjs-2026-05-19T10:00:00Z"),
+        retry=True,
+        retry_policy={"max_retries": 3, "interval_start": 0, "interval_step": 1, "interval_max": 5},
+    )
 
 
 @pytest.mark.django_db
 def test_event_definition_task_recovers_after_transient_failure(team):
-    with patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay"):
+    with patch("products.wizard.backend.logic.sessions.lifecycle.sync_wizard_event_definitions.apply_async"):
         session, _ = wizard_facade.upsert(
-            _input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": "checkout_started"}]})
+            _input(
+                team.id,
+                run_phase=WizardSessionRunPhase.COMPLETED,
+                event_plan={"events": [{"name": "checkout_started"}]},
+            )
         )
 
     with (
         patch(
             "products.wizard.backend.tasks.tasks.create_placeholder_event_definitions",
-            side_effect=RuntimeError("definition write failed"),
+            side_effect=DatabaseError("definition write failed"),
         ),
-        pytest.raises(RuntimeError, match="definition write failed"),
+        pytest.raises(DatabaseError, match="definition write failed"),
     ):
         sync_wizard_event_definitions.run(team.id, session.session_id)
 
@@ -218,11 +232,15 @@ def test_event_definition_task_recovers_after_transient_failure(team):
 
 @pytest.mark.django_db
 def test_event_definition_task_uses_latest_completed_session_state(team):
-    with patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay"):
+    with patch("products.wizard.backend.logic.sessions.lifecycle.sync_wizard_event_definitions.apply_async"):
         session, _ = wizard_facade.upsert(
-            _input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": "stale_completed_plan"}]})
+            _input(
+                team.id,
+                run_phase=WizardSessionRunPhase.COMPLETED,
+                event_plan={"events": [{"name": "stale_completed_plan"}]},
+            )
         )
-    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.RUNNING, event_plan=None))
+    wizard_facade.upsert(_input(team.id, run_phase=WizardSessionRunPhase.RUNNING, event_plan=None))
 
     sync_wizard_event_definitions.run(team.id, session.session_id)
 
@@ -244,11 +262,11 @@ def test_event_definition_task_reuses_definition_from_sibling_environment(team, 
         created_at=None,
         last_seen_at=None,
     )
-    with patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay"):
+    with patch("products.wizard.backend.logic.sessions.lifecycle.sync_wizard_event_definitions.apply_async"):
         session, _ = wizard_facade.upsert(
             _input(
                 sibling_team.id,
-                run_phase=RunPhase.COMPLETED,
+                run_phase=WizardSessionRunPhase.COMPLETED,
                 event_plan={"events": [{"name": "checkout_started", "description": "A checkout was started"}]},
             )
         )
@@ -274,7 +292,9 @@ def test_created_by_is_set_on_create_and_preserved_on_owner_update(team, user):
     assert created.created_by is not None
     assert created.created_by.id == user.id
 
-    updated, was_created = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=user.id))
+    updated, was_created = wizard_facade.upsert(
+        _input(team.id, run_phase=WizardSessionRunPhase.COMPLETED, created_by_id=user.id)
+    )
     assert was_created is False
     assert updated.created_by is not None
     assert updated.created_by.id == user.id
@@ -283,15 +303,15 @@ def test_created_by_is_set_on_create_and_preserved_on_owner_update(team, user):
 @pytest.mark.django_db
 def test_upsert_by_a_different_user_is_rejected(team, user):
     other_user = User.objects.create(email="second-runner@posthog.com", first_name="Second")
-    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.RUNNING, created_by_id=user.id))
+    wizard_facade.upsert(_input(team.id, run_phase=WizardSessionRunPhase.RUNNING, created_by_id=user.id))
 
     with pytest.raises(WizardSessionOwnershipError):
-        wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=other_user.id))
+        wizard_facade.upsert(_input(team.id, run_phase=WizardSessionRunPhase.COMPLETED, created_by_id=other_user.id))
 
     # The owner's run data is left untouched.
     current = wizard_facade.get(team.id, _input(team.id).session_id)
     assert current is not None
-    assert current.run_phase == RunPhase.RUNNING
+    assert current.run_phase == WizardSessionRunPhase.RUNNING
     assert current.created_by is not None
     assert current.created_by.id == user.id
 
@@ -301,9 +321,11 @@ def test_upsert_allows_update_of_legacy_unattributed_session(team, user):
     # Rows created before attribution existed carry a null created_by and stay updatable by anyone.
     wizard_facade.upsert(_input(team.id, created_by_id=None))
 
-    updated, was_created = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=user.id))
+    updated, was_created = wizard_facade.upsert(
+        _input(team.id, run_phase=WizardSessionRunPhase.COMPLETED, created_by_id=user.id)
+    )
     assert was_created is False
-    assert updated.run_phase == RunPhase.COMPLETED
+    assert updated.run_phase == WizardSessionRunPhase.COMPLETED
 
 
 @pytest.mark.django_db
@@ -381,14 +403,14 @@ def test_list_for_team_returns_sessions_ordered_by_started_at_desc(team):
 
 
 @pytest.mark.django_db
-@patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay")
+@patch("products.wizard.backend.logic.sessions.lifecycle.sync_wizard_event_definitions.apply_async")
 def test_upsert_counts_a_terminal_transition_exactly_once(_mock_sync, team):
     counter = WIZARD_SESSIONS_FINISHED_TOTAL.labels(workflow="other", outcome="completed")
     before = counter._value.get()
 
-    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.RUNNING))
-    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED))
-    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED))
+    wizard_facade.upsert(_input(team.id, run_phase=WizardSessionRunPhase.RUNNING))
+    wizard_facade.upsert(_input(team.id, run_phase=WizardSessionRunPhase.COMPLETED))
+    wizard_facade.upsert(_input(team.id, run_phase=WizardSessionRunPhase.COMPLETED))
 
     assert counter._value.get() == before + 1
 
@@ -398,6 +420,6 @@ def test_upsert_counts_a_session_created_already_terminal(team):
     counter = WIZARD_SESSIONS_FINISHED_TOTAL.labels(workflow="other", outcome="error")
     before = counter._value.get()
 
-    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.ERROR, error={"type": "boom", "message": "x"}))
+    wizard_facade.upsert(_input(team.id, run_phase=WizardSessionRunPhase.ERROR, error={"type": "boom", "message": "x"}))
 
     assert counter._value.get() == before + 1

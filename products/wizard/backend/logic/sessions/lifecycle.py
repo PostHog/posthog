@@ -7,16 +7,13 @@ from functools import partial
 
 from django.db import transaction
 
-from products.wizard.backend.facade.contracts import (
-    UpsertWizardSessionInput,
-    WizardSessionDTO,
-    WizardSessionOwnershipError,
-    WizardSessionUserDTO,
-    WizardTaskDTO,
-)
-from products.wizard.backend.facade.enums import RunPhase, TaskStatus
-from products.wizard.backend.logic.pubsub import publish_session_update
-from products.wizard.backend.logic.utils import is_stale
+from kombu.exceptions import OperationalError
+
+from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
+from products.wizard.backend.facade.enums import WizardSessionRunPhase
+from products.wizard.backend.facade.errors import WizardSessionOwnershipError
+from products.wizard.backend.logic.sessions.pubsub import publish_session_update
+from products.wizard.backend.logic.sessions.serializers import to_session_dto
 from products.wizard.backend.metrics import report_session_upserted
 from products.wizard.backend.models import WizardSession
 from products.wizard.backend.tasks.tasks import sync_wizard_event_definitions
@@ -54,7 +51,7 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             raise WizardSessionOwnershipError("This wizard session belongs to a different user and can't be updated.")
 
         event_plan = params.event_plan
-        if event_plan is None and params.run_phase == RunPhase.COMPLETED and previous_session:
+        if event_plan is None and params.run_phase == WizardSessionRunPhase.COMPLETED and previous_session:
             event_plan = previous_session.event_plan
 
         # Monotonic within a session: the doc arrives late in the run, so a push without it
@@ -89,12 +86,15 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             defaults=defaults,
             create_defaults={**defaults, "created_by_id": params.created_by_id},
         )
-        if previous_run_phase != RunPhase.COMPLETED.value and params.run_phase == RunPhase.COMPLETED:
+        if (
+            previous_run_phase != WizardSessionRunPhase.COMPLETED.value
+            and params.run_phase == WizardSessionRunPhase.COMPLETED
+        ):
             transaction.on_commit(
                 partial(_enqueue_event_definition_sync, params.team_id, params.session_id),
                 robust=True,
             )
-        dto = _to_dto(instance)
+        dto = to_session_dto(instance)
 
     report_session_upserted(previous_run_phase, dto)
     publish_session_update(dto)
@@ -103,14 +103,18 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
 
 def _enqueue_event_definition_sync(team_id: int, session_id: str) -> None:
     try:
-        sync_wizard_event_definitions.delay(team_id, session_id)
-    except Exception:
+        sync_wizard_event_definitions.apply_async(
+            args=(team_id, session_id),
+            retry=True,
+            retry_policy={"max_retries": 3, "interval_start": 0, "interval_step": 1, "interval_max": 5},
+        )
+    except OperationalError:
         logger.exception("Failed to enqueue event definition sync for a completed wizard session")
 
 
 def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
     instance = WizardSession.objects.select_related("created_by").filter(team_id=team_id, session_id=session_id).first()
-    return _to_dto(instance) if instance else None
+    return to_session_dto(instance) if instance else None
 
 
 def get_latest_session(team_id: int, workflow_id: str, skill_id: str | None = None) -> WizardSessionDTO | None:
@@ -119,7 +123,7 @@ def get_latest_session(team_id: int, workflow_id: str, skill_id: str | None = No
         qs = qs.filter(skill_id=skill_id)
     # created_at breaks ties on equal (client-supplied, second-granularity) started_at
     instance = qs.order_by("-started_at", "-created_at").first()
-    return _to_dto(instance) if instance else None
+    return to_session_dto(instance) if instance else None
 
 
 def list_sessions(
@@ -147,37 +151,4 @@ def list_sessions(
         qs = qs[offset : offset + limit]
     elif offset:
         qs = qs[offset:]
-    return [_to_dto(instance) for instance in qs]
-
-
-def _to_dto(instance: WizardSession) -> WizardSessionDTO:
-    run_phase = RunPhase(instance.run_phase)
-    created_by = instance.created_by
-    return WizardSessionDTO(
-        session_id=instance.session_id,
-        team_id=instance.team_id,
-        workflow_id=instance.workflow_id,
-        skill_id=instance.skill_id,
-        started_at=instance.started_at,
-        run_phase=run_phase,
-        is_stale=is_stale(run_phase, instance.updated_at),
-        tasks=tuple(
-            WizardTaskDTO(
-                id=task["id"],
-                title=task["title"],
-                status=TaskStatus(task["status"]),
-            )
-            for task in (instance.tasks or [])
-        ),
-        event_plan=instance.event_plan,
-        error=instance.error,
-        pending_input=instance.pending_input,
-        handoff_text=instance.handoff_text,
-        created_by=(
-            WizardSessionUserDTO(id=created_by.id, first_name=created_by.first_name, email=created_by.email)
-            if created_by is not None
-            else None
-        ),
-        created_at=instance.created_at,
-        updated_at=instance.updated_at,
-    )
+    return [to_session_dto(instance) for instance in qs]
