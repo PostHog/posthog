@@ -291,3 +291,27 @@ class TestTeamOrganizations(APIBaseTest):
             self.team.id: str(self.team.organization_id),
             other_team.id: str(other_organization.id),
         }
+
+
+class TestFailOpen:
+    def test_unreadable_team_ownership_degrades_instead_of_raising(self):
+        # The module refuses nobody when a lookup breaks; raising here would 500
+        # the authorize and query paths instead.
+        seen = []
+
+        def record(_flag, _distinct_id, *, person_properties, **_kwargs):
+            seen.append((person_properties["organization_id"], person_properties["team_id"]))
+            return False
+
+        with patch("posthog.llm.wizard_blocklist._team_organizations", side_effect=OSError("db down")):
+            with patch("posthog.llm.wizard_blocklist.posthoganalytics.feature_enabled", side_effect=record):
+                blocked = wizard_identity_blocked(
+                    distinct_id="d1",
+                    email="22@example.com",
+                    organization_ids=["org_1", "org_2"],
+                    team_ids=[7, 8],
+                    surface="revoke_sweep",
+                )
+
+        assert blocked is False
+        assert seen == [("", "7"), ("", "8"), ("org_1", ""), ("org_2", "")]

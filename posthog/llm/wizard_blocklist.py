@@ -121,7 +121,13 @@ def _match_contexts(organization_ids: Iterable[str], team_ids: Iterable[int]) ->
     # Which team sits in which organization is not on the credential, so read it
     # rather than pairing every organization with every team, which would ban a
     # combination the credential never granted.
-    owners = _team_organizations(teams)
+    try:
+        owners = _team_organizations(teams)
+    except Exception as e:
+        # Fail open like every other lookup here: degrade to asking about each
+        # dimension alone rather than refusing every wizard run.
+        logger.warning("wizard_blocklist: team ownership unavailable", error=str(e))
+        owners = {}
     contexts = [(owners.get(team_id, ""), team_id) for team_id in teams]
     paired = {organization_id for organization_id, _ in contexts}
     return contexts + [(organization_id, None) for organization_id in organizations if organization_id not in paired]
