@@ -81,7 +81,8 @@ class AppleSearchAdsEndpointConfig:
     requires_context: bool = True
     # Endpoints Apple only serves per campaign, built by fanning out over the account's
     # campaign ids. v5 takes the campaign in the path; the Platform API takes it as a filter,
-    # and additionally requires one on every report and on the keyword query.
+    # and additionally requires one on the ad group and keyword reports and on the keyword
+    # query.
     fan_out_over_campaigns: bool = False
     # Column the Platform API's `metadata.id` is projected onto, so a report table keeps the
     # primary key it had under v5.
@@ -190,9 +191,8 @@ APPLE_ADS_PLATFORM_ENDPOINTS: dict[str, AppleSearchAdsEndpointConfig] = {
         name="campaign_report",
         path="/reports/apps/campaigns/query",
         kind="report",
-        # Apple requires a `campaignId` filter on every apps report, including this one, which
-        # v5 served for the whole organization in a single request.
-        fan_out_over_campaigns=True,
+        # No fan-out: `campaignId` is this report's own row entity, and Apple rejects it as a
+        # filter field here, so one request covers the whole ad account as it did under v5.
         entity_id_field="campaignId",
         primary_keys=["campaignId", "date"],
         partition_key="date",

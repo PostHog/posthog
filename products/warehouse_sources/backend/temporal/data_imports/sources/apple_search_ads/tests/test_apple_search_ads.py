@@ -445,13 +445,8 @@ class TestPlatformApiPaths:
             [{"field": "campaignId", "operator": "EQUALS", "value": 20}],
         ]
 
-    def test_reports_carry_a_time_range_and_a_required_campaign_filter(self) -> None:
-        session = _FakeSession(
-            [
-                _entity_page([{"id": 10}], V1),
-                _report_page([_report_row({"id": 10}, ["2026-06-01"], V1)], V1),
-            ]
-        )
+    def test_reports_carry_a_time_range(self) -> None:
+        session = _FakeSession([_report_page([_report_row({"id": 10}, ["2026-06-01"], V1)], V1)])
 
         with mock.patch(TODAY_PATCH, return_value=date(2026, 6, 2)):
             _run(
@@ -473,20 +468,11 @@ class TestPlatformApiPaths:
             "granularity": "DAILY",
         }
         assert body["pagination"] == {"offset": 0, "pageSize": PAGE_SIZE}
-        # Apple requires a campaignId filter on every apps report, including the campaign level,
-        # and documents the value as an array of strings.
-        assert body["filters"] == [{"field": "campaignId", "operator": "EQUALS", "value": ["10"]}]
         # Unsegmented daily rows, so no groupBy is sent.
         assert "groupBy" not in body
 
-    def test_the_campaign_report_fans_out_over_every_campaign(self) -> None:
-        session = _FakeSession(
-            [
-                _entity_page([{"id": 20}, {"id": 10}], V1),
-                _report_page([_report_row({"id": 10}, ["2026-06-01"], V1)], V1),
-                _report_page([_report_row({"id": 20}, ["2026-06-01"], V1)], V1),
-            ]
-        )
+    def test_the_campaign_report_reads_the_whole_ad_account_in_one_request(self) -> None:
+        session = _FakeSession([_report_page([_report_row({"id": 10}, ["2026-06-01"], V1)], V1)])
 
         with mock.patch(TODAY_PATCH, return_value=date(2026, 6, 2)):
             batches = _run(
@@ -498,7 +484,38 @@ class TestPlatformApiPaths:
                 db_incremental_field_last_value=date(2026, 6, 1),
             )
 
-        assert [row["campaignId"] for batch in batches for row in batch] == [10, 20]
+        # `campaignId` is this report's own row entity, so Apple rejects it as a filter field
+        # with `INVALID_FIELD_ATTRIBUTE`: no campaign list, and no filters on the request.
+        assert [call["url"] for call in session.api_calls] == [f"{BASE_URL[V1]}/reports/apps/campaigns/query"]
+        assert "filters" not in session.api_calls[0]["json"]
+        assert [row["campaignId"] for batch in batches for row in batch] == [10]
+
+    def test_sub_campaign_reports_still_carry_the_campaign_filter(self) -> None:
+        session = _FakeSession(
+            [
+                _entity_page([{"id": 20}, {"id": 10}], V1),
+                _report_page([_report_row({"id": 1, "campaignId": 10}, ["2026-06-01"], V1)], V1),
+                _report_page([_report_row({"id": 2, "campaignId": 20}, ["2026-06-01"], V1)], V1),
+            ]
+        )
+
+        with mock.patch(TODAY_PATCH, return_value=date(2026, 6, 2)):
+            _run(
+                "ad_group_report",
+                session,
+                _FakeResumableManager(),
+                api_version=V1,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 6, 1),
+            )
+
+        report_calls = [call for call in session.api_calls if "/reports/" in call["url"]]
+        # Apple documents the report filter's value as an array of strings, and the ids are
+        # visited in a stable ascending order rather than response order.
+        assert [call["json"]["filters"] for call in report_calls] == [
+            [{"field": "campaignId", "operator": "EQUALS", "value": ["10"]}],
+            [{"field": "campaignId", "operator": "EQUALS", "value": ["20"]}],
+        ]
 
     def test_acl_rows_become_one_row_per_ad_account(self) -> None:
         session = _FakeSession(
@@ -801,9 +818,6 @@ class TestReportSync:
             _report_page(full_page, api_version),
             _report_page([_report_row({"campaignId": 9999}, ["2026-06-01"], api_version)], api_version),
         ]
-        if api_version == V1:
-            # The Platform API needs a campaign filter on this report, so the list comes first.
-            responses.insert(0, _entity_page([{"id": 1}], V1))
         session = _FakeSession(responses)
         manager = _FakeResumableManager()
 
