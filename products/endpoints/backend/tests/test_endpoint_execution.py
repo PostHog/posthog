@@ -2467,6 +2467,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_trigger.assert_called_once()
+        # a read-triggered repair must not clear the suspension of a repeatedly failing model
+        self.assertEqual(mock_trigger.call_args.kwargs["resume"], False)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
         # A refresh that cannot start must not overwrite the reason the read failed.
         self.assertIsInstance(mock_capture.call_args_list[0].args[0], MaterializedSeriesMismatchError)

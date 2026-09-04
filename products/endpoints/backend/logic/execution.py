@@ -813,7 +813,9 @@ class EndpointExecutionService(PydanticModelMixin):
                     saved_query_id=saved_query.id,
                 )
                 try:
-                    materialize_saved_query(saved_query)
+                    # Nobody asked for this run, so it must not clear the suspension or reset the
+                    # failure window that stopped a repeatedly failing model.
+                    materialize_saved_query(saved_query, resume=False)
                 except Exception:
                     # The caller still has to see the mismatch to fall back to inline, so a refresh
                     # we could not start must not replace it on the way out.
