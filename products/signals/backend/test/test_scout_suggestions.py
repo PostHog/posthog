@@ -24,6 +24,7 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_harness.suggestions import (
+    MAX_DESCRIPTION_CHARS,
     ScoutSuggestionBatch,
     ScoutSuggestionItem,
     SuggestionSettings,
@@ -96,7 +97,7 @@ class TestValidateSuggestionItems(SimpleTestCase):
             ("cron_under_30_min_gap", _item(proposed_config={"run_cron_schedule": "*/15 * * * *"})),
             ("custom_empty_body", _custom(draft_body="   ")),
             ("custom_no_description", _custom(description="")),
-            ("custom_description_over_create_limit", _custom(description="x" * 4097)),
+            ("custom_description_over_create_limit", _custom(description="x" * (MAX_DESCRIPTION_CHARS + 1))),
             ("bad_cron", _item(proposed_config={"run_cron_schedule": "every tuesday"})),
             # Syntactically valid but never occurs; croniter only raises on enumeration, which
             # must drop the item rather than fail the whole batch.

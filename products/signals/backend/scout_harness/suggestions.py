@@ -48,6 +48,7 @@ from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParse
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
+from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -62,9 +63,9 @@ SUGGESTIONS_ACTIVITY_SLACK_S = 60
 MAX_SUGGESTIONS_PER_BATCH = 5
 MIN_SUGGESTIONS_PER_BATCH = 3
 MAX_DRAFT_BODY_CHARS = 20_000
-# Mirrors `SignalScoutCreateSerializer.description`: a longer one stores fine but fails the
-# create it is supposed to be ready for.
-MAX_DESCRIPTION_CHARS = 4_096
+# Read from `SignalScoutCreateSerializer.description` rather than restated: a longer one stores
+# fine but fails the create it is supposed to be ready for.
+MAX_DESCRIPTION_CHARS = SPEC_DESCRIPTION_MAX_LENGTH
 
 # Resolves a suggestion run to the `signals_scout_suggestions` gateway product.
 SUGGESTIONS_AI_STAGE = "scout_suggestions"
