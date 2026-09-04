@@ -166,6 +166,7 @@ export function LogRowFAB({
                         timestamp={log.timestamp}
                         size="xsmall"
                         openPlayerIn={RecordingPlayerType.Modal}
+                        subject="log line"
                         iconOnly
                         noPadding
                         className="text-muted"
