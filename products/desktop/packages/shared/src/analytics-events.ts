@@ -499,7 +499,7 @@ export type AiQualityRating = "good" | "bad";
 
 export interface AiFeedbackContextProperties {
   $ai_session_id: string | null;
-  $ai_trace_id: null;
+  $ai_trace_id: string | null;
   ai_product: AiFeedbackProduct;
   task_id: string | null;
   task_run_id?: string;

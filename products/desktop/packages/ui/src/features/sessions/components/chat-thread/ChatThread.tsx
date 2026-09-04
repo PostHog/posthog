@@ -71,6 +71,7 @@ import {
   type AgentTurn,
   CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
   completedTurnTimestamp,
+  completedTurnTraceId,
   countFlatRows,
   type FlatThreadRow,
   FOLLOWING_END,
@@ -365,10 +366,12 @@ const RawLogsToggleContext = createContext(false);
 
 function TurnFooter({
   turnId,
+  traceId,
   timestamp,
   copyText,
 }: {
   turnId: string;
+  traceId: string | null;
   timestamp?: number;
   copyText?: string;
 }) {
@@ -389,7 +392,7 @@ function TurnFooter({
       </span>
       {copyText && <CopyButton value={copyText} label="Copy turn" />}
       {(revealed || sentiment) && (
-        <TurnFeedback turnId={turnId} sentiment={sentiment} />
+        <TurnFeedback turnId={turnId} traceId={traceId} sentiment={sentiment} />
       )}
     </ChatMessageFooter>
   );
@@ -406,9 +409,11 @@ function TurnFooter({
  */
 function TurnFeedback({
   turnId,
+  traceId,
   sentiment,
 }: {
   turnId: string;
+  traceId: string | null;
   sentiment: AgentTurnFeedbackSentiment | null;
 }) {
   const taskId = useSessionTaskId();
@@ -426,6 +431,7 @@ function TurnFeedback({
       buildTurnRatingMetric({
         run: { taskId, taskRunId },
         turnId,
+        traceId,
         sentiment: next,
       }),
     );
@@ -944,6 +950,7 @@ const ThreadRow = memo(function ThreadRow({
           </div>
           <TurnFooter
             turnId={item.id}
+            traceId={completedTurnTraceId(item)}
             timestamp={completedTurnTimestamp(item)}
             copyText={buildTurnCopyText(item.items) ?? undefined}
           />
@@ -1324,6 +1331,7 @@ const FlatRowView = memo(
           {row.turnId != null && row.turnTimestamp != null && (
             <TurnFooter
               turnId={row.turnId}
+              traceId={row.turnTraceId ?? null}
               timestamp={row.turnTimestamp}
               copyText={row.turnCopyText}
             />
