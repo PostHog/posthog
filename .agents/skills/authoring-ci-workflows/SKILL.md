@@ -335,6 +335,9 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
 
+`ci-backend-update-test-timing.yml` runs at minute 17 as well.
+It is one small job that merges the artifacts of the hourly runs above, not a suite, so it does not need the ten-minute gap.
+
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.
 An hourly run that shares the ref group with master pushes therefore holds the group for its whole duration while pushes queue behind it, and each new push discards the previous pending one along with whatever per-commit checks it carried.
