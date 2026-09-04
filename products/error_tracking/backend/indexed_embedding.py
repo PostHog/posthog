@@ -96,11 +96,13 @@ from typing import Optional
 from django.conf import settings
 
 from clickhouse_driver import Client
+from semantic_version.base import Version
 
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.dataclasses import frozen
+from posthog.version_requirement import version_string_to_semver
 
 logger = logging.getLogger("migrations")
 
@@ -275,14 +277,9 @@ FROM {database}.{kafka_table}
 # - before 24.10 it accepts Array(Float32) columns only, so our Array(Float64) column cannot carry it
 # - before 25.4 it rejects the dimension argument
 # - before 25.8 it is experimental, and the server refuses it without the matching setting
-VECTOR_INDEX_MIN_SERVER_VERSION = (24, 10)
-DIMENSION_ARGUMENT_MIN_SERVER_VERSION = (25, 4)
-STABLE_INDEX_MIN_SERVER_VERSION = (25, 8)
-
-
-def _server_version(client: Client) -> tuple[int, int]:
-    major, minor = (int(part) for part in client.execute("SELECT version()")[0][0].split(".")[:2])
-    return (major, minor)
+VECTOR_INDEX_MIN_SERVER_VERSION = Version("24.10.0")
+DIMENSION_ARGUMENT_MIN_SERVER_VERSION = Version("25.4.0")
+STABLE_INDEX_MIN_SERVER_VERSION = Version("25.8.0")
 
 
 @frozen
@@ -310,13 +307,13 @@ class AddVectorIndex:
         )
 
     def __call__(self, client: Client) -> None:
-        version = _server_version(client)
+        version = version_string_to_semver(client.execute("SELECT version()")[0][0])
         if version < VECTOR_INDEX_MIN_SERVER_VERSION:
             logger.warning(
-                "       Skipping index %s on %s: ClickHouse %s.%s cannot index an Array(Float64) column",
+                "       Skipping index %s on %s: ClickHouse %s cannot index an Array(Float64) column",
                 self.index_name,
                 self.table_name,
-                *version,
+                version,
             )
             return
 
