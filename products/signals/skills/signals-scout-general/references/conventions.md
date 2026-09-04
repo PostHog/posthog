@@ -15,8 +15,8 @@ before you author a report (the harness prompt carries the report-channel contra
    (one you authored last run, or a pipeline report), but you have new evidence: a
    different source corroborating, a fresh deploy correlation, contradicting data, a
    meaningful escalation in scope. → **`edit-report` it** — `append_evidence` with the
-   fresh evidence, or rewrite `title`/`summary` on a report you authored. Don't mint
-   a near-duplicate.
+   fresh observation, `append_note` with a reading of it, or rewrite `title`/`summary`
+   on a report you authored. Don't mint a near-duplicate.
 
 3. **Same fact already covered** — an existing report already captures the same
    evidence shape, nothing has changed. → Skip. Optionally rewrite an existing
