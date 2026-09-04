@@ -179,7 +179,12 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (sceneSidePanelContext?.activity_scope && hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
                     tabs.push(SidePanelTab.Activity)
                 }
-                tabs.push(SidePanelTab.Discussion)
+
+                // Comments are stored against the scene's activity scope, so a scene that declares none
+                // has nothing to show and the panel can only render its "not supported here" state.
+                if (sceneSidePanelContext?.activity_scope) {
+                    tabs.push(SidePanelTab.Discussion)
+                }
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)
