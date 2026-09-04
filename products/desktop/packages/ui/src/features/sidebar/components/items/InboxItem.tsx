@@ -2,29 +2,30 @@ import { EnvelopeSimple } from "@phosphor-icons/react";
 import { Badge } from "@posthog/quill";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
 import { SidebarCountBadge } from "./SidebarCountBadge";
 import { SidebarKbdHint } from "./SidebarKbdHint";
 
 interface InboxItemProps {
   isActive: boolean;
-  onClick: () => void;
-  pullRequestCount?: number;
+  onClick: MouseEventHandler<Element>;
+  decisionCount?: number;
   depth?: number;
 }
 
 export function InboxItem({
   isActive,
   onClick,
-  pullRequestCount = 0,
+  decisionCount = 0,
   depth = 0,
 }: InboxItemProps) {
   return (
     <Tooltip
       content={
-        pullRequestCount > 0
-          ? `${pullRequestCount} pull request${pullRequestCount === 1 ? "" : "s"} to review`
-          : "No pull requests to review"
+        decisionCount > 0
+          ? `${decisionCount} report${decisionCount === 1 ? " needs" : "s need"} a decision`
+          : "No reports need a decision"
       }
       side="right"
     >
@@ -36,10 +37,10 @@ export function InboxItem({
           }
           label={
             <>
-              Inbox
+              Self-driving
               <SidebarCountBadge
-                count={pullRequestCount}
-                title={`${pullRequestCount} pull requests to review`}
+                count={decisionCount}
+                title={`${decisionCount} report${decisionCount === 1 ? " needs" : "s need"} a decision`}
               />
             </>
           }

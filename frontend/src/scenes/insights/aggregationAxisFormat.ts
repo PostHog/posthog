@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { formatCurrency } from 'lib/utils/currency'
-import { humanFriendlyDuration } from 'lib/utils/durations'
+import { formatDurationMilliseconds } from 'lib/utils/durations'
 import {
     compactNumber,
     humanFriendlyCurrency,
@@ -65,7 +65,7 @@ const formatNanoseconds = (value: number): string => {
     if (absoluteValue < 1_000_000) {
         return `${humanFriendlyNumber(value / 1_000)}µs`
     }
-    return humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
+    return formatDurationMilliseconds(value / 1_000_000)
 }
 
 // this function needs to support a trendsFilter as part of an insight query and
@@ -98,10 +98,10 @@ export const formatAggregationAxisValue = (
     if (aggregationAxisFormat) {
         switch (aggregationAxisFormat) {
             case 'duration':
-                formattedValue = humanFriendlyDuration(value)
+                formattedValue = formatDurationMilliseconds(value * 1000)
                 break
             case 'duration_ms':
-                formattedValue = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
+                formattedValue = formatDurationMilliseconds(value)
                 break
             case 'duration_ns':
                 formattedValue = formatNanoseconds(value)

@@ -15,11 +15,13 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -37,12 +39,13 @@ import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistorica
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
+import { DestinationStep } from './components/DestinationStep'
 import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
-import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
+import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
     currentStep: number,
@@ -375,6 +378,8 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                     <WebhookSetupStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 5 ? (
                     <ProgressStep />
+                ) : currentStep === WIZARD_DESTINATION_STEP ? (
+                    <DestinationStep />
                 ) : (
                     <UnknownWizardStepFallback currentStep={currentStep} onRestart={onClear} />
                 )}
@@ -513,6 +518,26 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     return <SourceCatalog allowedSources={allowedSources} />
 }
 
+// Firewall allowlisting only applies to self-hosted databases PostHog dials out to, so the hint is
+// scoped to that category rather than shown for OAuth/API connectors.
+function DatabaseFirewallHint(): JSX.Element | null {
+    const { preflight } = useValues(preflightLogic)
+    const egressIps = preflight?.public_egress_ip_addresses
+
+    if (!egressIps?.length) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="info">
+            <p className="mb-2">
+                If your database is behind a firewall, add PostHog's IP addresses to the allowlist so it can connect:
+            </p>
+            <CodeSnippet thing="IP addresses">{egressIps.join(' \n')}</CodeSnippet>
+        </LemonBanner>
+    )
+}
+
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
     const { selectedConnector, source, sourceConnectionDetails } = useValues(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
@@ -553,6 +578,8 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                     </Link>
                 )}
             </div>
+
+            {selectedConnector.category === 'Databases' && <DatabaseFirewallHint />}
 
             <LemonDivider />
 
@@ -634,6 +661,7 @@ function WebhookSetupStep({
             onCreateWebhook={createWebhook}
             formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
             formKey="webhookFieldInputs"
+            isWizardStep
         />
     )
 }

@@ -5,7 +5,11 @@ from typing import Any, Optional
 import requests
 from requests import PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import CANNY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import (
+    CANNY_API_VERSION_V2,
+    CANNY_ENDPOINTS,
+    CannyEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -13,7 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     OffsetPaginator,
+    _inject_param,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -24,11 +30,14 @@ PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CannyResumeConfig:
-    # Offset into the current endpoint's list. Each schema syncs independently, so a single
-    # skip value is enough to resume — there is no cross-endpoint cursor to track.
+    # Offset into the current endpoint's list, for v1 skip/limit pagination. Each schema syncs
+    # independently, so a single skip value is enough to resume.
     skip: int = 0
+    # Opaque next-page cursor, for v2 cursor pagination. Only one of `skip`/`cursor` is meaningful
+    # per endpoint, chosen by the resolved API version.
+    cursor: Optional[str] = None
 
 
 class CannyBodyAuth(AuthConfigBase):
@@ -98,20 +107,79 @@ class CannyPaginator(OffsetPaginator):
             super().update_request(request)
 
 
+class CannyCursorPaginator(BasePaginator):
+    """Canny's v2 cursor pagination: a `cursor` param in the POST body, terminated by `hasNextPage`.
+
+    Mirrors CannyPaginator's 200-with-`{"error": ...}` envelope check so an invalid API key still
+    surfaces as an HTTPError the friendly non-retryable mapping can match. `limit` is sent on every
+    request; `cursor` is sent only once one is known (a seeded resume cursor, or the previous page's).
+    """
+
+    def __init__(self, *, cursor: Optional[str] = None) -> None:
+        super().__init__()
+        self.limit = PAGE_SIZE
+        self._cursor = cursor
+
+    def init_request(self, request: requests.Request) -> None:
+        _inject_param(request, "json", "limit", self.limit)
+        if self._cursor is not None:
+            _inject_param(request, "json", "cursor", self._cursor)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict) and body.get("error"):
+            raise requests.HTTPError(f"Canny API error: {body['error']} (url: {response.url})", response=response)
+
+        self._cursor = body.get("cursor") if isinstance(body, dict) else None
+        self._has_next_page = bool(isinstance(body, dict) and body.get("hasNextPage"))
+
+    def update_request(self, request: requests.Request) -> None:
+        if self._cursor is not None:
+            _inject_param(request, "json", "cursor", self._cursor)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = cursor
+            self._has_next_page = True
+
+
+def _use_v2_cursor(config: CannyEndpointConfig, api_version: str) -> bool:
+    # v2 moves only the endpoints Canny reimplemented behind cursor pagination (those with a
+    # `v2_path`); every other endpoint stays on its v1 skip/limit wire even under a v2 pin.
+    return api_version == CANNY_API_VERSION_V2 and config.v2_path is not None
+
+
 def canny_source(
     api_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CannyResumeConfig],
+    api_version: str,
 ) -> SourceResponse:
     config = CANNY_ENDPOINTS[endpoint]
+    use_cursor = _use_v2_cursor(config, api_version)
+    if use_cursor:
+        # _use_v2_cursor only returns True when both v2 fields are set.
+        assert config.v2_path is not None and config.v2_data_key is not None
+        path, data_key = config.v2_path, config.v2_data_key
+    else:
+        path, data_key = config.path, config.data_key
 
     def extract_records(body: dict[str, Any]) -> list[dict[str, Any]]:
         # Canny nests the record array under a per-endpoint key; anything else (missing key,
         # non-list value) is treated as an empty page, matching how the source always behaved.
-        records = body.get(config.data_key)
+        records = body.get(data_key)
         return records if isinstance(records, list) else []
+
+    paginator: BasePaginator = CannyCursorPaginator() if use_cursor else CannyPaginator(paginated=config.paginated)
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -122,9 +190,9 @@ def canny_source(
             {
                 "name": endpoint,
                 "endpoint": {
-                    "path": config.path,
+                    "path": path,
                     "method": "post",
-                    "paginator": CannyPaginator(paginated=config.paginated),
+                    "paginator": paginator,
                 },
                 # The whole body reaches the transform (no data_selector) so the record-array
                 # extraction above can keep the exact legacy empty-page semantics.
@@ -137,12 +205,17 @@ def canny_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            initial_paginator_state = {"offset": resume.skip}
+            initial_paginator_state = {"cursor": resume.cursor} if use_cursor else {"offset": resume.skip}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
         # the last page (the merge dedupes on the primary key) rather than skipping it.
-        if state and state.get("offset") is not None:
+        if not state:
+            return
+        if use_cursor:
+            if state.get("cursor") is not None:
+                resumable_source_manager.save_state(CannyResumeConfig(cursor=str(state["cursor"])))
+        elif state.get("offset") is not None:
             resumable_source_manager.save_state(CannyResumeConfig(skip=int(state["offset"])))
 
     resource = rest_api_resource(

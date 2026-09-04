@@ -53,6 +53,11 @@ def get_support_slack_bot_token(team: "Team") -> str:
     return str(config.slack_bot_token or "")
 
 
+def get_support_slack_workspace_id(team: "Team") -> str | None:
+    config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
+    return config.slack_team_id or None
+
+
 def team_exists_for_slack_workspace(slack_team_id: str) -> bool:
     """Whether any team has SupportHog connected to this Slack workspace.
 

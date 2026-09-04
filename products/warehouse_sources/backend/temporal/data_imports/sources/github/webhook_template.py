@@ -152,6 +152,46 @@ if (eventType = 'deployment_status') {
   row := status
 }
 
+// The status event is the only mapped event with no nesting key: the status fields sit at the top
+// level of the body, alongside commit/repository/sender/branches envelope objects and a `name`
+// holding the repository's full name, none of which the polled row carries. Build the row from the
+// wanted fields rather than deleting the envelope, so the shape is pinned here and a new envelope
+// field GitHub adds can never leak into the table. commit_sha comes from the event's top-level
+// `sha`, matching what the poll fan-out copies off the parent commit. The poll's `creator` maps
+// from the event's `sender`: a status event fires only on status creation, so the sender is the
+// user or app that posted it. The poll's `url` has no equivalent and stays null on webhook rows.
+if (eventType = 'status') {
+  if (empty(request.body?.id) or empty(request.body?.sha)) {
+    return {
+      'httpResponse': {
+        'status': 200,
+        'body': 'No status id or commit sha in payload, skipping'
+      }
+    }
+  }
+  row := {
+    'id': request.body?.id,
+    'node_id': request.body?.node_id,
+    'state': request.body?.state,
+    'description': request.body?.description,
+    'target_url': request.body?.target_url,
+    'context': request.body?.context,
+    'avatar_url': request.body?.avatar_url,
+    'creator': request.body?.sender,
+    'created_at': request.body?.created_at,
+    'updated_at': request.body?.updated_at,
+    'commit_sha': request.body?.sha
+  }
+}
+
+// The three comment events nest the row under `comment`, not under the event-type key, and the
+// nested object is the same shape the REST list endpoints return, so unwrapping is the whole
+// reshape. Every action is landed, including `deleted`: the warehouse merge only upserts, so
+// there is no way to remove a row, and the created delivery already put it in the table.
+if (eventType in ['issue_comment', 'pull_request_review_comment', 'commit_comment']) {
+  row := request.body?.comment
+}
+
 if (empty(row)) {
   return {
     'httpResponse': {
@@ -185,7 +225,7 @@ produceToWarehouseWebhooks(row, schemaId)""",
             "type": "json",
             "key": "schema_mapping",
             "label": "Schema mapping",
-            "description": "Maps GitHub event types to ExternalDataSchema IDs. Keys are either a bare event type (workflow_job, workflow_run, pull_request_review, deployment, deployment_status) for legacy single-repo sources, or 'owner/repo.event_type' for multi-repo sources.",
+            "description": "Maps GitHub event types to ExternalDataSchema IDs. Keys are either a bare event type (workflow_job, workflow_run, and the rest of GITHUB_WEBHOOK_RESOURCE_MAP) for legacy single-repo sources, or 'owner/repo.event_type' for multi-repo sources.",
             "required": True,
             "secret": False,
             "hidden": True,

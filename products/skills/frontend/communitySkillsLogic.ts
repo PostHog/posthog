@@ -11,23 +11,23 @@ import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import { communitySkillsInstallCreate, communitySkillsList, communitySkillsVoteCreate } from './generated/api'
-import { TrustTierEnumApi } from './generated/api.schemas'
+import { CommunitySkillTrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi, PaginatedCommunitySkillListListApi } from './generated/api.schemas'
 
 export const COMMUNITY_SKILLS_PER_PAGE = 30
 
-const TRUST_TIERS = Object.values(TrustTierEnumApi)
+const TRUST_TIERS = Object.values(CommunitySkillTrustTierEnumApi)
 
 export interface CommunitySkillFilters {
     page: number
     search: string
     order_by: string
     tag: string
-    trust_tier: TrustTierEnumApi | ''
+    trust_tier: CommunitySkillTrustTierEnumApi | ''
 }
 
 // Filters can arrive from the URL, so anything that isn't a known tier falls back to "all tiers".
-function cleanTrustTier(value: unknown): TrustTierEnumApi | '' {
+function cleanTrustTier(value: unknown): CommunitySkillTrustTierEnumApi | '' {
     return TRUST_TIERS.find((tier) => tier === value) ?? ''
 }
 
@@ -77,10 +77,12 @@ export interface communitySkillsLogicValues {
 export interface communitySkillsLogicActions {
     installSkill: (
         slug: string,
-        newName?: string
+        newName?: string,
+        variables?: Record<string, string>
     ) => {
         newName: string | undefined
         slug: string
+        variables: Record<string, string> | undefined
     }
     installSkillFailure: (slug: string) => {
         slug: string
@@ -176,7 +178,11 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
             debounce,
         }),
         loadSkills: (debounce: boolean = true) => ({ debounce }),
-        installSkill: (slug: string, newName?: string) => ({ slug, newName }),
+        installSkill: (slug: string, newName?: string, variables?: Record<string, string>) => ({
+            slug,
+            newName,
+            variables,
+        }),
         installSkillSuccess: (slug: string) => ({ slug }),
         installSkillFailure: (slug: string) => ({ slug }),
         toggleVote: (slug: string) => ({ slug }),
@@ -287,10 +293,11 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
             }
         },
 
-        installSkill: async ({ slug, newName }) => {
+        installSkill: async ({ slug, newName, variables }) => {
             try {
                 await communitySkillsInstallCreate(String(ApiConfig.getCurrentTeamId()), slug, {
                     new_name: newName,
+                    variables,
                 })
                 lemonToast.success(`Installed "${newName || slug}" into your project.`)
                 actions.installSkillSuccess(slug)

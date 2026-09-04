@@ -1,0 +1,64 @@
+{
+    "scores": {
+        "A": {
+            "evidence": 4,
+            "verify": 3,
+            "readability": 4
+        },
+        "B": {
+            "evidence": 5,
+            "verify": 4,
+            "readability": 4
+        }
+    },
+    "median_words": {
+        "A": 101,
+        "B": 101
+    },
+    "pairs": [
+        {
+            "a": "KC2",
+            "b": "KB1",
+            "better": "A",
+            "why": "KC2 adds two checks KB1 lacks (branch query uses .first() with no ordering; TaskRun has no unique repo+branch constraint), while KB1 restates the finding with line numbers and asserts reachability without a citation."
+        },
+        {
+            "a": "KC3",
+            "b": "KB3",
+            "better": "B",
+            "why": "KB3 closes the alternate recovery paths with citations (webhook carve-out excludes the initial event at tasks.py:161; later saves skip unless update_fields includes output at receivers.py:81-85), whereas KC3 only asserts that no code guarantees another save."
+        },
+        {
+            "a": "KC4",
+            "b": "KB4",
+            "better": "B",
+            "why": "The claims differ (KC4 is broker-publish loss, a near-duplicate of KC3 the validator did not flag; KB4 is a QUEUED run stranded after three retries); KB4 traces commit -> start -> exception -> retry limit and reports a negative search for scheduled recovery, while KC4 repeats KC3's argument at a second location."
+        },
+        {
+            "a": "KC5",
+            "b": "KB2",
+            "better": "B",
+            "why": "KB2 verifies both hops (synchronize is in the rereview scope at tasks.py:160-163 and self_driving_review survives into activities.py:448-451) and confirms pr is in scope at the fix site; KC5 is tighter but covers only the first hop."
+        },
+        {
+            "a": "KC6",
+            "b": "KB6",
+            "better": "B",
+            "why": "Same trace, but KB6 adds the receiver hop and the concrete sink (GitHub approval at activities.py:723-755), which makes the security claim checkable; KC6's only edge is a finer split of the worker line ranges. Marginal."
+        },
+        {
+            "a": "KC7",
+            "b": "KB8",
+            "better": "B",
+            "why": "KB8's extra check (MAX_SUGGESTED_REVIEWERS = 3) supports its verdict; KC7's extra check (DECISIONS.md does not establish the any-reviewer rule) undercuts the finding's premise yet the block keeps 'valid' without reconciling it, and it claims to have checked multi-reviewer tests but reports nothing from them."
+        }
+    ],
+    "unpaired_notes": {
+        "KC1": "Set A's best block: traces the flag to its producer, finds the bool() conversion at the source, names the trust boundary.",
+        "KB5": "Rejection leans on the receiver being the trust boundary that verifies linkage, which sits uneasily next to KB6's upheld claim that the receiver queues an attacker-controlled pr_url without checking the task repository.",
+        "KB7": "Set B's best block: cross-product check of auto_start.py creating internal=True, plus why the tests missed it.",
+        "KB9": "Strong rejection: cites the recovery tests and shows the suggested lock would harm recovery.",
+        "KB10": "Good: notes GitHub retries widen the check-to-run window and contrasts with the webhook resolver."
+    },
+    "verdict": "Set A's argumentation is somewhat worse than set B's. Format, sentence length, and median length are identical, so this is not a style difference. Set B more often shows why the alternate paths are closed (KB3, KB4, KB9), uses tests and constants as evidence rather than only line ranges (KB7, KB8, KB9), and traces security claims to the sink (KB6). Set A has one standout rejection (KC1) and solid work in KC2 and KC6, but it validates the same broker-failure claim twice (KC3/KC4) by asserting absence rather than demonstrating it, and KC7 surfaces evidence against its own verdict without addressing it. Pair tally: A wins 1, B wins 5 (two of them marginal)."
+}

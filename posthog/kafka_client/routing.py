@@ -42,12 +42,15 @@ from posthog.kafka_client.topics import (
     KAFKA_EVENTS_JSON,
     KAFKA_FLAGS_CACHE_INVALIDATION,
     KAFKA_GROUPS,
+    KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_METRICS_TIME_TO_SEE_DATA,
     KAFKA_NOTIFICATION_EVENTS,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_SIGNALS_REPORT_COMPLETED,
+    KAFKA_TRACES_INGESTION,
+    KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES,
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
@@ -95,11 +98,17 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # --- CYCLOTRON (Warpstream cyclotron) ---
     KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
+    # The ClickHouse Kafka engine table for this topic reads from the
+    # warpstream-cyclotron named collection, so a Django producer has to target
+    # the same cluster the CDP workers produce to or the rows never arrive.
+    KAFKA_HOG_INVOCATION_RESULTS: KafkaClusterProfile.CYCLOTRON,
     # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
     KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.CALCULATED_EVENTS,
     # --- REPLAY (Session replay) ---
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS: KafkaClusterProfile.REPLAY,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS: KafkaClusterProfile.REPLAY,
+    KAFKA_TRACES_INGESTION: KafkaClusterProfile.TRACES,
+    KAFKA_TRACES_INGESTION_DLQ: KafkaClusterProfile.TRACES,
 }
 
 

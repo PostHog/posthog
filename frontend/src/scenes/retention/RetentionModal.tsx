@@ -33,6 +33,7 @@ export function RetentionModal(): JSX.Element | null {
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
     const {
         aggregationTargetLabel,
+        canOpenPersonModal,
         selectedInterval,
         selectedBreakdownValue,
         selectedRow: row,
@@ -61,7 +62,7 @@ export function RetentionModal(): JSX.Element | null {
           }
         : undefined
 
-    if (selectedInterval === null || !row) {
+    if (!canOpenPersonModal || selectedInterval === null || !row) {
         return null
     }
 

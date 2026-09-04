@@ -9,7 +9,7 @@ import structlog
 from posthoganalytics import Posthog
 from posthoganalytics.ai.utils import _capture_ai_event
 
-from llm_gateway.auth.models import resolve_distinct_id
+from llm_gateway.auth.models import AuthenticatedUser, resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
@@ -19,6 +19,7 @@ from llm_gateway.request_context import (
     get_posthog_flags,
     get_posthog_properties,
     get_product,
+    get_request_id,
     get_time_to_first_token,
     get_traceparent_trace_id,
 )
@@ -74,23 +75,43 @@ def _is_product_billable(product: str) -> bool:
     return config is not None and config.credit_bucket is not None
 
 
-def _apply_owned_event_properties(properties: dict[str, Any], product: str, team_id: int | None) -> None:
+def _apply_owned_event_properties(
+    properties: dict[str, Any], product: str, auth_user: AuthenticatedUser | None
+) -> None:
     """Enforce gateway-owned event properties, run after caller `x-posthog-property-*` headers are merged.
 
-    `ai_product`, `$ai_billable`, and `$ai_effort` are gateway-derived (effort via
+    `ai_product`, `$ai_billable`, `$ai_effort`, and `$ai_span_id` are gateway-derived (effort via
     `ProviderConfig.extract_effort`) and must not be spoofable via headers, so we re-assert them
-    here and drop `$ai_effort` when the gateway found none. `team_id`, in contrast, is a
-    deliberate caller override (e.g. a shared-key caller attributing to a customer team); we only
-    fall back to the key owner's team when no override was supplied.
+    here and drop `$ai_effort` when the gateway found none. `llm_gateway_request_id` is re-asserted
+    too, but its value is not unique: the caller's `x-request-id` when sent, a truncated uuid
+    otherwise. OAuth requests use the authenticated project as `team_id`; trusted server callers
+    can attribute usage to a customer team.
     """
     properties["ai_product"] = product
     properties["$ai_billable"] = _is_product_billable(product)
+    # Unique per event: one request can emit several (a provider fallback, a retry) and
+    # consumers key on this, so a shared value collapses them.
+    properties["$ai_span_id"] = str(uuid4())
+    # Joins an event to its gateway access log line. Named apart from capture's signed
+    # `$ai_gateway_request_id`, which carries a different trust model.
+    request_id = get_request_id()
+    if request_id:
+        properties["llm_gateway_request_id"] = request_id
+    else:
+        properties.pop("llm_gateway_request_id", None)
     effort = get_effort()
     if effort is not None:
         properties["$ai_effort"] = effort
     else:
         properties.pop("$ai_effort", None)
-    if team_id is not None:
+    team_id = auth_user.team_id if auth_user else None
+    can_override_team_id = auth_user is not None and auth_user.auth_method == "personal_api_key" and auth_user.is_staff
+    if not can_override_team_id:
+        if team_id is None:
+            properties.pop("team_id", None)
+        else:
+            properties["team_id"] = team_id
+    elif team_id is not None:
         properties.setdefault("team_id", team_id)
     # A header-supplied team_id arrives as a string ("42"); store it as an int so the captured
     # property matches the rest of the platform (the usage reporter reads it via JSONExtractInt)
@@ -227,7 +248,6 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
             "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
-            "$ai_span_id": str(uuid4()),
             # Stamped explicitly to bypass the SDK's group_type_index lookup.
             # The AI usage report hardcodes `$group_1` (posthog/tasks/usage_report.py)
             # so the gateway must guarantee that slot regardless of how the
@@ -274,7 +294,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
-        _apply_owned_event_properties(properties, product, team_id)
+        _apply_owned_event_properties(properties, product, auth_user)
 
         response_cost = standard_logging_object.get("response_cost")
         if response_cost is not None:
@@ -362,7 +382,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
-        _apply_owned_event_properties(properties, product, team_id)
+        _apply_owned_event_properties(properties, product, auth_user)
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,

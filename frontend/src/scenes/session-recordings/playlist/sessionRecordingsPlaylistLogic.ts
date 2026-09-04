@@ -501,6 +501,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     isCreatingNewCollectionInModal: boolean
     isDeleteSelectedRecordingsDialogOpen: boolean
     isDeletingSelectedRecordings: boolean
+    isScopedByCaller: boolean
     logicProps: SessionRecordingPlaylistLogicProps
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
@@ -796,6 +797,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
             }
         ) => boolean
         pinnedFilters: (arg: any) => UniversalFiltersGroup | undefined
+        isScopedByCaller: (arg: any) => boolean
         totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any) => number
         hiddenRecordings: (
             sessionRecordings: SessionRecordingType[],
@@ -1154,10 +1156,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
 
                 loadSessionRecordingsSuccess: (state, { sessionRecordingsResponse }) => {
+                    // Dedupe against a Set so a merge stays O(n + m) rather than O(n * m).
+                    const seenIds = new Set(state.map((r) => r.id))
                     const mergedResults: SessionRecordingType[] = [...state]
 
                     sessionRecordingsResponse.results.forEach((recording) => {
-                        if (!state.find((r) => r.id === recording.id)) {
+                        if (!seenIds.has(recording.id)) {
+                            seenIds.add(recording.id)
                             mergedResults.push(recording)
                         }
                     })
@@ -1840,6 +1845,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         pinnedFilters: [
             () => [(_, props) => props.pinnedFilters],
             (pinnedFilters): UniversalFiltersGroup | undefined => pinnedFilters,
+        ],
+
+        // props.filters scopes embedded playlists (experiment tab, group page, notebook node).
+        isScopedByCaller: [
+            () => [(_, props) => props.filters],
+            (filters: RecordingUniversalFilters | undefined): boolean => !!filters,
         ],
 
         totalFiltersCount: [

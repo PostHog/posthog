@@ -1,4 +1,5 @@
 import { toast as quillToast } from "@posthog/quill";
+import { showErrorDetails } from "@posthog/ui/features/notifications/errorDetailsStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 
 // Thin wrapper over quill's toast so the whole app shares one import and a
@@ -18,6 +19,10 @@ export interface ToastOptions {
   // pick an id at create time, so the wrapper maps it (see idRegistry).
   id?: string;
   action?: ToastAction;
+  // The complete error payload to show in the global details dialog. Error
+  // toasts always replace `action` with a "View larger" action; when this is
+  // omitted, the dialog falls back to the description and then the title.
+  error?: unknown;
   // Auto-dismiss delay in ms. Maps to quill's `timeout`. Omit for the provider
   // default; loading toasts never auto-dismiss regardless.
   duration?: number;
@@ -56,11 +61,19 @@ function emit(
   // never auto-dismiss maps to `0`.
   const requested = o.duration ?? defaultTimeout;
   const timeout = requested === Number.POSITIVE_INFINITY ? 0 : requested;
+  const errorPayload =
+    o.error !== undefined ? o.error : (o.description ?? title);
   const fields = {
     title,
     description: o.description,
     timeout,
-    action: o.action,
+    action:
+      level === "error"
+        ? {
+            label: "View larger",
+            onClick: () => showErrorDetails(title, errorPayload),
+          }
+        : o.action,
   };
 
   if (o.id !== undefined) {

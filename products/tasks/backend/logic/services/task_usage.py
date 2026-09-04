@@ -51,7 +51,7 @@ class TaskUsage:
 
 def get_task_usage(*, team_id: int, task_id: UUID, task_created_at: datetime) -> TaskUsage:
     return TaskUsage(
-        token_cost_usd=_get_task_token_cost(task_id=task_id, task_created_at=task_created_at),
+        token_cost_usd=_get_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at),
         compute_cost_usd=_get_task_compute_cost(team_id=team_id, task_id=task_id),
     )
 
@@ -73,31 +73,35 @@ def sign_task_usage_request(body: bytes, secret: str, *, timestamp: int | None =
     return TaskUsageRequestSignature(signature=signature, timestamp=request_timestamp)
 
 
-def _get_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> Decimal:
-    cache_key = _task_token_cost_cache_key(task_id=task_id, task_created_at=task_created_at)
+def _get_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
+    cache_key = _task_token_cost_cache_key(team_id=team_id, task_id=task_id, task_created_at=task_created_at)
     cached = cache.get(cache_key)
     if cached is not None:
         return Decimal(str(cached))
 
     if settings.CLOUD_DEPLOYMENT == "EU":
-        token_cost = _get_cross_region_task_token_cost(task_id=task_id, task_created_at=task_created_at)
+        token_cost = _get_cross_region_task_token_cost(
+            team_id=team_id, task_id=task_id, task_created_at=task_created_at
+        )
     else:
-        token_cost = get_local_task_token_cost(task_id=task_id, task_created_at=task_created_at)
+        token_cost = get_local_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at)
     cache.set(cache_key, str(token_cost), timeout=TASK_TOKEN_COST_CACHE_TIMEOUT_SECONDS)
     return token_cost
 
 
-def _task_token_cost_cache_key(*, task_id: UUID, task_created_at: datetime) -> str:
-    return f"task_token_cost:v1:{task_id}:{task_created_at.isoformat()}"
+def _task_token_cost_cache_key(*, team_id: int, task_id: UUID, task_created_at: datetime) -> str:
+    return f"task_token_cost:v2:{team_id}:{task_id}:{task_created_at.isoformat()}"
 
 
-def _get_cross_region_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> Decimal:
+def _get_cross_region_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
     secret = settings.PERSONAL_SPEND_CROSS_REGION_SECRET
     if not secret:
         logger.error("task_usage.cross_region_not_configured")
         raise TaskTokenUsageUnavailable("Cross-region task usage is not configured")
 
-    body = json.dumps({"task_id": str(task_id), "task_created_at": task_created_at.isoformat()}).encode()
+    body = json.dumps(
+        {"team_id": team_id, "task_id": str(task_id), "task_created_at": task_created_at.isoformat()}
+    ).encode()
     signed = sign_task_usage_request(body, secret)
     target = f"{settings.SITE_URL if settings.DEBUG else 'https://us.posthog.com'}{TASK_USAGE_INTERNAL_PATH}"
     try:
@@ -118,7 +122,7 @@ def _get_cross_region_task_token_cost(*, task_id: UUID, task_created_at: datetim
         raise TaskTokenUsageUnavailable("Cross-region task usage is unavailable") from error
 
 
-def get_local_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> Decimal:
+def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
     query = parse_select(
         """
         SELECT round(sum(toFloat(properties.$ai_total_cost_usd)), 6)
@@ -126,6 +130,7 @@ def get_local_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> De
         WHERE equals(event, '$ai_generation')
             AND greaterOrEquals(timestamp, {task_created_at})
             AND equals(properties.ai_product, 'posthog_code')
+            AND equals(toString(properties.team_id), {team_id})
             AND (
                 equals(properties.task_id, {task_id})
                 OR equals(properties.$ai_session_id, {task_id})
@@ -137,6 +142,7 @@ def get_local_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> De
             query=query,
             placeholders={
                 "task_created_at": ast.Constant(value=task_created_at),
+                "team_id": ast.Constant(value=str(team_id)),
                 "task_id": ast.Constant(value=str(task_id)),
             },
             team=Team.objects.get(pk=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID),
@@ -152,6 +158,11 @@ def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
 
     rate_cards = validate_compute_rate_cards(COMPUTE_RATE_CARDS)
     calculated_at = timezone.now()
+    pricing_start = rate_cards[0].effective_at
+    # Rates are published ahead of the date they take effect, so until then nothing is priced.
+    if calculated_at <= pricing_start:
+        return Decimal(0)
+
     sessions = (
         SandboxSession.objects.for_team(team_id)
         .filter(
@@ -172,7 +183,7 @@ def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
         (
             calculate_sandbox_compute_cost(
                 session,
-                rate_cards[0].effective_at,
+                pricing_start,
                 calculated_at,
                 calculated_at=calculated_at,
                 rate_cards=rate_cards,

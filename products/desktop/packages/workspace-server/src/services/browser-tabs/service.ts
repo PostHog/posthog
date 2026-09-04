@@ -2,11 +2,14 @@ import {
   type BrowserWindow,
   closeTab,
   closeTabs,
-  newBlankTab,
-  openOrFocusTab,
+  DEFAULT_TAB_HREF,
+  ensureWindowHasTab,
+  openTab,
+  resetTabs,
   setTabOrder,
   setTabTarget,
   setWindowActiveTab,
+  type TabLocation,
   type TabsSnapshot,
   type TabTarget,
   TypedEventEmitter,
@@ -22,26 +25,33 @@ const now = () => Date.now();
 export interface IBrowserTabsService {
   getSnapshot(): TabsSnapshot;
   getPrimaryWindowId(): string;
-  openOrFocus(
-    input: TabTarget & {
-      windowId: string;
-      channelId: string | null;
-      channelSection?: string | null;
-      appView?: string | null;
-      tabId?: string;
-    },
+  reset(): TabsSnapshot;
+  openTab(
+    input: TabTarget &
+      TabLocation & {
+        windowId: string;
+        channelId: string | null;
+        channelSection?: string | null;
+        appView?: string | null;
+        tabId?: string;
+      },
   ): TabsSnapshot;
-  newBlankTab(input: { windowId: string; tabId?: string }): TabsSnapshot;
   setTabTarget(
-    input: TabTarget & {
-      tabId: string;
-      channelId: string | null;
-      channelSection?: string | null;
-      appView?: string | null;
-    },
+    input: TabTarget &
+      TabLocation & {
+        tabId: string;
+        channelId: string | null;
+        channelSection?: string | null;
+        appView?: string | null;
+        activate?: boolean;
+      },
   ): TabsSnapshot;
-  close(tabId: string): TabsSnapshot;
-  closeMany(tabIds: string[], focusTabId?: string | null): TabsSnapshot;
+  close(tabId: string, newTabId: string): TabsSnapshot;
+  closeMany(
+    tabIds: string[],
+    newTabId: string,
+    focusTabId?: string | null,
+  ): TabsSnapshot;
   setOrder(input: { windowId: string; tabIds: string[] }): TabsSnapshot;
   setActiveTab(input: { windowId: string; tabId: string | null }): TabsSnapshot;
   snapshotChangeEvents(
@@ -87,13 +97,16 @@ export class BrowserTabsService
     return { ...snapshot, windows: [primary, ...snapshot.windows] };
   }
 
-  /** The strip must never boot empty: seed a blank tab when none survived. */
+  /** Keep a primary tab available when persisted state is empty or damaged. */
   private ensureAtLeastOneTab(snapshot: TabsSnapshot): TabsSnapshot {
-    if (snapshot.tabs.length > 0) return snapshot;
-    const primary = snapshot.windows.find((w) => w.isPrimary);
+    const primary = snapshot.windows.find((window) => window.isPrimary);
     if (!primary) return snapshot;
-    return newBlankTab(snapshot, { windowId: primary.id, makeId, now })
-      .snapshot;
+    return ensureWindowHasTab(snapshot, {
+      windowId: primary.id,
+      href: DEFAULT_TAB_HREF,
+      makeId,
+      now,
+    });
   }
 
   /** Creation targets heal a stale window id (a mirror seeded before a schema
@@ -120,20 +133,30 @@ export class BrowserTabsService
     return primary.id;
   }
 
-  openOrFocus(
-    input: TabTarget & {
-      windowId: string;
-      channelId: string | null;
-      channelSection?: string | null;
-      appView?: string | null;
-      tabId?: string;
-    },
+  reset(): TabsSnapshot {
+    return this.commit(
+      resetTabs(this.snapshot, { href: DEFAULT_TAB_HREF, makeId, now }),
+    );
+  }
+
+  openTab(
+    input: TabTarget &
+      TabLocation & {
+        windowId: string;
+        channelId: string | null;
+        channelSection?: string | null;
+        appView?: string | null;
+        tabId?: string;
+      },
   ): TabsSnapshot {
-    // Honor a renderer-minted id so the caller's optimistic apply and this
-    // persisted state agree on the id. Dedup-by-identity still applies first,
-    // so a replay of the same open focuses the existing tab.
     const providedId = input.tabId;
-    const { snapshot } = openOrFocusTab(this.snapshot, {
+    // Idempotent on the renderer-minted id. There is no dedup to fall back on
+    // (opening never focuses an existing tab), so a replayed call would
+    // otherwise append a second copy.
+    if (providedId && this.snapshot.tabs.some((t) => t.id === providedId)) {
+      return this.snapshot;
+    }
+    const { snapshot } = openTab(this.snapshot, {
       ...input,
       windowId: this.resolveWindowId(input.windowId),
       makeId: providedId ? () => providedId : makeId,
@@ -142,39 +165,40 @@ export class BrowserTabsService
     return this.commit(snapshot);
   }
 
-  newBlankTab(input: { windowId: string; tabId?: string }): TabsSnapshot {
-    const providedId = input.tabId;
-    // Idempotent on the renderer-minted id: a replay of the same call (blank
-    // tabs have no identity to dedup on) must not append a second tab.
-    if (providedId && this.snapshot.tabs.some((t) => t.id === providedId)) {
-      return this.snapshot;
-    }
-    const { snapshot } = newBlankTab(this.snapshot, {
-      windowId: this.resolveWindowId(input.windowId),
-      makeId: providedId ? () => providedId : makeId,
+  setTabTarget(
+    input: TabTarget &
+      TabLocation & {
+        tabId: string;
+        channelId: string | null;
+        channelSection?: string | null;
+        appView?: string | null;
+      },
+  ): TabsSnapshot {
+    return this.commit(setTabTarget(this.snapshot, { ...input, now }));
+  }
+
+  close(tabId: string, newTabId: string): TabsSnapshot {
+    const { snapshot } = closeTab(this.snapshot, tabId, {
+      href: DEFAULT_TAB_HREF,
+      makeId: () => newTabId,
       now,
     });
     return this.commit(snapshot);
   }
 
-  setTabTarget(
-    input: TabTarget & {
-      tabId: string;
-      channelId: string | null;
-      channelSection?: string | null;
-      appView?: string | null;
-    },
+  closeMany(
+    tabIds: string[],
+    newTabId: string,
+    focusTabId?: string | null,
   ): TabsSnapshot {
-    return this.commit(setTabTarget(this.snapshot, { ...input, now }));
-  }
-
-  close(tabId: string): TabsSnapshot {
-    const { snapshot } = closeTab(this.snapshot, tabId);
-    return this.commit(snapshot);
-  }
-
-  closeMany(tabIds: string[], focusTabId?: string | null): TabsSnapshot {
-    return this.commit(closeTabs(this.snapshot, tabIds, focusTabId));
+    return this.commit(
+      closeTabs(
+        this.snapshot,
+        tabIds,
+        { href: DEFAULT_TAB_HREF, makeId: () => newTabId, now },
+        focusTabId,
+      ),
+    );
   }
 
   setOrder(input: { windowId: string; tabIds: string[] }): TabsSnapshot {

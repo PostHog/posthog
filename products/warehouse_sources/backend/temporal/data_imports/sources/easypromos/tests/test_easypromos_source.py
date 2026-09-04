@@ -1,19 +1,7 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.easypromos import (
-    EasypromosResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.settings import (
     EASYPROMOS_ENDPOINTS,
     ENDPOINTS,
@@ -22,30 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypromos import (
     EasypromosSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert EasypromosSource().source_type == ExternalDataSourceType.EASYPROMOS
-
-    def test_config_basics(self) -> None:
-        config = EasypromosSource().get_source_config
-        assert config.label == "Easypromos"
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/easypromos"
-
-    def test_single_secret_access_token_field(self) -> None:
-        fields = EasypromosSource().get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "access_token"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog, so the public docs can render the table list.
         assert EasypromosSource.lists_tables_without_credentials is True
@@ -73,16 +40,6 @@ class TestGetSchemas:
     def test_fan_out_description_mentions_per_promotion(self) -> None:
         schemas = {s.name: s for s in EasypromosSource().get_schemas(MagicMock(), team_id=1)}
         assert "per promotion" in (schemas["users"].description or "")
-
-
-class TestValidateCredentials:
-    @parameterized.expand([("valid", True, None), ("invalid", False, "Invalid Easypromos access token")])
-    def test_delegates_to_transport(self, _name: str, ok: bool, error: str | None) -> None:
-        config = EasypromosSourceConfig(access_token="tok")
-        with patch.object(source_module, "validate_easypromos_credentials", return_value=(ok, error)) as mock:
-            result = EasypromosSource().validate_credentials(config, team_id=1)
-        assert result == (ok, error)
-        mock.assert_called_once_with("tok")
 
 
 class TestNonRetryableErrors:
@@ -113,13 +70,6 @@ class TestNonRetryableErrors:
         assert not any(key in observed for key in errors)
 
 
-class TestResumableManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = EasypromosSource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is EasypromosResumeConfig
-
-
 class TestSourceForPipeline:
     def test_plumbs_endpoint_and_keys(self) -> None:
         config = EasypromosSourceConfig(access_token="tok")
@@ -132,11 +82,6 @@ class TestSourceForPipeline:
 
 
 class TestCanonicalDescriptions:
-    def test_promotions_documented(self) -> None:
-        descriptions = EasypromosSource().get_canonical_descriptions()
-        assert "promotions" in descriptions
-        assert descriptions["promotions"]["description"]
-
     def test_documented_tables_render_for_public_docs(self) -> None:
         tables = EasypromosSource().get_documented_tables()
         assert {t["name"] for t in tables} == set(ENDPOINTS)

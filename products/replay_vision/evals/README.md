@@ -53,12 +53,23 @@ Use `--trials N` for variance on Gemini nondeterminism and `--eval <case-substri
 
 `output_stability` and `labeled_outcome` deliberately pull in opposite directions, so read them as a pair: a prompt change that only adds churn shows up as `labeled_outcome` flat or up while `output_stability` drops.
 
+## Running it on a GitHub runner
+
+`.github/workflows/ci-replay-vision-evals.yml` runs the same loop on an ephemeral runner, on manual dispatch only, with `per_type` and `trials` as inputs (GitHub only offers the dispatch once the workflow is on master).
+It is deliberately not attached to `pull_request`: Gemini is nondeterministic and the dataset is re-sampled per run, so the score is a directional signal rather than a merge gate, and spending secrets and LLM calls on every push buys nothing that a dispatch after a prompt change does not.
+
+It collects a fresh dataset on the runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the aggregate scores to the job's step summary.
+The summary also links the run's `/ai-evals` offline experiment, where the harness publishes the same scores.
+Only those allowlisted summary lines are public: collector and harness output stay in runner-local files, because they carry session and observation ids.
+The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scanner, session recording, export, and query read access to the dogfood project) plus the `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `BRAINTRUST_API_KEY` secrets `ci-ai.yml` already uses; if any is missing the job skips green and warns which.
+
 ## Data handling
 
 The dataset contains real session recordings and event data.
 
 - Keep it in a local or internal location only; never commit it, upload it, or reference its contents in PRs.
 - A dataset expires 30 days after its last collection: the suite refuses to run it, because the consent verification (and the recordings themselves) can lapse after collection. Re-running collect.py re-verifies consent and refreshes the manifest.
-- The suite is `OneShotPrivateEval`: results stay in the local `eval_harness/logs/` directory and are not sent to Braintrust.
-- `summary_alignment` sends the recorded and fresh session summaries to the LLM judge (`gpt-5.4` via the internal LLM gateway); besides the Gemini scans themselves, this is the only path where dataset-derived content leaves the machine.
+- The suite is `OneShotPrivateEval`, so per-case logs stay in the local `eval_harness/logs/` directory and nothing goes to Braintrust.
+- Dataset-derived content still leaves the machine on three paths, all to PostHog-controlled destinations: the Gemini scans, the `summary_alignment` judge (`gpt-5.4` via the internal LLM gateway, which sees the recorded and fresh summaries), and the harness's `$ai_evaluation` capture.
+- That capture posts every run's scores to project 2, keyed `<scanner_type>-<observation_id>`, with the scanner prompt as `$ai_input` and the recorded and fresh outcomes as `$ai_expected`/`$ai_output`. The scores land in that project's offline experiments view, which is where to compare runs over time.
 - Collecting from projects other than PostHog's own requires a data-governance decision first; see the product's consent gating (`backend/consent.py`) and note that customer-facing copy does not cover internal reuse today.

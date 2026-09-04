@@ -69,17 +69,27 @@ Vite watches `plugins/posthog/` (and `local-skills/` in dev) for hot-reload.
 
 ### Testing with local skills
 
-1. Create a skill directory in `plugins/posthog/local-skills/`, e.g.:
+`pnpm dev` and `pnpm dev:code` sync the context layer skills from the current monorepo checkout into `plugins/posthog/local-skills/` before starting Desktop. This makes local agent sessions use the checked-out context layer skill sources instead of the production release.
+
+To refresh the overlay without restarting Desktop, run:
+
+```sh
+pnpm skills:local
+```
+
+For a Desktop-only skill that is not part of the monorepo skill build:
+
+1. Start Desktop once so the checkout skills are synced.
+2. Create a skill directory in `plugins/posthog/local-skills/`, e.g.:
    ```
    plugins/posthog/local-skills/my-skill/SKILL.md
    ```
-2. Run `pnpm dev:code` — Vite watches and hot-reloads
-3. The local skill overrides any shipped or remote skill with the same name
+3. Vite watches the directory and hot-reloads the skill.
 
 ### Pulling remote skills locally for editing
 
 ```sh
-pnpm pull-skills
+pnpm skills:pull
 ```
 
 Downloads the latest `skills.zip` into `plugins/posthog/local-skills/`. You can then edit them locally and Vite will pick up changes.

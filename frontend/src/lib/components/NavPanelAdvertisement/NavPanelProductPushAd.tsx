@@ -20,7 +20,7 @@ export function NavPanelProductPushAd({ campaign }: { campaign: ProductPushCampa
     return (
         <div className="w-full">
             <Link to={productInfo.href} className="text-primary" onClick={() => reportAdClicked()}>
-                <BindLogic logic={navPanelAdvertisementLogic} props={{ campaign: `product-push-${campaign.id}` }}>
+                <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: `product-push-${campaign.id}` }}>
                     <AdvertisementCard
                         title={productInfo.displayLabel ?? productInfo.path}
                         text={campaign.reason_text || display.tagline}

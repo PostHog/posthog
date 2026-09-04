@@ -7,7 +7,7 @@ from typing import Any
 from django.conf import settings
 
 from posthog.clickhouse.query_tagging import Product
-from posthog.dags.common.owners import JobOwners
+from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult

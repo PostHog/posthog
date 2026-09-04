@@ -1,6 +1,7 @@
-# The trace-spans suite, hosted by the local logs node and both prod logs envs
-# (dev has no traces). Env deltas are patch_table / patch_materialized_view
-# blocks in the env layers, never second definitions.
+# The trace-spans suite, hosted by every logs node. Env deltas are patch_table /
+# patch_materialized_view blocks in the env layers, never second definitions: the
+# prods shard trace_attributes and trace_spans onto the logs cluster and carry a
+# second span-count projection, dev keeps the single-shard ZK paths.
 database "posthog" {
   table "trace_attributes" {
     order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
@@ -59,6 +60,67 @@ database "posthog" {
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.trace_attributes"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "trace_attributes2" {
+    order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
+    partition_by = "toDate(original_expiry_time_bucket)"
+    ttl          = "original_expiry_time_bucket"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "resource_fingerprint" {
+      type    = "UInt64"
+      default = "0"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    index "idx_attribute_key" {
+      expr        = "attribute_key"
+      type        = "bloom_filter(0.01)"
+      granularity = 4
+    }
+    index "idx_attribute_value" {
+      expr        = "attribute_value"
+      type        = "bloom_filter(0.01)"
+      granularity = 4
+    }
+    index "idx_attribute_key_n3" {
+      expr        = "attribute_key"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 4
+    }
+    index "idx_attribute_value_n3" {
+      expr        = "attribute_value"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 4
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.trace_attributes2"
       replica_name = "{replica}-{shard}"
     }
   }
@@ -356,6 +418,13 @@ database "posthog" {
       type        = "bloom_filter(0.00001)"
       granularity = 99999
     }
+    projection "projection_index_span_id" {
+      query = <<SQL
+SELECT _part_offset
+ORDER BY span_id
+SQL
+
+    }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.trace_spans"
       replica_name = "{replica}"
@@ -503,6 +572,38 @@ database "posthog" {
     }
   }
 
+  materialized_view "trace_span_to_attributes2" {
+    to_table = "posthog.trace_attributes2"
+    query = file("sql/trace_span_to_attributes.sql")
+    column "team_id" {
+      type = "Int32"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
   materialized_view "trace_span_to_resource_attributes" {
     to_table = "posthog.trace_attributes"
     query = file("sql/trace_span_to_resource_attributes.sql")
@@ -535,8 +636,72 @@ database "posthog" {
     }
   }
 
+  materialized_view "trace_span_to_resource_attributes2" {
+    to_table = "posthog.trace_attributes2"
+    query = file("sql/trace_span_to_resource_attributes.sql")
+    column "team_id" {
+      type = "Int32"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
   materialized_view "trace_span_to_span_attributes" {
     to_table = "posthog.trace_attributes"
+    query = file("sql/trace_span_to_span_attributes.sql")
+    column "team_id" {
+      type = "Int32"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "trace_span_to_span_attributes2" {
+    to_table = "posthog.trace_attributes2"
     query = file("sql/trace_span_to_span_attributes.sql")
     column "team_id" {
       type = "Int32"
@@ -635,6 +800,9 @@ database "posthog" {
     }
     column "team_id" {
       type = "Int32"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
     }
   }
 }

@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { ApiError } from '~/lib/api-error'
+import { ApiError, NetworkError } from '~/lib/api-error'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -34,6 +34,9 @@ const mockFilesRetrieve = llmSkillsNameFilesRetrieve as jest.MockedFunction<type
 
 const MOCK_FILE = { path: 'scripts/run.sh', content: 'echo hi', content_type: 'text/x-shellscript' }
 
+const MOCK_OWNER = { id: 1, uuid: 'user-uuid-1', email: 'test@example.com' }
+const MOCK_NEW_OWNER = { id: 2, uuid: 'user-uuid-2', email: 'other@example.com' }
+
 const mockSkill = {
     id: 'skill-version-2',
     name: 'my-test-skill',
@@ -53,6 +56,7 @@ const mockSkill = {
     created_at: '2024-01-02T00:00:00Z',
     updated_at: '2024-01-02T00:00:00Z',
     created_by: { id: 1, email: 'test@example.com' },
+    owners: [MOCK_OWNER],
     files: [{ path: MOCK_FILE.path, content_type: MOCK_FILE.content_type }],
     body_total_length: 10,
     body_next_offset: null,
@@ -77,6 +81,11 @@ const mockSkill = {
     has_more: false,
 } as unknown as ResolvedLLMSkill
 
+function resolveResponse(skill: ResolvedLLMSkill): LLMSkillResolveResponseApi {
+    const { versions, has_more, ...skillFields } = skill
+    return { skill: skillFields, versions, has_more } as unknown as LLMSkillResolveResponseApi
+}
+
 describe('llmSkillLogic', () => {
     describe('publish flow', () => {
         let logic: ReturnType<typeof llmSkillLogic.build>
@@ -90,11 +99,6 @@ describe('llmSkillLogic', () => {
         afterEach(() => {
             logic?.unmount()
         })
-
-        const resolveResponse = (skill: ResolvedLLMSkill): LLMSkillResolveResponseApi => {
-            const { versions, has_more, ...skillFields } = skill
-            return { skill: skillFields, versions, has_more } as unknown as LLMSkillResolveResponseApi
-        }
 
         it('opens the review modal on requestPublish and sends the version description on publish', async () => {
             mockResolve.mockResolvedValue(resolveResponse(mockSkill))
@@ -172,6 +176,66 @@ describe('llmSkillLogic', () => {
         })
     })
 
+    describe('owner editing', () => {
+        let logic: ReturnType<typeof llmSkillLogic.build>
+
+        beforeEach(async () => {
+            jest.clearAllMocks()
+            initKeaTests()
+            mockResolve.mockResolvedValue(resolveResponse(mockSkill))
+            logic = llmSkillLogic({ skillName: 'my-test-skill' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSkillSuccess'])
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('saves owners alone and keeps the viewed version on screen', async () => {
+            mockPartialUpdate.mockResolvedValue({
+                ...mockSkill,
+                id: 'skill-version-3',
+                version: 3,
+                latest_version: 3,
+                owners: [MOCK_NEW_OWNER],
+            } as unknown as LLMSkillApi)
+
+            logic.actions.openOwnersEditor()
+            expect(logic.values.ownerDraft).toEqual([MOCK_OWNER.uuid])
+
+            logic.actions.saveOwners([MOCK_NEW_OWNER.uuid])
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Owners only: any content field in this payload would publish a version for a field
+            // that isn't version-keyed.
+            expect(mockPartialUpdate).toHaveBeenCalledWith(expect.anything(), 'my-test-skill', {
+                owners: [MOCK_NEW_OWNER.uuid],
+            })
+            expect(logic.values.skillOwners).toEqual([MOCK_NEW_OWNER])
+            // The response describes the latest version, which isn't necessarily the one on screen.
+            expect(logic.values.skill).toMatchObject({ version: 2 })
+            expect(logic.values.ownersEditing).toBe(false)
+        })
+
+        it('keeps the editor open with the draft intact when the save fails', async () => {
+            mockPartialUpdate.mockRejectedValue(
+                new ApiError('invalid', 400, undefined, {
+                    detail: "User 'user-uuid-2' is not a member of this project.",
+                })
+            )
+
+            logic.actions.openOwnersEditor()
+            logic.actions.saveOwners([MOCK_NEW_OWNER.uuid])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.savingOwners).toBe(false)
+            expect(logic.values.ownersEditing).toBe(true)
+            expect(logic.values.skillOwners).toEqual([MOCK_OWNER])
+            expect(lemonToast.error).toHaveBeenCalledWith("User 'user-uuid-2' is not a member of this project.")
+        })
+    })
+
     describe('file uploads', () => {
         let logic: ReturnType<typeof llmSkillLogic.build>
 
@@ -246,6 +310,60 @@ describe('llmSkillLogic', () => {
             expect(jest.mocked(lemonToast.error)).toHaveBeenCalledWith(
                 "Some files weren't added: a skill can have at most 200 bundled files"
             )
+        })
+    })
+
+    describe('load failures', () => {
+        let logic: ReturnType<typeof llmSkillLogic.build>
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it.each([
+            ['a 404', new ApiError('Not found', 404), { missing: true, accessDenied: false, loadError: false }],
+            [
+                'a permission-denied 403',
+                new ApiError('Forbidden', 403, undefined, { code: 'permission_denied' }),
+                { missing: false, accessDenied: true, loadError: false },
+            ],
+            [
+                'a 403 that is not about object access',
+                new ApiError('Forbidden', 403),
+                { missing: false, accessDenied: false, loadError: true },
+            ],
+            ['a 500', new ApiError('Server error', 500), { missing: false, accessDenied: false, loadError: true }],
+            [
+                'a dropped connection',
+                new NetworkError('network'),
+                { missing: false, accessDenied: false, loadError: true },
+            ],
+        ])('resolves %s to its own state', async (_label, error, expected) => {
+            mockResolve.mockRejectedValue(error)
+
+            logic = llmSkillLogic({ skillName: 'my-test-skill' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSkillFailure'])
+
+            expect(logic.values.isSkillMissing).toBe(expected.missing)
+            expect(logic.values.isSkillAccessDenied).toBe(expected.accessDenied)
+            expect(logic.values.hasSkillLoadError).toBe(expected.loadError)
+            expect(logic.values.breadcrumbs.at(-1)?.name).toBe('my-test-skill')
+
+            mockResolve.mockResolvedValue(resolveResponse(mockSkill))
+            mockFilesRetrieve.mockResolvedValue(MOCK_FILE)
+            logic.actions.loadSkill()
+            expect(logic.values.hasSkillLoadError).toBe(false)
+            await expectLogic(logic).toDispatchActions(['loadSkillSuccess'])
+
+            expect(logic.values.isSkillMissing).toBe(false)
+            expect(logic.values.isSkillAccessDenied).toBe(false)
+            expect(logic.values.hasSkillLoadError).toBe(false)
         })
     })
 })

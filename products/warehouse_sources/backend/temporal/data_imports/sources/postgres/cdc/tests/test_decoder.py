@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     _OID_TEXT,
     PG_EPOCH_OFFSET_US,
     PgOutputDecoder,
+    Relation,
+    RelationColumn,
     _pg_timestamp_to_datetime,
 )
 
@@ -557,3 +559,41 @@ class TestTransactionBufferGuard:
             decoder.decode_message(_make_insert(1, [("t", "2")]), "0/1")
             events = decoder.decode_message(_make_commit(), "0/1")
             assert len(events) == 2
+
+
+class TestReplicaIdentityKeyColumns:
+    def _decoder_with(self, replica_identity: int = 0, key_flags: tuple[int, ...] = (1, 0, 0)) -> PgOutputDecoder:
+        decoder = PgOutputDecoder()
+        decoder._relations[1] = Relation(
+            relation_id=1,
+            schema_name="cdc_test",
+            table_name="orders",
+            replica_identity=replica_identity,
+            columns=[
+                RelationColumn(flags=flags, name=name, type_oid=_OID_INT8, type_modifier=-1)
+                for flags, name in zip(key_flags, ["id", "tenant_id", "total"])
+            ],
+        )
+        return decoder
+
+    @parameterized.expand(
+        [
+            ("qualified", "cdc_test.orders", ["id"]),
+            ("bare", "orders", ["id"]),
+            ("other_schema", "public.orders", []),
+        ]
+    )
+    def test_lookup_by_name(self, _name, lookup, expected):
+        assert self._decoder_with().get_key_columns(lookup) == expected
+
+    def test_full_replica_identity_yields_no_key(self):
+        # FULL flags every column, so adopting it as the key would make the merge key the whole row
+        # and every update would insert instead of replace.
+        decoder = self._decoder_with(replica_identity=2, key_flags=(1, 1, 1))
+
+        assert decoder.get_key_columns("cdc_test.orders") == []
+
+    def test_declared_key_covering_every_column_survives(self):
+        decoder = self._decoder_with(replica_identity=0, key_flags=(1, 1, 1))
+
+        assert decoder.get_key_columns("cdc_test.orders") == ["id", "tenant_id", "total"]

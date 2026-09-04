@@ -22,6 +22,7 @@ function taskChannel(
   id: string,
   name: string,
   channelType: TaskChannel["channel_type"] = "public",
+  systemRole?: TaskChannel["system_role"],
 ): TaskChannel {
   return {
     id,
@@ -29,6 +30,7 @@ function taskChannel(
     channel_type: channelType,
     starred: false,
     created_at: "2026-01-01T00:00:00Z",
+    system_role: systemRole ?? null,
   };
 }
 
@@ -47,24 +49,27 @@ describe("useTaskChannels", () => {
     });
   });
 
-  it("surfaces the personal channel from the list", async () => {
-    const personal = taskChannel("p1", "me", "personal");
+  it("surfaces the personal and general channels from the list", async () => {
+    const personal = taskChannel("p1", "me", "personal", "personal");
+    const general = taskChannel("g1", "general", "public", "general");
     mockClient.getTaskChannels.mockResolvedValue([
       taskChannel("1", "growth"),
+      general,
       personal,
     ]);
 
     const { result } = renderHook(() => useTaskChannels(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.channels.map((c) => c.id)).toEqual(["1", "p1"]);
+    expect(result.current.channels.map((c) => c.id)).toEqual(["1", "g1", "p1"]);
     expect(result.current.personalChannel).toEqual({
       ...personal,
       name: "personal",
     });
+    expect(result.current.generalChannel).toEqual(general);
   });
 
-  it("reports loading (and no personal channel) until the list lands", () => {
+  it("reports loading (and no personal or general channel) until the list lands", () => {
     mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
 
     const { result } = renderHook(() => useTaskChannels(), { wrapper });
@@ -72,6 +77,7 @@ describe("useTaskChannels", () => {
     expect(result.current.isLoading).toBe(true);
     expect(result.current.channels).toEqual([]);
     expect(result.current.personalChannel).toBeUndefined();
+    expect(result.current.generalChannel).toBeUndefined();
   });
 
   it("updates repository links immediately while the request is pending", async () => {

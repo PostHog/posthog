@@ -23,6 +23,7 @@ export interface PosthogProviderOptions {
   region?: CloudRegion;
   apiKey?: string;
   baseUrl?: string;
+  headers?: Record<string, string>;
 }
 
 export type PosthogOAuthCredentials = Pick<
@@ -84,6 +85,7 @@ export function buildPosthogProvider(
   const baseUrl = options.baseUrl ?? getLlmGatewayUrl(region);
   const routedModels = models.map((model) => ({
     ...model,
+    headers: options.headers,
     baseUrl: gatewayBaseUrlForApi(
       model.api ?? "anthropic-messages",
       region,
@@ -95,6 +97,7 @@ export function buildPosthogProvider(
     baseUrl,
     api: "anthropic-messages",
     models: routedModels,
+    headers: options.headers,
     oauth: {
       name: "PostHog",
       login: (callbacks) => loginPosthog(callbacks, explicitRegion),

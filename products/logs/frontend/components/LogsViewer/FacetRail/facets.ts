@@ -1,14 +1,15 @@
-import {
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyFilterValue,
-    PropertyOperator,
-    UniversalFiltersGroup,
-} from '~/types'
+import { UniversalFiltersGroup } from '~/types'
 
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 
 import { FacetOption } from './Facet'
+import {
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetFilterTarget,
+    innerFilters,
+    isPropertyLeaf,
+} from './facetFilters'
 
 /**
  * Whether a facet's value set is known ahead of time or discovered from the data.
@@ -20,32 +21,36 @@ import { FacetOption } from './Facet'
  */
 export type FacetKind = 'fixed' | 'dynamic'
 
-/** The `logsViewerFiltersLogic` field a column facet's selection is written to. */
-export type FacetFilterKey = 'severityLevels' | 'serviceNames'
-
 /** The ClickHouse column a column facet's values + counts are computed over (matches backend FACET_FIELDS). */
 export type FacetField = 'severity_text' | 'service_name'
 
 /**
- * Where a facet's field lives, which determines both how it's queried and how its selection is stored.
+ * Where a facet's field lives, which determines how its values are queried. Selection itself always
+ * lives in the filterGroup, whatever the source, so the rail and the chips bar read and write one
+ * store and can never disagree about what is filtered.
  *
- * - `column`: a top-level logs column. Selection lives in a dedicated filter field (severityLevels/serviceNames).
- * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name). No dedicated field —
- *   selection is stored as up to two `log_resource_attribute` property filters inside the filterGroup:
- *   `exact` for included values and `is_not` for excluded ones.
+ * - `column`: a top-level logs column, filtered through a `log` property filter under `logKey`.
+ * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name), filtered through
+ *   a `log_resource_attribute` property filter under `key`.
+ * - `attribute`: a plain (non-resource) log attribute key, filtered through a `log_attribute`
+ *   property filter under `key`. Only used by user-added custom facets today — no curated `FACETS`
+ *   entry uses it.
  */
 export type FacetSource =
     | {
           type: 'column'
           column: FacetField
-          filterKey: FacetFilterKey
           /**
-           * The `log` property-filter key the facet's exclusions are stored under (e.g. severity_level).
-           * Includes stay in the dedicated field; without this, the facet is two-state (no exclusions).
+           * The `log` property-filter key this facet's selection is stored under (severity_level for
+           * the severity_text column). Must match the key LogsFilterBuilder.where() strips when
+           * faceting on this column (products/logs/backend/logs_query_runner.py, pinned from the
+           * other side by products/logs/backend/test/test_log_facet_values.py), or a selected value
+           * would zero out its own count.
            */
-          exclusionKey?: string
+          logKey: string
       }
     | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
+    | { type: 'attribute'; key: string }
 
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
@@ -64,154 +69,8 @@ export interface FacetConfig {
     emptyLabel?: string
     /** Max pixel height before the value list virtualizes and scrolls. */
     maxHeight?: number
-}
-
-interface RailPropertyFilter {
-    key: string
-    type: PropertyFilterType.Log | PropertyFilterType.LogResourceAttribute
-    operator: PropertyOperator
-    value?: PropertyFilterValue
-}
-
-// The inner group holds property filters, but can also hold a nested group — one value ORed across
-// several attribute keys (e.g. the person-scope distinct-id group).
-type RailFilterEntry = RailPropertyFilter | UniversalFiltersGroup
-
-// The logs filterGroup is always { AND, values: [{ AND, values: [<property filters>] }] } — the
-// editable property filters live in the single inner group.
-function innerFilters(group: UniversalFiltersGroup | undefined): RailFilterEntry[] {
-    return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as RailFilterEntry[]
-}
-
-function isPropertyLeaf(entry: RailFilterEntry): entry is RailPropertyFilter {
-    return !('values' in entry)
-}
-
-/**
- * Tri-state selection for a facet: a value is included, excluded, or in neither set. The query
- * effect is `IN (included)` AND `NOT IN (excluded)` — attribute exclusions keep rows missing the
- * attribute entirely.
- */
-export interface FacetSelection {
-    included: string[]
-    excluded: string[]
-}
-
-// The rail owns a key's `exact` (include) and `is_not` (exclude) filters. A chip on the same key
-// with any other operator (e.g. icontains) is not rail state: it's ignored on read and preserved
-// untouched on write.
-const RAIL_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
-
-function isRailFacetFilter(entry: RailFilterEntry, key: string): entry is RailPropertyFilter {
-    return (
-        isPropertyLeaf(entry) &&
-        entry?.type === PropertyFilterType.LogResourceAttribute &&
-        entry?.key === key &&
-        RAIL_OPERATORS.includes(entry?.operator)
-    )
-}
-
-function filterValues(filter: RailPropertyFilter): string[] {
-    const value = filter.value
-    if (Array.isArray(value)) {
-        return value as string[]
-    }
-    return value != null && value !== '' ? [String(value)] : []
-}
-
-/** A resource-attribute facet's selection, read from its exact (include) and is_not (exclude) filters. */
-export function resourceAttributeSelection(group: UniversalFiltersGroup | undefined, key: string): FacetSelection {
-    const railFilters = innerFilters(group).filter((f) => isRailFacetFilter(f, key))
-    return {
-        included: railFilters.filter((f) => f.operator === PropertyOperator.Exact).flatMap(filterValues),
-        excluded: railFilters.filter((f) => f.operator === PropertyOperator.IsNot).flatMap(filterValues),
-    }
-}
-
-/**
- * Advance `value` one step through the facet cycle — unchecked → included → excluded → unchecked —
- * returning a new filterGroup. Selection is stored as up to two log_resource_attribute filters per
- * key with array values, `exact` and `is_not` (logs have no `in` operator); a filter is dropped
- * when its side of the selection empties.
- */
-export function cycleResourceAttributeFilter(
-    group: UniversalFiltersGroup | undefined,
-    key: string,
-    value: string
-): UniversalFiltersGroup {
-    const { included, excluded } = resourceAttributeSelection(group, key)
-    let nextIncluded = included
-    let nextExcluded = excluded
-    if (included.includes(value)) {
-        nextIncluded = included.filter((v) => v !== value)
-        nextExcluded = excluded.includes(value) ? excluded : [...excluded, value]
-    } else if (excluded.includes(value)) {
-        nextExcluded = excluded.filter((v) => v !== value)
-    } else {
-        nextIncluded = [...included, value]
-    }
-
-    // Annotated: negating the type guard would otherwise narrow the survivors to nested groups.
-    const values: RailFilterEntry[] = innerFilters(group).filter((f) => !isRailFacetFilter(f, key))
-    if (nextIncluded.length > 0) {
-        values.push({
-            key,
-            type: PropertyFilterType.LogResourceAttribute,
-            operator: PropertyOperator.Exact,
-            value: nextIncluded,
-        })
-    }
-    if (nextExcluded.length > 0) {
-        values.push({
-            key,
-            type: PropertyFilterType.LogResourceAttribute,
-            operator: PropertyOperator.IsNot,
-            value: nextExcluded,
-        })
-    }
-    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
-}
-
-// A column facet's exclusions are the `is_not` `log` property filter under the facet's
-// exclusionKey. The rail owns only that filter — includes live in the facet's dedicated query
-// field, so an `exact` chip on the same key is chips-bar state: ignored on read, preserved on write.
-function isLogExclusionFilter(entry: RailFilterEntry, key: string): entry is RailPropertyFilter {
-    return (
-        isPropertyLeaf(entry) &&
-        entry?.type === PropertyFilterType.Log &&
-        entry?.key === key &&
-        entry?.operator === PropertyOperator.IsNot
-    )
-}
-
-/** A column facet's excluded values, read from the `is_not` log filter under `key`. */
-export function logFilterExclusions(group: UniversalFiltersGroup | undefined, key: string): string[] {
-    return innerFilters(group)
-        .filter((f) => isLogExclusionFilter(f, key))
-        .flatMap(filterValues)
-}
-
-/** Replace the `is_not` log filter under `key` with `excluded`, dropping the filter when empty. */
-export function setLogFilterExclusions(
-    group: UniversalFiltersGroup | undefined,
-    key: string,
-    excluded: string[]
-): UniversalFiltersGroup {
-    // Annotated: negating the type guard would otherwise narrow the survivors to nested groups.
-    const values: RailFilterEntry[] = innerFilters(group).filter((f) => !isLogExclusionFilter(f, key))
-    if (excluded.length > 0) {
-        values.push({ key, type: PropertyFilterType.Log, operator: PropertyOperator.IsNot, value: excluded })
-    }
-    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
-}
-
-// The `log` property-filter key the backend drops alongside a column facet's dedicated field, keyed
-// by column rather than by FacetConfig.exclusionKey: the backend strips by column whatever the rail
-// happens to write. Mirrors LogsFilterBuilder.where() in products/logs/backend/logs_query_runner.py,
-// pinned from the other side by products/logs/backend/test/test_log_facet_values.py.
-const COLUMN_SELF_LOG_KEY: Record<FacetField, string> = {
-    severity_text: 'severity_level',
-    service_name: 'service_name',
+    /** The (key, sourceType) a user-added custom facet was built from; curated facets never set it. */
+    custom?: { key: string; sourceType: CustomFacetSourceType }
 }
 
 /** The data key a facet is queried on: its column, or the resource-attribute key resolution picked. */
@@ -224,8 +83,6 @@ export interface FacetScope {
     currentTeamId: number | null
     utcDateRange: { date_from?: string | null; date_to?: string | null; explicitDate?: boolean | null }
     searchTerm?: string | null
-    severityLevels?: string[] | null
-    serviceNames?: string[] | null
     /** filterGroup with pinned filters folded in — what the query actually carries. */
     queryFilterGroup: UniversalFiltersGroup | undefined
     personId?: string
@@ -243,24 +100,16 @@ export interface FacetScope {
  */
 export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
     const { source } = facet
-    const selfLogKey = source.type === 'column' ? COLUMN_SELF_LOG_KEY[source.column] : undefined
-    const selfResourceKey = source.type === 'resourceAttribute' ? source.key : undefined
+    // The facet's own filter target — the backend strips filters under it wholesale (any operator,
+    // both polarities), so they must not enter the signature.
+    const self = facetFilterTarget(source)
     const groupSignature = innerFilters(scope.queryFilterGroup)
         .map((entry): unknown[] | null => {
             if (!isPropertyLeaf(entry)) {
                 // Nested groups aren't leaves the backend can strip — carry them whole.
                 return ['group', JSON.stringify(entry)]
             }
-            // Any operator: the backend skips a log filter under the facet's own column wholesale.
-            if (selfLogKey !== undefined && entry.type === PropertyFilterType.Log && entry.key === selfLogKey) {
-                return null
-            }
-            // Both polarities, any operator.
-            if (
-                selfResourceKey !== undefined &&
-                entry.type === PropertyFilterType.LogResourceAttribute &&
-                entry.key === selfResourceKey
-            ) {
+            if (entry.type === self.type && entry.key === self.key) {
                 return null
             }
             return [entry.type, entry.key, entry.operator, JSON.stringify(entry.value ?? null)]
@@ -271,13 +120,11 @@ export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): stri
         // A facet mounted before the team resolved fetches nothing; keeping the id in the signature
         // makes it fetch once the team arrives.
         scope.currentTeamId ?? null,
-        source.type === 'column' ? ['column', source.column] : ['resource', source.key],
+        [source.type, facetSourceKey(facet)],
         scope.utcDateRange.date_from ?? null,
         scope.utcDateRange.date_to ?? null,
         scope.utcDateRange.explicitDate ?? null,
         scope.searchTerm || null,
-        source.type === 'column' && source.column === 'severity_text' ? null : (scope.severityLevels ?? []),
-        source.type === 'column' && source.column === 'service_name' ? null : (scope.serviceNames ?? []),
         scope.personId ?? null,
         groupSignature,
     ])
@@ -300,7 +147,7 @@ const LEVEL_FACET: FacetConfig = {
     title: 'Level',
     group: 'Standard',
     kind: 'fixed',
-    source: { type: 'column', column: 'severity_text', filterKey: 'severityLevels', exclusionKey: 'severity_level' },
+    source: { type: 'column', column: 'severity_text', logKey: SEVERITY_LEVEL_FILTER.key },
     fixedOptions: SEVERITY_OPTIONS,
 }
 
@@ -309,7 +156,7 @@ const SERVICE_FACET: FacetConfig = {
     title: 'Service',
     group: 'Standard',
     kind: 'dynamic',
-    source: { type: 'column', column: 'service_name', filterKey: 'serviceNames', exclusionKey: 'service_name' },
+    source: { type: 'column', column: 'service_name', logKey: SERVICE_NAME_FILTER.key },
     searchable: true,
     searchPlaceholder: 'Search services…',
     emptyLabel: 'No services',
@@ -383,7 +230,7 @@ export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string
     const present = new Set(presentResourceKeys)
     const resolved: FacetConfig[] = []
     for (const facet of facets) {
-        if (facet.source.type === 'column') {
+        if (facet.source.type !== 'resourceAttribute') {
             resolved.push(facet)
             continue
         }
@@ -443,4 +290,27 @@ export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] 
         }
     }
     return groups
+}
+
+/** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
+export type CustomFacetSourceType = 'attribute' | 'resourceAttribute'
+
+/** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
+export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
+    return {
+        key: `custom:${sourceType}:${key}`,
+        title: key,
+        group: 'Custom',
+        kind: 'dynamic',
+        source: sourceType === 'attribute' ? { type: 'attribute', key } : { type: 'resourceAttribute', key },
+        searchable: true,
+        emptyLabel: `No ${key} values`,
+        maxHeight: 300,
+        custom: { key, sourceType },
+    }
+}
+
+/** The (key, sourceType) a custom facet was built from — `null` for a curated facet. */
+export function customFacetIdentity(facet: FacetConfig): { key: string; sourceType: CustomFacetSourceType } | null {
+    return facet.custom ?? null
 }

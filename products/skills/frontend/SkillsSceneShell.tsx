@@ -11,7 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DEFAULT_SKILLS_TAB_KEY, skillTabUrl, skillTabsLogic, visibleCategoryTabs } from './skillTabsLogic'
 
-/** Tab key for the Community scene, which lives at its own URL rather than under /skills. */
+/** Tab key for the Community scene, and its `/skills/<key>` URL segment. */
 export const COMMUNITY_SKILLS_TAB_KEY = 'community'
 
 export const COMMUNITY_SKILLS_TAB_DESCRIPTION = 'Discover and install agent skills shared by the PostHog community.'
@@ -21,11 +21,11 @@ export const COMMUNITY_SKILLS_TAB_DESCRIPTION = 'Discover and install agent skil
  * category tabs (Scouts, Code review), then "Community" — so the category tabs and Community sit
  * in the same row instead of stacking two bars.
  *
- * Community is a separate scene at its own URL, so each scene renders this with only its own tab's
- * content; the other tabs navigate via their `link` and are never mounted here. That keeps the two
- * scenes' logics (and URL contracts) independent while presenting them as one tabbed surface. The
- * Community tab is gated behind the community-skills flag (but stays visible when it's already the
- * active tab, so a direct URL still renders cleanly).
+ * Community is a separate scene (at /skills/community), so each scene renders this with only its own
+ * tab's content; the other tabs navigate via their `link` and are never mounted here. That keeps the
+ * two scenes' logics independent while presenting them as one tabbed surface. The Community tab is
+ * gated behind the community-skills flag (but stays visible when it's already the active tab, so a
+ * direct URL still renders cleanly).
  */
 export function SkillsSceneShell({
     activeTabKey,

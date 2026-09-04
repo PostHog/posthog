@@ -4,7 +4,7 @@ import threading
 from collections.abc import Mapping
 from contextlib import contextmanager
 from numbers import Number
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -49,6 +49,35 @@ def feature_enabled_or_false(
         )
         is True
     )
+
+
+def get_feature_flag_or_none(
+    key: str,
+    distinct_id: str,
+    groups: dict[str, str] | None = None,
+    group_properties: dict[str, dict[str, Any]] | None = None,
+    only_evaluate_locally: bool = False,
+    send_feature_flag_events: bool = True,
+) -> str | bool | None:
+    """Variant-returning sibling of feature_enabled_or_false that never raises, so callers on
+    paths that must not fail (cache writes, background tasks) can treat any failure as flag-off."""
+    try:
+        # The library annotates the return as Optional[FeatureFlag], but at runtime a plain
+        # variant string or bool comes back, so cast like ee/hogai/utils/feature_flags.py does.
+        return cast(
+            "str | bool | None",
+            posthoganalytics.get_feature_flag(
+                key,
+                distinct_id,
+                groups=groups,
+                group_properties=group_properties,
+                only_evaluate_locally=only_evaluate_locally,
+                send_feature_flag_events=send_feature_flag_events,
+            ),
+        )
+    except Exception:
+        logger.warning("get_feature_flag_failed", flag_key=key, exc_info=True)
+        return None
 
 
 def get_regional_ph_client(**kwargs: Any):
@@ -98,10 +127,11 @@ class ScopedCapture:
 
 
 @contextmanager
-def ph_scoped_capture():
+def ph_scoped_capture(region: str = "US"):
     """Use this instead of posthoganalytics.capture() in Celery tasks — the global
     client's background flush may never run before the worker exits, silently losing events.
     This creates a dedicated client and flushes on context-manager exit.
+    Pass the deployment region when events must stay in their regional project.
 
     In a long-lived worker (e.g. Temporal activities), prefer `ph_background_capture` —
     the client setup and synchronous flush here add seconds of blocking per call.
@@ -111,7 +141,7 @@ def ph_scoped_capture():
         with ph_scoped_capture() as capture:
             capture(distinct_id="...", event="my_event", properties={...})
     """
-    ph_client = get_client()
+    ph_client = get_client(region)
 
     # Flush even when the caller's block raises — events already captured
     # before the exception shouldn't be dropped with the buffer.

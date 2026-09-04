@@ -89,8 +89,10 @@ membership without adding permissions to Task.
 ### `/api/projects/{id}/task_channels/`
 
 - `GET /` — list channels: all live public channels plus the requester's
-  personal channel. Listing lazily `get_or_create`s the personal `#me` channel,
-  so every user always has one.
+  personal `#me` channel when it exists. Listing does not provision; call
+  `provision_defaults` to create the default channels. Paging is opt-in:
+  `?limit=&offset=` returns one page in a `count`/`next`/`previous` envelope,
+  and a request without `limit` returns every channel as a plain array.
 - `POST / {name}` — resolve-or-create a public channel by name
   (`get_or_create`, so concurrent creates and name-bridging are race-safe).
 - `PATCH /{id}/ {name}` - any project member can rename or configure a public channel. Private `#me` spaces cannot be renamed.
@@ -104,6 +106,20 @@ membership without adding permissions to Task.
 - A task controller can move a task by updating `channel` to a public or owned private space. Existing callers can still clear `channel` for legacy compatibility.
 - `TaskSerializer` / `TaskDetailDTO` emit `channel`.
 - `GET /tasks/?channel=<uuid>` filters the list to a channel's feed.
+- `POST /tasks/{task_id}/handoff/ {user}`: hand a task off to a colleague. The
+  requester must own the task; the target must have access to the project and not
+  be the current owner. Ownership (`created_by`)
+  moves to the recipient, so they drive the task afterwards and future runs
+  resolve GitHub authorship and notification recipients from them. A task in a
+  private `#me` space (or with no channel) moves into the recipient's `#me`, so a
+  handoff never strands a task the recipient can't open; a task in a shared space
+  stays there. All task runs must be terminal and every sandbox session must be
+  closed before a handoff. The handoff rotates the task's server-owned ownership
+  version, revokes task-bound sandbox OAuth tokens, and makes runs from the old
+  ownership version read-only. The recipient must start a fresh run. The handoff
+  also clears the stored GitHub user-integration preference and any borrowed MCP
+  credential owner, posts a system `task_handed_off` announcement into the task's
+  thread, and notifies the recipient.
 
 ### Canvas endpoints
 

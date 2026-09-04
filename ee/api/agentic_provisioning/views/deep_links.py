@@ -18,9 +18,10 @@ import structlog
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth_provisioning import PartnerTier
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -32,6 +33,7 @@ from ee.api.agentic_provisioning.constants import (
     DEEP_LINK_TTL_SECONDS,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
+from ee.api.agentic_provisioning.ratelimits import BLOCKED, rate_limited
 from ee.api.agentic_provisioning.regions import current_region_host
 from ee.api.agentic_provisioning.serializers import DeepLinkSerializer
 from ee.api.agentic_provisioning.views.base import BearerResourceAPIView
@@ -54,6 +56,14 @@ def is_safe_deep_link_path(path: object) -> bool:
 
 
 class DeepLinksView(BearerResourceAPIView):
+    # A deep link mints a full web session, so on top of the admin-granted
+    # capability the public tiers get no budget at all: a client identified only
+    # by a client_id anyone can send has no business minting sessions. An
+    # explicit per-partner override outranks BLOCKED if one is ever needed.
+    @rate_limited(
+        "deep_links",
+        multipliers={PartnerTier.PUBLIC: BLOCKED, PartnerTier.PUBLIC_ATTESTED: BLOCKED},
+    )
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
@@ -181,10 +191,10 @@ def agentic_login(request: Any) -> HttpResponseBase:
     # or the org-level email-verification-disabled flag.
     if user.is_email_verified is not True:
         try:
-            EmailVerifier.create_token_and_send_email_verification(user)
+            email_verification_code_verifier.send_code(user)
         except Exception:
             # Intentionally swallowed: the login must stay blocked regardless of email delivery.
-            # EmailVerifier captures the exception internally; the verify_email page has a resend button.
+            # The verifier captures the exception internally; the verify_email page has a resend button.
             logger.warning("agentic_login.verification_email_failed", user_id=user.id)
         capture_deep_link_event("email_unverified", user_id=user_id)
         logger.warning("agentic_login.email_unverified", user_id=user_id)

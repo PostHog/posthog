@@ -24,7 +24,8 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR/../../.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
-CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs)
+CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs
+    clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium)
 INFRA_SERVICES=(zookeeper kafka db redis7)
 ALL_SERVICES=("${INFRA_SERVICES[@]}" "${CH_SERVICES[@]}")
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
@@ -155,6 +156,10 @@ export CLICKHOUSE_MIGRATIONS_HOST="${CLICKHOUSE_MIGRATIONS_HOST:-localhost}"
 export CLICKHOUSE_CLUSTER="${CLICKHOUSE_CLUSTER:-posthog}"
 export CLICKHOUSE_MIGRATIONS_CLUSTER="${CLICKHOUSE_MIGRATIONS_CLUSTER:-posthog_migrations}"
 export CLICKHOUSE_SATELLITE_CLUSTERS="${CLICKHOUSE_SATELLITE_CLUSTERS:-ai_events,aux,ops,sessions}"
+# The ingestion-events node reaches the logs cluster as `logs` (see
+# docker/clickhouse/config.d/multinode/ingestion_events_node.xml). Its `posthog_single_shard`,
+# which CLICKHOUSE_LOGS_CLUSTER defaults to, points at the data node instead.
+export CLICKHOUSE_LOGS_WRITE_CLUSTER="${CLICKHOUSE_LOGS_WRITE_CLUSTER:-logs}"
 export CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-posthog}"
 export CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 export CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"

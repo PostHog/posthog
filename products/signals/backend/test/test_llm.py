@@ -3,19 +3,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+from anthropic.types import Message, TextBlock, Usage
+
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
 MODULE_PATH = "products.signals.backend.temporal.llm"
 
 
-def _text_response(text: str) -> MagicMock:
-    block = MagicMock()
-    block.type = "text"
-    block.text = text
-    response = MagicMock()
-    response.content = [block]
-    return response
+def _text_response(text: str) -> Message:
+    return Message(
+        id="msg_test",
+        content=[TextBlock(text=text, type="text")],
+        model="claude-sonnet-4-5",
+        role="assistant",
+        type="message",
+        usage=Usage(input_tokens=1, output_tokens=1),
+    )
 
 
 def _mock_anthropic_client() -> MagicMock:
@@ -78,6 +82,26 @@ async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
     assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
 
 
+@pytest.mark.asyncio
+@override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
+async def test_non_message_response_raises_descriptive_error():
+    client = _mock_anthropic_client()
+    client.messages.create.return_value = "not json"
+
+    with (
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
+        pytest.raises(TypeError, match="Expected Anthropic Message response, got str"),
+    ):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            stage="match",
+            ai_product="signals_grouping",
+        )
+
+
 # `ai_product` is the opt-in switch, not just a label: dropping it from a call site silently
 # reverts that site to the Python gateway and unattributes its spend, with no failing call to
 # notice. Each site that opts in pins its own tag and stage.
@@ -92,3 +116,39 @@ async def test_eval_fixture_generation_opts_in_as_signals_eval():
     kwargs = generation_call.call_args.kwargs
     assert kwargs["ai_product"] == "signals_eval"
     assert kwargs["stage"] == "eval_signal_generation"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model,thinking,expect_prefill,expect_temperature,expect_thinking,expect_effort",
+    [
+        ("claude-sonnet-4-5", False, True, True, None, None),
+        ("claude-sonnet-4-5", True, False, True, "enabled", None),
+        ("claude-sonnet-5", False, False, False, None, "medium"),
+        ("claude-sonnet-5", True, False, False, "adaptive", "medium"),
+        ("claude-sonnet-4-6", False, False, True, None, "medium"),
+    ],
+)
+async def test_request_shape_follows_model_capabilities(
+    model, thinking, expect_prefill, expect_temperature, expect_thinking, expect_effort
+):
+    client = _mock_anthropic_client()
+    with (
+        patch(f"{MODULE_PATH}.MATCHING_MODEL", model),
+        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client),
+    ):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            thinking=thinking,
+            stage="match",
+        )
+
+    kwargs = client.messages.create.call_args.kwargs
+    prefilled = kwargs["messages"][-1]["role"] == "assistant"
+    assert prefilled is expect_prefill
+    assert ("temperature" in kwargs) is expect_temperature
+    assert (kwargs.get("thinking") or {}).get("type") == expect_thinking
+    assert kwargs.get("output_config") == ({"effort": expect_effort} if expect_effort else None)

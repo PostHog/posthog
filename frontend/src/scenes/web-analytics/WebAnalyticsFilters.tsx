@@ -441,7 +441,7 @@ export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggest
     )
 }
 
-const WebAnalyticsDeviceToggle = (): JSX.Element => {
+export const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)

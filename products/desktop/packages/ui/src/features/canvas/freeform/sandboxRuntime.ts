@@ -7,6 +7,10 @@ import {
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 import {
+  CANVAS_SDK_MODULE_SOURCE,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
+import {
   commentActionAnchorRect,
   installSelectionSettleGate,
 } from "@posthog/ui/features/sessions/components/selectionCommentAction";
@@ -511,6 +515,19 @@ export function buildSandboxDocument(
     const applyTheme = (theme) =>
       document.documentElement.classList.toggle("dark", theme === "dark");
 
+    window.addEventListener("keydown", (e) => {
+      if (!e.isTrusted || (!e.metaKey && !e.ctrlKey)) return;
+      post({
+        type: "keydown",
+        key: e.key,
+        code: e.code,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+      });
+    });
+
     // --- error reporting (feeds the host's self-repair loop) ---
     const reportError = (message, stack) =>
       post({ type: "error", message: String(message ?? "Unknown error"), stack });
@@ -657,7 +674,19 @@ export function buildSandboxDocument(
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
-<script type="importmap">${importMap}</script>
+<script>
+  // The map is assembled here rather than baked into the HTML because
+  // "@posthog/canvas-sdk" is platform-provided rather than CDN-pinned, and the
+  // blob holding it only exists inside this document. Keep this ahead of the
+  // bootstrap module: a map added after module loading starts is ignored.
+  var canvasImportMap = ${importMap};
+  canvasImportMap.imports[${JSON.stringify(CANVAS_SDK_SPECIFIER)}] =
+    URL.createObjectURL(new Blob([${JSON.stringify(CANVAS_SDK_MODULE_SOURCE)}], { type: "text/javascript" }));
+  var canvasImportMapTag = document.createElement("script");
+  canvasImportMapTag.type = "importmap";
+  canvasImportMapTag.textContent = JSON.stringify(canvasImportMap);
+  document.head.appendChild(canvasImportMapTag);
+</script>
 ${tailwind}
 ${reset}
 ${FREEFORM_QUILL_CSS_URLS.map(

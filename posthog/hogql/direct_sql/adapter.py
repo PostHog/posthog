@@ -1,13 +1,42 @@
 import dataclasses
-from typing import TYPE_CHECKING, Any, Protocol
+from dataclasses import field
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
+from posthog.dataclasses import frozen
+
+_ConfigT_co = TypeVar("_ConfigT_co", covariant=True)
+
+
+class _ParseableSource(Protocol[_ConfigT_co]):
+    def parse_config(self, job_inputs: dict) -> _ConfigT_co: ...
+
+
+def parse_direct_source_config(source_impl: _ParseableSource[_ConfigT_co], source: "ExternalDataSource") -> _ConfigT_co:
+    """Build a source's connection config from its stored ``job_inputs``.
+
+    A direct-capable source can reach a live query with empty or incomplete ``job_inputs``
+    (credentials never finished setup, were cleared, or can't be decrypted). Config building then
+    raises a raw ``TypeError``/``ValueError`` that would otherwise leak to error tracking; convert
+    it to a clean user-facing error instead.
+    """
+    try:
+        return source_impl.parse_config(source.job_inputs or {})
+    except (TypeError, ValueError) as error:
+        raise ExposedHogQLError("This source is missing its connection configuration.") from error
+
+
+@frozen
+class DirectQueryPrincipal:
+    value: str
 
 
 @dataclasses.dataclass(frozen=False)
@@ -20,6 +49,7 @@ class DirectQueryRequest:
     timings: HogQLTimings
     query_type: str
     debug: bool
+    principal: DirectQueryPrincipal | None = field(default=None)
     cancellation_token: str | None = None
 
 

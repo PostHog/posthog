@@ -15,6 +15,8 @@ export const MARKER = '<!-- posthog-ci-report -->'
 // reviewed decision rather than an accident of which job happened to write first.
 export const SECTIONS = [
     { id: 'trunk-lane', title: 'Trunk lane' },
+    { id: 'complexity-python', title: 'Complexity (Python)' },
+    { id: 'complexity-ts', title: 'Complexity (TypeScript)' },
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
     { id: 'toolbar-size', title: 'Toolbar bundle' },
@@ -40,7 +42,7 @@ export const SECTIONS = [
     { id: 'survey-sdk', title: 'Survey SDK reminder' },
 ]
 
-export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', fail: '❌', info: 'ℹ️' }
+export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', alert: '🚨', fail: '❌', info: 'ℹ️' }
 
 function emojiFor(status) {
     return STATUS_EMOJI[status] ?? STATUS_EMOJI.info

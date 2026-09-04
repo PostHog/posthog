@@ -31,7 +31,7 @@ export function CreateProjectModal({
 }): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { createProject } = useActions(projectLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
 
@@ -49,7 +49,7 @@ export function CreateProjectModal({
     }
     const handleSubmit = (): void => {
         // Also guards Enter-key submission, which bypasses the button's disabledReason
-        if (!name || isNameTaken || currentProjectLoading) {
+        if (!name || isNameTaken || currentProjectLoading || projectCreationForbiddenReason) {
             return
         }
         createProject({ name })
@@ -112,11 +112,13 @@ export function CreateProjectModal({
                         onClick={handleSubmit}
                         loading={currentProjectLoading}
                         disabledReason={
-                            !name
-                                ? 'Think of a name!'
-                                : isNameTaken
-                                  ? 'There is already a project with this name in this organization. Choose a different name.'
-                                  : null
+                            projectCreationForbiddenReason
+                                ? projectCreationForbiddenReason
+                                : !name
+                                  ? 'Think of a name!'
+                                  : isNameTaken
+                                    ? 'There is already a project with this name in this organization. Choose a different name.'
+                                    : null
                         }
                     >
                         Create project

@@ -17,17 +17,23 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Determine need to run UI Apps checks
         outputs:
             ui-apps: ${{ steps.filter.outputs.ui-apps || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
@@ -46,6 +52,12 @@ jobs:
                         - 'products/*/mcp/**'
                         - 'services/mcp/definitions/*.yaml'
                         - 'common/mosaic/**'
+                        # Compiled into the UI apps: the quill packages they render with, the
+                        # product-analytics chart transforms they import, and the generated
+                        # API types their views are typed against.
+                        - 'packages/quill/**'
+                        - 'products/product_analytics/frontend/insights/**'
+                        - 'products/*/frontend/generated/**'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
 
     build-and-report:
@@ -72,7 +84,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 

@@ -1,6 +1,6 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import { InboxMetaText } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
-import { Flex, Tooltip } from "@radix-ui/themes";
 
 interface InboxMetaSourceStackProps {
   /**
@@ -40,8 +40,8 @@ export function InboxMetaSourceStack({
   const overflowLabel = overflow.map((entry) => entry.meta.label).join(", ");
 
   return (
-    <Flex align="center" gap="2" className="min-w-0">
-      <Flex align="center" gap="1.5" className="shrink-0">
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5">
         {items.map((entry) => {
           const Icon = entry.meta.Icon;
           return (
@@ -55,19 +55,22 @@ export function InboxMetaSourceStack({
             </span>
           );
         })}
-      </Flex>
+      </div>
       <InboxMetaText>
         {labelPrefix}
         {primary.meta.label}
         {overflow.length > 0 ? (
           <>
             {" + "}
-            <Tooltip content={overflowLabel}>
-              <span className="cursor-help">{overflow.length}</span>
+            <Tooltip>
+              <TooltipTrigger render={<span className="cursor-help" />}>
+                {overflow.length}
+              </TooltipTrigger>
+              <TooltipContent>{overflowLabel}</TooltipContent>
             </Tooltip>
           </>
         ) : null}
       </InboxMetaText>
-    </Flex>
+    </div>
   );
 }

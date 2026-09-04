@@ -41,7 +41,7 @@ export type { EditorHandle };
 // the surface silently refuses doesn't strand the spinner.
 const SUBMIT_PRESS_FEEDBACK_MS = 800;
 
-export interface PromptInputProps {
+interface PromptInputProps {
   sessionId: string;
   placeholder?: string;
   // editor state
@@ -51,6 +51,8 @@ export interface PromptInputProps {
   isActiveSession?: boolean;
   submitDisabledExternal?: boolean;
   clearOnSubmit?: boolean;
+  /** What the composer starts from when this session has no draft yet. */
+  initialContent?: string;
   // session context
   taskId?: string;
   repoPath?: string | null;
@@ -142,6 +144,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       isActiveSession = true,
       submitDisabledExternal = false,
       clearOnSubmit,
+      initialContent,
       taskId,
       repoPath,
       modeOption,
@@ -233,6 +236,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       isLoading,
       autoFocus,
       clearOnSubmit,
+      initialContent,
       context: { taskId, repoPath: repoPath ?? undefined },
       capabilities: {
         bashMode: enableBashMode,

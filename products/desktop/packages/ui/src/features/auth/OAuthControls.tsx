@@ -1,17 +1,17 @@
 import type { CloudRegion } from "@posthog/shared";
-import { Callout, Flex, Spinner } from "@radix-ui/themes";
-import posthogIcon from "./assets/posthog-icon.svg";
+import { Callout, Spinner } from "@radix-ui/themes";
 import { RegionSelect } from "./RegionSelect";
 import { useOAuthFlow } from "./useOAuthFlow";
 
 interface OAuthControlsProps {
   onAuthInitiated?: (region: CloudRegion) => void;
+  /** Defaults to the dev build, which is the only place a local instance is worth offering. */
   includeDevRegion?: boolean;
 }
 
 export function OAuthControls({
   onAuthInitiated,
-  includeDevRegion = false,
+  includeDevRegion = import.meta.env.DEV,
 }: OAuthControlsProps = {}) {
   const {
     region,
@@ -32,14 +32,7 @@ export function OAuthControls({
   };
 
   return (
-    <Flex direction="column" gap="3" className="w-full">
-      <RegionSelect
-        region={region}
-        onRegionChange={handleRegionChange}
-        disabled={isPending}
-        includeDevRegion={includeDevRegion}
-      />
-
+    <div className="flex w-full flex-col gap-3">
       {errorMessage && (
         <Callout.Root color="red" size="1">
           <Callout.Text>{errorMessage}</Callout.Text>
@@ -67,13 +60,16 @@ export function OAuthControls({
           transition: "opacity 150ms ease, box-shadow 100ms ease",
         }}
       >
-        {isPending ? (
-          <Spinner size="1" />
-        ) : (
-          <img src={posthogIcon} alt="" className="h-[20px] w-[20px]" />
-        )}
-        {isPending ? "Cancel" : "Sign in / sign up with PostHog"}
+        {isPending && <Spinner size="1" />}
+        {isPending ? "Cancel" : "Sign in with PostHog"}
       </button>
-    </Flex>
+
+      <RegionSelect
+        region={region}
+        onRegionChange={handleRegionChange}
+        disabled={isPending}
+        includeDevRegion={includeDevRegion}
+      />
+    </div>
   );
 }

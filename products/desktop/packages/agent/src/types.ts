@@ -1,9 +1,4 @@
-import type {
-  Adapter,
-  GitHandoffCheckpoint,
-  HandoffLocalGitState as GitHandoffLocalGitState,
-  PostHogAPIConfig,
-} from "@posthog/shared";
+import type { Adapter, ModelAccess, PostHogAPIConfig } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 
 export type {
@@ -14,6 +9,8 @@ export type {
   TaskRun,
   TaskRunArtifact,
   TaskRunEnvironment,
+  TaskRunState,
+  TaskRunStateField,
   TaskRunStatus,
 } from "@posthog/shared";
 
@@ -39,6 +36,20 @@ export interface StoredNotification {
  */
 export type StoredEntry = StoredNotification;
 
+/**
+ * Per-session context wiki mount, threaded explicitly (instead of via global
+ * `process.env` writes) so concurrent sessions never exchange wiki paths or
+ * publish tokens.
+ */
+export interface ContextWikiEnv {
+  /** Local checkout of the org's wiki (POSTHOG_CONTEXT_LAYER_PATH). */
+  path: string;
+  /** API path agents land wiki commits through (POSTHOG_CONTEXT_LAYER_COMMITS_PATH). */
+  commitsPath: string;
+  /** Publish token (POSTHOG_PERSONAL_API_KEY); absent for impersonated sessions. */
+  personalApiKey?: string;
+}
+
 export interface ProcessSpawnedCallback {
   onProcessSpawned?: (info: {
     pid: number;
@@ -54,6 +65,8 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;
   reasoningEffort?: EffortLevel;
@@ -67,6 +80,8 @@ export interface TaskExecutionOptions {
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
   /** Additional directories the agent process can access beyond cwd. */
   additionalDirectories?: string[];
+  /** Per-session context wiki mount forwarded to the harness subprocess env. */
+  contextWiki?: ContextWikiEnv;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -126,17 +141,6 @@ export type FileStatus = "A" | "M" | "D";
 export interface FileChange {
   path: string;
   status: FileStatus;
-}
-
-export type HandoffLocalGitState = GitHandoffLocalGitState;
-
-export interface GitCheckpoint extends GitHandoffCheckpoint {
-  artifactPath?: string;
-  indexArtifactPath?: string;
-}
-
-export interface GitCheckpointEvent extends GitCheckpoint {
-  device?: DeviceInfo;
 }
 
 /**

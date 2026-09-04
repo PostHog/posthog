@@ -81,6 +81,37 @@ _VALUES_REPORT_STATISTIC_COLUMNS = {
     "unsubscribes": "Total number of unsubscribes.",
 }
 
+# Series reports bucket the same statistics by week; each row carries the bucket it covers.
+_SERIES_REPORT_DATE_TIME_COLUMN = {
+    "date_time": "Start of the weekly bucket the statistics in this row were computed over.",
+}
+
+# Form reports take their own statistic set. Rate statistics come back as fractions between 0 and 1.
+_FORM_REPORT_STATISTIC_COLUMNS = {
+    "timeframe_key": "The Klaviyo timeframe the statistics were computed over.",
+    "closed_form": "Number of times the form was closed.",
+    "closed_form_uniques": "Number of people who closed the form.",
+    "qualified_form": "Number of times the form qualified to show.",
+    "qualified_form_uniques": "Number of people the form qualified to show to.",
+    "submit_rate": "Share of form views that resulted in a submission.",
+    "submits": "Total number of form submissions.",
+    "submitted_form_step": "Number of form steps submitted.",
+    "submitted_form_step_uniques": "Number of people who submitted a form step.",
+    "viewed_form": "Total number of form views.",
+    "viewed_form_step": "Number of form steps viewed.",
+    "viewed_form_step_uniques": "Number of people who viewed a form step.",
+    "viewed_form_uniques": "Number of people who viewed the form.",
+}
+
+# Segment reports report on membership churn over the window.
+_SEGMENT_REPORT_STATISTIC_COLUMNS = {
+    "timeframe_key": "The Klaviyo timeframe the statistics were computed over.",
+    "members_added": "Number of profiles added to the segment.",
+    "members_removed": "Number of profiles removed from the segment.",
+    "net_members_changed": "Net change in the segment's membership (added minus removed).",
+    "total_members": "Total number of profiles in the segment.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "email_campaigns": {
         "description": "An email marketing campaign in Klaviyo sent to a target audience.",
@@ -284,6 +315,71 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_VALUES_REPORT_STATISTIC_COLUMNS,
         },
     },
+    "flow_series_reports": {
+        "description": (
+            "Klaviyo's own flow-message performance statistics bucketed by week over the last 365 "
+            "days, one row per flow message per week. Each sync updates the weeks Klaviyo still "
+            "reports and keeps the weeks it no longer returns, so the table builds a history past "
+            "Klaviyo's one-year limit."
+        ),
+        "docs_url": "https://developers.klaviyo.com/en/reference/query_flow_series",
+        "columns": {
+            "flow_id": "Identifier of the flow the statistics belong to.",
+            "flow_message_id": "Identifier of the flow message the statistics belong to.",
+            **_SERIES_REPORT_DATE_TIME_COLUMN,
+            **_VALUES_REPORT_STATISTIC_COLUMNS,
+        },
+    },
+    "form_values_reports": {
+        "description": (
+            "Klaviyo's own signup-form performance statistics per form over the last 365 days. "
+            "Replaced in full on every sync, so it is a snapshot rather than a history."
+        ),
+        "docs_url": "https://developers.klaviyo.com/en/reference/query_form_values",
+        "columns": {
+            "form_id": "Identifier of the form the statistics belong to.",
+            **_FORM_REPORT_STATISTIC_COLUMNS,
+        },
+    },
+    "form_series_reports": {
+        "description": (
+            "Klaviyo's own signup-form performance statistics bucketed by week over the last 365 "
+            "days, one row per form per week. Each sync updates the weeks Klaviyo still reports and "
+            "keeps the weeks it no longer returns, so the table builds a history past Klaviyo's "
+            "one-year limit."
+        ),
+        "docs_url": "https://developers.klaviyo.com/en/reference/query_form_series",
+        "columns": {
+            "form_id": "Identifier of the form the statistics belong to.",
+            **_SERIES_REPORT_DATE_TIME_COLUMN,
+            **_FORM_REPORT_STATISTIC_COLUMNS,
+        },
+    },
+    "segment_values_reports": {
+        "description": (
+            "Klaviyo's own segment membership statistics per segment over the last 365 days. "
+            "Replaced in full on every sync, so it is a snapshot rather than a history."
+        ),
+        "docs_url": "https://developers.klaviyo.com/en/reference/query_segment_values",
+        "columns": {
+            "segment_id": "Identifier of the segment the statistics belong to.",
+            **_SEGMENT_REPORT_STATISTIC_COLUMNS,
+        },
+    },
+    "segment_series_reports": {
+        "description": (
+            "Klaviyo's own segment membership statistics bucketed by week over the last 365 days, "
+            "one row per segment per week. Each sync updates the weeks Klaviyo still reports and "
+            "keeps the weeks it no longer returns, so the table builds a history past Klaviyo's "
+            "one-year limit."
+        ),
+        "docs_url": "https://developers.klaviyo.com/en/reference/query_segment_series",
+        "columns": {
+            "segment_id": "Identifier of the segment the statistics belong to.",
+            **_SERIES_REPORT_DATE_TIME_COLUMN,
+            **_SEGMENT_REPORT_STATISTIC_COLUMNS,
+        },
+    },
     "templates": {
         "description": "A reusable email template in Klaviyo that campaigns and flow messages render from.",
         "docs_url": "https://developers.klaviyo.com/en/reference/get_templates",
@@ -433,6 +529,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "namespace": "The namespace the object type belongs to.",
             "created_at": "Time at which the object type was created.",
             "updated_at": "Time at which the object type was last updated.",
+        },
+    },
+    "custom_object_records": {
+        "description": "A single record of a custom object type, holding structured data synced into Klaviyo and linked to profiles.",
+        "docs_url": "https://developers.klaviyo.com/en/reference/get_records_for_object_type",
+        "columns": {
+            "id": "Unique identifier for the record, in the form object_type_id:::record_id.",
+            "object_type_id": "ID of the object type this record belongs to.",
+            "record_properties": "The record's properties, as defined by the object type's schema.",
         },
     },
     "push_tokens": {

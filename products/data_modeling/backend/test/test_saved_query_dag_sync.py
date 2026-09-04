@@ -4,6 +4,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
@@ -108,8 +109,11 @@ class TestSyncSavedQueryToDag(BaseTest):
             query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
         )
 
-        node = sync_saved_query_to_dag(saved_query)
+        database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
+        with mock.patch("posthog.hogql.database.database.Database.create_for") as mock_database_create:
+            node = sync_saved_query_to_dag(saved_query, database=database)
 
+        mock_database_create.assert_not_called()
         events_node = Node.objects.filter(
             team=self.team,
             dag__name=DEFAULT_DAG_NAME,
@@ -273,8 +277,24 @@ class TestSyncSavedQueryToDag(BaseTest):
         with self.assertRaises(ResolutionCycleError):
             sync_saved_query_to_dag(query_a)
 
-        # node for query_a should be cleaned up
-        self.assertFalse(Node.objects.filter(saved_query=query_a).exists())
+        # query_a's node pre-existed this call and view_b still depends on it, so the failed
+        # sync must not delete it — doing so would also cascade-delete view_b's edge to it
+        node_a = Node.objects.filter(saved_query=query_a).first()
+        self.assertIsNotNone(node_a)
+        self.assertTrue(Edge.objects.filter(source=node_a).exists())
+
+    def test_sync_failure_deletes_node_it_just_created(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "select * from nonexistent_table", "kind": "HogQLQuery"},
+        )
+
+        with pytest.raises(QueryError):
+            sync_saved_query_to_dag(saved_query)
+
+        # a node created for this call, with no dependents, is still cleaned up on failure
+        self.assertFalse(Node.objects.filter(saved_query=saved_query).exists())
 
     def test_sync_raises_for_empty_or_null_query(self):
         empty_query, _ = DataWarehouseSavedQuery.objects.get_or_create(

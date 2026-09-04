@@ -16,11 +16,16 @@ export function resolveGatewayProduct({
   isInternal?: boolean;
   originProduct?: string | null;
 } = {}): GatewayProduct {
+  // Every signals origin belongs here: their tokens are minted under the Signals OAuth
+  // application, and no other product authorizes it — an unmapped origin falls through to
+  // posthog_code and the gateway rejects the token.
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
     loop: "posthog_code",
     onboarding: "onboarding",
     posthog_ai: "posthog_ai",
+    scout_suggestions: "signals",
     signal_report: "signals",
+    signals_chat: "signals",
     signals_scout: "signals",
     slack: "slack_app",
     support_reply: "conversations",
@@ -88,14 +93,29 @@ function parseAiGatewayProducts(raw: string | undefined): Set<string> {
 /**
  * Sandbox-run signals stages, which are billed per stage rather than under one
  * `signals` product. The stage names come from `TaskRun.state.ai_stage`, set in
- * `Task._build_task` in posthog/posthog.
+ * `Task._build_task` (pipeline stages) and `Task.create_run` (interactive
+ * `inbox` / `chat`) in posthog/posthog.
  */
 const SIGNALS_STAGE_PRODUCTS = new Set([
   "scout",
   "research",
   "implementation",
   "repo_selection",
+  "custom_agent",
+  "inbox",
+  "chat",
+  "scout_suggestions",
 ]);
+
+/**
+ * Scout runs qualify their stage with the skill (`scout:web-analytics`) for
+ * per-scout cost attribution. The product stays `signals_scout`.
+ */
+const SCOUT_STAGE_PREFIX = "scout:";
+
+function signalsStage(aiStage: string): string {
+  return aiStage.startsWith(SCOUT_STAGE_PREFIX) ? "scout" : aiStage;
+}
 
 /**
  * The `ai_product` value sent to the Go gateway, which has no product route and
@@ -113,8 +133,11 @@ export function resolveAiProduct({
   product: GatewayProduct;
   aiStage?: string | null;
 }): string {
-  if (product === "signals" && aiStage && SIGNALS_STAGE_PRODUCTS.has(aiStage)) {
-    return `signals_${aiStage}`;
+  if (product === "signals" && aiStage) {
+    const stage = signalsStage(aiStage);
+    if (SIGNALS_STAGE_PRODUCTS.has(stage)) {
+      return `signals_${stage}`;
+    }
   }
   return product;
 }
@@ -133,6 +156,8 @@ export interface GatewayTarget {
   isAiGateway: boolean;
   /** Product tag; only the Go gateway needs it sent explicitly. */
   aiProduct: string;
+  /** Stage the product was resolved from: the worker's, else the caller's, else none. */
+  aiStage: string | null;
 }
 
 /**
@@ -146,6 +171,13 @@ export interface GatewayTarget {
  * Both must be set: an unlisted product, or a listed one with no URL, stays on
  * the Python gateway. Migration is therefore opt-in per product, and clearing
  * either value rolls everything back.
+ *
+ * Scout entries may qualify by skill (`signals_scout:web-analytics`), matching
+ * only runs of that skill, so the scout fleet can migrate in batches. A plain
+ * `signals_scout` entry matches every skill.
+ *
+ * `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE` name the product the worker pinned the token
+ * to. They win over the local derivation, whose task-run fetch can fail and leave no stage.
  */
 export function resolveGatewayTarget({
   product,
@@ -158,11 +190,20 @@ export function resolveGatewayTarget({
   posthogHost: string;
   env?: Record<string, string | undefined>;
 }): GatewayTarget {
-  const aiProduct = resolveAiProduct({ product, aiStage });
+  const workerStage = (env.AI_GATEWAY_AI_STAGE ?? "").trim() || null;
+  const workerProduct = (env.AI_GATEWAY_PRODUCT ?? "").trim() || null;
+  const effectiveStage = workerStage ?? aiStage ?? null;
+  const aiProduct =
+    workerProduct ?? resolveAiProduct({ product, aiStage: effectiveStage });
   const aiGatewayUrl = (env.AI_GATEWAY_URL ?? "").trim();
+  const routedProducts = parseAiGatewayProducts(env.AI_GATEWAY_PRODUCTS);
+  const skillQualified = effectiveStage?.startsWith(SCOUT_STAGE_PREFIX)
+    ? `${aiProduct}:${effectiveStage.slice(SCOUT_STAGE_PREFIX.length)}`
+    : null;
   const routed =
     aiGatewayUrl !== "" &&
-    parseAiGatewayProducts(env.AI_GATEWAY_PRODUCTS).has(aiProduct);
+    (routedProducts.has(aiProduct) ||
+      (skillQualified !== null && routedProducts.has(skillQualified)));
 
   if (routed) {
     return {
@@ -171,11 +212,13 @@ export function resolveGatewayTarget({
       }),
       isAiGateway: true,
       aiProduct,
+      aiStage: effectiveStage,
     };
   }
   return {
     baseUrl: resolveLlmGatewayUrl(env.LLM_GATEWAY_URL, posthogHost, product),
     isAiGateway: false,
     aiProduct,
+    aiStage: effectiveStage,
   };
 }

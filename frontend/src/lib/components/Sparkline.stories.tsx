@@ -2,92 +2,58 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { dayjs } from 'lib/dayjs'
 
-import { AnyScaleOptions, QuillSparkline, Sparkline, SparklineProps } from './Sparkline'
+import { Sparkline, SparklineProps } from './Sparkline'
 
 type Story = StoryObj<SparklineProps>
 const meta: Meta<SparklineProps> = {
     title: 'Components/Sparkline',
     component: Sparkline,
-    render: (args) => {
-        return <Sparkline {...args} className="w-full" />
-    },
+    render: (args) => <Sparkline {...args} className="w-64 h-16" />,
 }
 export default meta
+
+const LABELS = ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun']
 
 export const BarChart: Story = {
     args: {
         data: [10, 5, 3, 30, 22, 10, 2],
-        labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
+        labels: LABELS,
     },
+    // `Sparkline` now dispatches to the quill chart, whose canvas has no intrinsic size, so the
+    // wrapper needs an explicit height — a bare `w-full` collapses to zero height under the runner.
+    render: (args) => <Sparkline {...args} className="w-64 h-16" />,
 }
 
-const dataRange = Array.from({ length: 50 }, (_, i) => i)
-export const TimeseriesChart: Story = {
-    args: {
-        data: [
-            {
-                name: 'occurrence',
-                values: dataRange.map(() => Math.floor(Math.random() * 100)),
-                color: 'primitive-neutral-800',
-                hoverColor: 'primary-3000',
-            },
-        ],
-        labels: dataRange.map((i) => dayjs().subtract(i, 'day').format()),
-        renderLabel: (label) => dayjs(label).format('MMM D'),
-        withXScale: (scale: AnyScaleOptions) => {
-            return {
-                ...scale,
-                type: 'timeseries',
-                ticks: {
-                    ...scale.ticks,
-                    display: true,
-                    maxRotation: 0,
-                    maxTicksLimit: 5,
-                },
-                time: {
-                    unit: 'day',
-                    round: 'day',
-                    displayFormats: {
-                        day: 'MMM D',
-                    },
-                },
-            } as AnyScaleOptions
-        },
-    },
-}
-
-// Quill-rendered variants (see docs/internal/quill-migration-sparkline.md), for side-by-side
-// comparison with the legacy stories above. These render `QuillSparkline` directly rather than
-// flipping the `quill-sparkline` flag: the flag dispatch is unusable under Storybook, whose
-// implicit-action args inject an `onSelectionChange` spy that the dispatch reads as a
-// legacy-only feature. The quill chart paints onto an absolutely-positioned canvas that adds no
-// intrinsic size, so the wrapper needs an explicit width and height — a `w-full` here would
-// collapse to a zero-width, unsnapshottable root under the test runner.
-export const BarChartQuill: Story = {
-    args: {
-        data: [10, 5, 3, 30, 22, 10, 2],
-        labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
-    },
-    render: (args) => <QuillSparkline {...args} className="w-64 h-16" />,
-}
-
-export const StackedBarChartQuill: Story = {
+export const StackedBarChart: Story = {
     args: {
         data: [
             { name: 'success', values: [10, 5, 3, 30, 22, 10, 2], color: 'success' },
             { name: 'failure', values: [1, 0, 2, 4, 0, 1, 0], color: 'danger' },
         ],
-        labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
+        labels: LABELS,
     },
-    render: (args) => <QuillSparkline {...args} className="w-64 h-16" />,
 }
 
-export const LineChartQuill: Story = {
+export const LineChart: Story = {
     args: {
         data: [10, 5, 3, 30, 22, 10, 2],
-        labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
+        labels: LABELS,
         type: 'line',
         color: 'success',
     },
-    render: (args) => <QuillSparkline {...args} className="w-64 h-16" />,
+}
+
+const dataRange = Array.from({ length: 50 }, (_, i) => i)
+export const Timeseries: Story = {
+    args: {
+        data: [
+            {
+                name: 'occurrence',
+                values: dataRange.map((i) => (i * 37) % 100),
+                color: 'primitive-neutral-800',
+            },
+        ],
+        labels: dataRange.map((i) => dayjs().subtract(i, 'day').format()),
+        renderLabel: (label) => dayjs(label).format('MMM D'),
+    },
 }

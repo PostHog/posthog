@@ -23,6 +23,31 @@ def _review_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
+_COMMIT_SHA = "0f1e2d3c4b5a69788796a5b4c3d2e1f009182736"
+
+
+def _status_body(**overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "id": 4100,
+        "sha": _COMMIT_SHA,
+        "name": "acme/widgets",
+        "node_id": "SE_fakecommitstatusnode",
+        "state": "success",
+        "description": "Build passed",
+        "target_url": "https://ci.example.com/builds/4100",
+        "context": "ci/build",
+        "avatar_url": "https://avatars.example.com/u/12",
+        "created_at": "2026-02-01T09:00:00Z",
+        "updated_at": "2026-02-01T09:00:30Z",
+        "commit": {"sha": _COMMIT_SHA, "url": "https://api.example.com/repos/acme/widgets/commits/0f1e2d3c"},
+        "branches": [{"name": "main"}],
+        "repository": {"full_name": "acme/widgets"},
+        "sender": {"login": "ci-bot"},
+    }
+    body.update(overrides)
+    return body
+
+
 class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
     template = template
 
@@ -145,6 +170,65 @@ class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
         assert res.result["httpResponse"]["status"] == 200
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
+    def test_status_row_is_rebuilt_from_top_level_body_fields(self):
+        # The status event has no nesting key: its fields sit at the top level of the body next to
+        # commit/repository/sender/branches envelope objects and a `name` holding the repository.
+        # Without the rebuild the row is either empty (there is no body.status) or carries envelope
+        # columns the poll never writes, and commit_sha stays null even though it is the first half
+        # of the table's composite primary key, so every later merge multi-matches.
+        self._run("status", _status_body(), {"status": "schema_commit_statuses"})
+
+        row, schema_id = self.mock_produce_to_warehouse_webhooks.call_args.args
+        assert schema_id == "schema_commit_statuses"
+        assert row == {
+            "id": 4100,
+            "node_id": "SE_fakecommitstatusnode",
+            "state": "success",
+            "description": "Build passed",
+            "target_url": "https://ci.example.com/builds/4100",
+            "context": "ci/build",
+            "avatar_url": "https://avatars.example.com/u/12",
+            "creator": {"login": "ci-bot"},
+            "created_at": "2026-02-01T09:00:00Z",
+            "updated_at": "2026-02-01T09:00:30Z",
+            "commit_sha": _COMMIT_SHA,
+        }
+
+    @parameterized.expand(
+        [
+            ("missing_id", {"sha": _COMMIT_SHA, "state": "success"}),
+            ("missing_sha", {"id": 4100, "state": "success"}),
+        ]
+    )
+    def test_status_payload_without_id_or_sha_is_skipped_with_200(self, _name: str, body: dict[str, Any]):
+        # The rebuilt row is a non-empty dict whatever the payload holds, so the shared empty-row
+        # guard below it never fires; without this check a status missing either half of the
+        # composite key would land a row the merge can't match.
+        res = self._run("status", body, {"status": "schema_commit_statuses"})
+
+        assert res.result["httpResponse"]["status"] == 200
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("issue_comment", {"id": 7010, "body": "Looks good", "issue_url": "https://api.example.com/issues/3"}),
+            (
+                "pull_request_review_comment",
+                {"id": 7011, "body": "Rename this", "path": "src/app.py", "pull_request_review_id": 55},
+            ),
+            ("commit_comment", {"id": 7012, "body": "Nice fix", "commit_id": _COMMIT_SHA}),
+        ]
+    )
+    def test_comment_events_land_the_nested_comment_object(self, event_type: str, comment: dict[str, Any]):
+        # All three comment events nest the row under `comment` rather than the event-type key, so
+        # without the unwrap branch the default lookup finds nothing and every comment delivery
+        # 200-skips: the table silently keeps only whatever the bootstrap poll left behind.
+        body = {"action": "created", "comment": comment, "repository": {"full_name": "acme/widgets"}}
+
+        self._run(event_type, body, {event_type: "schema_comments"})
+
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(comment, "schema_comments")
 
     def test_unmapped_event_type_no_ops(self):
         # Sources whose schema_mapping predates the pull_request_review entry must 200-skip the

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { register } from 'prom-client'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -7,7 +8,7 @@ import { Hub } from '~/types'
 
 import { RateLimiterService } from './rate-limiter.service'
 
-const KEY = '@posthog-test/ses-rate-limiter/bucket'
+const KEY = `@posthog-test/ses-rate-limiter/${randomUUID()}/bucket`
 
 describe('RateLimiterService', () => {
     jest.retryTimes(3)
@@ -31,7 +32,7 @@ describe('RateLimiterService', () => {
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
         limiter = new RateLimiterService(redis, { name: 'ses-rate-limiter' })
-        await deleteKeysWithPrefix(redis, '@posthog-test/ses-rate-limiter')
+        await deleteKeysWithPrefix(redis, KEY)
     })
 
     afterEach(async () => {
@@ -133,7 +134,7 @@ describe('RateLimiterService', () => {
         }
 
         it('increments granted_full when the grant equals the request', async () => {
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'granted_full' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'granted_full' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -147,7 +148,7 @@ describe('RateLimiterService', () => {
             // Drain to 2 tokens, then ask for 5.
             await limiter.claimUpTo({ key: KEY, requested: 8, capacity: 10, refillPerSecond: 0 })
 
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'granted_partial' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'granted_partial' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -161,7 +162,7 @@ describe('RateLimiterService', () => {
             // Drain the bucket fully.
             await limiter.claimUpTo({ key: KEY, requested: 10, capacity: 10, refillPerSecond: 0 })
 
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'denied' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'denied' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -179,7 +180,7 @@ describe('RateLimiterService', () => {
             } as unknown as RedisV2
             const brokenLimiter = new RateLimiterService(brokenValkey, { name: 'broken-limiter' })
 
-            const labels = { limiter: 'broken-limiter', key: KEY, result: 'valkey_error' }
+            const labels = { limiter: 'broken-limiter', result: 'valkey_error' }
             const before = await readCounter(labels)
 
             const granted = await brokenLimiter.claimUpTo({
@@ -193,6 +194,57 @@ describe('RateLimiterService', () => {
 
             const after = await readCounter(labels)
             expect(after - before).toBe(1)
+        })
+    })
+
+    describe('claimAllOrNothingPair', () => {
+        const KEY_A = `${KEY}/pair-a`
+        const KEY_B = `${KEY}/pair-b`
+
+        it('grants from both buckets when both can cover the request', async () => {
+            const claim = await limiter.claimAllOrNothingPair(
+                [
+                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
+                    { key: KEY_B, capacity: 100, refillPerSecond: 0 },
+                ],
+                30
+            )
+            expect(claim).toEqual({ granted: true, deniedIndex: null })
+            // Both pools were charged: the remainder is all that is left to claim.
+            expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
+            expect(await limiter.claimUpTo({ key: KEY_B, requested: 100, capacity: 100, refillPerSecond: 0 })).toBe(70)
+        })
+
+        it('consumes nothing on denial, so retries cannot starve the buckets', async () => {
+            // The second bucket cannot cover the request, so the claim must leave BOTH pools
+            // untouched. Without that, a rescheduled multi-recipient send would burn the first
+            // bucket's refill on every retry while never sending.
+            const claim = await limiter.claimAllOrNothingPair(
+                [
+                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
+                    { key: KEY_B, capacity: 10, refillPerSecond: 0 },
+                ],
+                30
+            )
+            expect(claim).toEqual({ granted: false, deniedIndex: 1 })
+            expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(50)
+            expect(await limiter.claimUpTo({ key: KEY_B, requested: 10, capacity: 10, refillPerSecond: 0 })).toBe(10)
+        })
+
+        it('fails closed when the Lua call throws', async () => {
+            const brokenValkey = {
+                useClient: jest.fn().mockRejectedValue(new Error('connection lost')),
+                usePipeline: jest.fn(),
+            } as unknown as RedisV2
+            const brokenLimiter = new RateLimiterService(brokenValkey, { name: 'broken-limiter' })
+            const claim = await brokenLimiter.claimAllOrNothingPair(
+                [
+                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
+                    { key: KEY_B, capacity: 10, refillPerSecond: 0 },
+                ],
+                5
+            )
+            expect(claim).toEqual({ granted: false, deniedIndex: null })
         })
     })
 })

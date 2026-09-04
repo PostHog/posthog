@@ -11,6 +11,8 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from posthog.security.url_validation import is_microsoft_teams_webhook_url
+
 from products.alerts.backend.facade.api import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -27,6 +29,8 @@ from products.billing_alerts.backend.facade.api import (
 _DESTINATIONS_CACHE_KEY = "_billing_alert_destinations_by_alert_id"
 _NOT_PROVIDED = object()
 
+MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 100
+
 
 def _any_field_changed(
     instance: BillingAlertConfiguration,
@@ -34,21 +38,6 @@ def _any_field_changed(
     fields: set[str],
 ) -> bool:
     return any(field in validated_data and validated_data[field] != getattr(instance, field) for field in fields)
-
-
-def _is_microsoft_teams_webhook(webhook_url: str) -> bool:
-    parsed = urlparse(webhook_url)
-    hostname = parsed.hostname or ""
-    path = parsed.path
-    if hostname.endswith(".logic.azure.com"):
-        return parsed.port in (None, 443) and path.startswith("/workflows/") and "/triggers/manual/paths/invoke" in path
-    if hostname.endswith(".webhook.office.com"):
-        return path.startswith("/webhookb2/") and "/IncomingWebhook/" in path
-    if hostname.endswith((".powerautomate.com", ".flow.microsoft.com")):
-        return bool(path.strip("/"))
-    if hostname.endswith(".environment.api.powerplatform.com"):
-        return path.startswith("/powerautomate/automations/direct/") and "/workflows/" in path
-    return False
 
 
 class BillingAlertEventSerializer(serializers.ModelSerializer):
@@ -151,7 +140,7 @@ class BillingAlertDestinationCreateDataSerializer(serializers.Serializer):
             parsed_url = urlparse(webhook_url)
             if parsed_url.scheme != "https" or not parsed_url.netloc:
                 raise ValidationError({"webhook_url": "Webhook URLs must be valid HTTPS URLs."})
-            if data["type"] == DestinationType.TEAMS and not _is_microsoft_teams_webhook(webhook_url):
+            if data["type"] == DestinationType.TEAMS and not is_microsoft_teams_webhook_url(webhook_url):
                 raise ValidationError({"webhook_url": "Enter a supported Microsoft Teams webhook URL."})
         return attrs
 
@@ -160,8 +149,8 @@ class BillingAlertDestinationChangesSerializer(serializers.Serializer):
     delete = serializers.ListField(
         child=serializers.ListField(
             child=serializers.UUIDField(),
-            min_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
-            max_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
+            min_length=1,
+            max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
         ),
         required=False,
         default=list,
@@ -438,8 +427,8 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
 class BillingAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
-        min_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
-        max_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
+        min_length=1,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
 

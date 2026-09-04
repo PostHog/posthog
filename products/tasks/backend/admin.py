@@ -1,26 +1,26 @@
+import logging
+from contextlib import nullcontext
 from typing import cast
 
+from django import forms
 from django.contrib import admin, messages
+from django.db.models import QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.storage import object_storage
 
 from . import loop_service
-from .models import (
-    CodeInvite,
-    CodeInviteQuerySet,
-    CodeInviteRedemption,
-    Loop,
-    LoopTrigger,
-    SandboxSnapshot,
-    Task,
-    TaskRun,
-)
+from .logic.services.ai_run_defaults import validate_ai_run_preferences_payload
+from .loop_lifecycle import DISABLED_REASON_ADMIN_PAUSED, pause_loop
+from .models import Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
 from .visibility import task_run_visibility_q, task_visibility_q
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(Task)
@@ -132,66 +132,6 @@ class SandboxSnapshotAdmin(admin.ModelAdmin):
     )
 
 
-class CodeInviteRedemptionInline(admin.TabularInline):
-    model = CodeInviteRedemption
-    extra = 0
-    can_delete = False
-    readonly_fields = ("id", "user", "organization", "redeemed_at")
-
-
-@admin.register(CodeInvite)
-class CodeInviteAdmin(admin.ModelAdmin):
-    list_display = (
-        "code",
-        "description",
-        "is_active",
-        "redemption_count",
-        "max_redemptions",
-        "expires_at",
-        "created_at",
-    )
-    list_filter = ("is_active", "created_at")
-    search_fields = ("code", "description")
-    readonly_fields = ("id", "redemption_count", "created_at")
-    autocomplete_fields = ("created_by",)
-    inlines = []
-    actions = ["expire_invites"]
-
-    @admin.action(description="Expire selected invites")
-    def expire_invites(self, request: HttpRequest, queryset: CodeInviteQuerySet) -> None:
-        selected = queryset.count()
-        expired = queryset.expire()
-        message = f"Expired {expired} of {selected} selected invite(s)."
-        if expired < selected:
-            message += " Invites that were already expired were left unchanged."
-        self.message_user(request, message)
-
-    def get_fieldsets(self, request, obj=None):
-        if obj:
-            return (
-                (None, {"fields": ("id", "code", "description")}),
-                ("Limits", {"fields": ("is_active", "max_redemptions", "redemption_count", "expires_at")}),
-                ("Metadata", {"fields": ("created_by", "created_at")}),
-            )
-        # On add, code may be set manually or left blank to auto-generate on save
-        return (
-            (None, {"fields": ("id", "code", "description")}),
-            ("Limits", {"fields": ("is_active", "max_redemptions", "expires_at")}),
-            ("Metadata", {"fields": ("created_by",)}),
-        )
-
-    def get_inlines(self, request, obj=None):
-        return [CodeInviteRedemptionInline]
-
-
-@admin.register(CodeInviteRedemption)
-class CodeInviteRedemptionAdmin(admin.ModelAdmin):
-    list_display = ("invite_code", "user", "organization", "redeemed_at")
-    list_filter = ("redeemed_at",)
-    search_fields = ("user__email", "invite_code__code")
-    readonly_fields = ("id", "invite_code", "user", "organization", "redeemed_at")
-
-
 @admin.register(Loop)
 class LoopAdmin(admin.ModelAdmin):
     list_display = (
@@ -219,10 +159,41 @@ class LoopAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("team", "created_by", "creator")
     raw_id_fields = ("sandbox_environment",)
+    actions = ["pause_loops"]
 
     def get_queryset(self, request: HttpRequest):
         # Admin has no team context; Loop's default manager is fail-closed.
         return Loop.objects.unscoped().select_related("team", "created_by")
+
+    @admin.action(description="Pause selected loops")
+    def pause_loops(self, request: HttpRequest, queryset: QuerySet[Loop]) -> None:
+        selected = queryset.count()
+        paused = 0
+        failed: list[Loop] = []
+        for loop in queryset.filter(enabled=True, deleted=False):
+            try:
+                pause_loop(loop, DISABLED_REASON_ADMIN_PAUSED, cancel_runs=False)
+                paused += 1
+            except Exception:
+                # Temporal never lands here: `pause_loop_schedules` swallows and logs its own
+                # failures, and a schedule left running can't start anything because `fire_loop`
+                # refuses a disabled loop. What reaches this is a failed row save (loop still
+                # enabled) or a failed notification dispatch (loop paused, owner not told).
+                logger.exception("loop_admin.pause_failed", extra={"loop_id": str(loop.id)})
+                failed.append(loop)
+
+        message = f"Paused {paused} of {selected} selected loop(s)."
+        if paused + len(failed) < selected:
+            message += " Loops that were already paused or deleted were left unchanged."
+        self.message_user(request, message)
+        if failed:
+            failed_ids = ", ".join(str(loop.id) for loop in failed)
+            self.message_user(
+                request,
+                f"Could not pause {len(failed)} loop(s): {failed_ids}. Check the logs and confirm their "
+                "state in the list.",
+                level=messages.ERROR,
+            )
 
     def delete_model(self, request: HttpRequest, obj: Loop) -> None:
         # Tear down Temporal Schedules before the row is gone; CASCADE never talks to Temporal, so
@@ -263,3 +234,62 @@ class LoopTriggerAdmin(admin.ModelAdmin):
         for trigger in queryset:
             loop_service.delete_loop_trigger_schedule(trigger)
         super().delete_queryset(request, queryset)
+
+
+class _TasksConfigAdminForm(forms.ModelForm):
+    """Shared form for the two tasks-config admins. Runs the same checks as the API
+    write path (`update_team_ai_run_preferences` / `update_user_ai_run_preferences`),
+    so an admin edit cannot store a payload the resolver would reject or skip."""
+
+    def clean_team(self):
+        team = self.cleaned_data["team"]
+        # Preference rows are keyed on the canonical (project root) team; a row keyed on an
+        # environment team is never read by the resolver.
+        if team.parent_team_id is not None:
+            raise forms.ValidationError(
+                "Preferences are keyed on the project root team. "
+                f"Pick the parent team (id {team.parent_team_id}) instead of this environment team."
+            )
+        return team
+
+    def clean_ai_run_preferences(self):
+        prefs = self.cleaned_data.get("ai_run_preferences")
+        if not prefs:
+            return prefs
+        if not isinstance(prefs, dict):
+            raise forms.ValidationError("Must be a JSON object.")
+        validate_ai_run_preferences_payload(prefs)
+        return prefs
+
+    def _post_clean(self) -> None:
+        # Unique-constraint validation queries through the model's default manager, which for
+        # UserTasksConfig is fail-closed and raises without a team context. Admin requests have
+        # none, so scope model validation to the team picked in the form.
+        team = self.cleaned_data.get("team")
+        with team_scope(team.id) if team is not None else nullcontext():
+            super()._post_clean()  # type: ignore[misc]  # django-stubs does not declare _post_clean
+
+
+@admin.register(TeamTasksConfig)
+class TeamTasksConfigAdmin(admin.ModelAdmin):
+    form = _TasksConfigAdminForm
+    list_display = ("team", "ai_run_preferences", "created_at", "updated_at")
+    search_fields = ("team__name", "team__organization__name")
+    readonly_fields = ("created_at", "updated_at")
+    autocomplete_fields = ("team",)
+    list_select_related = ("team",)
+    show_full_result_count = False
+
+
+@admin.register(UserTasksConfig)
+class UserTasksConfigAdmin(admin.ModelAdmin):
+    form = _TasksConfigAdminForm
+    list_display = ("id", "team", "user", "ai_run_preferences", "created_at", "updated_at")
+    search_fields = ("team__name", "user__email")
+    readonly_fields = ("id", "created_at", "updated_at")
+    autocomplete_fields = ("team", "user")
+    show_full_result_count = False
+
+    def get_queryset(self, request: HttpRequest):
+        # Admin has no team context; UserTasksConfig's default manager is fail-closed.
+        return UserTasksConfig.objects.unscoped().select_related("team", "user")

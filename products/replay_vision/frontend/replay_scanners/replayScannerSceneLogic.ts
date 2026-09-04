@@ -5,14 +5,18 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import { VISION_ROOT_BREADCRUMB } from '../utils/breadcrumbs'
+
 export enum ReplayScannerTab {
     Overview = 'overview',
     Observations = 'observations',
+    Search = 'search',
     Calibration = 'calibration',
     OnDemand = 'on-demand',
     Backfills = 'backfills',
     Configuration = 'configuration',
-    Actions = 'actions',
+    Scouts = 'scouts',
+    Alerts = 'alerts',
 }
 
 const SCANNER_TABS: ReplayScannerTab[] = Object.values(ReplayScannerTab)
@@ -82,12 +86,7 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
         breadcrumbs: [
             (s) => [s.scannerId],
             (scannerId: string): Breadcrumb[] => [
-                {
-                    key: 'replay-vision',
-                    name: 'Replay vision',
-                    path: urls.replayVision(),
-                    iconType: 'replay_vision',
-                },
+                VISION_ROOT_BREADCRUMB,
                 {
                     key: scannerId === 'new' ? 'new-scanner' : `scanner-${scannerId}`,
                     name: scannerId === 'new' ? 'New scanner' : 'Scanner',

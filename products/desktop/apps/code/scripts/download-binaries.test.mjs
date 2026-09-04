@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import { chmodSync, existsSync, renameSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { extract } from "tar";
@@ -12,6 +13,10 @@ import {
 vi.mock("node:timers/promises", () => {
   const setTimeout = vi.fn(() => Promise.resolve());
   return { setTimeout, default: { setTimeout } };
+});
+vi.mock("node:child_process", () => {
+  const execSync = vi.fn();
+  return { execSync, default: { execSync } };
 });
 vi.mock("node:stream/promises", () => {
   const pipeline = vi.fn(() => Promise.resolve());
@@ -172,6 +177,12 @@ describe("download binaries", () => {
     }
     expect(renameSync).toHaveBeenCalledWith(extractedPath, binaryPath);
     expect(chmodSync).toHaveBeenCalledWith(binaryPath, 0o755);
+    if (process.platform === "darwin") {
+      expect(execSync).toHaveBeenCalledWith(
+        `codesign --force --sign - "${binaryPath}"`,
+        { stdio: "pipe" },
+      );
+    }
   });
 
   it.each([

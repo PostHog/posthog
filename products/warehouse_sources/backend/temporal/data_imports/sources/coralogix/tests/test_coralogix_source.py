@@ -1,19 +1,15 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix import CoralogixResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.source import CoralogixSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
     CoralogixSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -22,27 +18,7 @@ def _config(
     return CoralogixSourceConfig.from_dict({"api_key": api_key, "domain": domain, "tier": tier})
 
 
-def _inputs(schema_name: str, should_use_incremental_field: bool = False, last_value: Any = None) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-1",
-        source_id="source-1",
-        team_id=1,
-        should_use_incremental_field=should_use_incremental_field,
-        db_incremental_field_last_value=last_value,
-        db_incremental_field_earliest_value=None,
-        incremental_field="timestamp" if should_use_incremental_field else None,
-        incremental_field_type=None,
-        job_id="job-1",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
-
-
 class TestCoralogixSource:
-    def test_source_type(self) -> None:
-        assert CoralogixSource().source_type == ExternalDataSourceType.CORALOGIX
-
     def test_source_config_shape(self) -> None:
         config = CoralogixSource().get_source_config
         # A finished source must be visible: unreleasedSource hides the connector from every user.
@@ -110,38 +86,6 @@ class TestCoralogixSource:
         # forever; the matcher keys on the stable status text + URL prefix shared by every domain.
         errors = CoralogixSource().get_non_retryable_errors()
         assert any(pattern in raised_message and friendly for pattern, friendly in errors.items())
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = CoralogixSource().get_resumable_source_manager(_inputs("logs"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CoralogixResumeConfig
-
-    @parameterized.expand([("incremental", True, "2026-01-01"), ("full_refresh", False, None)])
-    def test_source_for_pipeline_plumbs_arguments(
-        self, _name: str, should_use_incremental_field: bool, expected_last_value: Any
-    ) -> None:
-        sentinel = object()
-        manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.source.coralogix_source",
-            return_value=sentinel,
-        ) as mock_source:
-            inputs = _inputs("spans", should_use_incremental_field, last_value="2026-01-01")
-            result = CoralogixSource().source_for_pipeline(
-                _config("key-123", "coralogix.in", "archive"), manager, inputs
-            )
-
-        assert result is sentinel
-        mock_source.assert_called_once_with(
-            api_key="key-123",
-            domain="coralogix.in",
-            tier="archive",
-            endpoint="spans",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=expected_last_value,
-        )
 
     def test_documented_tables_render_without_credentials(self) -> None:
         # `lists_tables_without_credentials=True` powers the public docs table catalog; it must

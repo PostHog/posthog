@@ -383,6 +383,15 @@
                 }
             ]
         },
+        "feature_flag_policy_config": {
+            "properties": {
+                "require_tags": {
+                    "description": "When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "flags_persistence_default": {
             "anyOf": [
                 {
@@ -520,7 +529,7 @@
                                                 "type": "null"
                                             }
                                         ],
-                                        "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false."
+                                        "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false."
                                     },
                                     "counts_as_revenue": {
                                         "anyOf": [
@@ -1570,7 +1579,7 @@
                                                 "type": "null"
                                             }
                                         ],
-                                        "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false."
+                                        "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false."
                                     },
                                     "counts_as_revenue": {
                                         "anyOf": [
@@ -2589,7 +2598,7 @@
                                                 "type": "null"
                                             }
                                         ],
-                                        "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false."
+                                        "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false."
                                     },
                                     "counts_as_revenue": {
                                         "anyOf": [
@@ -4163,6 +4172,14 @@
                 }
             ],
             "description": "Enables displaying surveys via posthog-js on allowed origins."
+        },
+        "tags": {
+            "description": "Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "type": "array"
         },
         "test_account_filters": {
             "description": "Filter groups that identify internal/test traffic to be excluded from insights."

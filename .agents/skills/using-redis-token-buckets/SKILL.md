@@ -62,6 +62,10 @@ Semantics worth knowing:
 - Keys are fully caller-constructed. Prefix them (`<feature>_rate:`), include every identity the budget is scoped to, and never include secrets. The bucket self-expires once it would be full again, so idle keys clean themselves up.
 - Nothing raises on Redis failure: every operation returns `BucketUnavailable` and the **caller** decides fail-open vs fall-through. Do not swallow it silently; log or count it so an outage is visible.
 
+## Reference consumer
+
+The agentic provisioning rate limits (`ee/api/agentic_provisioning/ratelimits.py`) are the canonical consumer: per-partner budgets declared on handlers with `@rate_limited`, tier multipliers, refund-on-no-work in `handle_exception`, `RateLimit-*` headers from the decision, and Prometheus counters around every outcome. Read it before building a second rate-limit layer on top of the bucket.
+
 ## Testing
 
 Under `settings.TEST`, `posthog.redis.get_client()` returns fakeredis, which executes the Lua scripts (via lupa). Control time with `freeze_time` (the script's clock is passed in from Python), reset between tests with `posthog.redis.TEST_clear_clients()` + `posthog.token_bucket.TEST_reset_scripts()`, and see `posthog/test/test_token_bucket.py` for the pattern.

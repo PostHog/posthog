@@ -15,7 +15,9 @@ from hogli_commands.test_runner import (
     _detect_all,
     _find_test_files_for_source,
     _get_changed_files,
+    _hint_scoped_run,
     _is_test_file,
+    _quiet_pytest_in_cloud_sandbox,
     _resolve_to_repo_relative,
     _run_changed,
     _run_grouped,
@@ -571,3 +573,54 @@ def _get_repo_root():
     from hogli.manifest import REPO_ROOT
 
     return REPO_ROOT
+
+
+class TestScopedRunHints:
+    @pytest.mark.parametrize(
+        "command, extra_args, env, expected",
+        [
+            (["pytest", "-s", "a.py"], [], {"POSTHOG_TASK_RUN_ID": "run-1"}, ["pytest", "-q", "a.py"]),
+            (["pytest", "-s", "a.py"], [], {}, ["pytest", "-s", "a.py"]),
+            (
+                ["pytest", "-s", "a.py"],
+                [],
+                {"POSTHOG_TASK_RUN_ID": "run-1", "HOGLI_TEST_VERBOSE": "1"},
+                ["pytest", "-s", "a.py"],
+            ),
+            (["pytest", "-s", "a.py"], ["-vv"], {"POSTHOG_TASK_RUN_ID": "run-1"}, ["pytest", "-s", "a.py"]),
+            (["pytest", "-s", "a.py"], ["--capture=no"], {"POSTHOG_TASK_RUN_ID": "run-1"}, ["pytest", "-s", "a.py"]),
+            (
+                ["pnpm", "exec", "jest", "a.test.ts"],
+                [],
+                {"POSTHOG_TASK_RUN_ID": "run-1"},
+                ["pnpm", "exec", "jest", "a.test.ts"],
+            ),
+        ],
+    )
+    def test_pytest_is_quiet_only_in_a_cloud_sandbox(self, monkeypatch, command, extra_args, env, expected):
+        monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
+        monkeypatch.delenv("HOGLI_TEST_VERBOSE", raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+
+        assert _quiet_pytest_in_cloud_sandbox(command, extra_args) == expected
+
+    @pytest.mark.parametrize(
+        "file_count, in_sandbox, hinted",
+        [(3, True, False), (10, True, True), (10, False, False)],
+    )
+    def test_directory_runs_in_a_sandbox_suggest_a_scoped_run(
+        self, monkeypatch, capsys, file_count, in_sandbox, hinted
+    ):
+        monkeypatch.delenv("HOGLI_TEST_VERBOSE", raising=False)
+        if in_sandbox:
+            monkeypatch.setenv("POSTHOG_TASK_RUN_ID", "run-1")
+        else:
+            monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
+        monkeypatch.setattr(
+            "hogli_commands.test_runner._find_test_files", lambda _path: [f"t{i}.py" for i in range(file_count)]
+        )
+
+        _hint_scoped_run("posthog/api/test")
+
+        assert ("hogli test --changed" in capsys.readouterr().out) is hinted

@@ -38,7 +38,7 @@ Remote announcements can drive this flow: a `required-update` announcement block
 
 Merge to `master` and wait for the next scheduled `desktop-tag.yml` run. To release sooner:
 
-- Add the `create desktop release` label to your PR before merging (the labeler must be a `team-posthog-code` member). The merge then tags immediately.
+- Add the `desktop-release` label to your PR before merging (the labeler must be a `team-posthog-code` member). The merge then tags immediately.
 - Or trigger `desktop-tag.yml` manually with `gh workflow run desktop-tag.yml`.
 
 ## Releasing a minor or major version

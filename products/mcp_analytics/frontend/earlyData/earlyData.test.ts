@@ -1,5 +1,11 @@
 import { buildActivitySummary } from './activitySummary'
 import { buildChecklist, EarlyStats } from './earlyDataChecklist'
+import {
+    DEFAULT_MCP_ACTIVITY_QUERY,
+    MCP_ACTIVITY_COLUMNS,
+    MCP_ACTIVITY_MAX_ROWS,
+    MCP_ACTIVITY_PAGE_SIZE,
+} from './mcpActivityQuery'
 
 const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
     totalCalls: 0,
@@ -13,6 +19,25 @@ const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
 })
 
 describe('early data derivations', () => {
+    it('starts the expandable MCP activity feed at 100 rows with room to load more', () => {
+        expect(DEFAULT_MCP_ACTIVITY_QUERY).toMatchObject({
+            embedded: false,
+            expandable: true,
+            showCount: true,
+            showDateRange: true,
+            showPropertyFilter: expect.any(Array),
+            source: {
+                events: ['$mcp_tool_call'],
+                limit: 100,
+                orderBy: ['timestamp DESC'],
+            },
+        })
+        expect(MCP_ACTIVITY_PAGE_SIZE).toBe(100)
+        expect(MCP_ACTIVITY_MAX_ROWS).toBeGreaterThan(MCP_ACTIVITY_PAGE_SIZE)
+        expect(MCP_ACTIVITY_COLUMNS).toContain('*')
+        expect(MCP_ACTIVITY_COLUMNS.find((column) => column.endsWith('-- Tool'))).toContain('$mcp_exec_tool_call_name')
+    })
+
     it.each([
         // First calls get the celebratory copy, not a stats sentence.
         [{ totalCalls: 1, distinctClients: 1, errorCalls: 0, topTool: null }, /first tool call arrived/],
@@ -52,10 +77,15 @@ describe('early data derivations', () => {
         expect(checklist.find((i) => i.key === 'sessions')?.status).toBe(sessionsStatus)
     })
 
-    it('flips unmet-demand reporting to ok once any report exists', () => {
-        expect(buildChecklist(stats({})).find((i) => i.key === 'missing-capability')?.status).toBe('pending')
-        expect(
-            buildChecklist(stats({ missingCapabilityReports: 2 })).find((i) => i.key === 'missing-capability')?.status
-        ).toBe('ok')
+    it.each([
+        [0, 'pending', undefined],
+        [2, 'ok', '/mcp-analytics/missing-capabilities'],
+    ])('grades %i missing-capability reports as %s and links to %s', (reports, status, appLinkTo) => {
+        const item = buildChecklist(stats({ missingCapabilityReports: reports })).find(
+            (i) => i.key === 'missing-capability'
+        )
+
+        expect(item?.status).toBe(status)
+        expect(item?.appLink?.to).toBe(appLinkTo)
     })
 })

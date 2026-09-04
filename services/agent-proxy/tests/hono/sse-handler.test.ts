@@ -13,12 +13,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { formatSseEvent, streamTaskRunEvents } from '@/hono/sse-handler.js'
 import {
+    CONNECTION_MAX_MS,
     KEEPALIVE_INTERVAL_MS,
+    SSE_EVENT_END,
     SSE_EVENT_ERROR,
     SSE_EVENT_KEEPALIVE,
     SSE_EVENT_STREAM_END,
     WAIT_TIMEOUT_MS,
 } from '@/lib/constants.js'
+import { getWatchedKey } from '@/lib/redis-stream.js'
 
 // ---------------------------------------------------------------------------
 // Minimal in-memory fake Redis
@@ -489,6 +492,92 @@ describe('sse-handler', () => {
     // streamTaskRunEvents — terminal stream-end event framing
     // -------------------------------------------------------------------------
 
+    describe('streamTaskRunEvents — reader presence', () => {
+        it('marks the stream watched as soon as the connection is accepted', async () => {
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'hello' })
+            xaddComplete(redis, streamKey)
+
+            await collect(streamTaskRunEvents(streamKey, redis as unknown as Redis, {}))
+
+            expect(await redis.get(getWatchedKey(streamKey))).toBe('1')
+        })
+
+        it('marks the stream watched before it exists so a gated writer starts mirroring', async () => {
+            vi.useFakeTimers()
+
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            const bodyPromise = collect(streamTaskRunEvents(streamKey, redis as unknown as Redis, {}))
+            await vi.advanceTimersByTimeAsync(1)
+
+            expect(await redis.get(getWatchedKey(streamKey))).toBe('1')
+
+            xaddComplete(redis, streamKey)
+            await vi.advanceTimersByTimeAsync(2_000)
+            await bodyPromise
+        })
+
+        it('retries a failed watched-key write on the next refresh instead of waiting out the interval', async () => {
+            vi.useFakeTimers()
+
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+            vi.spyOn(redis, 'set').mockRejectedValueOnce(new Error('redis unavailable'))
+
+            const bodyPromise = collect(streamTaskRunEvents(streamKey, redis as unknown as Redis, {}))
+            await vi.advanceTimersByTimeAsync(1_000)
+
+            expect(await redis.get(getWatchedKey(streamKey))).toBe('1')
+
+            xaddComplete(redis, streamKey)
+            await vi.advanceTimersByTimeAsync(2_000)
+            await bodyPromise
+        })
+
+        it('presence-gated connect reads a missing stream from the start instead of erroring', async () => {
+            vi.useFakeTimers()
+
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            const bodyPromise = collect(
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, {
+                    presenceGated: true,
+                    startLatest: true,
+                })
+            )
+            await vi.advanceTimersByTimeAsync(1_000)
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'first gated event' })
+            xaddComplete(redis, streamKey)
+            await vi.advanceTimersByTimeAsync(5_000)
+
+            const body = await bodyPromise
+            expect(body).toContain('"first gated event"')
+            expect(body).not.toContain('Stream not available')
+        })
+
+        it('rotates a presence-gated connection on a missing stream instead of holding it open', async () => {
+            vi.useFakeTimers()
+
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            const bodyPromise = collect(
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { presenceGated: true })
+            )
+            await vi.advanceTimersByTimeAsync(CONNECTION_MAX_MS + KEEPALIVE_INTERVAL_MS + 1_000)
+
+            const body = await bodyPromise
+            expect(body).toContain(`event: ${SSE_EVENT_END}\ndata: {"type":"rotated"}`)
+            expect(body).not.toContain('Stream not available')
+        })
+    })
+
     describe('streamTaskRunEvents — terminal stream-end event', () => {
         it('terminal event is named stream-end and carries {status:complete}', async () => {
             const runId = uniqueRunId()
@@ -644,8 +733,7 @@ describe('sse-handler', () => {
                 streamTaskRunEvents(streamKey, redis as unknown as Redis, { startLatest: true })
             )
 
-            await Promise.resolve()
-            await Promise.resolve()
+            await vi.advanceTimersByTimeAsync(1)
             xaddData(redis, streamKey, { type: 'notification', msg: 'first-after-wait' })
             xaddComplete(redis, streamKey)
             await vi.advanceTimersByTimeAsync(100)

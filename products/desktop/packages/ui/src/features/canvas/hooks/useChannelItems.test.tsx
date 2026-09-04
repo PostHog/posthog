@@ -1,3 +1,4 @@
+import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Channel } from "./useChannels";
@@ -22,9 +23,11 @@ const mocks = vi.hoisted(() => ({
   // Stable identities, mirroring the real hooks — a fresh function per render
   // would hide the very memoization this file asserts.
   setPinned: vi.fn(),
+  setPinnedMany: vi.fn(),
   togglePin: vi.fn(),
   archiveTask: vi.fn(),
   navigate: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
@@ -56,7 +59,16 @@ vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
   usePinnedTasks: () => ({
     pinnedTaskIds: new Set<string>(),
     togglePin: mocks.togglePin,
+    setPinnedMany: mocks.setPinnedMany,
   }),
+}));
+vi.mock("@posthog/ui/primitives/toast", () => ({
+  toast: {
+    error: mocks.toastError,
+    success: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+  },
 }));
 // The session facts behind the status and environment filters. All three reach
 // the host — for live sessions, viewed timestamps and workspaces — and this
@@ -96,6 +108,30 @@ function channel(over: Partial<Channel> = {}): Channel {
     repositories: [],
     createdBy: null,
     ...over,
+  };
+}
+
+function taskItem(id: string): ChannelItemModel {
+  return {
+    key: id,
+    kind: "task",
+    id,
+    title: id,
+    ts: 0,
+    createdAt: 0,
+    pinned: false,
+    rawStatus: null,
+    environment: null,
+    source: null,
+    needsInput: false,
+    unread: false,
+    authorUser: null,
+    authorName: null,
+    authorUuid: null,
+    templateId: null,
+    repository: null,
+    branch: null,
+    task: null,
   };
 }
 
@@ -237,4 +273,45 @@ describe("useChannelItems", () => {
     rerender();
     expect(result.current.items.map((item) => item.id)).toEqual(["task-1"]);
   });
+
+  // A dragged session batch's pin request settles per-row and reports failures
+  // in `failed` rather than rejecting, so the action must inspect that result —
+  // a shared Promise.all would read a failed batch as success and stay silent.
+  it.each([
+    [
+      "a partial pin failure",
+      true,
+      { succeeded: ["a"], failed: ["b"] },
+      "1 pinned, 1 failed",
+    ],
+    [
+      "a partial unpin failure",
+      false,
+      { succeeded: ["a"], failed: ["b"] },
+      "1 unpinned, 1 failed",
+    ],
+    [
+      "a fully successful batch",
+      true,
+      { succeeded: ["a", "b"], failed: [] },
+      null,
+    ],
+  ] as const)(
+    "reports %s from a session batch pin",
+    async (_label, pinned, outcome, expectedMessage) => {
+      mocks.channels = { channels: [channel()], isLoading: false };
+      mocks.setPinnedMany.mockResolvedValue(outcome);
+
+      const { result } = renderHook(() => useChannelItems("c1"));
+      result.current.actions.setPinned([taskItem("a"), taskItem("b")], pinned);
+      await mocks.setPinnedMany.mock.results.at(-1)?.value;
+
+      expect(mocks.setPinnedMany).toHaveBeenCalledWith(["a", "b"], pinned);
+      if (expectedMessage === null) {
+        expect(mocks.toastError).not.toHaveBeenCalled();
+      } else {
+        expect(mocks.toastError).toHaveBeenCalledWith(expectedMessage);
+      }
+    },
+  );
 });

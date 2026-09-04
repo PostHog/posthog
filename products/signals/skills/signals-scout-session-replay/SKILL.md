@@ -2,9 +2,8 @@
 name: signals-scout-session-replay
 description: >
   Signals scout for PostHog session replay. Watches that sessions keep recording (capture
-  cliffs) and that friction inside recordings — rage/dead-click clusters,
-  error-after-interaction cohorts — gets surfaced, and files each validated cliff or cluster
-  as a report in the inbox.
+  cliffs) and surfaces friction inside recordings — rage/dead-click clusters, error-after-
+  interaction cohorts.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the session-replay tools in

@@ -126,6 +126,13 @@ class TestDockerSandboxUnit:
         assert "secret token" not in redacted
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted>" in redacted
 
+    def test_redact_sandbox_command_hides_mcp_credentials(self):
+        command = 'agent-server --mcpServers \'[{"headers":{"Authorization":"Bearer secret-token"}}]\' --port 8080'
+
+        redacted = redact_sandbox_command(command)
+
+        assert redacted == "agent-server --mcpServers <redacted> --port 8080"
+
     @pytest.mark.parametrize(
         "input_url,expected_url",
         [
@@ -345,13 +352,14 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,expected_in_command,not_expected_in_command",
+        "shallow,blobless,expected_in_command,not_expected_in_command",
         [
-            (True, "--depth 1", None),
-            (False, "--single-branch", "--depth"),
+            (True, False, "--depth 1", "--filter=blob:"),
+            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -359,7 +367,9 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                sandbox.clone_repository(
+                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command

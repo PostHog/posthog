@@ -59,6 +59,13 @@ const STREAM_END_EVENT_NAME = "stream-end";
 interface SessionLogsPage {
   entries: StoredLogEntry[];
   hasMore: boolean;
+  matchingCount: number | null;
+}
+
+interface SessionLogsWindow {
+  entries: StoredLogEntry[];
+  windowStart: number;
+  chainTotal: number;
 }
 
 interface CloudTaskConnectionError {
@@ -436,6 +443,13 @@ export interface CloudTaskEngineDependencies {
   logger: RootLogger;
   mcpRelayExecutor?: McpRelayExecutor | null;
   streamFetch?: CloudTaskFetch;
+  /**
+   * Cap on the entries a snapshot carries, for hosts that page older history
+   * in from `windowStart`. Left out, a snapshot carries the whole chain: a
+   * host that renders a snapshot as the complete transcript would otherwise
+   * lose everything behind the window.
+   */
+  transcriptTailWindow?: number;
 }
 
 export type CloudTaskFetch = (
@@ -456,6 +470,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private readonly analytics: IAnalytics;
   private readonly mcpRelayExecutor: McpRelayExecutor | null;
   private readonly streamFetch: CloudTaskFetch;
+  private readonly transcriptTailWindow: number | undefined;
 
   constructor({
     auth,
@@ -463,12 +478,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     logger,
     mcpRelayExecutor = null,
     streamFetch = globalThis.fetch.bind(globalThis),
+    transcriptTailWindow,
   }: CloudTaskEngineDependencies) {
     super();
     this.auth = auth;
     this.analytics = analytics;
     this.mcpRelayExecutor = mcpRelayExecutor;
     this.streamFetch = streamFetch;
+    this.transcriptTailWindow = transcriptTailWindow;
     this.log = logger.scope("cloud-task");
   }
 
@@ -1127,14 +1144,20 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     }
 
     if (isTerminalStatus(run.status)) {
-      let historicalEntries = await this.fetchAllSessionLogs(watcher);
-      if (historicalEntries?.length === 0 && run.log_url) {
-        historicalEntries = await this.fetchArchivedLogs(run.log_url);
+      let window = await this.fetchSessionLogsWindow(watcher);
+      // A terminal run whose persisted chain comes back empty can still have
+      // a complete archived log (persistence raced teardown); fall back to it
+      // rather than emitting an empty final transcript.
+      if (window?.entries.length === 0 && run.log_url) {
+        const archived = await this.fetchArchivedLogs(run.log_url);
+        window = archived
+          ? { entries: archived, windowStart: 0, chainTotal: archived.length }
+          : null;
       }
       const terminalWatcher = this.watchers.get(key);
       if (!terminalWatcher || terminalWatcher !== watcher) return;
       if (watcher.failed) return;
-      if (!historicalEntries) {
+      if (!window) {
         this.failWatcher(key, {
           title: "Failed to load task history",
           message:
@@ -1144,14 +1167,15 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         return;
       }
 
-      watcher.totalEntryCount = historicalEntries.length;
+      watcher.totalEntryCount = window.chainTotal;
       watcher.hasEmittedSnapshot = true;
       this.emit(CloudTaskEvent.Update, {
         taskId: watcher.taskId,
         runId: watcher.runId,
         kind: "snapshot",
-        newEntries: historicalEntries,
+        newEntries: window.entries,
         totalEntryCount: watcher.totalEntryCount,
+        ...(window.windowStart > 0 ? { windowStart: window.windowStart } : {}),
         status: watcher.lastStatus ?? undefined,
         stage: watcher.lastStage,
         output: watcher.lastOutput,
@@ -1167,11 +1191,11 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher.bufferedLogBatches = [];
     void this.connectSse(key, { startLatest: true });
 
-    const historicalEntries = await this.fetchAllSessionLogs(watcher);
+    const window = await this.fetchSessionLogsWindow(watcher);
     const bootstrappingWatcher = this.watchers.get(key);
     if (!bootstrappingWatcher || bootstrappingWatcher !== watcher) return;
     if (watcher.failed) return;
-    if (!historicalEntries) {
+    if (!window) {
       this.failWatcher(key, {
         title: "Failed to load cloud run history",
         message:
@@ -1184,15 +1208,16 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // Flush any pending live entries into the bootstrap buffer before snapshot.
     this.flushLogBatch(key);
 
-    watcher.totalEntryCount = historicalEntries.length;
+    watcher.totalEntryCount = window.chainTotal;
     watcher.hasEmittedSnapshot = true;
 
     this.emit(CloudTaskEvent.Update, {
       taskId: watcher.taskId,
       runId: watcher.runId,
       kind: "snapshot",
-      newEntries: historicalEntries,
+      newEntries: window.entries,
       totalEntryCount: watcher.totalEntryCount,
+      ...(window.windowStart > 0 ? { windowStart: window.windowStart } : {}),
       status: watcher.lastStatus ?? undefined,
       stage: watcher.lastStage,
       output: watcher.lastOutput,
@@ -1202,7 +1227,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     });
 
     watcher.isBootstrapping = false;
-    this.drainBufferedLogBatches(key, historicalEntries);
+    this.drainBufferedLogBatches(key, window.entries);
 
     if (watcher.failed) {
       return;
@@ -1855,13 +1880,23 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     const watcher = this.watchers.get(key);
     if (!watcher || watcher.failed) return;
 
-    const historicalEntries = await this.fetchAllSessionLogs(watcher);
+    // The merge below drops emitted entries it finds in the fetched history,
+    // so the window must reach back over everything this watcher already
+    // emitted; anything older than the window would be re-appended as
+    // "missing" at the wrong position. Sizing the window by the emitted count
+    // alone leaves no room for entries that reached the chain without being
+    // emitted (a read-leg switch drops the cursor), which push the oldest
+    // emitted entry out the back, so anchor on the offset instead.
+    const window = await this.fetchSessionLogsWindow(watcher, {
+      coverFromOffset:
+        watcher.totalEntryCount - watcher.emittedLogEntries.length,
+    });
     const currentWatcher = this.watchers.get(key);
     if (!currentWatcher || currentWatcher !== watcher || watcher.failed) {
       return;
     }
 
-    if (!historicalEntries) {
+    if (!window) {
       this.log.warn("Cloud task snapshot replay failed", {
         taskId: watcher.taskId,
         runId: watcher.runId,
@@ -1871,12 +1906,13 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
 
     const { snapshotEntries, missingEmittedEntries } =
       this.mergeHistoricalAndEmittedEntries(
-        historicalEntries,
+        window.entries,
         watcher.emittedLogEntries,
       );
     watcher.emittedLogEntries = missingEmittedEntries;
-    if (snapshotEntries.length > watcher.totalEntryCount) {
-      watcher.totalEntryCount = snapshotEntries.length;
+    const snapshotTotal = window.windowStart + snapshotEntries.length;
+    if (snapshotTotal > watcher.totalEntryCount) {
+      watcher.totalEntryCount = snapshotTotal;
     }
 
     this.emit(CloudTaskEvent.Update, {
@@ -1884,7 +1920,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       runId: watcher.runId,
       kind: "snapshot",
       newEntries: snapshotEntries,
-      totalEntryCount: snapshotEntries.length,
+      totalEntryCount: snapshotTotal,
+      ...(window.windowStart > 0 ? { windowStart: window.windowStart } : {}),
       status: watcher.lastStatus ?? undefined,
       stage: watcher.lastStage,
       output: watcher.lastOutput,
@@ -2188,11 +2225,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private async fetchSessionLogsPage(
     watcher: WatcherState,
     offset: number,
+    limit: number = SESSION_LOG_PAGE_LIMIT,
   ): Promise<SessionLogsPage | null> {
     const url = new URL(
       `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/session_logs/`,
     );
-    url.searchParams.set("limit", SESSION_LOG_PAGE_LIMIT.toString());
+    url.searchParams.set("limit", limit.toString());
     url.searchParams.set("offset", offset.toString());
 
     try {
@@ -2220,9 +2258,17 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       }
 
       const raw = await authedResponse.text();
+      // Number(null) is 0, so an absent header must stay null.
+      const matchingHeader = authedResponse.headers.get("X-Matching-Count");
+      const matchingCount =
+        matchingHeader === null ? null : Number(matchingHeader);
       return {
         entries: JSON.parse(raw) as StoredLogEntry[],
         hasMore: authedResponse.headers.get("X-Has-More") === "true",
+        matchingCount:
+          matchingCount !== null && Number.isFinite(matchingCount)
+            ? matchingCount
+            : null,
       };
     } catch (error) {
       this.log.warn("Cloud task session logs fetch error", {
@@ -2237,9 +2283,10 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
 
   private async fetchAllSessionLogs(
     watcher: WatcherState,
+    seedEntries: StoredLogEntry[] = [],
   ): Promise<StoredLogEntry[] | null> {
-    const entries: StoredLogEntry[] = [];
-    let offset = 0;
+    const entries: StoredLogEntry[] = [...seedEntries];
+    let offset = entries.length;
 
     while (true) {
       const page = await this.fetchSessionLogsPage(watcher, offset);
@@ -2254,6 +2301,71 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
 
       offset += page.entries.length;
     }
+  }
+
+  /**
+   * A one-entry probe learns the chain total from X-Matching-Count without
+   * downloading a page an oversized log would throw away, then only the
+   * newest `transcriptTailWindow` entries are fetched; the renderer pages in
+   * older history on scroll. Hosts without a tail window, and servers that
+   * don't report the total, get the full walk continued from the probe's
+   * page. `coverFromOffset` pulls the window start down to a chain offset the
+   * caller needs covered. Null on failure.
+   */
+  private async fetchSessionLogsWindow(
+    watcher: WatcherState,
+    options: { coverFromOffset?: number } = {},
+  ): Promise<SessionLogsWindow | null> {
+    const tailWindow = this.transcriptTailWindow;
+    const probe = await this.fetchSessionLogsPage(watcher, 0, 1);
+    if (!probe) return null;
+    if (!probe.hasMore) {
+      return {
+        entries: probe.entries,
+        windowStart: 0,
+        chainTotal: probe.entries.length,
+      };
+    }
+    if (tailWindow === undefined || probe.matchingCount === null) {
+      const all = await this.fetchAllSessionLogs(watcher, probe.entries);
+      return all
+        ? { entries: all, windowStart: 0, chainTotal: all.length }
+        : null;
+    }
+    const tailStart = Math.max(
+      0,
+      Math.min(
+        probe.matchingCount - tailWindow,
+        options.coverFromOffset ?? Number.POSITIVE_INFINITY,
+      ),
+    );
+    const entries: StoredLogEntry[] = [];
+    let offset = tailStart;
+    // The probe's count is a snapshot, and a run whose log is still being
+    // persisted grows behind it. Following the server's own end-of-log signal
+    // as well keeps those newest entries in the window.
+    let chainEnd = probe.matchingCount;
+    while (offset < chainEnd) {
+      const page = await this.fetchSessionLogsPage(
+        watcher,
+        offset,
+        Math.min(SESSION_LOG_PAGE_LIMIT, chainEnd - offset),
+      );
+      if (!page) return null;
+      if (page.entries.length === 0) break;
+      entries.push(...page.entries);
+      offset += page.entries.length;
+      if (page.matchingCount !== null && page.matchingCount > chainEnd) {
+        chainEnd = page.matchingCount;
+      } else if (offset >= chainEnd && page.hasMore) {
+        chainEnd = offset + SESSION_LOG_PAGE_LIMIT;
+      }
+    }
+    return {
+      entries,
+      windowStart: tailStart,
+      chainTotal: tailStart + entries.length,
+    };
   }
 
   private async fetchArchivedLogs(

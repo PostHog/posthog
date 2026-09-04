@@ -11,7 +11,7 @@ from scim2_filter_parser.attr_paths import AttrPath
 from posthog.models import OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 
-from ee.models.rbac.role import Role, RoleMembership
+from products.access_control.backend.models.role import Role, RoleMembership
 
 logger = logging.getLogger(__name__)
 

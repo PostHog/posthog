@@ -55,6 +55,12 @@ function TableRowRaw<T extends Record<string, any>>({
 
     const isRowExpansionToggleShownLocal = !!expandable && rowExpandable >= 0
     const isRowExpansionToggleShown = expandable?.showRowExpansionToggle ?? isRowExpansionToggleShownLocal
+    const visibleDataColumnCount = columnGroups.reduce(
+        (count, columnGroup) => count + columnGroup.children.filter((column) => !column.isHidden).length,
+        0
+    )
+    const expansionColSpan =
+        visibleDataColumnCount + Number(isRowExpansionToggleShown && !!expandable?.noIndent) + Number(!!rowActions)
 
     const expandedRowClassNameDetermined =
         expandable &&
@@ -171,15 +177,8 @@ function TableRowRaw<T extends Record<string, any>>({
 
             {expandable && !!rowExpandable && isRowExpanded && (
                 <tr className={clsx('LemonTable__expansion', expandedRowClassNameDetermined)}>
-                    {!expandable.noIndent && <td />}
-                    <td
-                        colSpan={
-                            columnGroups.reduce((acc, columnGroup) => acc + columnGroup.children.length, 0) +
-                            Number(!!expandable.noIndent)
-                        }
-                    >
-                        {expandable.expandedRowRender(record, recordIndex)}
-                    </td>
+                    {isRowExpansionToggleShown && !expandable.noIndent && <td />}
+                    <td colSpan={expansionColSpan}>{expandable.expandedRowRender(record, recordIndex)}</td>
                 </tr>
             )}
         </>

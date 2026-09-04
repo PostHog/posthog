@@ -1,23 +1,39 @@
-import re
 import json
-import asyncio
-from typing import Any
-from uuid import UUID
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
+import httpx
+from openai import APIConnectionError, APIStatusError, BadRequestError, InternalServerError, RateLimitError, omit
 from rest_framework import exceptions
 
-from products.ai_observability.backend.summarization.constants import (
-    EVALUATION_SUMMARY_MAX_RUNS,
-    EVALUATION_SUMMARY_PROMPT_MAX_CHARS,
-    SUMMARIZATION_TIMEOUT,
-)
-from products.ai_observability.backend.summarization.llm.evaluation_summary import summarize_evaluation_runs
+from products.ai_observability.backend.summarization.constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from products.ai_observability.backend.summarization.llm.openai import summarize_with_openai
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
 from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
+
+_REQUEST = httpx.Request("POST", "https://example.com/v1/chat/completions")
+
+
+def _rate_limit_error() -> RateLimitError:
+    return RateLimitError("rate limited", response=httpx.Response(429, request=_REQUEST), body=None)
+
+
+def _flex_408_error() -> APIStatusError:
+    # OpenAI answers a server-side flex timeout with 408, which the SDK raises as the bare
+    # APIStatusError because it has no named class for that status.
+    return APIStatusError("request timeout", response=httpx.Response(408, request=_REQUEST), body=None)
+
+
+def _gateway_ceiling_error() -> InternalServerError:
+    # The ai-gateway answers 504 when a buffered call outlives its ~290s response ceiling.
+    return InternalServerError("gateway timeout", response=httpx.Response(504, request=_REQUEST), body=None)
+
+
+def _connection_error() -> APIConnectionError:
+    # A proxy or LB resetting a long-parked flex request surfaces as the bare parent class,
+    # not APITimeoutError, so the fallback must catch APIConnectionError itself.
+    return APIConnectionError(request=_REQUEST)
 
 
 @pytest.fixture
@@ -41,6 +57,7 @@ class TestSummarizeWithOpenAI:
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
 
             result = summarize_with_openai(
@@ -52,7 +69,12 @@ class TestSummarizeWithOpenAI:
 
             assert isinstance(result, SummarizationResponse)
             assert result.title == "Test Summary"
-            mock_get_client.assert_called_once_with("llma_summarization", ai_product="aio_summarization")
+            mock_get_client.assert_called_once_with(
+                "llma_summarization",
+                ai_product="aio_summarization",
+                properties={"team_id": "1"},
+                distinct_id="team-1",
+            )
 
     def test_empty_response_raises_validation_error(self):
         mock_response = MagicMock()
@@ -62,6 +84,7 @@ class TestSummarizeWithOpenAI:
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
 
             with pytest.raises(exceptions.ValidationError, match="empty response"):
@@ -76,6 +99,7 @@ class TestSummarizeWithOpenAI:
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.side_effect = Exception("API Error")
 
             with pytest.raises(exceptions.APIException, match="Failed to generate summary"):
@@ -94,6 +118,7 @@ class TestSummarizeWithOpenAI:
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
 
             summarize_with_openai(
@@ -114,6 +139,7 @@ class TestSummarizeWithOpenAI:
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
 
             summarize_with_openai(
@@ -135,6 +161,7 @@ class TestSummarizeWithOpenAI:
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
 
             summarize_with_openai(
@@ -155,6 +182,7 @@ class TestSummarizeWithOpenAI:
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
 
             summarize_with_openai(
@@ -168,290 +196,109 @@ class TestSummarizeWithOpenAI:
             assert call_kwargs["response_format"]["type"] == "json_schema"
             assert call_kwargs["response_format"]["json_schema"]["strict"] is True
 
-
-@pytest.fixture
-def valid_evaluation_summary_json():
-    return json.dumps(
-        {
-            "overall_assessment": "Mostly passing.",
-            "pass_patterns": [],
-            "fail_patterns": [],
-            "na_patterns": [],
-            "recommendations": [],
-            "statistics": {"total_analyzed": 1, "pass_count": 1, "fail_count": 0, "na_count": 0},
-        }
+    @pytest.mark.parametrize(
+        "model,flex,expected_tier,expected_effort,expected_timeout",
+        [
+            (OpenAIModel.GPT_5_NANO, True, "flex", "minimal", SUMMARIZATION_FLEX_TIMEOUT),
+            (OpenAIModel.GPT_5_NANO, False, omit, "minimal", SUMMARIZATION_TIMEOUT),
+            # gpt-4.1 rejects service_tier, so a flex request must not forward it
+            (OpenAIModel.GPT_4_1_MINI, True, omit, omit, SUMMARIZATION_TIMEOUT),
+        ],
     )
-
-
-class TestSummarizeEvaluationRuns:
-    @pytest.mark.parametrize(("user_distinct_id", "expected_distinct_id"), [("user-1", "user-1"), ("", "team-1")])
-    def test_routes_through_async_gateway_builder_and_passes_timeout(
-        self, valid_evaluation_summary_json, user_distinct_id, expected_distinct_id
+    def test_flex_and_reasoning_effort_apply_only_to_gpt5(
+        self, valid_response_json, model, flex, expected_tier, expected_effort, expected_timeout
     ):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = valid_evaluation_summary_json
+        mock_response.choices[0].message.content = valid_response_json
 
-        with patch(
-            "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client"
-        ) as mock_builder:
+        with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-            mock_builder.return_value = mock_client
+            mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
 
-            result = asyncio.run(
-                summarize_evaluation_runs(
-                    evaluation_runs=[{"generation_id": "g1", "result": True, "reasoning": "good"}],
-                    team_id=1,
-                    evaluation_id="evaluation-1",
-                    model=OpenAIModel.GPT_4_1_MINI,
-                    user_distinct_id=user_distinct_id,
-                )
+            summarize_with_openai(
+                text_repr="L1: Test",
+                team_id=1,
+                mode=SummarizationMode.MINIMAL,
+                model=model,
+                flex=flex,
             )
 
-        mock_builder.assert_called_once()
-        builder_kwargs = mock_builder.call_args.kwargs
-        trace_id = UUID(builder_kwargs["trace_id"])
-        session_id = UUID(builder_kwargs["session_id"])
-        assert session_id != trace_id
-        assert builder_kwargs["session_id"] != "evaluation-1"
-        assert builder_kwargs["distinct_id"] == expected_distinct_id
-        assert builder_kwargs["properties"] == {
-            "team_id": "1",
-            "filter_type": "all",
-            "evaluation_id": "evaluation-1",
-        }
-        assert mock_client.chat.completions.create.call_args.kwargs["user"] == expected_distinct_id
-        assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
-        assert result.overall_assessment == "Mostly passing."
+            call_kwargs = mock_client.chat.completions.create.call_args[1]
+            assert call_kwargs.get("service_tier") == expected_tier
+            assert call_kwargs.get("reasoning_effort") == expected_effort
+            assert call_kwargs["timeout"] == expected_timeout
+            if expected_tier == "flex":
+                # The flex attempt must not inherit the SDK's default retries; the standard
+                # tier is its retry (see the budget math at the call site).
+                mock_client.with_options.assert_called_once_with(max_retries=0)
 
-    def test_failure_log_includes_evaluation_trace_and_session(self) -> None:
-        trace_id = UUID("6f6905aa-00d2-4df7-a5e4-e1c06d934c23")
-        session_id = UUID("7dfda50a-5710-45b1-97a3-30d98a07c1da")
-
-        lock_context = MagicMock()
-        lock_context.__aenter__ = AsyncMock(return_value=None)
-        lock_context.__aexit__ = AsyncMock(return_value=None)
-
-        with (
-            patch(
-                "products.ai_observability.backend.summarization.llm.evaluation_summary._team_generation_lock",
-                return_value=lock_context,
-            ),
-            patch(
-                "products.ai_observability.backend.summarization.llm.evaluation_summary.uuid4",
-                side_effect=[trace_id, session_id],
-            ),
-            patch(
-                "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client",
-                side_effect=RuntimeError("gateway unavailable"),
-            ),
-            patch(
-                "products.ai_observability.backend.summarization.llm.evaluation_summary.logger.exception"
-            ) as mock_logger_exception,
-        ):
-            with pytest.raises(exceptions.APIException, match="Failed to generate evaluation summary"):
-                asyncio.run(
-                    summarize_evaluation_runs(
-                        evaluation_runs=[{"generation_id": "g1", "result": True, "reasoning": "good"}],
-                        team_id=1,
-                        evaluation_id="evaluation-1",
-                        model=OpenAIModel.GPT_4_1_MINI,
-                    )
-                )
-
-        mock_logger_exception.assert_called_once_with(
-            "evaluation_summary_failed",
-            team_id=1,
-            evaluation_id="evaluation-1",
-            trace_id=str(trace_id),
-            session_id=str(session_id),
-            model=str(OpenAIModel.GPT_4_1_MINI),
-            error="gateway unavailable",
-        )
-
-    def test_concurrent_requests_are_limited_per_team(self, valid_evaluation_summary_json: str) -> None:
+    @pytest.mark.parametrize(
+        "flex_error", [_rate_limit_error(), _connection_error(), _gateway_ceiling_error(), _flex_408_error()]
+    )
+    def test_flex_failure_falls_back_to_standard_tier(self, valid_response_json, flex_error):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = valid_evaluation_summary_json
+        mock_response.choices[0].message.content = valid_response_json
 
-        async def run_summaries() -> None:
-            first_call_started = asyncio.Event()
-            release_first_call = asyncio.Event()
-            completion_count = 0
-
-            async def completion(**_kwargs: Any) -> MagicMock:
-                nonlocal completion_count
-                completion_count += 1
-                if completion_count == 1:
-                    first_call_started.set()
-                    await release_first_call.wait()
-                return mock_response
-
-            with patch(
-                "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client"
-            ) as mock_builder:
-                mock_client = MagicMock()
-                mock_client.chat.completions.create = AsyncMock(side_effect=completion)
-                mock_builder.return_value = mock_client
-
-                first_summary = asyncio.create_task(
-                    summarize_evaluation_runs(
-                        evaluation_runs=[{"generation_id": "g1", "result": True, "reasoning": "good"}],
-                        team_id=1,
-                        model=OpenAIModel.GPT_4_1_MINI,
-                    )
-                )
-                await first_call_started.wait()
-
-                try:
-                    with pytest.raises(exceptions.Throttled, match="already being generated"):
-                        await summarize_evaluation_runs(
-                            evaluation_runs=[{"generation_id": "g2", "result": True, "reasoning": "also good"}],
-                            team_id=1,
-                            model=OpenAIModel.GPT_4_1_MINI,
-                        )
-
-                    different_team_result = await summarize_evaluation_runs(
-                        evaluation_runs=[{"generation_id": "g3", "result": True, "reasoning": "good"}],
-                        team_id=2,
-                        model=OpenAIModel.GPT_4_1_MINI,
-                    )
-                    assert different_team_result.overall_assessment == "Mostly passing."
-                finally:
-                    release_first_call.set()
-                    await first_summary
-
-                assert mock_client.chat.completions.create.await_count == 2
-
-        asyncio.run(run_summaries())
-
-    def test_large_run_set_bounds_every_request_and_retries_incomplete_maps(self) -> None:
-        def response_with_content(content: str) -> MagicMock:
-            response = MagicMock()
-            response.choices = [MagicMock()]
-            response.choices[0].message.content = content
-            return response
-
-        merged_response = response_with_content(
-            json.dumps(
-                {
-                    "overall_assessment": "The only failures were unsupported factual claims.",
-                    "pass_patterns": [],
-                    "fail_patterns": [],
-                    "na_patterns": [],
-                    "recommendations": ["Require citations for factual claims."],
-                    "statistics": {"total_analyzed": 0, "pass_count": 0, "fail_count": 0, "na_count": 0},
-                }
-            )
-        )
-
-        run_count = EVALUATION_SUMMARY_MAX_RUNS
-        runs = [
-            {
-                "generation_id": f"g{i}",
-                "result": i % 2 == 0,
-                "reasoning": f"Distinct reasoning for run {i}. " + "r" * 2_000,
-            }
-            for i in range(run_count)
-        ]
-
-        returned_incomplete_map = False
-
-        def completion_response(**kwargs: Any) -> MagicMock:
-            nonlocal returned_incomplete_map
-            schema_name = kwargs["response_format"]["json_schema"]["name"]
-            if schema_name == "evaluation_summary":
-                return merged_response
-
-            user_prompt = kwargs["messages"][1]["content"]
-            if schema_name == "evaluation_summary_candidates":
-                if not returned_incomplete_map:
-                    returned_incomplete_map = True
-                    return response_with_content(json.dumps({"patterns": []}))
-
-                prompt_runs = re.findall(r"- Generation ID: (.+)\n  Result: (PASS|FAIL|N/A)", user_prompt)
-                return response_with_content(
-                    json.dumps(
-                        {
-                            "patterns": [
-                                {
-                                    "result": {"PASS": "pass", "FAIL": "fail", "N/A": "na"}[result],
-                                    "title": f"Theme for {generation_id}".ljust(60, "x"),
-                                    "occurrence_count": 1,
-                                    "example_reasoning": f"Reasoning for {generation_id}".ljust(240, "r"),
-                                    "example_generation_ids": [generation_id],
-                                }
-                                for generation_id, result in prompt_runs
-                            ]
-                        }
-                    )
-                )
-
-            candidates = json.loads(user_prompt.split("Candidate themes to consolidate:\n", 1)[1])
-            reduced_candidates = []
-            for result in ("pass", "fail", "na"):
-                matching_candidates = [candidate for candidate in candidates if candidate["result"] == result]
-                if matching_candidates:
-                    representative = {
-                        **matching_candidates[0],
-                        "occurrence_count": sum(candidate["occurrence_count"] for candidate in matching_candidates),
-                        "example_generation_ids": [
-                            generation_id
-                            for candidate in matching_candidates
-                            for generation_id in candidate["example_generation_ids"]
-                        ][:3],
-                    }
-                    reduced_candidates.append(representative)
-            return response_with_content(json.dumps({"patterns": reduced_candidates}))
-
-        with patch(
-            "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client"
-        ) as mock_builder:
+        with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
-            mock_client.chat.completions.create = AsyncMock(side_effect=completion_response)
-            mock_builder.return_value = mock_client
+            mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = [flex_error, mock_response]
 
-            result = asyncio.run(
-                summarize_evaluation_runs(
-                    evaluation_runs=runs,
-                    team_id=1,
-                    model=OpenAIModel.GPT_4_1_MINI,
-                )
+            result = summarize_with_openai(
+                text_repr="L1: Test",
+                team_id=1,
+                mode=SummarizationMode.MINIMAL,
+                model=OpenAIModel.GPT_5_NANO,
+                flex=True,
             )
 
-        all_calls = mock_client.chat.completions.create.await_args_list
-        map_calls = [
-            call
-            for call in all_calls
-            if call.kwargs["response_format"]["json_schema"]["name"] == "evaluation_summary_candidates"
-        ]
-        reduce_calls = [
-            call
-            for call in all_calls
-            if call.kwargs["response_format"]["json_schema"]["name"] == "evaluation_summary_reduced_candidates"
-        ]
+            assert isinstance(result, SummarizationResponse)
+            assert mock_client.chat.completions.create.call_count == 2
+            retry_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
+            assert retry_kwargs.get("service_tier") == omit
+            assert retry_kwargs["timeout"] == SUMMARIZATION_TIMEOUT
 
-        assert returned_incomplete_map
-        assert len(map_calls) == len({call.kwargs["messages"][1]["content"] for call in map_calls}) + 1
-        assert reduce_calls
-        for completion_call in all_calls:
-            messages = completion_call.kwargs["messages"]
-            assert sum(len(message["content"]) for message in messages) <= EVALUATION_SUMMARY_PROMPT_MAX_CHARS
+    def test_flex_config_error_does_not_fall_back(self, valid_response_json):
+        # A 400 (bad request) on flex is a configuration bug the standard tier shares; falling
+        # back would mask it, so it must propagate instead.
+        with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = BadRequestError(
+                "bad request", response=httpx.Response(400, request=_REQUEST), body=None
+            )
 
-        for map_call in map_calls:
-            user_prompt = map_call.kwargs["messages"][1]["content"]
-            response_schema = map_call.kwargs["response_format"]["json_schema"]["schema"]
-            candidate_properties = response_schema["$defs"]["EvaluationPatternCandidate"]["properties"]
+            with pytest.raises(exceptions.APIException, match="Failed to generate summary"):
+                summarize_with_openai(
+                    text_repr="L1: Test",
+                    team_id=1,
+                    mode=SummarizationMode.MINIMAL,
+                    model=OpenAIModel.GPT_5_NANO,
+                    flex=True,
+                )
 
-            assert response_schema["properties"]["patterns"]["maxItems"] == user_prompt.count("- Generation ID:")
-            assert candidate_properties["occurrence_count"]["maximum"] == user_prompt.count("- Generation ID:")
-            assert "maxLength" in candidate_properties["title"]
-            assert "maxLength" in candidate_properties["example_reasoning"]
-            assert "maxItems" in candidate_properties["example_generation_ids"]
+            assert mock_client.chat.completions.create.call_count == 1
 
-        merge_user_prompt = all_calls[-1].kwargs["messages"][1]["content"]
-        assert f'"total_analyzed":{run_count}' in merge_user_prompt
-        assert result.statistics.total_analyzed == run_count
-        assert result.statistics.pass_count == run_count // 2
-        assert result.statistics.fail_count == run_count // 2
+    def test_standard_tier_rate_limit_does_not_retry(self):
+        with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = _rate_limit_error()
+
+            with pytest.raises(exceptions.APIException, match="Failed to generate summary"):
+                summarize_with_openai(
+                    text_repr="L1: Test",
+                    team_id=1,
+                    mode=SummarizationMode.MINIMAL,
+                    model=OpenAIModel.GPT_5_NANO,
+                    flex=False,
+                )
+
+            assert mock_client.chat.completions.create.call_count == 1

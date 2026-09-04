@@ -42,43 +42,6 @@
     "src/features/navigation/components/NavDrawer.tsx": {
       "TS2551 Property 'absoluteFillObject' does not exist on type 'typeof StyleSheet'. Did you mean 'absoluteFill'?": 2
     },
-    "src/features/tasks/components/AutomationDetail.tsx": {
-      "TS2459 Module '\"@posthog/api-client/posthog-client\"' declares 'TaskAutomation' locally, but it is not exported.": 1
-    },
-    "src/features/tasks/components/AutomationForm.test.tsx": {
-      "TS2339 Property 'root' does not exist on type 'never'.": 7,
-      "TS7006 Parameter 'node' implicitly has an 'any' type.": 2
-    },
-    "src/features/tasks/components/AutomationForm.tsx": {
-      "TS2459 Module '\"@posthog/api-client/posthog-client\"' declares 'CreateTaskAutomationOptions' locally, but it is not exported.": 1
-    },
-    "src/features/tasks/components/AutomationItem.tsx": {
-      "TS2459 Module '\"@posthog/api-client/posthog-client\"' declares 'TaskAutomation' locally, but it is not exported.": 1
-    },
-    "src/features/tasks/components/AutomationList.tsx": {
-      "TS2459 Module '\"@posthog/api-client/posthog-client\"' declares 'TaskAutomation' locally, but it is not exported.": 1
-    },
-    "src/features/tasks/components/AutomationSkillCard.test.tsx": {
-      "TS2339 Property 'root' does not exist on type 'never'.": 5,
-      "TS7006 Parameter 'node' implicitly has an 'any' type.": 5
-    },
-    "src/features/tasks/components/AutomationSkillCard.tsx": {
-      "TS2305 Module '\"@posthog/api-client\"' has no exported member 'LlmSkillListItem'.": 1
-    },
-    "src/features/tasks/components/AutomationSkillChooser.test.tsx": {
-      "TS2339 Property 'root' does not exist on type 'never'.": 8,
-      "TS7006 Parameter 'node' implicitly has an 'any' type.": 4
-    },
-    "src/features/tasks/components/AutomationStatusBadge.test.tsx": {
-      "TS2339 Property 'toJSON' does not exist on type 'never'.": 2
-    },
-    "src/features/tasks/components/CreateAutomationScreen.test.tsx": {
-      "TS2339 Property 'root' does not exist on type 'never'.": 5,
-      "TS7006 Parameter 'node' implicitly has an 'any' type.": 2
-    },
-    "src/features/tasks/components/PlanApprovalCard.test.tsx": {
-      "TS2339 Property 'root' does not exist on type 'never'.": 2
-    },
     "src/features/tasks/components/PlanApprovalCard.tsx": {
       "TS2345 Argument of type 'CloudPermissionOption' is not assignable to parameter of type 'PermissionOption'.": 3
     },
@@ -92,11 +55,6 @@
     },
     "src/features/tasks/composer/DotBackground.tsx": {
       "TS2551 Property 'absoluteFillObject' does not exist on type 'typeof StyleSheet'. Did you mean 'absoluteFill'?": 1
-    },
-    "src/features/tasks/hooks/useAutomations.ts": {
-      "TS2459 Module '\"@posthog/api-client/posthog-client\"' declares 'CreateTaskAutomationOptions' locally, but it is not exported.": 1,
-      "TS2459 Module '\"@posthog/api-client/posthog-client\"' declares 'TaskAutomation' locally, but it is not exported.": 1,
-      "TS2459 Module '\"@posthog/api-client/posthog-client\"' declares 'UpdateTaskAutomationOptions' locally, but it is not exported.": 1
     },
     "src/features/tasks/hooks/useCloudAttachmentPreview.ts": {
       "TS2305 Module '\"../types\"' has no exported member 'CloudArtifactRef'.": 1

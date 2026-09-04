@@ -46,6 +46,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
     MyTickets: () => import('../../products/conversations/frontend/scenes/myTickets/MyTicketsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
+    CustomerAnalyticsAccount: () =>
+        import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsAccountScene/CustomerAnalyticsAccountScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
     CustomerJourneyBuilder: () =>
@@ -88,6 +90,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
     ErrorTrackingFingerprint: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
+    Experiments: () => import('../../products/experiments/frontend/scenes/ExperimentsScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
@@ -124,9 +127,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
-    ReplayVisionAction: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionScene'),
-    ReplayVisionActionEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ActionEditorScene'),
-    ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
     Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
@@ -154,6 +154,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
     VisualReviewSnapshotOverview: () =>
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
+    VisualReviewFlakiness: () => import('../../products/visual_review/frontend/scenes/VisualReviewFlakinessScene'),
     Heatmaps: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmaps/HeatmapsScene'),
     Heatmap: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapScene'),
     HeatmapNew: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapNewScene'),

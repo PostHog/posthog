@@ -7,7 +7,7 @@ from posthog.schema import HogQLNotice, HogQLQuery
 
 from posthog.models import EventDefinition
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.mcp_tool import (

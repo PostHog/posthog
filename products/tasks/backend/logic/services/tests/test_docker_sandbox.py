@@ -52,6 +52,29 @@ def test_start_agent_server_health_check_timeout_is_retryable_and_not_captured(s
     capture_exception.assert_not_called()
 
 
+def test_docker_sandbox_does_not_combine_agent_server_start_and_health(sandbox: DockerSandbox):
+    assert sandbox.supports_combined_agent_server_start_and_health() is False
+
+
+def test_read_agent_server_boot_metrics_includes_process_milestones(sandbox: DockerSandbox):
+    response = ExecutionResult(
+        stdout='{"sessionInitMs":90,"boot":{"totalMs":140,"httpReadyMs":12,"launcherToProcessMs":8,"phasesMs":{"context_fetch":40,"secret":1}}}',
+        stderr="",
+        exit_code=0,
+    )
+    with patch.object(sandbox, "execute", return_value=response):
+        assert sandbox.read_agent_server_boot_metrics() == (
+            90,
+            {"context_fetch": 40, "server_total": 140, "http_ready": 12, "launcher_to_process": 8},
+        )
+
+
+def test_read_agent_server_boot_metrics_uses_pi_boot_total(sandbox: DockerSandbox):
+    response = ExecutionResult(stdout='{"sessionInitMs":90,"bootMs":140}', stderr="", exit_code=0)
+    with patch.object(sandbox, "execute", return_value=response):
+        assert sandbox.read_agent_server_boot_metrics() == (90, {"server_total": 140})
+
+
 def test_build_agent_server_command_gates_exec_permission_regex(sandbox: DockerSandbox):
     with_flag = sandbox._build_agent_server_command(
         None, "t1", "r1", "interactive", True, posthog_exec_permission_regex=POSTHOG_EXEC_PERMISSION_REGEX

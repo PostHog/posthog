@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from posthog.schema import AssistantTrendsQuery, Compare, DateRange, TrendsQuery
 
-from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
+from posthog.hogql_queries.utils.breakdowns import humanize_breakdown_label
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
@@ -83,7 +83,7 @@ class TrendsResultsFormatter:
 
         row = [range]
         for series in results:
-            row.append(format_number(series["aggregated_value"]))
+            row.append(format_number(series.get("aggregated_value")))
         matrix.append(row)
 
         return format_matrix(matrix)
@@ -151,9 +151,9 @@ class TrendsResultsFormatter:
         return humanize_breakdown_label(name)
 
     def _format_results(self, results: list[dict]) -> str:
-        # Get dates and series labels
-        result = results[0]
-        aggregation_applied = result.get("aggregated_value") is not None
+        # Route on any aggregated series rather than the first, because a mixed set can lead
+        # with a time-series series while a later one carries the aggregate.
+        aggregation_applied = any(series.get("aggregated_value") is not None for series in results)
         if aggregation_applied:
             return self._format_aggregated_values(results)
         else:

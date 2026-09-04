@@ -178,7 +178,19 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Can't connect to MySQL server on": None,
+            # pymysql collapses every connect-level failure (wrong host/port, closed firewall,
+            # unreachable host, a connect timeout that outlasts the in-process retry budget) into
+            # error 2003, "Can't connect to MySQL server on '<host>' (<os detail>)". Non-retryable
+            # for the same reason as the Postgres source's connect-timeout entry: a persistently
+            # unreachable host won't recover on retry. Give the actionable reachability guidance the
+            # raw driver tuple lacks; the volatile host/os-detail are excluded from the match. The
+            # create-time `_VALIDATE_CONNECTION_HINTS` above stay more granular.
+            "Can't connect to MySQL server on": (
+                "PostHog couldn't connect to your MySQL server. Check that the host and port are "
+                "correct and that the database is reachable from the public internet, with PostHog's "
+                "egress IP addresses allowed through your firewall. For a database that can't be "
+                "exposed publicly, use the SSH tunnel option, then re-enable the sync."
+            ),
             "No primary key defined for table": (
                 "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
                 "key for the table in its sync settings, or switch it to full table replication, then "
@@ -391,6 +403,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "Too many connections",
             "Can't create a new thread",
             "reparent operation in progress",
+            # TiProxy cannot reach a TiDB backend due to a failover, restart, or momentary
+            # network blip. `_connect_with_transient_retry` already retries it in-process (see
+            # `_is_transient_tiproxy_unavailable` in mysql.py). This entry is the backstop for
+            # the rare case where it exhausts that budget so Temporal's own activity retry
+            # can recover it rather than surfacing it as error-tracking noise.
+            "TiProxy fails to connect to TiDB",
         }
 
     def reconcile_schema_metadata(

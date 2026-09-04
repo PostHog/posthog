@@ -103,7 +103,10 @@ ${truncatedDiff}${contextSection}`;
       {
         system,
         model: HELPER_GATEWAY_MODEL,
-        posthogProperties: { $ai_span_name: "commit_message" },
+        posthogProperties: {
+          $ai_span_name: "commit_message",
+          task_execution_environment: "local",
+        },
       },
     );
 
@@ -219,7 +222,10 @@ ${truncatedDiff || "(no diff available)"}${contextSection}`;
         system,
         maxTokens: 2000,
         model: HELPER_GATEWAY_MODEL,
-        posthogProperties: { $ai_span_name: "pr_description" },
+        posthogProperties: {
+          $ai_span_name: "pr_description",
+          task_execution_environment: "local",
+        },
       },
     );
 
@@ -259,7 +265,10 @@ Rules:
         system,
         maxTokens: 30,
         model: HELPER_GATEWAY_MODEL,
-        posthogProperties: { $ai_span_name: "pr_short_summary" },
+        posthogProperties: {
+          $ai_span_name: "pr_short_summary",
+          task_execution_environment: "local",
+        },
       },
     );
 

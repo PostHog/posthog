@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     BRAINTREE_VERSION_2019_01_01,
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
+    BRAINTREE_VERSION_2026_08_13,
     MAX_PAGE_SIZE,
     BraintreeGraphQLError,
     BraintreeResumeConfig,
@@ -197,7 +198,12 @@ class TestGetRows:
 
     @pytest.mark.parametrize(
         "api_version",
-        [BRAINTREE_VERSION_2019_01_01, BRAINTREE_VERSION_2026_07_14, BRAINTREE_VERSION_2026_08_04],
+        [
+            BRAINTREE_VERSION_2019_01_01,
+            BRAINTREE_VERSION_2026_07_14,
+            BRAINTREE_VERSION_2026_08_04,
+            BRAINTREE_VERSION_2026_08_13,
+        ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_session_uses_basic_auth_and_version_header(self, mock_session, api_version):

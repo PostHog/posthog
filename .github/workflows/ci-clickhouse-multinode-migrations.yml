@@ -32,6 +32,9 @@ jobs:
     multinode-migration-smoke:
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         # The common path primes Postgres from the master schema artifact. The
         # fallback applies every Django migration from scratch and grows with the
         # migration count, so the timeout is sized for the fallback. Raise it if
@@ -68,7 +71,7 @@ jobs:
 
             - name: Add multinode hostnames to /etc/hosts
               run: |
-                  echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs kafka zookeeper" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium kafka zookeeper" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0

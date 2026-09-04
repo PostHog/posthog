@@ -41,9 +41,14 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
                 defaultValue={currentValue}
                 min={1}
                 onChange={(newValue: number | undefined) => {
-                    if (newValue !== undefined) {
-                        updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value: newValue } })
+                    // A cleared or half-typed number field reports NaN, which would serialize to null and
+                    // fail the backend's integer validation, so drop any non-finite value.
+                    if (newValue === undefined || !Number.isFinite(newValue)) {
+                        return
                     }
+                    // The backend requires an integer of at least 1, so never post 0 or a negative value.
+                    const value = Math.max(1, Math.floor(newValue))
+                    updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value } })
                 }}
             />
             <span className="@min-[0px]/editor-panel:whitespace-nowrap">time(s) per interval</span>

@@ -94,11 +94,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Node.objects.filter(saved_query_id=saved_query_id).exists())
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_saved_query_workflow")
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
-    )
-    def test_materialize_updates_node_type(self, _mock_workflow_exists, _mock_sync_workflow):
+    def test_materialize_updates_node_type(self):
         # create
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -117,17 +113,18 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertEqual(node.type, NodeType.VIEW)
 
         # materialize
-        materialize_response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize/"
-        )
+        with patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value={str(node.dag_id)},
+        ):
+            materialize_response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize/"
+            )
         self.assertEqual(materialize_response.status_code, status.HTTP_200_OK)
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.MAT_VIEW)
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=True
-    )
-    def test_revert_materialization_updates_node_type(self, _mock_workflow_exists):
+    def test_revert_materialization_updates_node_type(self):
         # create materialized
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",

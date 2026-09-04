@@ -28,6 +28,7 @@ describe('AlertLeadingActions', () => {
                 onDeleteAlert={() => {}}
                 onSnoozeAlert={() => {}}
                 onClearSnooze={() => {}}
+                clearSnoozeLoading={false}
                 onSendTestDelivery={() => {}}
                 testDeliveryLoading={false}
                 showTestDelivery={false}
@@ -40,5 +41,36 @@ describe('AlertLeadingActions', () => {
             return
         }
         expect(deleteAction).toBeNull()
+    })
+
+    it.each([
+        ['with an expiry', '2026-08-21T14:30:00Z', false, /Snoozed until/],
+        ['without an expiry', null, false, /^Snoozed$/],
+        ['while unsnoozing', '2026-08-21T14:30:00Z', true, /Snoozed until/],
+    ])('shows the snoozed state %s', (_, snoozedUntil, loading, expectedLabel) => {
+        const snoozedAlert = {
+            ...alert,
+            state: AlertState.SNOOZED,
+            snoozed_until: snoozedUntil,
+        } as AlertType
+
+        render(
+            <AlertLeadingActions
+                alertForm={alertForm}
+                alert={snoozedAlert}
+                onDeleteAlert={() => {}}
+                onSnoozeAlert={() => {}}
+                onClearSnooze={() => {}}
+                clearSnoozeLoading={loading}
+                onSendTestDelivery={() => {}}
+                testDeliveryLoading={false}
+                showTestDelivery={false}
+            />
+        )
+
+        expect(screen.getByText(expectedLabel)).not.toBeNull()
+        expect(screen.getByLabelText('Unsnooze alert').getAttribute('aria-disabled')).toBe(String(loading))
+        expect(screen.queryByText('Snooze until')).toBeNull()
+        expect(screen.queryByText('Clear snooze')).toBeNull()
     })
 })

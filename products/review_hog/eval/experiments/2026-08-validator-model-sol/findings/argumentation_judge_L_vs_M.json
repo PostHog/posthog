@@ -1,0 +1,208 @@
+{
+    "scores": {
+        "A": {
+            "evidence": 5,
+            "verify": 4,
+            "readability": 3
+        },
+        "B": {
+            "evidence": 4,
+            "verify": 3,
+            "readability": 5
+        }
+    },
+    "median_words": {
+        "A": 335,
+        "B": 126
+    },
+    "pairs": [
+        {
+            "a": "LA1",
+            "b": "MA14",
+            "better": "A",
+            "why": "LA1 tests the 'permanent' claim against the recovery paths it names: later output saves driven by the CI follow-up loop (MAX_CI_REPETITIONS, CI_FOLLOW_UP_DELAY at workflow.py:451-655), the webhook carve-out, and Celery's default publish retry, and checks the sibling leg's identical contract. MA14 names the same two recovery events but dismisses them as 'not guaranteed' without checking either."
+        },
+        {
+            "a": "LB15",
+            "b": "MB3",
+            "better": "A",
+            "why": "Both close the webhook route with citations. LB15 adds the publish-retry layer, the row-locked head dedupe that makes re-dispatch safe, and the docstring stating re-fire is designed; MB3's key hop rests on 'no code guarantees another output save'. Marginal."
+        },
+        {
+            "a": "LA5",
+            "b": "MA4",
+            "better": "A",
+            "why": "LA5 verifies that later saves re-fire by citing set_task_run_output preserving pr_url (facade/api.py:2146-2154) and checks the shipped master version. MA4 closes only the webhook route (webhooks.py:203-213) and assumes no later output save occurs."
+        },
+        {
+            "a": "LB6",
+            "b": "MB9",
+            "better": "A",
+            "why": "LB6 checks the receiver's post_save contract, the sibling leg, Celery's publish-retry default, and both recovery paths. MB9 restates the dispatch chain with line numbers and concedes the re-fire path without testing it."
+        },
+        {
+            "a": "LA6",
+            "b": "MA15",
+            "better": "tie",
+            "why": "LA6 surveys acks_late repo-wide, finds the QUEUED restart at tasks.py:1211-1214, and notes the rate-limit branch already honors retry_after. MA15 traces each retry to the same QUEUED row and proves the missing reconciler with a negative search of schedules.py. Different strengths, equal weight."
+        },
+        {
+            "a": "LB5",
+            "b": "MB10",
+            "better": "A",
+            "why": "Both prove the early-ack default and the safe redelivery. LB5 also closes the alternate initial-review path (carve-out gate at tasks.py:167), quotes the author's own 'no webhook redelivery' comment, and cites four in-repo acks_late precedents that support the fix shape."
+        },
+        {
+            "a": "LA3",
+            "b": "MA3",
+            "better": "A",
+            "why": "MA3 verifies the chain from webhook action to prompt in six sentences. LA3 additionally shows the prompt carries no other draft fact (review_pr.py:590, reviewer.py:555-568), checks the fix is one in-scope value, and explains the priority cut. Marginal."
+        },
+        {
+            "a": "LB3",
+            "b": "MB2",
+            "better": "A",
+            "why": "Same chain. LB3 adds that stamphog_draft at reviewer.py:363 goes to analytics rather than the prompt, so nothing contradicts the false sentence, and reasons about whether a verdict can flip. Marginal."
+        },
+        {
+            "a": "LA4",
+            "b": "MA1",
+            "better": "A",
+            "why": "LA4 proves the two paths sit on different databases through products/db_routing.yaml, which is what makes the exposure real, and shows the window does not close on its own (_HEAD_CHANGING_ACTIONS). MA1 verifies the retry exit, the early webhook 200, and the idempotent dismissal but takes the shared-failure premise as given."
+        },
+        {
+            "a": "LA17",
+            "b": "MA11",
+            "better": "A",
+            "why": "LA17 tests the finding's 'required gate' against the test that asserts the opposite (test_inbox_trigger.py:228-238), three sibling tests, and the maintainer-decision citation. MA11 finds the settings copy and a coverage gap but never reconciles the test that pins the rule, and it sits beside MA5, which rejects the same claim in the same run."
+        },
+        {
+            "a": "LB11",
+            "b": "MB19",
+            "better": "A",
+            "why": "MB19 checks the Inbox filter, the settings copy, and test coverage. LB11 shows why the miss is common (background tasks are created as the integration user, so resolved[0] wins), cites master's split resolver as confirmation, and corrects its own claim that the two paths disagree. Marginal, and MB19 contradicts MB11 in the same run."
+        },
+        {
+            "a": "LA16",
+            "b": "MA12",
+            "better": "A",
+            "why": "LA16 verifies that a shadowing row is free to create (free-text repository, set_output under task:write) and that the facade docstring promises what it does not deliver. MA12 restates the selection order with line numbers and stops."
+        },
+        {
+            "a": "LB16",
+            "b": "MB18",
+            "better": "B",
+            "why": "MB18 verifies the one path LB16 names and then leaves unexamined, a caller writing another run's output.pr_url (facade/api.py:2139-2154). LB16's dismissal of that path contradicts LB8 in the same run, which establishes exactly that write surface."
+        },
+        {
+            "a": "LA10",
+            "b": "MA6",
+            "better": "B",
+            "why": "MA6 verifies the write surface with three output paths and the team control rule. LA10 rests on 'the only externally driven writer of output.pr_url is the webhook backstop', which LA11 and LA13 in the same run refute with the set_output endpoint."
+        },
+        {
+            "a": "LA11",
+            "b": "MA7",
+            "better": "B",
+            "why": "LA11 is the deepest trace in either arm (auth classes, attested-keys comment, the false docstring precondition at tasks.py:1117). MA7 covers the same chain to the approval sink, cites the integration test that proves it posts, narrows the reachable target set, and shows why the suggested task_run_id match would not help, in a third of the words. Marginal."
+        },
+        {
+            "a": "LB8",
+            "b": "MB15",
+            "better": "A",
+            "why": "MB15 covers both write surfaces and the sink compactly. LB8 also confirms the save reaches the receiver through the update_fields guard (facade/api.py:2154) and shows the activities.py:448-450 comment is false on this leg. Marginal."
+        },
+        {
+            "a": "LA13",
+            "b": "MA8",
+            "better": "A",
+            "why": "MA8 verifies each hop to post_verdict. LA13 adds the sibling-leg contrast (fork, linkage, live toggle recheck at tasks.py:169-207) and the master fix with its comment as independent confirmation. Marginal."
+        },
+        {
+            "a": "LB12",
+            "b": "MB16",
+            "better": "A",
+            "why": "LB12 finds the in-repo precedent that already distrusts output.pr_url (facade/api.py:1940-1972, urlparse plus repository match), checks that no test covers the receiver leg, and corrects two of the finding's weaker sub-claims. MB16 verifies the chain and cites one API test."
+        },
+        {
+            "a": "LA15",
+            "b": "MA9",
+            "better": "A",
+            "why": "LA15 checks the finding's second sub-claim, that task fields are caller-writable, via TaskWriteSerializer:411-462 and validate_signal_report. MA9 verifies the run-output hop only and leaves the task-field hop asserted."
+        },
+        {
+            "a": "LA19",
+            "b": "MA10",
+            "better": "A",
+            "why": "LA19 lists the pre-sandbox filters this leg skips (a LABEL-mode repo reviews an unlabeled PR), shows the sandbox agent writes the same field by design, and notes the engine-side half of the fix adds little. MA10 is a six-line restatement with citations."
+        },
+        {
+            "a": "LB10",
+            "b": "MB8",
+            "better": "B",
+            "why": "MB8 verifies the write surface and honestly notes that JSON truthiness is not the hosted exploit. LB10 rejects on 'no endpoint accepts a caller-supplied output.pr_url', a premise LB8 in the same run refutes with the set_output endpoint."
+        },
+        {
+            "a": "LA23",
+            "b": "MA17",
+            "better": "A",
+            "why": "Both prove which models canonicalize and where the raw comparison fails. LA23 closes the 'why does the first leg work' hop with for_team's canonicalization (manager.py:118-131), which MA17 leaves as an assertion; MA17 anticipates the partial-fix trap. Marginal."
+        },
+        {
+            "a": "LB7",
+            "b": "MA2",
+            "better": "tie",
+            "why": "Both trace the permission stack to the parent-scoped write, find the sibling StamphogCanonicalTeamAccessPermission and its test, and catch that INTERNAL scope already rejects token auth. LB7 adds the user-keyed narrowing and the logs precedent; MA2 says the rest in a third of the words."
+        },
+        {
+            "a": "LA20",
+            "b": "MA18",
+            "better": "tie",
+            "why": "LA20 tests the remedy and argues a recheck moves the boundary rather than closing it, but its 'milliseconds' window concedes the queue-backlog case the finding names. MA18 verifies the QUEUED-restart hop and cites ReviewHog's own workflow recheck (workflow.py:424-436) as precedent for the fix."
+        },
+        {
+            "a": "LB13",
+            "b": "MA19",
+            "better": "A",
+            "why": "LB13 tests the remedy and finds a concrete regression: the cloud-to-local handoff marks runs cancelled (facade/api.py:2104), so rejecting terminal runs would dismiss approvals on live PRs. MA19 restates the status sets with citations and the receiver contrast."
+        },
+        {
+            "a": "LB14",
+            "b": "MB20",
+            "better": "A",
+            "why": "LB14 shows the relationship label is caller-supplied free text (serializers.py:442-448) so the proposed check is not a boundary, and that tightening only the facade would regress re-reviews. MB20 verifies the claim through the API tests but does not test the remedy."
+        },
+        {
+            "a": "LA8",
+            "b": "MB13",
+            "better": "A",
+            "why": "LA8 shows the existing webhook path has the same equal-timestamp semantics on purpose (quoted comment at tasks.py:1014), that the state self-heals because dedupe excludes SUPERSEDED, and that the remedy puts a GitHub call inside a locked transaction. MB13 traces to 'does not restore the superseded run' and adds a useful test-coverage check but stops there."
+        },
+        {
+            "a": "LB21",
+            "b": "MB12",
+            "better": "A",
+            "why": "Both prove the skip path only sweeps by posted_review_id. LB21 enumerates three existing safety nets with citations (immediate persist, retry adopts the approval, terminal sweep) and weighs the remedy's per-delivery GitHub call; MB12 checks one retry path (activities.py:589-600). Marginal."
+        },
+        {
+            "a": "LA18",
+            "b": "MA16",
+            "better": "B",
+            "why": "MA16 verifies with the auto-start test and confirms the receiver fixtures use internal=False (test_inbox_trigger.py:61-80), where LA18 only infers the fixture shape. LA18's comment-vs-code contradiction and master confirmation are good but secondary."
+        }
+    ],
+    "unpaired_notes": {
+        "LA14": "Arm A's best provenance block: finds the strict _is_own_bot_actor(allow_any_bot=False) check the product already owns and shows the carve-out is the one security decision left on the fuzzy match.",
+        "LA22": "Best rejection in either arm: reads the replica router line by line, shows the opt-in list is empty and the router unregistered without a read host, and names the only global escape hatch.",
+        "LA9": "Strong rejection: traces familiarity to its source suppression in activities.py and cites the test that asserts both flags on the same run.",
+        "LA2/LB9": "Both parser rejections trace the parsed slug to a config lookup key and show a host check removes no capability. Good verify-the-remedy work.",
+        "LB17": "Checks the PR diff itself (gh pr diff) to show the WAIT block is unchanged, then finds the outcome is recorded server-side anyway.",
+        "LA16/LB16": "Arm A disagrees with itself across runs on the branch leg: LA16 says it has no ordering at all, LB16 says it inherits Meta.ordering at models.py:1146. One of them did not check.",
+        "MA5/MB11": "Arm B rejects the secondary-reviewer claim at the webhook resolver (DECISIONS.md:2668, test at 228-238) in the same runs where MA11 and MB19 uphold it at the receiver. The validator applied opposite rules to one mechanism.",
+        "MA13": "Good: verifies the safe opt-out path through test_tasks.py:795-827 and weighs the remedy trade-off (retract before retry versus treating the failure as an opt-out).",
+        "MB4": "Arm B's best rejection: traces the PullRequest row lock through the upsert and the unique key to show the claimed race serializes.",
+        "MB7": "Checks both prompt layers into the SDK call and shows the test stub replaces the LLM, so it cannot catch the conflict.",
+        "MB14/MB17": "Run B carries four provenance write-ups (MB14-MB17) and run A five (MA6-MA10) that argue one defect from different files; none flags the overlap. Arm A's LA10/LA11/LA13/LA14/LA15/LA19 has the same shape, but LA11 at least notes the webhook sub-claim is weaker."
+    },
+    "verdict": "Arm A argues better on evidence and verification: it closes alternate paths with constants and tests, tests the proposed remedy against the code (LB13, LB14, LA8, LB21), and cites the shipped master version as independent confirmation, but it pays in length (median 335 vs 126 words, about 20 vs 11 words per sentence) and twice rejects a claim on a premise the same run refutes elsewhere (LA10 against LA11/LA13, LB10 against LB8), with LB16 waving off the path LB8 established. Arm B is far more readable and every sentence carries a citation, yet its blocks mostly restate the finding hop by hop, dismiss recovery paths as 'not guaranteed' without testing them, and apply opposite rules to the secondary-reviewer mechanism inside one run (MA5 vs MA11, MB11 vs MB19); pair tally: A wins 21 (8 marginal), B wins 5 (1 marginal), 3 ties."
+}

@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.giphy import GiphySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.giphy import GiphyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.source import GiphySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints that need a user-supplied search query (hidden until one is set).
 SEARCH_ENDPOINTS = {"gifs_search", "stickers_search"}
@@ -20,36 +15,6 @@ class TestGiphySource:
         self.team_id = 123
         self.config = GiphySourceConfig(api_key="key", search_query=None)
         self.config_with_query = GiphySourceConfig(api_key="key", search_query="cats")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GIPHY
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Giphy"
-        assert config.label == "Giphy"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/giphy.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "search_query"]
-
-    def test_api_key_field_is_secret_password_required(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
-
-    def test_search_query_field_is_optional_text(self):
-        config = self.source.get_source_config
-        query_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "search_query"
-        )
-        assert query_field.type == SourceFieldInputConfigType.TEXT
-        assert query_field.required is False
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -127,29 +92,3 @@ class TestGiphySource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_key)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is GiphyResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.giphy.source.giphy_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_giphy_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "gifs_search"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config_with_query, manager, inputs)
-
-        mock_giphy_source.assert_called_once()
-        kwargs = mock_giphy_source.call_args.kwargs
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "gifs_search"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["search_query"] == "cats"
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-        for endpoint in ENDPOINTS:
-            assert descriptions[endpoint]["description"]

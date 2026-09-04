@@ -71,6 +71,7 @@ import {
 } from '~/types'
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
@@ -1119,6 +1120,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
             )}
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
+
+            <FractionalRolloutWarning filterGroups={filterGroups} />
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 

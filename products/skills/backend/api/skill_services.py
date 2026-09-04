@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -5,8 +6,10 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import (
     LLMSkill,
     LLMSkillFile,
@@ -19,6 +22,64 @@ MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 200
+# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
+# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
+# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
+# Here rather than in skill_serializers so the publish path can hold a slug to the same rule without
+# importing the serializers that import it.
+RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
+SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+MAX_SKILL_NAME_LENGTH = 64
+# Bundled-file paths that would collide with generated artifacts in the exported skill
+# tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
+RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def skill_name_is_well_formed(value: str) -> bool:
+    """The shape half of the skill-name contract, without the reserved-name rule.
+
+    ``fullmatch`` rather than ``match``: ``$`` matches before a trailing newline, so ``match`` would
+    accept ``"safe\n"``. Archive writers use this to skip legacy rows that predate the validator,
+    where a name is a directory and a reserved route name is harmless.
+    """
+    return len(value) <= MAX_SKILL_NAME_LENGTH and SKILL_NAME_PATTERN.fullmatch(value) is not None and "--" not in value
+
+
+def normalize_skill_file_path(value: str) -> str:
+    """Return the canonical relative path for a bundled file, raising ValueError if it has none.
+
+    Here rather than in skill_serializers so the publish path can canonicalize a path the same way
+    without importing the serializers that import it. skill_serializers wraps it as the DRF
+    validator, so the request layer keeps reporting these as field errors.
+    """
+    # Paths become git tree entries (and zip/marketplace paths), so anything that would
+    # produce an empty or ambiguous entry name must be rejected — otherwise a single bad
+    # path synthesizes a corrupt git tree and breaks the whole team's marketplace clone.
+    normalized = value.replace("\\", "/")
+    if not normalized or normalized != normalized.strip():
+        raise ValueError("File path must be a non-empty, trimmed relative path.")
+    if normalized.startswith("/"):
+        raise ValueError("File paths must be relative, not absolute.")
+    if normalized.endswith("/"):
+        raise ValueError("File paths must not end with a slash.")
+    if any(part in ("", ".", "..") for part in normalized.split("/")):
+        raise ValueError("File paths must not contain empty, '.', or '..' segments.")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in normalized):
+        raise ValueError("File paths must not contain control characters.")
+    if normalized.lower() in RESERVED_SKILL_FILE_PATHS:
+        raise ValueError(f"'{value}' is a reserved file path and cannot be used.")
+    # Persist the normalized (forward-slash) form, not the original: backslashes mean "separator"
+    # here, so storing them verbatim would make `references\guide.md` a single flat tree entry
+    # rather than a file under `references/`, and would let the two spellings dodge dedup.
+    return normalized
+
+
+def check_allowed_tool_name(value: str) -> None:
+    """Raise ValueError when a tool name can't survive the Agent Skills allowed-tools encoding."""
+    # The Agent Skills spec serializes allowed-tools as a single space-separated string, so a tool
+    # name containing whitespace would silently fracture into multiple tools on export/round-trip.
+    if any(ch.isspace() for ch in value):
+        raise ValueError("Tool names cannot contain whitespace.")
 
 
 class LLMSkillNotFoundError(Exception):
@@ -52,6 +113,11 @@ class LLMSkillEditError(Exception):
 
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+@frozen
+class LLMSkillDescriptionTooLongError(Exception):
+    max_length: int
 
 
 @dataclass
@@ -240,6 +306,10 @@ def publish_skill_version(
         if current_latest.version >= MAX_SKILL_VERSION:
             raise LLMSkillVersionLimitError(max_version=MAX_SKILL_VERSION)
 
+        resolved_description = description if description is not None else current_latest.description
+        if len(resolved_description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
         if edits is not None:
             resolved_body = apply_skill_body_edits(current_latest.body, edits)
         else:
@@ -253,7 +323,7 @@ def publish_skill_version(
         published_skill = LLMSkill.objects.create(
             team=team,
             name=current_latest.name,
-            description=_carry_forward(description, current_latest.description),
+            description=resolved_description,
             body=resolved_body,
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
@@ -343,6 +413,9 @@ def create_skill(
     metadata: dict[str, Any] | None = None,
     files: list[dict[str, str]] | None = None,
 ) -> LLMSkill:
+    if len(description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
     if files and len(files) > MAX_SKILL_FILE_COUNT:
         raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
 
@@ -429,12 +502,16 @@ def duplicate_skill(
 
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
+        if len(source_latest.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
 
-        # A duplicate is a brand-new, user-authored skill under a new name, so it does not inherit the
-        # source's provenance or classification: drop the harness seed marker, and leave `category`
-        # at its default empty (the copy isn't a registered scout — it would only become one if named
-        # `signals-scout-*` and picked up by scout registration). This keeps non-runnable rows out of
-        # the Scouts tab and avoids mislabeling a fork as canonical.
+        # A duplicate is a brand-new, user-authored skill under a new name, so it inherits nothing
+        # from the source's provenance or classification: the harness seed marker is dropped, and
+        # `category` is derived from the new name exactly like the create paths do (empty unless the
+        # new name carries a registered prefix). Deriving instead of copying keeps a fork of a scout
+        # or canonical from carrying that grouping under an unrelated name, while a copy named into
+        # a registered prefix (e.g. adopting a skill as a ReviewHog perspective) groups like any
+        # other skill of that kind.
         duplicated_metadata = dict(source_latest.metadata or {})
         duplicated_metadata.pop("seeded_by", None)
 
@@ -448,6 +525,7 @@ def duplicate_skill(
                 compatibility=source_latest.compatibility,
                 allowed_tools=source_latest.allowed_tools,
                 metadata=duplicated_metadata,
+                category=category_for_skill_name(new_name),
                 version=1,
                 is_latest=True,
                 created_by=user,
@@ -493,6 +571,9 @@ def _create_next_version_with_files(
     current_latest: LLMSkill,
     next_files: list[LLMSkillFile],
 ) -> LLMSkill:
+    if len(current_latest.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
     LLMSkill.objects.filter(pk=current_latest.pk).update(is_latest=False)
     next_skill = LLMSkill.objects.create(
         team=team,
@@ -700,6 +781,20 @@ def resolve_skill_owners_for_names(team: Team, skill_names: list[str]) -> dict[s
     for row in rows:
         owners_by_name.setdefault(row.skill_name, []).append(row.user)
     return owners_by_name
+
+
+def skill_names_owned_by(team: Team, user_id: int) -> "QuerySet[LLMSkillOwner, str]":
+    """Names of the logical skills one user owns — backs the list endpoint's owner filter.
+
+    Returns a lazy values queryset so the caller can use it as a subquery instead of pulling every
+    name into memory. Same current-access filter as `resolve_skill_owners`: filtering by a user who
+    lost access matches nothing, rather than surfacing skills through a stale owner row.
+    """
+    return (
+        _owner_qs(team)
+        .filter(user_id=user_id, user__in=team.all_users_with_access())
+        .values_list("skill_name", flat=True)
+    )
 
 
 def clear_skill_owners(team: Team, skill_name: str) -> None:

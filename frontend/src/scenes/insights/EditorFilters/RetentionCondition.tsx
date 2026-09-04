@@ -32,6 +32,12 @@ const retentionDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
 ]
 
+const actionsTaxonomicGroupTypes = [
+    TaxonomicFilterGroupType.Events,
+    TaxonomicFilterGroupType.Actions,
+    TaxonomicFilterGroupType.DataWarehouse,
+]
+
 function retentionEntityToFilter(entity: Record<string, any> | undefined): FilterType {
     if (!entity) {
         return {}
@@ -160,14 +166,10 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
 
 export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
-    const { retentionFilter, dateRange, isRetentionDWHEnabled } = useValues(retentionLogic(insightProps))
+    const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
     const { targetEntity, returningEntity, retentionType, totalIntervals, period, retentionCustomBrackets } =
         retentionFilter || {}
-
-    const actionsTaxonomicGroupTypes = isRetentionDWHEnabled
-        ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.DataWarehouse]
-        : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
 
     return (
         <div className="deprecated-space-y-3 mb-4" data-attr="retention-condition">

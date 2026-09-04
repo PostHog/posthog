@@ -355,7 +355,7 @@ fn build_number_row(
 /// `metric_type` is part of the identity: a gauge and a sum sharing a name and labels
 /// are different series, and `metric_series` stores `metric_type` per fingerprint — so
 /// omitting it would let one type's row silently overwrite the other's on dedup.
-fn compute_series_fingerprint(
+pub(crate) fn compute_series_fingerprint(
     metric_name: &str,
     metric_type: &str,
     service_name: &str,
