@@ -426,3 +426,28 @@ class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
         names = {r["name"] for r in response.json()["results"]}
         self.assertIn("50%off", names)
         self.assertNotIn("50ABCoff", names)
+
+
+class TestLogsFilterGroupParsing(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("attributes", "absent", None),
+            ("attributes", "empty object", "{}"),
+            ("values", "absent", None),
+            ("values", "empty object", "{}"),
+        ]
+    )
+    def test_unfiltered_request_reports_no_exception(self, endpoint, _name, filter_group):
+        # The facet rail asks for attributes with no filter. An empty filterGroup never validates,
+        # so validating it reported an exception on a request that succeeds.
+        query_params = {"attribute_type": "log"}
+        if endpoint == "values":
+            query_params["key"] = "level"
+        if filter_group is not None:
+            query_params["filterGroup"] = filter_group
+
+        with patch("posthog.api.mixins.capture_exception") as capture:
+            response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        capture.assert_not_called()
