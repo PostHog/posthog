@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from celery.exceptions import Retry
@@ -11,7 +12,11 @@ from rest_framework import status
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.comments import _slack_thread_url
-from posthog.helpers.slack_thread_mirror import _discussion_card_blocks, escape_slack_mrkdwn
+from posthog.helpers.slack_thread_mirror import (
+    _discussion_card_blocks,
+    escape_slack_mrkdwn,
+    post_comment_to_slack_thread,
+)
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.integration import Integration
 from posthog.tasks.comment_slack_sync import (
@@ -40,6 +45,55 @@ class TestDiscussionCardBlocks(APIBaseTest):
 
     def test_empty_body_still_renders_a_quoted_placeholder(self):
         assert self._card_text("").endswith("> _(no text)_")
+
+
+class TestSlackAppearanceFields(SimpleTestCase):
+    def _post(self, client: MagicMock, **kwargs) -> str | None:
+        return post_comment_to_slack_thread(
+            client=client,
+            channel="C1",
+            content="hello",
+            rich_content=None,
+            author_name="Ann",
+            **kwargs,
+        )
+
+    def test_omits_the_appearance_fields_when_the_install_lacks_the_scope(self):
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "1700.1"}
+
+        assert self._post(client, can_customize_appearance=False) == "1700.1"
+
+        sent = client.chat_postMessage.call_args.kwargs
+        assert "username" not in sent
+        assert "icon_url" not in sent
+
+    @parameterized.expand(
+        [
+            ("names_the_optional_scope", "chat:write.customize", True),
+            ("names_no_scope", None, True),
+            # Dropping the appearance fields cannot satisfy a different missing scope, so the
+            # failure has to reach the caller instead of costing a second rejected call.
+            ("names_another_scope", "chat:write", False),
+        ]
+    )
+    def test_reposts_plainly_only_when_the_optional_scope_is_at_fault(self, _name, needed, reposts):
+        client = MagicMock()
+        response: dict = {"ok": False, "error": "missing_scope"}
+        if needed is not None:
+            response["needed"] = needed
+        client.chat_postMessage.side_effect = [SlackApiError("missing scope", response), {"ts": "1700.1"}]
+
+        if not reposts:
+            with self.assertRaises(SlackApiError):
+                self._post(client)
+            assert client.chat_postMessage.call_count == 1
+            return
+
+        assert self._post(client) == "1700.1"
+        first, second = client.chat_postMessage.call_args_list
+        assert first.kwargs["username"] == "Ann"
+        assert "username" not in second.kwargs
 
 
 class TestSendCommentToSlack(APIBaseTest):

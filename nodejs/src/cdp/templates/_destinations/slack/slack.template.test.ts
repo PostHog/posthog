@@ -85,6 +85,25 @@ describe('slack template', () => {
         expect(bodyOf(response.invocation.queueParameters)).not.toHaveProperty('thread_ts')
     })
 
+    it('should post again without the custom appearance when the workspace lacks chat:write.customize', async () => {
+        let response = await tester.invoke(commonInputs)
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { ok: false, error: 'missing_scope', needed: 'chat:write.customize' },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(bodyOf(response.invocation.queueParameters)).toEqual({
+            channel: 'channel',
+            blocks: [],
+            text: 'hello',
+        })
+
+        const retry = await tester.invokeFetchResponse(response.invocation, { status: 200, body: { ok: true } })
+        expect(retry.finished).toBe(true)
+        expect(retry.error).toBeUndefined()
+    })
+
     it.each([
         ['a non-200 status', { status: 400, body: { ok: true } }, "Failed to post message to Slack: 400: {'ok': true}"],
         ['ok: false', { status: 200, body: { ok: false } }, "Failed to post message to Slack: 200: {'ok': false}"],
