@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -51,8 +52,14 @@ class TestAutoresearchModels(BaseTest):
         assert run.team_id == other.team_id
 
     def _create(self, model_cls: type[Any], **fields: Any) -> Any:
+        if model_cls is AutoresearchPipeline:
+            return AutoresearchPipeline.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk, name="p4", target_event="$pageview", **fields
+            )
         if model_cls is AutoresearchModel:
             fields = {"recipe_hash": "a", "model_recipe": {}, **fields}
+        elif model_cls is AutoresearchRun:
+            fields = {"run_type": AutoresearchRun.RunType.INFERENCE, **fields}
         elif model_cls is AutoresearchIteration:
             fields = {
                 "training_run": AutoresearchTrainingRun.objects.for_team(self.team.pk).create(pipeline=self.pipeline),
@@ -98,18 +105,21 @@ class TestAutoresearchModels(BaseTest):
 
     @parameterized.expand(
         [
-            (AutoresearchModel, "holdout_score", 2.0),
-            (AutoresearchModel, "realized_score", -1.0),
-            (AutoresearchTrainingRun, "best_holdout_score", 1.5),
-            (AutoresearchIteration, "holdout_score", 2.0),
-            (AutoresearchIteration, "agent_confidence", -0.5),
+            (AutoresearchModel, {"holdout_score": 2.0}),
+            (AutoresearchModel, {"realized_score": -1.0}),
+            (AutoresearchModel, {"trained_on_start": date(2026, 2, 1), "trained_on_end": date(2026, 1, 1)}),
+            (AutoresearchTrainingRun, {"best_holdout_score": 1.5}),
+            (AutoresearchTrainingRun, {"iteration_budget": 0}),
+            (AutoresearchTrainingRun, {"iteration_count": -1}),
+            (AutoresearchIteration, {"holdout_score": 2.0}),
+            (AutoresearchIteration, {"agent_confidence": -0.5}),
+            (AutoresearchRun, {"rows_scored": -1}),
+            (AutoresearchPipeline, {"iteration_budget_remaining": -1}),
         ]
     )
-    def test_scores_outside_the_unit_interval_are_rejected(
-        self, model_cls: type[Any], field: str, value: float
-    ) -> None:
+    def test_out_of_range_values_are_rejected(self, model_cls: type[Any], fields: dict[str, Any]) -> None:
         with self.assertRaises(IntegrityError), transaction.atomic():
-            self._create(model_cls, **{field: value})
+            self._create(model_cls, **fields)
 
     def test_admin_form_rejects_a_relation_from_another_pipeline(self) -> None:
         other = self._other_team_pipeline()

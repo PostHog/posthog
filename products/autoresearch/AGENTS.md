@@ -30,6 +30,7 @@ The five pipeline-owned models inherit `PipelineScopedModel`, whose `save()` der
 
 Every AUC and confidence column (`success_auc`, `holdout_score`, `realized_score`, `best_holdout_score`, `train_score`, `agent_confidence`) is NULL until measured and otherwise held to `[0, 1]` by a CHECK constraint.
 A writer that produces a raw score has to normalize it before it saves.
+The counters carry CHECK constraints too: `iteration_budget` is at least 1, `iteration_count`, `rows_scored` and `iteration_budget_remaining` are at least 0, and `trained_on_start` is no later than `trained_on_end`.
 
 ## Feature flag and access
 

@@ -21,6 +21,13 @@ def unit_interval_constraint(field: str, name: str) -> models.CheckConstraint:
     )
 
 
+def min_value_constraint(field: str, minimum: int, name: str, *, nullable: bool = False) -> models.CheckConstraint:
+    at_least = models.Q(**{f"{field}__gte": minimum})
+    if nullable:
+        at_least = models.Q(**{f"{field}__isnull": True}) | at_least
+    return models.CheckConstraint(check=at_least, name=name)
+
+
 class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     # Framework internals (admin querysets, FK form fields, raw-id widget lookups) read
     # `_default_manager` with no team context, where the fail-closed `objects` would raise.
@@ -84,7 +91,9 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     )
     # Nullable so save() can tell "not supplied" from an explicit value; filled from
     # iteration_budget on first save.
-    iteration_budget_remaining = models.IntegerField(null=True, blank=True, default=None)
+    iteration_budget_remaining = models.IntegerField(
+        null=True, blank=True, default=None, validators=[MinValueValidator(0)]
+    )
 
     # Stop criteria
     success_auc = models.FloatField(
@@ -116,16 +125,13 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
         ordering = ["-created_at"]
         default_manager_name = "all_teams"
         constraints = [
-            models.CheckConstraint(check=models.Q(horizon_days__gte=1), name="autoresearch_horizon_days_positive"),
-            models.CheckConstraint(
-                check=models.Q(training_lookback_days__gte=1), name="autoresearch_lookback_days_positive"
-            ),
-            models.CheckConstraint(check=models.Q(cadence_days__gte=1), name="autoresearch_cadence_days_positive"),
-            models.CheckConstraint(
-                check=models.Q(iteration_budget__gte=1), name="autoresearch_iteration_budget_positive"
-            ),
-            models.CheckConstraint(
-                check=models.Q(plateau_iterations__gte=1), name="autoresearch_plateau_iterations_positive"
+            min_value_constraint("horizon_days", 1, "autoresearch_horizon_days_positive"),
+            min_value_constraint("training_lookback_days", 1, "autoresearch_lookback_days_positive"),
+            min_value_constraint("cadence_days", 1, "autoresearch_cadence_days_positive"),
+            min_value_constraint("iteration_budget", 1, "autoresearch_iteration_budget_positive"),
+            min_value_constraint("plateau_iterations", 1, "autoresearch_plateau_iterations_positive"),
+            min_value_constraint(
+                "iteration_budget_remaining", 0, "autoresearch_budget_remaining_nonnegative", nullable=True
             ),
             unit_interval_constraint("success_auc", "autoresearch_success_auc_in_unit_range"),
         ]
@@ -263,6 +269,12 @@ class AutoresearchModel(PipelineScopedModel):
             ),
             unit_interval_constraint("holdout_score", "autoresearch_model_holdout_score_in_unit_range"),
             unit_interval_constraint("realized_score", "autoresearch_model_realized_score_in_unit_range"),
+            models.CheckConstraint(
+                check=models.Q(trained_on_start__isnull=True)
+                | models.Q(trained_on_end__isnull=True)
+                | models.Q(trained_on_start__lte=models.F("trained_on_end")),
+                name="autoresearch_model_trained_on_range_ordered",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -287,8 +299,8 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     task_run_id = models.UUIDField(null=True, blank=True, help_text="TaskRun ID in the tasks product sandbox")
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    iteration_budget = models.IntegerField(default=50)
-    iteration_count = models.IntegerField(default=0)
+    iteration_budget = models.IntegerField(default=50, validators=[MinValueValidator(1)])
+    iteration_count = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     best_holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)
     error = models.TextField(blank=True, default="")
     # Tier-1 cross-run learning memory: a distilled, structured summary of this run written on
@@ -308,6 +320,8 @@ class AutoresearchTrainingRun(PipelineScopedModel):
             unit_interval_constraint(
                 "best_holdout_score", "autoresearch_training_run_best_holdout_score_in_unit_range"
             ),
+            min_value_constraint("iteration_budget", 1, "autoresearch_training_run_iteration_budget_positive"),
+            min_value_constraint("iteration_count", 0, "autoresearch_training_run_iteration_count_nonnegative"),
         ]
 
 
@@ -445,7 +459,7 @@ class AutoresearchRun(PipelineScopedModel):
     run_type = models.CharField(max_length=20, choices=RunType.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
 
-    rows_scored = models.IntegerField(null=True, blank=True)
+    rows_scored = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
     metrics = models.JSONField(default=dict)
     error = models.TextField(blank=True, default="")
 
@@ -456,3 +470,6 @@ class AutoresearchRun(PipelineScopedModel):
     class Meta:
         ordering = ["-created_at"]
         default_manager_name = "all_teams"
+        constraints = [
+            min_value_constraint("rows_scored", 0, "autoresearch_run_rows_scored_nonnegative", nullable=True),
+        ]

@@ -96,7 +96,12 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "iteration_budget_remaining",
-                    models.IntegerField(blank=True, default=None, null=True),
+                    models.IntegerField(
+                        blank=True,
+                        default=None,
+                        null=True,
+                        validators=[django.core.validators.MinValueValidator(0)],
+                    ),
                 ),
                 (
                     "success_auc",
@@ -327,7 +332,14 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
-                ("rows_scored", models.IntegerField(blank=True, null=True)),
+                (
+                    "rows_scored",
+                    models.IntegerField(
+                        blank=True,
+                        null=True,
+                        validators=[django.core.validators.MinValueValidator(0)],
+                    ),
+                ),
                 ("metrics", models.JSONField(default=dict)),
                 ("error", models.TextField(blank=True, default="")),
                 ("started_at", models.DateTimeField(blank=True, null=True)),
@@ -506,8 +518,20 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
-                ("iteration_budget", models.IntegerField(default=50)),
-                ("iteration_count", models.IntegerField(default=0)),
+                (
+                    "iteration_budget",
+                    models.IntegerField(
+                        default=50,
+                        validators=[django.core.validators.MinValueValidator(1)],
+                    ),
+                ),
+                (
+                    "iteration_count",
+                    models.IntegerField(
+                        default=0,
+                        validators=[django.core.validators.MinValueValidator(0)],
+                    ),
+                ),
                 (
                     "best_holdout_score",
                     models.FloatField(
@@ -796,6 +820,54 @@ class Migration(migrations.Migration):
                     _connector="OR",
                 ),
                 name="autoresearch_iteration_agent_confidence_in_unit_range",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchpipeline",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("iteration_budget_remaining__isnull", True),
+                    ("iteration_budget_remaining__gte", 0),
+                    _connector="OR",
+                ),
+                name="autoresearch_budget_remaining_nonnegative",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchmodel",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("trained_on_start__isnull", True),
+                    ("trained_on_end__isnull", True),
+                    ("trained_on_start__lte", models.F("trained_on_end")),
+                    _connector="OR",
+                ),
+                name="autoresearch_model_trained_on_range_ordered",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchtrainingrun",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("iteration_budget__gte", 1)),
+                name="autoresearch_training_run_iteration_budget_positive",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchtrainingrun",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("iteration_count__gte", 0)),
+                name="autoresearch_training_run_iteration_count_nonnegative",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="autoresearchrun",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("rows_scored__isnull", True),
+                    ("rows_scored__gte", 0),
+                    _connector="OR",
+                ),
+                name="autoresearch_run_rows_scored_nonnegative",
             ),
         ),
         migrations.AlterUniqueTogether(
