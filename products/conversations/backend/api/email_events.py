@@ -433,9 +433,17 @@ def _parse_sent_at(request: HttpRequest) -> datetime:
 
 
 def _quoted_body(email: ParsedEmail) -> str:
-    """The quoted history of a reply: everything Mailgun removed to make ``stripped-text``."""
-    new_text = email.stripped_text.strip()
-    full_text = email.body_plain.strip()
+    """The quoted history of a reply: everything Mailgun removed to make ``stripped-text``.
+
+    Empty for a message that threads onto nothing — it has no history, and a footer Mailgun
+    stripped would otherwise read as somebody else's message.
+    """
+    if not email.in_reply_to and not email.references:
+        return ""
+    # Mailgun can send the two fields with different line endings, so compare them normalized —
+    # an ordinary CRLF reply otherwise misses the prefix and repeats the sender's own text.
+    new_text = email.stripped_text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    full_text = email.body_plain.replace("\r\n", "\n").replace("\r", "\n").strip()
     if not new_text or full_text == new_text:
         return ""
     if full_text.startswith(new_text):

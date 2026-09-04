@@ -358,14 +358,21 @@ class TestInboundWebhookRoutesToTasks(APIBaseTest):
         assert task.created_by_id == self.user.id
         assert task.title == "Rank the top errors"
 
-    def test_reply_to_a_failure_email_carries_the_quoted_report(self, _workflow, _quota, _email, _sig):
+    # Mailgun can send body-plain with CRLF while stripped-text uses LF, so the quote lookup has to
+    # compare them normalized — otherwise the whole body is treated as history and the sender's own
+    # words land in the description twice.
+    @parameterized.expand([("lf", "\n"), ("crlf", "\r\n")])
+    def test_reply_to_a_failure_email_carries_the_quoted_report(self, _workflow, _quota, _email, _sig, _name, newline):
         assert self.address is not None
+        instruction = "Take a look at this failure.\nFix it if you can."
+        body = instruction.replace("\n", newline)
         response = self._post(
             self.address,
             subject="Re: PostHog: Materialized view 'orders_daily' failed in Acme",
             **{
-                "stripped-text": "Take a look at this failure and fix it if you can.",
-                "body-plain": "Take a look at this failure and fix it if you can.\n\n> orders_daily: Query exceeded timeout",
+                "In-Reply-To": "<matview-failure@posthog.com>",
+                "stripped-text": instruction,
+                "body-plain": f"{body}{newline}{newline}> orders_daily: Query exceeded timeout",
             },
         )
 
@@ -373,6 +380,24 @@ class TestInboundWebhookRoutesToTasks(APIBaseTest):
         task = Task.objects.get(origin_key="email:<hook@example.com>")
         assert task.title == "PostHog: Materialized view 'orders_daily' failed in Acme"
         assert "Query exceeded timeout" in task.description
+        assert task.description.count("Fix it if you can.") == 1
+
+    def test_first_contact_email_has_no_quoted_history(self, _workflow, _quota, _email, _sig):
+        # Nothing to quote on a message that threads onto nothing. Mailgun strips a signature block
+        # out of stripped-text, so without this the footer is presented as a message someone else sent.
+        assert self.address is not None
+        response = self._post(
+            self.address,
+            **{
+                "stripped-text": "Rank the top errors",
+                "body-plain": "Rank the top errors\n\n--\nAlice, Acme Corp",
+            },
+        )
+
+        assert response.status_code == 200
+        task = Task.objects.get(origin_key="email:<hook@example.com>")
+        assert "<quoted_email>" not in task.description
+        assert "Acme Corp" not in task.description
 
     def test_out_of_office_reply_creates_nothing(self, _workflow, _quota, _email, _sig):
         assert self.address is not None
