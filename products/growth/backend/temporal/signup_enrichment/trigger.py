@@ -98,13 +98,7 @@ def start_signup_enrichment_workflow(
 
 
 def dispatch_wizard_stamp_rescore(organization_id: str) -> None:
-    """Fire-and-forget dispatch of the wizard-stamp re-score workflow, called from the webhook
-    in products/growth/backend/api/rescore.py once it has already applied its own gates.
-
-    Shares the bounded dispatch pool above with signup dispatch: the webhook's own DRF throttle
-    already bounds how often a destination can call in, so the pool here exists purely to keep
-    an unreachable Temporal from piling up threads on the web pod, same as it does for signups.
-    """
+    """Shares the bounded dispatch pool with signup dispatch so an unreachable Temporal can't pile up threads on the web pod, same as it does for signups."""
     _submit_rescore_dispatch(organization_id)
 
 
@@ -141,9 +135,7 @@ def _rescore_dispatch(organization_id: str) -> None:
             )
         )
     except WorkflowAlreadyStartedError:
-        # A stamp landing while the previous run for this org is still in flight hits the
-        # still-running workflow id and is dropped, collapsing near-simultaneous stamps into
-        # one run rather than queueing a retry.
+        # A stamp landing while the previous run is still in flight hits the same workflow id and is dropped, collapsing near-simultaneous stamps into one run.
         logger.info("wizard_stamp_rescore_dispatch_skipped", organization_id=organization_id)
     except RPCError as e:
         logger.info("wizard_stamp_rescore_dispatch_skipped", organization_id=organization_id, error=str(e))

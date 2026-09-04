@@ -1,12 +1,6 @@
-"""Event-driven ICP re-score: a PostHog realtime destination calls the webhook in
-products/growth/backend/api/rescore.py the moment the setup wizard's AI-SDK stamp lands on an
-org's group properties, so the score doesn't wait on the standing +4h recheck
-(products/growth/backend/temporal/signup_enrichment/workflow.py) or the daily sweep
-(reenrichment.py) to catch it. Dispatch lives in trigger.py, alongside the signup dispatch it
-shares a pool with.
+"""Event-driven ICP re-score triggered when the setup wizard's AI-SDK stamp lands on an org's group properties.
 
-Delegates straight to enrich_signup_organization_activity: the same activity the +4h recheck
-runs: so archiving, scoring, and the person mirror never diverge between the two triggers.
+Delegates to enrich_signup_organization_activity so scoring stays identical to the +4h recheck.
 """
 
 import json
@@ -32,8 +26,7 @@ LOGGER = get_logger(__name__)
 
 RESOLVE_ACTIVITY_TIMEOUT = dt.timedelta(seconds=30)
 
-# The webhook fires the instant the stamp's group_identify lands; a short pause keeps the
-# resolve activity from reading the org's bridge inputs before that write is visible.
+# Lets the stamp's group-property write land before the recheck reads it.
 STAMP_SETTLE_DELAY = dt.timedelta(seconds=60)
 
 
@@ -47,13 +40,8 @@ class WizardStampRescoreInputs:
 async def resolve_wizard_rescore_signup_inputs_activity(
     inputs: WizardStampRescoreInputs,
 ) -> typing.Optional[dict[str, typing.Any]]:
-    """The signup identity enrich_signup_organization_activity needs, read from the org's
-    membership: the webhook's body carries only the organization id.
-
-    Returns None when no member can stand in for the signup identity (org deleted, no
-    distinct_id, no resolvable work-email domain), which the workflow treats as nothing to do.
-    """
-    from asgiref.sync import sync_to_async  # noqa: PLC0415: heavy import kept off the workflow module path
+    """Reads the org's earliest membership to fill in the signup identity, since the webhook body carries only the organization id."""
+    from asgiref.sync import sync_to_async  # noqa: PLC0415
 
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
     from posthog.utils import GenericEmails  # noqa: PLC0415
@@ -95,11 +83,7 @@ async def resolve_wizard_rescore_signup_inputs_activity(
 
 @workflow.defn(name="wizard-stamp-rescore")
 class WizardStampRescoreWorkflow(PostHogWorkflow):
-    """Re-score one org's ICP fit once its wizard AI-SDK stamp lands.
-
-    Runs independently of SignupEnrichmentWorkflow's own +4h recheck: an org can get both, or
-    only whichever fires first, since either one lands the same wizard-aware score.
-    """
+    """Runs independently of SignupEnrichmentWorkflow's own +4h recheck: an org can get both, or only whichever fires first, since either one lands the same wizard-aware score."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> WizardStampRescoreInputs:
@@ -118,9 +102,7 @@ class WizardStampRescoreWorkflow(PostHogWorkflow):
         if signup_inputs is None:
             return {"matched": False, "skipped": "no_signup_identity"}
 
-        # first_attempt_matched=True: this trigger has no first attempt of its own to compare
-        # against, so it is pinned to keep the recheck event's "upgraded" property: which
-        # reports on the +4h recheck's own Harmonic-timing story: from firing here instead.
+        # first_attempt_matched is pinned True because this trigger has no first attempt to compare against, keeping the recheck-only "upgraded" property from firing here.
         return await workflow.execute_activity(
             enrich_signup_organization_activity,
             args=[SignupEnrichmentInputs(**signup_inputs), True, True],

@@ -1,10 +1,6 @@
-"""Webhook for the wizard-stamp ICP re-score: a PostHog realtime destination on the enrichment
-project calls this the instant the setup wizard's AI-SDK stamp lands on an org, so the score
-doesn't have to wait on the standing +4h recheck or the daily sweep to catch it.
+"""Webhook for the wizard-stamp ICP re-score, called by a PostHog realtime destination the instant the setup wizard's AI-SDK stamp lands on an org.
 
-No PostHog session or personal-API-key auth: the caller is our own destination, authenticated
-by a shared secret header instead. See
-products/growth/backend/temporal/signup_enrichment/rescore.py for the workflow this dispatches.
+Authenticated by a shared secret header instead of session or personal-API-key auth, since the caller is our own destination, not a user.
 """
 
 import hmac
@@ -58,8 +54,6 @@ def _rescore_enabled() -> bool:
 
 
 class GrowthEnrichmentViewSet(viewsets.ViewSet):
-    """Unscoped, unauthenticated: see the module docstring for why."""
-
     authentication_classes = []
     permission_classes = []
     scope_object = "INTERNAL"
