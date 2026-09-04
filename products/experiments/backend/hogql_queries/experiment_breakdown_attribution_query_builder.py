@@ -79,15 +79,40 @@ class ExperimentBreakdownAttributionQueryBuilder:
         ]
         return comparisons[0] if len(comparisons) == 1 else ast.Or(exprs=comparisons)
 
-    def _attribution_expr(self, breakdown_field: ast.Expr) -> ast.Expr:
+    def _value_present_condition(self, breakdown_fields: list[ast.Expr]) -> ast.Expr:
+        """Match a row that carries at least one breakdown value.
+
+        The property is coalesced to the null label before attribution, so a row with no value
+        would otherwise be an equal candidate and win on timestamp alone, hiding a later event
+        that carries a real one.
+        """
+        comparisons: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=field,
+                right=ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+            )
+            for field in breakdown_fields
+        ]
+        return comparisons[0] if len(comparisons) == 1 else ast.Or(exprs=comparisons)
+
+    def _attribution_expr(self, breakdown_field: ast.Expr, breakdown_fields: list[ast.Expr]) -> ast.Expr:
         """Attributed breakdown value at the configured step(s).
+
+        A candidate row must match an attribution step and carry a breakdown value. Every alias
+        shares that one condition, so all breakdown values of a user come from the same event.
 
         argMinIf/argMaxIf over zero matching rows returns ClickHouse's empty string, which would
         create an invisible ``""`` bucket that collides with real empty-string values and steals a
         top-N slot. Users with no attributable metric event get the null label instead.
         """
         resolution = self.context.resolve_attribution()
-        condition = self._attribution_condition(resolution.step_indexes)
+        condition: ast.Expr = ast.And(
+            exprs=[
+                self._attribution_condition(resolution.step_indexes),
+                self._value_present_condition(breakdown_fields),
+            ]
+        )
         attributed = ast.Call(
             name=resolution.aggregation_fn,
             args=[breakdown_field, ast.Field(chain=["timestamp"]), condition],
@@ -185,9 +210,10 @@ class ExperimentBreakdownAttributionQueryBuilder:
         if query.ctes and "entity_metrics" in query.ctes:
             entity_metrics_cte = query.ctes["entity_metrics"]
             if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
-                for alias in aliases:
+                breakdown_fields: list[ast.Expr] = [ast.Field(chain=["metric_events", alias]) for alias in aliases]
+                for alias, field in zip(aliases, breakdown_fields):
                     entity_metrics_cte.expr.select.append(
-                        ast.Alias(alias=alias, expr=self._attribution_expr(ast.Field(chain=["metric_events", alias])))
+                        ast.Alias(alias=alias, expr=self._attribution_expr(field, breakdown_fields))
                     )
 
         self._inject_final_breakdown_columns(query, aliases)
@@ -209,9 +235,10 @@ class ExperimentBreakdownAttributionQueryBuilder:
         if query.ctes and "entity_metrics" in query.ctes:
             entity_metrics_cte = query.ctes["entity_metrics"]
             if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
-                for alias in aliases:
+                breakdown_fields: list[ast.Expr] = [ast.Field(chain=[alias]) for alias in aliases]
+                for alias, field in zip(aliases, breakdown_fields):
                     entity_metrics_cte.expr.select.append(
-                        ast.Alias(alias=alias, expr=self._attribution_expr(ast.Field(chain=[alias])))
+                        ast.Alias(alias=alias, expr=self._attribution_expr(field, breakdown_fields))
                     )
 
         self._inject_final_breakdown_columns(query, aliases)

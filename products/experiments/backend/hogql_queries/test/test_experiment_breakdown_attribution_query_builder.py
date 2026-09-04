@@ -22,10 +22,12 @@ from products.experiments.backend.hogql_queries.experiment_breakdown_attribution
 )
 
 
-def _funnel_metric(attribution=None, attribution_value=None, num_steps=2, funnel_order_type=None):
+def _funnel_metric(
+    attribution=None, attribution_value=None, num_steps=2, funnel_order_type=None, properties=("$browser",)
+):
     return ExperimentFunnelMetric(
         series=[EventsNode(event=f"step_{i}") for i in range(num_steps)],
-        breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property=p) for p in properties]),
         breakdownAttributionType=attribution,
         breakdownAttributionValue=attribution_value,
         funnel_order_type=funnel_order_type,
@@ -47,6 +49,12 @@ def _unwrap_attribution(expr: ast.Expr) -> ast.Call:
     attributed = expr.args[2]
     assert isinstance(attributed, ast.Call)
     return attributed
+
+
+def _split_condition(condition: ast.Expr) -> tuple[ast.Expr, ast.Expr]:
+    """Attribution matches a step AND requires a breakdown value. Return both halves."""
+    assert isinstance(condition, ast.And) and len(condition.exprs) == 2
+    return condition.exprs[0], condition.exprs[1]
 
 
 def _matched_steps(condition: ast.Expr) -> set[str]:
@@ -102,7 +110,8 @@ class TestExperimentBreakdownAttributionQueryBuilder:
 
         expr = _unwrap_attribution(_entity_metrics_aliases(query)["breakdown_value_1"])
         assert expr.name == expected_agg
-        assert _matched_steps(expr.args[2]) == expected_steps
+        steps, _ = _split_condition(expr.args[2])
+        assert _matched_steps(steps) == expected_steps
 
     def test_unattributed_users_get_null_label_not_empty_string(self):
         # argMinIf over zero matching rows returns "", which would form an invisible bucket that
@@ -132,8 +141,34 @@ class TestExperimentBreakdownAttributionQueryBuilder:
 
         builder.inject_funnel_breakdown_columns_optimized(query)
 
-        cond = _unwrap_attribution(_entity_metrics_aliases(query)["breakdown_value_1"]).args[2]
-        assert _matched_steps(cond) == {"step_1", "step_2"}
+        steps, _ = _split_condition(_unwrap_attribution(_entity_metrics_aliases(query)["breakdown_value_1"]).args[2])
+        assert _matched_steps(steps) == {"step_1", "step_2"}
+
+    @parameterized.expand([("one_breakdown", ("$browser",)), ("two_breakdowns", ("$browser", "$os"))])
+    def test_attribution_skips_events_without_a_breakdown_value(self, _name, properties):
+        # The property is coalesced to the null label before attribution, so without this filter an
+        # event missing the property would win on timestamp and hide a later event with a real
+        # value. All aliases share one condition, so a user's values come from the same event.
+        metric = _funnel_metric(attribution=BreakdownAttributionType.FIRST_TOUCH, properties=properties)
+        builder = _builder(metric)
+        query = _optimized_query()
+
+        builder.inject_funnel_breakdown_columns_optimized(query)
+
+        aliases = _entity_metrics_aliases(query)
+        conditions = [
+            _split_condition(_unwrap_attribution(aliases[f"breakdown_value_{i + 1}"]).args[2])[1]
+            for i in range(len(properties))
+        ]
+        assert all(c == conditions[0] for c in conditions)
+        comparisons = conditions[0].exprs if isinstance(conditions[0], ast.Or) else [conditions[0]]
+        assert {c.left.chain[0] for c in comparisons} == {f"breakdown_value_{i + 1}" for i in range(len(properties))}
+        assert all(
+            c.op == ast.CompareOperationOp.NotEq
+            and isinstance(c.right, ast.Constant)
+            and c.right.value == BREAKDOWN_NULL_STRING_LABEL
+            for c in comparisons
+        )
 
     def test_breakdown_read_from_metric_event_in_base_events(self):
         metric = _funnel_metric(attribution=BreakdownAttributionType.FIRST_TOUCH)
