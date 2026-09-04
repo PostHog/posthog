@@ -309,16 +309,6 @@
         "params": [],
         "scope": "global"
     },
-    "comment": {
-        "template": "/data-management/comments/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "comments": {
-        "template": "/data-management/comments",
-        "params": [],
-        "scope": "project"
-    },
     "communitySkills": {
         "template": "/skills/community",
         "params": [],

@@ -803,10 +803,6 @@
         "chromium": 5.93,
         "webkit": 1.497
     },
-    "frontend/src/scenes/data-management/comments/Comments.stories.tsx": {
-        "chromium": 16.358,
-        "webkit": 2.867
-    },
     "frontend/src/scenes/data-management/definition/DefinitionView.stories.tsx": {
         "chromium": 19.557,
         "webkit": 2.311
