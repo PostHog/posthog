@@ -94522,6 +94522,10 @@ export namespace Schemas {
 
     export type ErrorTrackingAlertsPreviewRetrieveParams = {
     /**
+     * Environment whose latest issue seeds the preview. Must belong to the project and be readable by the caller; defaults to the project's root environment.
+     */
+    environment_id?: number;
+    /**
      * Trigger whose opener message roots the previewed thread.
      *
      * * `issue_created` - issue_created
