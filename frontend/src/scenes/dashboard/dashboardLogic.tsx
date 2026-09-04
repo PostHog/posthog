@@ -5228,10 +5228,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
 
-        '/dashboard/:id': (_params, searchParams) => {
+        '/dashboard/:id': (_params, searchParams, _hashParams, { method }) => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             actions.setButtonTileId(null)
+            if (method === 'POP' && values.dashboard) {
+                actions.setDashboardSettingsDraft({
+                    ...values.currentDashboardSettings,
+                    filters: combineDashboardFilters(
+                        values.savedDashboardSettings.filters,
+                        parseURLFilters(searchParams)
+                    ),
+                })
+                if (values.canAutoPreview) {
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
+                }
+            }
             if (values.dashboardMode === DashboardMode.Sharing) {
                 actions.setDashboardMode(null, DashboardEventSource.Browser)
             }

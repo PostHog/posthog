@@ -1493,6 +1493,36 @@ describe('dashboardLogic', () => {
 
                 expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
             })
+
+            it('restores filters when browser history changes the URL', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-30d', null)
+                }).toFinishAllListeners()
+
+                const searchParams = {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
+                }
+                await expectLogic(logic, () => {
+                    router.actions.locationChanged({
+                        method: 'POP',
+                        pathname: '/dashboard/5',
+                        search: '',
+                        searchParams,
+                        hash: '',
+                        hashParams: {},
+                        url: '/dashboard/5',
+                    })
+                }).toFinishAllListeners()
+
+                expect(logic.values.currentDashboardSettings.filters).toEqual(
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+                expect(logic.values.filtersOverrideForLoad).toEqual(
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+            })
         })
 
         describe('hasUnsavedLayoutChanges selector', () => {
