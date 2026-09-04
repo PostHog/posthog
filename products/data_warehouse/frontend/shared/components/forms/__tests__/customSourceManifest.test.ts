@@ -52,6 +52,7 @@ const baseState = (): ManifestState => ({
             parent_path_param: '',
             include_from_parent: '',
             passthrough_params: {},
+            request_body: '',
         },
     ],
 })
@@ -144,6 +145,25 @@ describe('buildManifest', () => {
         state.tables[0].method = 'POST'
         const post = buildManifest(state) as any
         expect(post.resources[0].endpoint.method).toBe('POST')
+    })
+
+    it('emits endpoint.json from a JSON-object request body', () => {
+        const state = baseState()
+        state.tables[0].request_body = '{ "query": "recent", "limit": 50 }'
+        const manifest = buildManifest(state) as any
+        expect(manifest.resources[0].endpoint.json).toEqual({ query: 'recent', limit: 50 })
+    })
+
+    it.each([
+        ['blank', ''],
+        ['whitespace', '   '],
+        ['malformed', '{ not json }'],
+        ['a bare array', '[1, 2, 3]'],
+    ])('omits endpoint.json when the request body is %s', (_name, body) => {
+        const state = baseState()
+        state.tables[0].request_body = body
+        const manifest = buildManifest(state) as any
+        expect('json' in manifest.resources[0].endpoint).toBe(false)
     })
 
     it('serializes paginator-specific fields per paginator type', () => {
@@ -293,6 +313,7 @@ describe('parseManifestIntoState', () => {
                 parent_path_param: '',
                 include_from_parent: '',
                 passthrough_params: {},
+                request_body: '{ "query": "all", "limit": 100 }',
             },
         ]
 
@@ -414,6 +435,36 @@ describe('parseManifestIntoState', () => {
         expect(state.tables[0].sort_mode).toBe(mode)
     })
 
+    it('preserves a request body authored in the manifest through parse → build', () => {
+        // The reported bug: a body hand-authored via the API vanished the first time the builder
+        // parsed and re-saved the manifest, because parse/build ignored endpoint.json.
+        const manifestJson = JSON.stringify({
+            client: { base_url: 'https://x' },
+            resources: [
+                { name: 'search', endpoint: { path: '/search', method: 'POST', json: { q: 'term', page: 1 } } },
+            ],
+        })
+        const state = parseManifestIntoState(manifestJson)
+        expect(state.tables[0].request_body).toBe(JSON.stringify({ q: 'term', page: 1 }, null, 2))
+        const rebuilt = buildManifest(state) as any
+        expect(rebuilt.resources[0].endpoint.json).toEqual({ q: 'term', page: 1 })
+    })
+
+    it('normalizes a lowercase POST method so the request verb survives parse → build', () => {
+        // The backend accepts lowercase 'post' (source.py), so a raw manifest can carry it.
+        // parseTable must recognize it — otherwise build drops the method and the backend reads
+        // it as GET, sending this PR's preserved endpoint.json on a request whose verb no longer matches.
+        const manifestJson = JSON.stringify({
+            client: { base_url: 'https://x' },
+            resources: [{ name: 'search', endpoint: { path: '/search', method: 'post', json: { q: 'term' } } }],
+        })
+        const state = parseManifestIntoState(manifestJson)
+        expect(state.tables[0].method).toBe('POST')
+        const rebuilt = buildManifest(state) as any
+        expect(rebuilt.resources[0].endpoint.method).toBe('POST')
+        expect(rebuilt.resources[0].endpoint.json).toEqual({ q: 'term' })
+    })
+
     it('round-trips all new fields without drift', () => {
         const original = baseState()
         original.auth_type = 'api_key'
@@ -439,6 +490,7 @@ describe('parseManifestIntoState', () => {
                 parent_path_param: '',
                 include_from_parent: '',
                 passthrough_params: {},
+                request_body: '',
             },
         ]
 

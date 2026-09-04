@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconSparkles, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,6 +28,7 @@ import {
     PAGINATOR_DEFAULTS,
     PAGINATOR_TYPES,
     type PaginatorType,
+    parseJsonObject,
     SORT_MODES,
     type SortMode,
     type TableForm,
@@ -542,6 +543,13 @@ function TableCard({
     // manifest-path error, so warn here where the fields are.
     const nameMissing = !table.name.trim()
     const pathMissing = !table.path.trim()
+    const hasRequestBody = table.request_body.trim().length > 0
+    // Render the body field for POST, and for any table that still carries a body — otherwise a
+    // POST→GET switch (or an API-authored GET body) hides a body the manifest still sends, with no
+    // way to see or clear it.
+    const showRequestBody = table.method === 'POST' || hasRequestBody
+    // A body that won't parse to a JSON object is dropped by buildManifest, so warn here where it's edited.
+    const bodyInvalid = hasRequestBody && parseJsonObject(table.request_body) === null
     return (
         <div className="rounded border border-border p-3 space-y-3">
             <div className="flex items-center justify-between">
@@ -600,6 +608,30 @@ function TableCard({
                     <p className="m-0 text-xs text-danger">Enter a path. Creating the source fails without one.</p>
                 )}
             </div>
+            {showRequestBody && (
+                <LemonField.Pure label="Request body (JSON)" htmlFor={`custom-source-request-body-${index}`}>
+                    <LemonTextArea
+                        id={`custom-source-request-body-${index}`}
+                        placeholder='{"query": "search term"}'
+                        value={table.request_body}
+                        onChange={(value) => onUpdate({ request_body: value })}
+                    />
+                    <p className="m-0 mt-1 text-xs text-secondary">
+                        Sent as the JSON request body on every request to this endpoint. Use it for search or query APIs
+                        that take their parameters in the body. Leave blank for none.
+                    </p>
+                    {/* Persistently mounted so a screen reader announces the error as it appears — the
+                        name/path warnings above use the same region for the same reason. empty:hidden
+                        keeps it from adding spacing while the body is valid. */}
+                    <div aria-live="polite" className="empty:hidden">
+                        {bodyInvalid && (
+                            <p className="m-0 mt-1 text-xs text-danger">
+                                Enter a valid JSON object. The body is left off until it parses.
+                            </p>
+                        )}
+                    </div>
+                </LemonField.Pure>
+            )}
             <LemonField.Pure label="Records JSONPath">
                 <LemonInput
                     placeholder="data"

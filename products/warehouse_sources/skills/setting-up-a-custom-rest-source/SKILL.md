@@ -100,6 +100,7 @@ Get either a **docs URL** (fetch it and read the auth scheme, the list endpoints
 pagination) or a **natural-language description** of the endpoints. You need, per resource you'll import:
 
 - the **path** (relative to a common `base_url`) and method (GET, or POST for query-style read endpoints),
+- for a POST query/search endpoint, the **request body** it expects — set it as `endpoint.json` (a JSON object),
 - the **auth scheme** (bearer token / API key in header or query / HTTP basic / OAuth2 with a customer-owned client —
   `client_credentials` or a pre-obtained refresh token; the interactive `authorization_code` flow is not supported),
 - the **record path** — where the array of records sits in the JSON response (e.g. `data`, `results`, `items`),
