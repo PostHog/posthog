@@ -39,6 +39,11 @@ runs:
     steps:
         - name: Install pnpm
           uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+          env:
+              # Kept in sync with .github/actions/pnpm-install: npm's audit blocks the pnpm
+              # bootstrap and gates nothing.
+              NPM_CONFIG_AUDIT: 'false'
+              NPM_CONFIG_FUND: 'false'
 
         - name: Fix node-gyp permissions
           shell: bash
