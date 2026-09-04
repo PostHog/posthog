@@ -242,10 +242,7 @@ impl IngestionConsumer {
         // Share the context's commit sentinel and ledger so rebalance
         // callbacks reset the same baselines the commit path checks against.
         let commit_sentinel = consumer.context().commit_sentinel();
-        let topic_offset_ledger = consumer
-            .context()
-            .topic_offset_ledger()
-            .expect("the context carries a ledger");
+        let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let (batcher, outputs) = Batcher::new(
             dispatcher,
             Arc::clone(&transport),
@@ -305,7 +302,7 @@ impl IngestionConsumer {
         let mut context = SentinelContext::new(
             Arc::clone(&commit_sentinel),
             key_sentinel,
-            Some(Arc::clone(&topic_offset_ledger)),
+            Arc::clone(&topic_offset_ledger),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =

@@ -619,9 +619,7 @@ impl Harness {
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
         let context = SentinelContext::detached();
-        let ledger = context
-            .topic_offset_ledger()
-            .expect("a detached context carries a ledger");
+        let ledger = context.topic_offset_ledger();
         let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
         let consumer = IngestionConsumer::from_parts(
@@ -695,9 +693,7 @@ impl Harness {
         self.shutdown = handle.shutdown_token();
 
         let context = SentinelContext::detached();
-        self.ledger = context
-            .topic_offset_ledger()
-            .expect("a detached context carries a ledger");
+        self.ledger = context.topic_offset_ledger();
         let kafka_consumer =
             make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
         let consumer = IngestionConsumer::from_parts(
