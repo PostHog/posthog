@@ -312,7 +312,12 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
-            window_minutes: z.number().nullable(),
+            // Preferred form, matching how delay steps express a duration: `7d`, `12h`, `90d`.
+            window: z.string().nullable().optional(),
+            // Deprecated: a bare integer whose unit lives only in the field name. Optional because a
+            // row migrated onto `window` carries no `window_minutes` key at all, and a required one
+            // would fail the whole flow to parse and stop it running.
+            window_minutes: z.number().nullable().optional(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
             events: z

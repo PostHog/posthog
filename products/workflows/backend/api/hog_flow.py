@@ -1924,6 +1924,26 @@ class HogFlowConversionEventSerializer(serializers.Serializer):
     )
 
 
+# Duration strings as the workflow's delay steps already express them, so one convention covers both.
+# The alternation keeps each digit run owned by one quantifier. The obvious `\d*\.?\d+` lets `\d*` and
+# `\d+` both claim the same digits, so a long non-matching value backtracks quadratically, which lets an
+# authenticated caller burn a web process with one request. This form matches the same strings linearly.
+# Use `[0-9]`, not `\d`: Python's `\d` also matches Unicode digits (e.g. '٧', '７') and `float()` parses
+# them, so `\d` would store a window the Node worker's ASCII regex cannot parse, and the worker would
+# then fall back to its default window with no error. `[0-9]` holds the API to the same ASCII grammar the
+# worker and the generated clients enforce.
+CONVERSION_WINDOW_REGEX = r"^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$"
+
+_MINUTES_PER_DURATION_UNIT = {"d": 1440, "h": 60, "m": 1, "s": 1 / 60}
+
+MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
+MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
+
+
+def _duration_minutes(value: str) -> float:
+    return float(value[:-1]) * _MINUTES_PER_DURATION_UNIT[value[-1]]
+
+
 class HogFlowConversionSerializer(serializers.Serializer):
     filters = serializers.ListField(
         child=serializers.DictField(),
@@ -1939,10 +1959,27 @@ class HogFlowConversionSerializer(serializers.Serializer):
         required=False,
         help_text="Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}].",
     )
+    window = serializers.RegexField(
+        regex=CONVERSION_WINDOW_REGEX,
+        # A real window is a handful of characters ('365d', '31536000s'); the cap keeps the regex and the
+        # float parse off arbitrarily long input and flows a bound into the generated client schemas.
+        max_length=32,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How long after entering the workflow a conversion still counts, as a duration string: "
+            "'7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. "
+            "Omit it to use the default window. Set this or 'window_minutes', not both."
+        ),
+    )
     window_minutes = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Conversion window in minutes after a person enters the workflow. null = no explicit window.",
+        help_text=(
+            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a "
+            "person enters the workflow. Maximum 129600 (90 days). null = use the default window. "
+            "Set this or 'window', not both."
+        ),
     )
     # Not DRF read_only: drf-spectacular puts readOnly fields in the component's `required` list
     # (shared by request and response schemas), which would make generated write schemas demand a
@@ -1951,6 +1988,48 @@ class HogFlowConversionSerializer(serializers.Serializer):
     bytecode = serializers.JSONField(
         required=False, allow_null=True, help_text="Compiled server-side from 'filters'. Do not set; ignored if sent."
     )
+
+    def validate_window(self, value: str | None) -> str | None:
+        if value is None:
+            return value
+        minutes = _duration_minutes(value)
+        # A zero window measures nothing. The worker cannot honor it either, so it would fall back to
+        # the default and give the workflow a 90-day window nobody asked for.
+        if minutes <= 0:
+            raise serializers.ValidationError("The conversion window must be longer than zero.")
+        if minutes > MAX_CONVERSION_WINDOW_MINUTES:
+            raise serializers.ValidationError("The conversion window cannot be longer than 365d.")
+        return value
+
+    def _stored_window_minutes(self) -> int | None:
+        # The value this workflow already holds, or None on create. `conversion` is nested only under
+        # HogFlowSerializer, so self.root.instance is the HogFlow being updated.
+        stored = getattr(self.root.instance, "conversion", None)
+        if isinstance(stored, dict):
+            return stored.get("window_minutes")
+        return None
+
+    def validate_window_minutes(self, value: int | None) -> int | None:
+        if value is None:
+            return value
+        # Grandfather an over-ceiling value the row already holds. The builder resends the whole
+        # conversion on every save, so a plain value ceiling would 400 an unrelated edit (a rename or a
+        # step change) on a workflow that predates the ceiling, naming a field the builder cannot show.
+        # Reject the value only when this write introduces or changes it.
+        if value > MAX_LEGACY_WINDOW_MINUTES and value != self._stored_window_minutes():
+            # Almost every value this large is a second count in a field that takes minutes, so name the
+            # unit and show what the number means rather than silently shortening it.
+            raise serializers.ValidationError(
+                f"window_minutes is in minutes, so {value} means {value // 1440} days. "
+                f"The maximum is {MAX_LEGACY_WINDOW_MINUTES}. Use 'window' with a duration string "
+                f"such as '7d' instead."
+            )
+        return value
+
+    def validate(self, data: dict) -> dict:
+        if data.get("window") is not None and data.get("window_minutes") is not None:
+            raise serializers.ValidationError("Set either 'window' or the deprecated 'window_minutes', not both.")
+        return data
 
     def to_internal_value(self, data):
         # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).
@@ -2758,7 +2837,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         allow_null=True,
         help_text=(
             "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; "
-            "events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. "
+            "events: event-based goals [{filters: {events: [...]}}]; "
+            "window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', "
+            "maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. "
             "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
             "bytecode compiled server-side."
         ),
@@ -3076,6 +3157,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         conversion = data.get("conversion")
         if conversion is not None:
+            # DRF replaces a nested object rather than merging it, so a PATCH carrying only the window
+            # arrives without the goal and the lines below would store it as empty — leaving a workflow
+            # that measures nothing, with no error to say so. Carry the omitted halves over from the
+            # stored value; a caller that means to clear one sends it explicitly as [].
+            if self.partial and instance and isinstance(instance.conversion, dict):
+                for key in ("filters", "events"):
+                    if key not in conversion and instance.conversion.get(key) is not None:
+                        conversion[key] = instance.conversion[key]
+                data["conversion"] = conversion
             filters = conversion.get("filters")
             if filters:
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
