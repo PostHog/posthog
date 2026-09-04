@@ -48,7 +48,6 @@ export const MarketingAnalyticsTable = ({
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
-    const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
@@ -126,70 +125,68 @@ export const MarketingAnalyticsTable = ({
                             className="w-64"
                             data-attr="marketing-analytics-search"
                         />
-                        {hasDrillDown && (
-                            <LemonSelect
-                                value={drillDownLevel}
-                                onChange={(value) => value && setDrillDownLevel(value)}
-                                options={[
-                                    {
-                                        title: 'Platform',
-                                        options: [
-                                            {
-                                                value: MarketingAnalyticsDrillDownLevel.Channel,
-                                                label: 'Channel',
-                                            },
-                                            {
-                                                value: MarketingAnalyticsDrillDownLevel.ChannelSource,
-                                                label: 'Channel + Source',
-                                            },
-                                            {
-                                                value: MarketingAnalyticsDrillDownLevel.Source,
-                                                label: 'Source',
-                                            },
-                                            {
-                                                value: MarketingAnalyticsDrillDownLevel.Campaign,
-                                                label: 'Campaign',
-                                            },
-                                        ],
-                                    },
-                                    ...(hasExtendedDrillDown
-                                        ? [
-                                              {
-                                                  title: 'UTM',
-                                                  options: [
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.Medium,
-                                                          label: 'Medium',
-                                                      },
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.Content,
-                                                          label: 'Content',
-                                                      },
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.Term,
-                                                          label: 'Term',
-                                                      },
-                                                  ],
-                                              },
-                                              {
-                                                  title: 'Ad level',
-                                                  options: [
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.AdGroup,
-                                                          label: 'Ad group',
-                                                      },
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.Ad,
-                                                          label: 'Ad',
-                                                      },
-                                                  ],
-                                              },
-                                          ]
-                                        : []),
-                                ]}
-                                size="small"
-                            />
-                        )}
+                        <LemonSelect
+                            value={drillDownLevel}
+                            onChange={(value) => value && setDrillDownLevel(value)}
+                            options={[
+                                {
+                                    title: 'Platform',
+                                    options: [
+                                        {
+                                            value: MarketingAnalyticsDrillDownLevel.Channel,
+                                            label: 'Channel',
+                                        },
+                                        {
+                                            value: MarketingAnalyticsDrillDownLevel.ChannelSource,
+                                            label: 'Channel + Source',
+                                        },
+                                        {
+                                            value: MarketingAnalyticsDrillDownLevel.Source,
+                                            label: 'Source',
+                                        },
+                                        {
+                                            value: MarketingAnalyticsDrillDownLevel.Campaign,
+                                            label: 'Campaign',
+                                        },
+                                    ],
+                                },
+                                ...(hasExtendedDrillDown
+                                    ? [
+                                          {
+                                              title: 'UTM',
+                                              options: [
+                                                  {
+                                                      value: MarketingAnalyticsDrillDownLevel.Medium,
+                                                      label: 'Medium',
+                                                  },
+                                                  {
+                                                      value: MarketingAnalyticsDrillDownLevel.Content,
+                                                      label: 'Content',
+                                                  },
+                                                  {
+                                                      value: MarketingAnalyticsDrillDownLevel.Term,
+                                                      label: 'Term',
+                                                  },
+                                              ],
+                                          },
+                                          {
+                                              title: 'Ad level',
+                                              options: [
+                                                  {
+                                                      value: MarketingAnalyticsDrillDownLevel.AdGroup,
+                                                      label: 'Ad group',
+                                                  },
+                                                  {
+                                                      value: MarketingAnalyticsDrillDownLevel.Ad,
+                                                      label: 'Ad',
+                                                  },
+                                              ],
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                            size="small"
+                        />
                         <Tooltip title="Filters the currently loaded results" delayMs={0}>
                             <IconInfo className="text-xl text-secondary" />
                         </Tooltip>
