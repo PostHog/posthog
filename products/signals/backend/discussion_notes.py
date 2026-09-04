@@ -71,6 +71,7 @@ def forward_discussion_note(
     team: Team,
     report_id: str,
     text: str,
+    question: str | None,
     user_id: int | None,
     scoped_team_ids: Sequence[int] | None,
     api_scopes: Sequence[str] | None,
@@ -86,13 +87,17 @@ def forward_discussion_note(
     runs inside one failure boundary, because authorization and target resolution both read the
     database.
     """
-    if not text or not text.strip():
+    if question is not None:
+        if not question.strip():
+            return None
+    elif not text or not text.strip():
         return None
     try:
         return _forward(
             team=team,
             report_id=str(report_id),
             text=text,
+            question=question,
             user_id=user_id,
             scoped_team_ids=scoped_team_ids,
             api_scopes=api_scopes,
@@ -110,6 +115,7 @@ def _forward(
     team: Team,
     report_id: str,
     text: str,
+    question: str | None,
     user_id: int | None,
     scoped_team_ids: Sequence[int] | None,
     api_scopes: Sequence[str] | None,
@@ -130,12 +136,16 @@ def _forward(
     if report is None:
         return None
 
-    question = _extract_question(text, report_title=report.title, report_id=report_id)
-    if not question:
+    note_question = (
+        question.strip()
+        if question is not None
+        else _extract_question(text, report_title=report.title, report_id=report_id)
+    )
+    if not note_question:
         return None
 
     skill_name = resolve_report_scout_skill(canonical_team.id, report_id)
-    content = _build_note_content(report=report, question=question)
+    content = _build_note_content(report=report, question=note_question)
     created = leave_note(
         team_id=canonical_team.id,
         content=content,

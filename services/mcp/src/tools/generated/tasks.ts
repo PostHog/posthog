@@ -544,6 +544,7 @@ const TasksCreateSchema = () => {
         pending_user_artifact_ids: true,
         auto_publish: true,
         channel: true,
+        signal_report_discussion_question: true,
         naming_source: true,
         sandbox_environment_id: true,
         custom_image_id: true,
