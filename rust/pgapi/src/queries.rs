@@ -150,6 +150,8 @@ pub async fn query_detail(
     // A statement over log_min_duration_statement is always logged, a sampled one
     // stands for 1/rate statements. Weighting by that makes the quantiles unbiased
     // above the sample floor; the log line itself does not say which case it was.
+    // Extended-protocol statements log parse and bind durations as separate lines;
+    // only the execute line is comparable to pg_stat_statements execution time.
     let weight =
         "CASE WHEN $6::float8 > 0 AND duration_ms >= $6::float8 THEN 1.0 ELSE 1.0 / $7::float8 END";
     let quantile_params: [&(dyn tokio_postgres::types::ToSql + Sync); 7] = [
@@ -166,7 +168,8 @@ pub async fn query_detail(
             "WITH d AS (
            SELECT {bucket_col} AS bucket, duration_ms, {weight} AS w
            FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-             AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5))),
+             AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5))
+             AND kind NOT IN ('parse', 'bind')),
          r AS (
            SELECT bucket, duration_ms, sum(w) OVER (PARTITION BY bucket ORDER BY duration_ms) AS cw,
                   sum(w) OVER (PARTITION BY bucket) AS tw
@@ -189,7 +192,8 @@ pub async fn query_detail(
     let quantiles = opt(db, &quantile_sql("NULL::timestamptz"), &quantile_params).await?;
     let slow_samples = opt(db, "SELECT log_time, log_stream, datname, usename, duration_ms, left(query, 500) AS query
          FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-           AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5)) ORDER BY duration_ms DESC LIMIT 10", &[&server, &queryid, &from, &to, &fingerprint]).await?;
+           AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5)) AND kind NOT IN ('parse', 'bind')
+         ORDER BY duration_ms DESC LIMIT 10", &[&server, &queryid, &from, &to, &fingerprint]).await?;
     let aurora_plans = opt(db, "SELECT p.planid, p.plan_type, p.plan_captured_time, p.explain_plan,
                 (SELECT sum(calls) FROM ts_aurora_plans a WHERE a.server_id = $1 AND a.planid = p.planid AND a.queryid = $2 AND a.collected_at >= $3 AND a.collected_at < $4)::bigint AS calls,
                 (SELECT sum(total_exec_time) FROM ts_aurora_plans a WHERE a.server_id = $1 AND a.planid = p.planid AND a.queryid = $2 AND a.collected_at >= $3 AND a.collected_at < $4)::float8 AS total_ms
