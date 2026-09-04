@@ -1534,12 +1534,10 @@ def _do_edit_report(
             updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None
         )
         if report_status is not None and _surfaced(report_status) and not prompts_only:
-            # A note-only edit leaves the title, summary and charts the Slack report message shows
-            # unchanged, so re-posting it would duplicate the message already in the channel.
-            # Deliver the note itself instead; any edit that rewrote the content re-posts the
-            # report as before.
-            # Appended evidence rides the same channel: it leaves the title, summary and charts
-            # the report message shows unchanged, so the update carries the new observations instead.
+            # An edit that only added a note or evidence leaves the title, summary and charts the
+            # Slack report message shows unchanged, so re-posting it would duplicate the message
+            # already in the channel. Deliver the addition itself instead; any edit that rewrote the
+            # content re-posts the report as before.
             note_only = (note_appended or evidence_appended) and not updated_fields and not charts_changed
             queue_configured_scout_slack_delivery(
                 run_id=run.id,
@@ -1699,8 +1697,6 @@ def _validate_edit_inputs(
         raise InvalidScoutReportError(f"summary exceeds {MAX_REPORT_SUMMARY_LENGTH} chars ({len(summary)})")
     if append_note is not None and len(append_note) > MAX_NOTE_CONTENT_LENGTH:
         raise InvalidScoutReportError(f"note exceeds {MAX_NOTE_CONTENT_LENGTH} chars ({len(append_note)})")
-    # `charts` / `suggested_prompts` are checked against None rather than falsiness: an explicit
-    # empty list clears them, so a clear-only edit is a real edit and must not be rejected as empty.
     if append_evidence:
         if len(append_evidence) > MAX_REPORT_SIGNALS:
             raise InvalidScoutReportError(
@@ -1713,6 +1709,8 @@ def _validate_edit_inputs(
                 raise InvalidScoutReportError(
                     f"evidence description exceeds {MAX_EVIDENCE_DESCRIPTION_LENGTH} chars ({len(item.description)})"
                 )
+    # `charts` / `suggested_prompts` are checked against None rather than falsiness: an explicit
+    # empty list clears them, so a clear-only edit is a real edit and must not be rejected as empty.
     if (
         title is None
         and summary is None

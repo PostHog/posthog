@@ -813,6 +813,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
         }
+        if (params.append_evidence !== undefined) {
+            body['append_evidence'] = params.append_evidence
+        }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
         }
@@ -1596,6 +1599,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.append_evidence !== undefined) {
+            body['append_evidence'] = params.append_evidence
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
