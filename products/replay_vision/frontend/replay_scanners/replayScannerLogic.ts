@@ -64,6 +64,7 @@ import {
     parseSortParam,
     serializeSortParam,
 } from '../utils/urlParams'
+import { consumeCreatedScanner, handOffCreatedScanner } from './createdScannerHandoff'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
@@ -882,6 +883,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (props.id === 'new') {
                         const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
                         actions.scannerSaved(scanner)
+                        // Hand the created scanner to its detail scene so it renders at once. Without this
+                        // the scene waits on a GET that can stall on read-after-write, trapping the user on
+                        // a bare "Loading…" at the last step of the creation wizard.
+                        const createdScanner = scannerFromApi(response)
+                        handOffCreatedScanner(response.id, {
+                            ...createdScanner,
+                            credit_limit_enabled: createdScanner.credit_limit != null,
+                        })
                         router.actions.replace(urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
                         // pending panel and the button hands off to the instant on-demand tab.
@@ -1621,6 +1630,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     actions.loadScannerFailure() // Clear the loading flag — a bare return would spin forever.
+                    return
+                }
+                // The wizard just created this scanner and handed it over, so render it now rather than
+                // wait on a GET that can stall on read-after-write.
+                const handedOff = consumeCreatedScanner(props.id)
+                if (handedOff) {
+                    actions.loadScannerSuccess(handedOff)
                     return
                 }
                 try {

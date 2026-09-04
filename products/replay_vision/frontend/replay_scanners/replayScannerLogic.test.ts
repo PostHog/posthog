@@ -519,6 +519,24 @@ describe('replayScannerLogic', () => {
                 expect.objectContaining({ button: expect.objectContaining({ label: 'Scan a recording now' }) })
             )
         })
+
+        it('hands the created scanner to its detail scene, so it renders without a read-after-write GET', async () => {
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+
+            // The scanner GET 404s in this suite, and a detail instance that fell through to it would
+            // clear the load and redirect to the list. Loading from the hand-off instead proves a
+            // stalled or lagging GET can no longer strand the user on a blank "Loading…".
+            const detailLogic = replayScannerLogic({ id: 'created-scanner' })
+            detailLogic.mount()
+            await expectLogic(detailLogic).toFinishAllListeners()
+            expect(detailLogic.values.scannerLoading).toBe(false)
+            expect(detailLogic.values.scanner?.id).toBe('created-scanner')
+            expect(router.values.location.pathname).toContain('/replay-vision/created-scanner')
+            detailLogic.unmount()
+        })
     })
 
     describe('new scanner draft', () => {
