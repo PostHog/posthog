@@ -424,7 +424,12 @@ describe("ToolBridge", () => {
         name: "echo",
         arguments: { text: "hi" },
       });
-      expect(result?.content).toEqual([{ type: "text", text: "hi jonathan" }]);
+      expect(result).toMatchObject({
+        content: [{ type: "text", text: "hi jonathan" }],
+        details: {
+          posthog: { mcp: { server: "demo", tool: "echo" } },
+        },
+      });
     });
 
     it("throws McpError with code tool when the server reports isError", async () => {

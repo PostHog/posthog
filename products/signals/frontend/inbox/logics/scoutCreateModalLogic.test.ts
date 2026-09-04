@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
@@ -17,7 +17,7 @@ import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SCOUT_DAILY_AT_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
-import { ScoutCreateModalLogicProps, scoutCreateModalLogic } from './scoutCreateModalLogic'
+import { ScoutCreateModalLogicProps, scoutCreateModalLogic, scoutCreateModalLogicKey } from './scoutCreateModalLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutCreate: jest.fn(),
@@ -111,6 +111,8 @@ describe('scoutCreateModalLogic', () => {
     let onCreated: jest.MockedFunction<NonNullable<ScoutCreateModalLogicProps['onCreated']>>
 
     beforeEach(() => {
+        // The draft is persisted to localStorage; clear it so one test's draft can't leak into another.
+        localStorage.clear()
         initKeaTests()
         // The prefix-in-the-field form is part of the inbox redesign; the legacy contract is pinned below.
         setRedesignFlag(true)
@@ -221,6 +223,43 @@ describe('scoutCreateModalLogic', () => {
         await expectLogic(prefilled).toFinishAllListeners()
         expect(prefilled.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['linear-id'])
         prefilled.unmount()
+    })
+
+    it('clears the servers-defaulted marker on create so the next open re-applies the default', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () =>
+                    scoutAccountResponse([teamServer('github-id', 'GitHub'), teamServer('linear-id', 'Linear')]),
+            },
+        })
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+
+        const logicKey = scoutCreateModalLogicKey(undefined)
+        logic = scoutCreateModalLogic({ logicKey, onClose, onCreated })
+        logic.mount()
+        // The team's servers load, so the default is applied and the marker is set.
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.mcpServersDefaulted).toBe(true)
+        expect(logic.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['github-id', 'linear-id'])
+
+        logic.actions.setScoutCreateFormValue('name', 'checkout-failures')
+        logic.actions.setScoutCreateFormValue('description', 'Investigates recurring checkout failures.')
+        logic.actions.setScoutCreateFormValue(
+            'body',
+            'Inspect checkout failure signals and report meaningful regressions.'
+        )
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+        // A successful create discards the draft, so the marker resets to its initial value.
+        expect(logic.values.mcpServersDefaulted).toBe(false)
+        logic.unmount()
+
+        // The next blank open re-applies the all-servers default instead of opening with every server off.
+        const reopened = scoutCreateModalLogic({ logicKey, onClose })
+        reopened.mount()
+        await expectLogic(reopened).toFinishAllListeners()
+        expect(reopened.values.mcpServersDefaulted).toBe(true)
+        expect(reopened.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['github-id', 'linear-id'])
+        reopened.unmount()
     })
 
     it('submits a daily run time as a project-timezone cron schedule', async () => {
@@ -365,6 +404,74 @@ describe('scoutCreateModalLogic', () => {
             String(MOCK_TEAM_ID),
             expect.objectContaining({ name: 'signals-scout-checkout-failures' })
         )
+    })
+
+    it('restores a persisted draft when reopened under the same key', async () => {
+        logic = scoutCreateModalLogic({ logicKey: scoutCreateModalLogicKey(undefined), onClose })
+        logic.mount()
+        logic.actions.setScoutCreateFormValue('body', 'Watch checkout latency and report spikes.')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.scoutCreateFormChanged).toBe(true)
+        logic.unmount()
+
+        // A fresh instance under the same key is what a remount after navigating away looks like.
+        const reopened = scoutCreateModalLogic({ logicKey: scoutCreateModalLogicKey(undefined), onClose })
+        reopened.mount()
+        expect(reopened.values.scoutCreateForm.body).toBe('Watch checkout latency and report spikes.')
+        // The changed flag must restore with the draft, or the modal's unsaved-input guard would be
+        // off and one backdrop click would silently discard the restored draft.
+        expect(reopened.values.scoutCreateFormChanged).toBe(true)
+        reopened.unmount()
+    })
+
+    it('does not restore a persisted draft after switching to another project', async () => {
+        const logicKey = scoutCreateModalLogicKey(undefined)
+        const first = scoutCreateModalLogic({ logicKey, onClose })
+        first.mount()
+        first.actions.setScoutCreateFormValue('body', 'Watch checkout latency and report spikes.')
+        await expectLogic(first).toFinishAllListeners()
+        first.unmount()
+
+        // Switching project reloads the app under a different team. localStorage is not cleared here,
+        // unlike in beforeEach, so the first project's draft is still stored. The draft is scoped to
+        // the project it was written in, so it must not restore under another project.
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 1 })
+        logic = scoutCreateModalLogic({ logicKey, onClose })
+        logic.mount()
+        expect(logic.values.scoutCreateForm.body).toBe('')
+    })
+
+    it.each([
+        [undefined, 'new'],
+        [{}, 'new'],
+        [{ name: 'signals-scout-ai-observability-daily-digest' }, 'signals-scout-ai-observability-daily-digest'],
+    ])('keys the draft per opening context: %p', (initialValues, expectedKey) => {
+        expect(scoutCreateModalLogicKey(initialValues)).toBe(expectedKey)
+    })
+
+    it('keys a name-less template draft apart from the blank create form', () => {
+        // A deep-link template can prefill a description and body but carry no valid name. Keying on
+        // name alone would put it in the blank form's 'new' slot, so a restored draft from one context
+        // would clobber the other. Each context must get its own key.
+        const blankKey = scoutCreateModalLogicKey({})
+        const templateKey = scoutCreateModalLogicKey({
+            description: 'Investigates recurring checkout failures.',
+            body: 'Inspect checkout failure signals and report meaningful regressions.',
+        })
+        const otherTemplateKey = scoutCreateModalLogicKey({
+            description: 'Watches signup latency.',
+            body: 'Report signup latency spikes.',
+        })
+
+        expect(templateKey).not.toBe(blankKey)
+        expect(templateKey).not.toBe(otherTemplateKey)
+        // The same payload keys the same slot, so a template keeps its own draft across a remount.
+        expect(
+            scoutCreateModalLogicKey({
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+            })
+        ).toBe(templateKey)
     })
 
     // With the redesign flag off the field holds the whole skill name, so the prefix must be typed.

@@ -114,6 +114,9 @@ _ONESHOT_RETRY = RetryPolicy(
     initial_interval=timedelta(seconds=30),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=4),
+    # Truncated sandbox output stays retryable: the error proves only an unclosed object, not the
+    # output limit — a killed sandbox or half-flushed log tail raises the same type and recovers on
+    # retry. Only the one-shot path can read stop_reason == "max_tokens" and fail fast on it.
 )
 
 

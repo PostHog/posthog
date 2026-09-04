@@ -48,6 +48,8 @@ import {
   toolUpdateFromToolResult,
 } from "./tool-use-to-acp";
 
+const ACP_INTERNAL_ERROR_CODE = -32603;
+
 type AnthropicContentChunk =
   | ContentBlockParam
   | BetaContentBlock
@@ -919,14 +921,19 @@ export function handleResultMessage(
       }
       if (message.is_error) {
         const classification = classifyAgentError(message.result);
-        return {
-          shouldStop: true,
-          error: RequestError.internalError(
-            { classification, result: message.result },
-            message.result,
-          ),
-          usage,
-        };
+        // A subscription usage-limit hit already carries a clear, specific
+        // reason from the CLI (and often a reset time) — show it as-is
+        // instead of burying it under a generic "Internal error:" prefix.
+        const error =
+          classification === "subscription_usage_limit"
+            ? new RequestError(ACP_INTERNAL_ERROR_CODE, message.result, {
+                classification,
+              })
+            : RequestError.internalError(
+                { classification, result: message.result },
+                message.result,
+              );
+        return { shouldStop: true, error, usage };
       }
       return { shouldStop: true, stopReason: "end_turn", usage };
     }

@@ -223,73 +223,75 @@ describe('scoutFleetLogic', () => {
     })
 
     it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
-        logic.actions.setRosterEvaluatedAt(new Date('2026-08-28T12:00:00Z').valueOf())
-        logic.actions.loadScoutConfigsSuccess([
-            { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
-            { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
-            {
-                ...BASE_CONFIG,
-                id: 'off',
-                skill_name: 'signals-scout-off',
-                enabled: false,
-                status: 'paused_by_user',
-            },
-            {
-                ...BASE_CONFIG,
-                id: 'broken',
-                skill_name: 'signals-scout-broken',
-                enabled: false,
-                status: 'paused_by_system',
-                pause_reason: 'repeated_failures',
-                status_changed_at: '2026-08-27T12:00:00Z',
-            },
-            {
-                ...BASE_CONFIG,
-                id: 'stale-pause',
-                skill_name: 'signals-scout-stale-pause',
-                enabled: false,
-                status: 'paused_by_system',
-                pause_reason: 'no_output',
-                status_changed_at: '2026-08-20T12:00:00Z',
-            },
-            {
-                ...BASE_CONFIG,
-                id: 'warned',
-                skill_name: 'signals-scout-warned',
-                status: 'pending_pause',
-                pause_reason: 'ignored',
-            },
-            {
-                ...BASE_CONFIG,
-                id: 'quiet-warning',
-                skill_name: 'signals-scout-quiet-warning',
-                status: 'pending_pause',
-                pause_reason: 'no_output',
-            },
-        ])
-        // `busy` filed a report in the window, which is what separates Working from Watching.
+        // The runs poll re-pins `rosterEvaluatedAt` to the wall clock when real time has moved a
+        // scout out of the pause window, so the fixture dates only hold with the clock pinned too.
         jest.useFakeTimers()
         try {
             jest.setSystemTime(new Date('2026-08-28T12:00:00Z'))
+            logic.actions.setRosterEvaluatedAt(new Date('2026-08-28T12:00:00Z').valueOf())
+            logic.actions.loadScoutConfigsSuccess([
+                { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
+                { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
+                {
+                    ...BASE_CONFIG,
+                    id: 'off',
+                    skill_name: 'signals-scout-off',
+                    enabled: false,
+                    status: 'paused_by_user',
+                },
+                {
+                    ...BASE_CONFIG,
+                    id: 'broken',
+                    skill_name: 'signals-scout-broken',
+                    enabled: false,
+                    status: 'paused_by_system',
+                    pause_reason: 'repeated_failures',
+                    status_changed_at: '2026-08-27T12:00:00Z',
+                },
+                {
+                    ...BASE_CONFIG,
+                    id: 'stale-pause',
+                    skill_name: 'signals-scout-stale-pause',
+                    enabled: false,
+                    status: 'paused_by_system',
+                    pause_reason: 'no_output',
+                    status_changed_at: '2026-08-20T12:00:00Z',
+                },
+                {
+                    ...BASE_CONFIG,
+                    id: 'warned',
+                    skill_name: 'signals-scout-warned',
+                    status: 'pending_pause',
+                    pause_reason: 'ignored',
+                },
+                {
+                    ...BASE_CONFIG,
+                    id: 'quiet-warning',
+                    skill_name: 'signals-scout-quiet-warning',
+                    status: 'pending_pause',
+                    pause_reason: 'no_output',
+                },
+            ])
+            // `busy` filed a report in the window, which is what separates Working from Watching.
             logic.actions.loadScoutRunsSuccess([
                 makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] }),
             ])
+
+            // One flat list ordered by name, not split across lifecycle sections.
+            expect(logic.values.rosterScouts.map((row) => [row.config.id, row.group])).toEqual([
+                ['broken', 'needs_you'],
+                ['busy', 'working'],
+                ['off', 'off'],
+                ['quiet', 'watching'],
+                ['quiet-warning', 'needs_you'],
+                ['stale-pause', 'needs_you'],
+                ['warned', 'needs_you'],
+            ])
+            // The stats tell a warning apart from a recent pause; human and stale pauses are neither.
+            expect(logic.values.pauseAttentionCounts).toEqual({ pausingSoon: 1, recentlyPaused: 1 })
         } finally {
             jest.useRealTimers()
         }
-
-        // One flat list ordered by name, not split across lifecycle sections.
-        expect(logic.values.rosterScouts.map((row) => [row.config.id, row.group])).toEqual([
-            ['broken', 'needs_you'],
-            ['busy', 'working'],
-            ['off', 'off'],
-            ['quiet', 'watching'],
-            ['quiet-warning', 'needs_you'],
-            ['stale-pause', 'needs_you'],
-            ['warned', 'needs_you'],
-        ])
-        // The stats tell a warning apart from a recent pause; human and stale pauses are neither.
-        expect(logic.values.pauseAttentionCounts).toEqual({ pausingSoon: 1, recentlyPaused: 1 })
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
