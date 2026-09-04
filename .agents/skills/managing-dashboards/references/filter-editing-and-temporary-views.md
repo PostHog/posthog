@@ -9,7 +9,8 @@ Use this reference when a dashboard change affects filter editing, saving, previ
 | Saved filters               | `dashboard.persisted_filters`                    | Every dashboard viewer | Yes       | Render as the dashboard default.                                     |
 | Unsaved filter edits        | Local edit state                                 | The current editor     | No        | Show a count and allow preview, discard, or save.                    |
 | Temporary URL filters       | `query_filters` URL state                        | The current viewer     | No        | Show a temporary-filter notice and allow clear.                      |
-| Temporary URL variables     | `query_variables` URL state                      | The current viewer     | No        | Use distinct variable or value copy. Do not label variables filters. |
+| Temporary URL variables     | Initial `query_variables` URL state              | The current viewer     | No        | Show temporary variables and list each variable and value.           |
+| Unsaved variable edits      | Editor changes to dashboard variables            | The current editor     | No        | Show the changed-variable count, old and new values, discard, save.  |
 | Contextual embedded filters | `setExternalFilters`, currently group dashboards | The current viewer     | No        | Apply to the embedded view. Never count or save as an editor change. |
 | Per-tile filter overrides   | `tile.filters_overrides`                         | Every compatible tile  | Yes       | Keep separate from dashboard filter editing.                         |
 
@@ -23,7 +24,9 @@ Do not call normal saved filters temporary. All filters change the displayed dat
 4. Discard restores the filters saved to the dashboard.
 5. Clear temporary filters removes `query_filters` and returns to the saved dashboard view.
 6. Clear temporary variables removes `query_variables`. It does not change dashboard filters.
-7. An embedded contextual filter constrains its current view. It must not enter the unsaved-filter count or `saveDashboardFilters` payload.
+7. An editor variable change creates an unsaved difference from `dashboard.persisted_variables` or the variable default value.
+8. Save changes persists variables through the dashboard save path. Discard removes the URL variable override and refreshes the dashboard data.
+9. An embedded contextual filter constrains its current view. It must not enter the unsaved-filter count or `saveDashboardFilters` payload.
 
 ## Layout editing
 
@@ -33,6 +36,8 @@ Do not call normal saved filters temporary. All filters change the displayed dat
 - Save filters saves only filter changes.
 - Cancel layout restores layout changes only. It must preserve unsaved filter edits and their preview state.
 - Filter actions must remain available during layout editing when unsaved filter edits exist.
+- Variable edits use the dashboard save path. Save layout persists unsaved variable edits with layout changes.
+- Cancel layout must preserve unsaved variable edits.
 
 ## UI requirements
 
@@ -43,14 +48,15 @@ Do not call normal saved filters temporary. All filters change the displayed dat
 - Render multi-value changes as individual pills.
 - Use container queries for narrow dashboard content. At the small filter-bar breakpoint, keep the status visible and move actions into a dropdown.
 - Keep temporary-filter details available through an information icon and through click or hover.
-- Use filter-specific copy only for `query_filters`. Use separate copy when `query_variables` changes the dashboard view.
+- Use filter-specific copy only for filter-only states. Use variable or generic change copy when variables change the dashboard view.
+- When temporary variables exist, a later filter or variable edit must replace the temporary state with the unsaved state.
 - Do not show a temporary URL-filter treatment where the request path ignores URL overrides, such as a shared-token request.
 
 ## Entry paths and placements
 
 - A person can open a dashboard with `query_filters` or `query_variables` in a pasted link, browser history entry, or direct URL edit.
 - Filter controls write `query_filters` during automatic preview. For large dashboards, Preview writes the same URL state after an explicit action.
-- Variable controls write `query_variables`. They use the dashboard variable layer and must not enter filter-save state.
+- Variable controls write `query_variables`. Initial URL values are temporary. Editor changes are unsaved dashboard variable edits and save through `saveEditModeChanges`.
 - Group dashboards use `setExternalFilters` for the current group. The embedded dashboard has no dashboard filter editor. Its editor link opens the normal dashboard path without that group context.
 - Feature-flag, DataOps, built-in, public, and export placements do not use the normal filter editor. Check each placement before rendering a status or action.
 - Tile override dialogs use `tile.filters_overrides`. They are a separate persisted tile action, not a dashboard URL or filter-bar action.
@@ -65,6 +71,9 @@ Do not call normal saved filters temporary. All filters change the displayed dat
 - Open a dashboard with URL filters. Confirm that only the temporary-view treatment appears.
 - Clear temporary filters. Confirm that the saved dashboard filters return.
 - Open a dashboard with URL variables only. Confirm that the UI identifies temporary variables or values without calling them filters.
+- Change one and multiple SQL variables. Confirm the unsaved count matches the popover. Confirm each entry shows default or saved value to new value.
+- Open with temporary variables, then edit a filter or variable. Confirm the unsaved state replaces the temporary state.
+- Save and discard SQL variable edits. Confirm save persists `persisted_variables` and discard removes only `query_variables`.
 - Edit URL filters through browser history or a direct URL edit. Confirm that the resolved dashboard state updates.
 - Open a group dashboard. Confirm that its contextual group filter does not make dashboard filters dirty and cannot enter a dashboard filter save.
 - Check public, shared, export, feature-flag, DataOps, group, and built-in placements. Confirm that each URL override treatment matches whether that placement applies overrides.
