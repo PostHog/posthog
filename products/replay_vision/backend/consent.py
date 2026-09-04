@@ -6,3 +6,7 @@ def is_ai_data_processing_approved(team_id: int) -> bool:
     return bool(
         Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
     )
+
+
+# Error code clients key on to point the user at the organization AI setting.
+AI_CONSENT_REQUIRED_CODE = "ai_data_processing_not_approved"
