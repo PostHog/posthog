@@ -342,6 +342,19 @@ describe('logsSceneLogic', () => {
             expect(logic.values.anomaliesDateRange).toEqual({ date_from: '-7d' })
         })
 
+        it('falls back to the default window when the param is not a date range', async () => {
+            // A hand-edited or stale URL must not push a shape the picker and the band request
+            // cannot read.
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    activeTab: 'anomalies',
+                    anomaliesDateRange: ['-24h'],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.anomaliesDateRange).toEqual({ date_from: '-7d' })
+        })
+
         it('writes both params, and drops each one at its default', async () => {
             await onAnomaliesTab()
 
