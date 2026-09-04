@@ -108,7 +108,10 @@ def render(catalog: dict[str, Any], style: Style) -> str:
         f"{i}{i}id: {style.s(model.id)},\n"
         f"{i}{i}runtimeAdapter: {style.s(model.runtime_adapter)},\n"
         f"{style.array(model.reasoning_efforts, prefix='reasoningEfforts: ', suffix=',', depth=2)}\n"
-        f"{i}}},"
+        # Omitted rather than emitted as null, so a consumer's `??` falls through to its
+        # own formatter for every model the catalog does not name.
+        + (f"{i}{i}label: {style.s(model.label)},\n" if model.label else "")
+        + f"{i}}},"
         for model in models
     )
     provider_entries = "\n".join(f"{i}{adapter}: {style.s(providers[adapter])}," for adapter in adapters)
@@ -147,6 +150,8 @@ export interface CatalogModel {{
 {i}runtimeAdapter: RuntimeAdapter{semi}
 {i}/** Empty for a model with no effort control: render no dropdown. */
 {i}reasoningEfforts: readonly ReasoningEffort[]{semi}
+{i}/** Display name, set only where formatting the id gets it wrong. */
+{i}label?: string{semi}
 }}
 
 /** Which vendor API each runtime adapter speaks. */

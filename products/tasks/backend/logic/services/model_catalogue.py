@@ -27,6 +27,8 @@ from django.core.cache import cache
 
 import structlog
 
+from products.tasks.backend import model_catalog
+
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
 
@@ -41,9 +43,9 @@ _CACHE_TTL_SECONDS = 30 * 60
 _NEGATIVE_CACHE_TTL_SECONDS = 30
 _FETCH_TIMEOUT_SECONDS = 3.0
 
-# Runtime + effort labels are UI strings with no run-config equivalent. Model display
-# labels are computed from the model id on the fly via `format_model_id` so we never
-# have to hand-maintain a model→label map.
+# Runtime + effort labels are UI strings with no run-config equivalent. A model's display
+# label is computed from its id by `format_model_id`, so a new model names itself; the
+# catalog overrides that only for the ids the derivation gets wrong.
 RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude (Anthropic)",
     "codex": "Codex (OpenAI)",
@@ -179,14 +181,21 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     by_provider = _runtime_adapter_by_provider()
     choices = []
     for model in list_gateway_models(product):
-        runtime_adapter = by_provider.get(model.owned_by)
+        # The catalog answers first: it names the harness that drives a model, whereas
+        # `owned_by` names whoever serves it. The vendor-served models (GLM, Kimi,
+        # DeepSeek) come back owned by `cloudflare`/`baseten`/the vendor org, so routing
+        # on the owner alone dropped every one of them from this list while the desktop
+        # picker offered them. A model the catalog doesn't name still falls back to its
+        # provider, which is what keeps an unlisted `gpt-*` working and still drops a
+        # provider we have no runtime for at all.
+        runtime_adapter = model_catalog.runtime_adapter_for_model(model.id) or by_provider.get(model.owned_by)
         if runtime_adapter is None:
             continue
         choices.append(
             ModelChoice(
                 runtime_adapter=runtime_adapter,
                 model=model.id,
-                label=format_model_id(model.id),
+                label=model_catalog.label_for_model(model.id) or format_model_id(model.id),
                 supported_efforts=tuple(e.value for e in get_supported_reasoning_efforts(runtime_adapter, model.id)),
             )
         )

@@ -1,5 +1,6 @@
 import type { Adapter } from "./adapter";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
+import { labelForModel } from "./model-catalog";
 import { modelHarnessMeta, restrictedModelMeta } from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
 
@@ -290,12 +291,10 @@ function formatProviderModelName(modelId: string): string {
   return [head, ...tail].join(" ");
 }
 
-const MODEL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
-  "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash",
-};
-
 export function formatGatewayModelName(model: GatewayModel): string {
-  const displayName = MODEL_DISPLAY_NAMES[model.id];
+  // The catalog names the models whose derived name reads wrong, so web and desktop show
+  // the same string for them; everything else still goes through the formatters below.
+  const displayName = labelForModel(model.id);
   if (displayName) {
     return displayName;
   }

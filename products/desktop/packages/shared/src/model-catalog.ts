@@ -63,3 +63,15 @@ export function reasoningEffortsForModel(
   ).sort((a, b) => b.prefix.length - a.prefix.length)[0];
   return family?.reasoningEfforts ?? FALLBACK_REASONING_EFFORTS[adapter] ?? [];
 }
+
+/**
+ * The name the catalog pins for a model, or `undefined` to let the caller format the id.
+ *
+ * Only the ids whose derived name reads wrong carry one, so a caller keeps its formatter
+ * for everything else. Mirrors `label_for_model` in
+ * products/tasks/backend/model_catalog.py, so both surfaces name a model identically.
+ */
+export function labelForModel(modelId: string): string | undefined {
+  const normalized = normalizeModelId(modelId);
+  return MODELS.find((candidate) => candidate.id === normalized)?.label;
+}

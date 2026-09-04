@@ -60,28 +60,34 @@ class CatalogModel:
     ``reasoning_efforts`` is empty for a model with no effort control. That is an answer,
     not missing metadata: a picker renders such a model without an effort dropdown, and a
     run must not send an effort for it.
+
+    ``label`` is set only where deriving the name from the id gets it wrong. Each surface
+    formats an id it has no label for, and those formatters disagree on vendor-qualified
+    ids, so a model whose name matters is named here once instead of in each picker.
     """
 
     id: str
     runtime_adapter: str
     reasoning_efforts: tuple[str, ...]
+    label: str | None = None
 
 
 MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM),
-    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM),
-    CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM),
-    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT),
+    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2"),
+    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3"),
+    CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash"),
+    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3"),
+    CatalogModel("deepseek-ai/deepseek-v4-flash-0731", CLAUDE, _NO_EFFORT, label="DeepSeek V4 Flash"),
     CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD),
     CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX),
     CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED),
     CatalogModel("claude-opus-4-8", CLAUDE, _EXTENDED),
     CatalogModel("claude-opus-5", CLAUDE, _EXTENDED),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED),
-    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED),
+    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, label="Claude Fable 5.1"),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED),
     CatalogModel("claude-sonnet-4-6", CLAUDE, _STANDARD),
     CatalogModel("gpt-5", CODEX, _STANDARD),
@@ -154,6 +160,29 @@ def normalize_model_id(model_id: str) -> str:
     return normalized
 
 
+def runtime_adapter_for_model(model_id: str) -> str | None:
+    """The adapter this catalog declares for a model id, or ``None`` when it lists none.
+
+    The gateway reports a model's ``owned_by`` as the party serving it — ``cloudflare``,
+    ``baseten``, the vendor org — which says nothing about the harness that drives it. The
+    catalog does, so an id it names is routed by that rather than by its owner.
+    """
+    normalized = normalize_model_id(model_id)
+    for model in MODELS:
+        if model.id == normalized:
+            return model.runtime_adapter
+    return None
+
+
+def label_for_model(model_id: str) -> str | None:
+    """The name this catalog pins for a model id, or ``None`` to let the caller derive one."""
+    normalized = normalize_model_id(model_id)
+    for model in MODELS:
+        if model.id == normalized:
+            return model.label
+    return None
+
+
 def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...]:
     """The efforts this model may run at, empty when it takes no effort at all.
 
@@ -188,8 +217,10 @@ __all__ = [
     "REASONING_EFFORTS",
     "RUNTIME_ADAPTERS",
     "CatalogModel",
+    "label_for_model",
     "models_for_runtime_adapter",
     "normalize_model_id",
     "reasoning_efforts_for",
     "serves_model",
+    "runtime_adapter_for_model",
 ]
