@@ -6,7 +6,10 @@ import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
 } from "@posthog/shared/domain-types";
-import { reasoningEffortsForModel } from "@posthog/shared/model-catalog";
+import {
+  normalizeModelId,
+  reasoningEffortsForModel,
+} from "@posthog/shared/model-catalog";
 import type { EffortLevel } from "../types";
 
 export const DEFAULT_MODEL = "opus";
@@ -52,8 +55,10 @@ const MODELS_WITH_1M_CONTEXT = new Set([
   "claude-fable-5-1",
 ]);
 
+// Normalized like the effort lookup below: the gateway serves some ids
+// provider-qualified, and a raw check there would silently drop the model to 200k.
 export function supports1MContext(modelId: string): boolean {
-  return MODELS_WITH_1M_CONTEXT.has(modelId);
+  return MODELS_WITH_1M_CONTEXT.has(normalizeModelId(modelId));
 }
 
 export const CONTEXT_WINDOW_1M_BETA = "context-1m-2025-08-07";
@@ -108,7 +113,7 @@ const MODELS_WITH_FAST_MODE = new Set([
 ]);
 
 export function supportsFastMode(modelId: string): boolean {
-  return MODELS_WITH_FAST_MODE.has(modelId);
+  return MODELS_WITH_FAST_MODE.has(normalizeModelId(modelId));
 }
 
 export function getFastModeOptions(
