@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -190,7 +191,8 @@ export interface settingsLogicMeta {
             organizationIntegrations: IntegrationType[] | null,
             preflight: PreflightStatus | null,
             billingEntryUrl: string | null,
-            isAdminOrOwner: boolean | null
+            isAdminOrOwner: boolean | null,
+            featureFlags: FeatureFlagsSet
         ) => SettingSection[]
         selectedLevel: (
             selectedLevelRaw: 'environment' | 'organization' | 'project' | 'user',
@@ -457,6 +459,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.preflight,
                 s.billingEntryUrl,
                 s.isAdminOrOwner,
+                s.featureFlags,
             ],
             (
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
@@ -466,7 +469,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 organizationIntegrations: import('../../types').IntegrationType[] | null,
                 preflight: null | import('../../types').PreflightStatus,
                 billingEntryUrl: string | null,
-                isAdminOrOwner: boolean | null
+                isAdminOrOwner: boolean | null,
+                featureFlags: FeatureFlagsSet
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -499,8 +503,14 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
                         return false
                     }
-                    if (section.id === 'organization-access-resolution' && !isAdminOrOwner) {
-                        return false
+                    if (section.id === 'organization-access-resolution') {
+                        // An organization that already switched keeps the page to see what changed
+                        const previewOpen =
+                            !!featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_RESOLUTION_PREVIEW] ||
+                            !!currentOrganization?.uses_most_specific_access_resolution
+                        if (!isAdminOrOwner || !previewOpen) {
+                            return false
+                        }
                     }
 
                     return true
