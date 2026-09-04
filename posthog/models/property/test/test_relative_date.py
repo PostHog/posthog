@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 from dateutil import tz
 
-from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 
 
 class TestRelativeDateParsing(unittest.TestCase):
