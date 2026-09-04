@@ -10,13 +10,7 @@ from products.access_control.backend.facade.most_specific_migration import (
 
 
 class Command(BaseCommand):
-    help = (
-        "Switch organizations that the most-specific access resolution does not affect over to it: "
-        "those with no access rules, and those whose rules resolve the same under both resolutions. "
-        "Organizations that resolve differently, and organizations with rules but no active member "
-        "to evaluate as, are reported and stay on the legacy resolution. Organizations already on "
-        "the most-specific resolution are skipped."
-    )
+    help = "Switch organizations that the most-specific access resolution does not affect over to it"
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--dry-run", action="store_true", help="Report only, migrate nothing")
@@ -36,16 +30,15 @@ class Command(BaseCommand):
         self.stdout.write(
             f"{len(candidates.divergent)} organizations resolve differently (stay on the legacy resolution)"
         )
-        for readiness in candidates.divergent:
+        for org in candidates.divergent:
             self.stdout.write(
-                f"{readiness.id}\t{readiness.name}\tteams={readiness.teams}\t"
-                f"changes={readiness.changes}\tgains={readiness.gains}\tloses={readiness.loses}"
+                f"{org.id}\t{org.name}\tteams={org.teams}\tchanges={org.changes}\tgains={org.gains}\tloses={org.loses}"
             )
 
         self.stdout.write("")
         self.stdout.write(f"{len(candidates.unchanged)} organizations with rules where nothing changes")
-        for readiness in candidates.unchanged:
-            self.stdout.write(f"{readiness.id}\t{readiness.name}\tteams={readiness.teams}")
+        for org in candidates.unchanged:
+            self.stdout.write(f"{org.id}\t{org.name}\tteams={org.teams}")
 
         self.stdout.write("")
         self.stdout.write(

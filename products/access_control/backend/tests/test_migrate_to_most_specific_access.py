@@ -59,7 +59,7 @@ class TestMigrateToMostSpecificAccess(BaseUserAccessControlTest):
             )
         }
 
-    def test_migrates_only_organizations_the_change_cannot_affect(self):
+    def test_migrates_only_organizations_the_change_does_not_affect(self):
         out = StringIO()
         call_command("migrate_to_most_specific_access", stdout=out)
 
