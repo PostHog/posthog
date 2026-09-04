@@ -27,7 +27,9 @@ function formatVariableValue(variable: { isNull?: boolean; value?: unknown } | u
     return [String(variable.value)]
 }
 
-const changeValue = (value: string | undefined): string[] => (value ? [value] : [])
+function changeValue(value: string | undefined): string[] {
+    return value ? [value] : []
+}
 
 export function getDashboardVariableChanges(
     previousVariables: Record<string, HogQLVariable>,
