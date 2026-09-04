@@ -493,7 +493,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Cohort_full, team_id=team.pk, key=f"13_0_{self.teams[1].pk}"
         )
 
-        assert sweep_cohort_deletions() == []
+        assert sweep_cohort_deletions().failed == ()
         self.assertRowCount(0, "cohortpeople")
 
     def assertRowCount(self, expected, table="events"):

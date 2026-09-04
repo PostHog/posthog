@@ -583,12 +583,32 @@ def clear_removed_cohort_data(
         context.log.warning("cohort sweep disabled, going straight to the person sweep")
         return run
 
-    failed = sweep_cohort_deletions(max_cohorts=run.max_cohorts)
-    context.add_output_metadata({"failed_passes": dagster.MetadataValue.text(", ".join(failed) or "none")})
+    # The query tags are what let `system.query_log` tell this run's cohort mutations apart from
+    # any other traffic afterwards, which is how the sweep gets tuned.
+    report = sweep_cohort_deletions(max_cohorts=run.max_cohorts, delete_settings=settings_with_log_comment(context))
+    context.add_output_metadata(
+        {
+            "cohorts_targeted": dagster.MetadataValue.int(report.targets),
+            "cohorts_already_clear": dagster.MetadataValue.int(report.cleared),
+            "deletions_marked_verified": dagster.MetadataValue.int(report.marked),
+            "cohort_mutations": dagster.MetadataValue.int(report.mutations),
+            "unparseable_keys": dagster.MetadataValue.int(report.unparseable_keys),
+            "mark_seconds": dagster.MetadataValue.float(report.mark_seconds),
+            "delete_seconds": dagster.MetadataValue.float(report.delete_seconds),
+            "drain_seconds": dagster.MetadataValue.float(report.drain_seconds),
+            "failed_passes": dagster.MetadataValue.text(", ".join(report.failed) or "none"),
+        }
+    )
+    # Op metadata dies with the run's history; these survive it, and are what a later tuning pass
+    # reads once system.part_log has rolled over.
+    metrics = MetricsClient(cluster)
+    _emit(metrics, "clickhouse_cleanup_cohorts_swept", {}, value=report.targets)
+    _emit(metrics, "clickhouse_cleanup_cohort_mutations", {}, value=report.mutations)
+    _emit(metrics, "clickhouse_cleanup_cohort_deletions_marked", {}, value=report.marked)
     # The prometheus counters sweep_cohort_deletions increments die with this run's pod, so the
     # scrapeable record of a failed pass is the ClickHouse-backed counter.
-    for name in failed:
-        _emit(MetricsClient(cluster), "clickhouse_cleanup_cohort_sweep_failed_passes", {"pass": name})
+    for name in report.failed:
+        _emit(metrics, "clickhouse_cleanup_cohort_sweep_failed_passes", {"pass": name})
     return run
 
 
@@ -904,6 +924,16 @@ def _wait_for_mutation(
         time.sleep(MUTATION_POLL_SECONDS)
 
 
+@frozen
+class OrderedDeleteReport:
+    """What one table's ordered delete cost. The wait deadlines are set from this distribution,
+    so it is recorded as op metadata rather than left in the run's logs."""
+
+    batches: int
+    seconds_total: float
+    seconds_max: float
+
+
 @dataclass(frozen=True, kw_only=True)
 class TeamRange:
     """One inclusive [low, high] slice of the candidate team ids."""
@@ -941,7 +971,7 @@ def _run_ordered_delete(
     stall_timeout: float,
     capacity_timeout: float,
     wait_deadline: float,
-) -> int:
+) -> "OrderedDeleteReport":
     """Delete every snapshotted row from `table`, oldest version first.
 
     Two passes per team range, in this order and never merged:
@@ -966,8 +996,10 @@ def _run_ordered_delete(
     )
 
     batches = 0
+    durations: list[float] = []
     for team_range in team_ranges:
         for pass_name, key_predicate in passes:
+            started = time.monotonic()
             predicate = f"team_id >= {team_range.low} AND team_id <= {team_range.high} AND {key_predicate}"
             runner = LightweightDeleteMutationRunner(
                 table=table,
@@ -987,11 +1019,26 @@ def _run_ordered_delete(
                 stall_timeout,
                 wait_deadline,
             )
+            durations.append(time.monotonic() - started)
             _emit(metrics, "clickhouse_cleanup_delete_pass_total", {"table": table, "pass": pass_name})
             batches += 1
 
     context.log.info("%s: completed %s ordered delete mutations", table, batches)
-    return batches
+    # sum() of an empty list is an int, and dagster's float metadata rejects one.
+    return OrderedDeleteReport(
+        batches=batches,
+        seconds_total=round(sum(durations, 0.0), 1),
+        seconds_max=round(max(durations, default=0.0), 1),
+    )
+
+
+def _delete_metadata(ranges: list[TeamRange], report: "OrderedDeleteReport") -> dict[str, dagster.MetadataValue]:
+    return {
+        "team_ranges": dagster.MetadataValue.int(len(ranges)),
+        "mutation_batches": dagster.MetadataValue.int(report.batches),
+        "mutation_seconds_total": dagster.MetadataValue.float(report.seconds_total),
+        "mutation_seconds_max": dagster.MetadataValue.float(report.seconds_max),
+    }
 
 
 def _require_snapshot_intact(
@@ -1025,9 +1072,8 @@ def delete_orphaned_distinct_ids(
     _require_snapshot_intact(cluster, run.orphaned, run.orphaned_count, run.query_settings)
     team_ids = cluster.any_host_by_role(partial(run.orphaned.team_ids, settings=run.query_settings), NodeRole.DATA)
     ranges = _team_ranges(team_ids.result(), run.team_batches)
-    context.add_output_metadata({"team_ranges": dagster.MetadataValue.int(len(ranges))})
 
-    _run_ordered_delete(
+    report = _run_ordered_delete(
         context,
         cluster,
         PERSON_DISTINCT_ID2_TABLE,
@@ -1039,6 +1085,7 @@ def delete_orphaned_distinct_ids(
         run.mutation_capacity_timeout,
         run.mutation_wait_deadline,
     )
+    context.add_output_metadata(_delete_metadata(ranges, report))
 
     return replace(run, distinct_ids_deleted_at=datetime.now(UTC))
 
@@ -1160,9 +1207,8 @@ def delete_persons(
     _require_snapshot_intact(cluster, run.persons, run.persons_count, run.query_settings)
     team_ids = cluster.any_host_by_role(partial(run.persons.team_ids, settings=run.query_settings), NodeRole.DATA)
     ranges = _team_ranges(team_ids.result(), run.team_batches)
-    context.add_output_metadata({"team_ranges": dagster.MetadataValue.int(len(ranges))})
 
-    _run_ordered_delete(
+    report = _run_ordered_delete(
         context,
         cluster,
         PERSONS_TABLE,
@@ -1174,6 +1220,7 @@ def delete_persons(
         run.mutation_capacity_timeout,
         run.mutation_wait_deadline,
     )
+    context.add_output_metadata(_delete_metadata(ranges, report))
 
     return run
 

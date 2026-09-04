@@ -158,7 +158,7 @@ class TestCollapseCohortDeletions(TestCase):
             patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
             patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=range(0, 100_000, 500)),
         ):
-            assert sweep_cohort_deletions() == ["run:Cohort_full"]
+            assert sweep_cohort_deletions().failed == ("run:Cohort_full",)
 
     def test_the_drain_waits_for_enqueued_mutations_to_become_visible(self):
         self._queue(DeletionType.Cohort_full, "6_1")
@@ -177,7 +177,7 @@ class TestCollapseCohortDeletions(TestCase):
             patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
             patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=range(100)),
         ):
-            assert sweep_cohort_deletions() == []
+            assert sweep_cohort_deletions().failed == ()
 
         assert mutation_counts.call_count == len(counts)
 
@@ -189,7 +189,7 @@ class TestCollapseCohortDeletions(TestCase):
         cleared = {CohortKey(team_id=self.team.pk, cohort_id=20)}
 
         with patch("posthog.models.async_deletion.delete_cohorts.COHORT_MARK_PAGE_SIZE", 2):
-            assert _mark_verified(DeletionType.Cohort_full, cleared) == 7
+            assert _mark_verified(DeletionType.Cohort_full, cleared).marked == 7
 
         assert AsyncDeletion.objects.filter(delete_verified_at__isnull=True).count() == 1
         assert AsyncDeletion.objects.get(delete_verified_at__isnull=True).key == "21_0"

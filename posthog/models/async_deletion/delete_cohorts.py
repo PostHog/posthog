@@ -17,6 +17,7 @@ mutation count follow the number of distinct cohorts, which the queue cannot inf
 """
 
 import time
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
 from typing import Any
@@ -65,6 +66,9 @@ COHORT_MARK_PAGE_SIZE = 50_000
 # all compete for the same background pool.
 COHORT_MUTATION_CAPACITY = 2
 COHORT_MUTATION_POLL_SECONDS = 30.0
+# Log one line in this many polls. Dagster stores every log line, and a drain can poll for an hour,
+# so the wait reports periodically rather than every tick.
+COHORT_POLL_LOG_EVERY = 10
 # A mutation the sweep did not enqueue can hold the table indefinitely, so waiting for it needs its
 # own bound; the sweep fails rather than blocking the run forever.
 COHORT_MUTATION_TIMEOUT_SECONDS = 3600.0
@@ -93,6 +97,34 @@ class CohortKey:
 
     team_id: int
     cohort_id: int
+
+
+@frozen
+class CohortSweepReport:
+    """What one sweep did, for the op to record. Aggregated across both deletion types.
+
+    Phase seconds separate the three costs a run trades off: reading the queue to tick off
+    finished cohorts, issuing the mutations, and waiting for the cluster to apply them. Tuning
+    `max_cohorts` needs them apart, and an op-level duration cannot take them apart.
+    """
+
+    targets: int
+    cleared: int
+    marked: int
+    mutations: int
+    unparseable_keys: int
+    mark_seconds: float
+    delete_seconds: float
+    drain_seconds: float
+    failed: tuple[str, ...]
+
+
+@frozen
+class MarkOutcome:
+    """What one marking pass ticked off, and what it could not read."""
+
+    marked: int
+    unparseable_keys: int
 
 
 @frozen
@@ -223,10 +255,13 @@ def _wait_for_capacity(timeout: float = COHORT_MUTATION_TIMEOUT_SECONDS) -> None
     wait here is indistinguishable from a hang.
     """
     deadline = time.monotonic() + timeout
+    polls = 0
     while (unfinished := _mutation_counts().unfinished) >= COHORT_MUTATION_CAPACITY:
         if time.monotonic() > deadline:
             raise TimeoutError(f"cohortpeople still has {unfinished} unfinished mutation(s) after {timeout:.0f}s")
-        logger.info("Waiting for cohortpeople mutation capacity", unfinished=unfinished)
+        if polls % COHORT_POLL_LOG_EVERY == 0:
+            logger.info("Waiting for cohortpeople mutation capacity", unfinished=unfinished)
+        polls += 1
         time.sleep(COHORT_MUTATION_POLL_SECONDS)
 
 
@@ -239,6 +274,7 @@ def _wait_for_drain(issued: int, since: datetime, timeout: float = COHORT_MUTATI
     start on top of a running mutation.
     """
     deadline = time.monotonic() + timeout
+    polls = 0
     while True:
         counts = _mutation_counts(since)
         if counts.seen >= issued and not counts.unfinished:
@@ -248,22 +284,27 @@ def _wait_for_drain(issued: int, since: datetime, timeout: float = COHORT_MUTATI
                 f"cohortpeople has {counts.unfinished} unfinished mutation(s)"
                 f" and {counts.seen} of {issued} visible after {timeout:.0f}s"
             )
-        logger.info(
-            "Waiting for cohortpeople mutations to drain",
-            seen=counts.seen,
-            issued=issued,
-            unfinished=counts.unfinished,
-        )
+        if polls % COHORT_POLL_LOG_EVERY == 0:
+            logger.info(
+                "Waiting for cohortpeople mutations to drain",
+                seen=counts.seen,
+                issued=issued,
+                unfinished=counts.unfinished,
+            )
+        polls += 1
         time.sleep(COHORT_MUTATION_POLL_SECONDS)
 
 
-def _delete(targets: list[CohortDeleteTarget]) -> int:
+def _delete(targets: list[CohortDeleteTarget], settings: Mapping[str, Any] | None = None) -> int:
     """Remove the cohort rows each target names, one mutation per chunk. Returns mutations issued.
 
     `lightweight_deletes_sync` is set here rather than left to the server, which defaults it to
     "wait for every replica". That default would block each chunk inside the client for as long as
     the mutation takes, with no bound and no progress reporting. Enqueueing asynchronously and
     pacing on `system.mutations` instead keeps the concurrency explicit and every wait bounded.
+
+    `settings` carries the caller's query tags. Without them these mutations cannot be told apart
+    from any other traffic in `system.query_log`, and a run cannot be measured after the fact.
     """
     issued = 0
     for chunk in chunked(targets, COHORT_DELETION_CHUNK_SIZE):
@@ -276,7 +317,7 @@ def _delete(targets: list[CohortDeleteTarget]) -> int:
             WHERE {" OR ".join(conditions)}
             """,
             params,
-            settings={"lightweight_deletes_sync": 0},
+            settings={**(settings or {}), "lightweight_deletes_sync": 0},
         )
         issued += 1
     return issued
@@ -318,7 +359,7 @@ def _cleared(targets: list[CohortDeleteTarget]) -> set[CohortKey]:
     }
 
 
-def _mark_verified(deletion_type: DeletionType, cleared: set[CohortKey]) -> int:
+def _mark_verified(deletion_type: DeletionType, cleared: set[CohortKey]) -> MarkOutcome:
     """Tick off every queued deletion naming a cleared cohort. Returns how many rows were marked.
 
     Paged on the primary key rather than filtered on the cohort id. The cohort id lives inside
@@ -327,7 +368,7 @@ def _mark_verified(deletion_type: DeletionType, cleared: set[CohortKey]) -> int:
     Walking the primary key reads the queue once in total, and each update addresses rows by id.
     """
     if not cleared:
-        return 0
+        return MarkOutcome(marked=0, unparseable_keys=0)
 
     now = timezone.now()
     marked = 0
@@ -362,14 +403,15 @@ def _mark_verified(deletion_type: DeletionType, cleared: set[CohortKey]) -> int:
         COHORT_DELETION_UNPARSEABLE_KEY_COUNTER.labels(deletion_type=deletion_type.name).inc(unparseable)
         logger.warning("Skipped cohort deletions with unparseable keys", count=unparseable, deletion_type=deletion_type)
 
-    return marked
+    return MarkOutcome(marked=marked, unparseable_keys=unparseable)
 
 
-def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
+def sweep_cohort_deletions(max_cohorts: int = 0, delete_settings: Mapping[str, Any] | None = None) -> CohortSweepReport:
     """Tick off cohorts whose rows are already gone, then remove the rows still queued.
 
     `max_cohorts` caps how many cohorts one run takes on, per deletion type, 0 for all of them.
-    Whatever it excludes stays queued for the next run.
+    Whatever it excludes stays queued for the next run. `delete_settings` tags the mutations so a
+    run can be measured in `system.query_log` afterwards.
 
     Marking runs first, and reports on what earlier runs removed. Mutations are enqueued
     asynchronously, so the rows this run deletes are still readable when it finishes; a marking pass
@@ -378,20 +420,25 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
     Each pass is guarded on its own: failing to tick off cohorts whose rows are already gone must
     not stop the pass that removes rows.
     """
-    failed = []
-    issued = 0
+    failed: list[str] = []
+    targets_seen = cleared_seen = marked = unparseable = issued = 0
+    mark_seconds = delete_seconds = 0.0
     started_at = _server_now()
 
     for deletion_type in (DeletionType.Cohort_full, DeletionType.Cohort_stale):
         targets = _collapse(deletion_type, limit=max_cohorts)
         if not targets:
-            logger.info("No cohort deletions queued", deletion_type=deletion_type.name)
             continue
+        targets_seen += len(targets)
 
         try:
+            phase = time.monotonic()
             cleared = _cleared(targets)
-            marked = _mark_verified(deletion_type, cleared)
-            logger.info("Marked cohort deletions verified", deletion_type=deletion_type.name, marked=marked)
+            outcome = _mark_verified(deletion_type, cleared)
+            mark_seconds += time.monotonic() - phase
+            cleared_seen += len(cleared)
+            marked += outcome.marked
+            unparseable += outcome.unparseable_keys
             # Already gone, so sweeping them again would issue a mutation that removes nothing.
             targets = [target for target in targets if target.key not in cleared]
         except Exception:
@@ -402,10 +449,9 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
         if not targets:
             continue
         try:
-            logger.warning("Sweeping cohortpeople", deletion_type=deletion_type.name, cohorts=len(targets))
-            mutations = _delete(targets)
-            issued += mutations
-            logger.info("Issued cohort delete mutations", deletion_type=deletion_type.name, mutations=mutations)
+            phase = time.monotonic()
+            issued += _delete(targets, delete_settings)
+            delete_seconds += time.monotonic() - phase
         except Exception:
             logger.exception("Failed to run cohort deletions", deletion_type=deletion_type.name)
             COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
@@ -414,5 +460,17 @@ def sweep_cohort_deletions(max_cohorts: int = 0) -> list[str]:
     # Raised, never recorded as a failed pass. The caller chains the person sweep on this returning,
     # and the two must not mutate at the same time, so an undrained table has to stop the run rather
     # than hand back a result that reads as "finished with a warning".
+    drain = time.monotonic()
     _wait_for_drain(issued, started_at)
-    return failed
+
+    return CohortSweepReport(
+        targets=targets_seen,
+        cleared=cleared_seen,
+        marked=marked,
+        mutations=issued,
+        unparseable_keys=unparseable,
+        mark_seconds=round(mark_seconds, 1),
+        delete_seconds=round(delete_seconds, 1),
+        drain_seconds=round(time.monotonic() - drain, 1),
+        failed=tuple(failed),
+    )
