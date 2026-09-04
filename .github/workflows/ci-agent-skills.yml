@@ -114,14 +114,32 @@ jobs:
                           echo "::notice::merge-base not found (branch too stale?), so the schema cache is skipped"
                           exit 0
                       fi
-                      # Routing decides which app labels reach the dump, so an edited routing
-                      # config matches no master dump: drop both keys and migrate from scratch.
-                      DB_ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                      DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                      if [ "$DB_ROUTING_BASE" != "$DB_ROUTING_HEAD" ]; then
+                      # Routing decides which app labels reach the dump. The router itself must be
+                      # identical: any change there can move an existing label out of the dumped
+                      # database, which no master dump reflects.
+                      ROUTER_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- posthog/product_db_config.py posthog/product_db_router.py)
+                      ROUTER_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- posthog/product_db_config.py posthog/product_db_router.py)
+                      if [ "$ROUTER_BASE" != "$ROUTER_HEAD" ]; then
                           echo "key=" >> $GITHUB_OUTPUT
                           echo "migrations_key=" >> $GITHUB_OUTPUT
-                          echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                          echo "::notice::db router differs from the merge base, so the schema cache is skipped"
+                          exit 0
+                      fi
+                      # Every route the merge base had must survive unchanged. Adding a route for a
+                      # new app label keeps the dump valid, because that label reached no master
+                      # dump either and migrate creates its tables in the product database. Any
+                      # other edit moves an existing label, so the dump is stale. An unreadable or
+                      # unrecognized file parses empty and is treated as an edit.
+                      read_routes() {
+                          git show "${1}:products/db_routing.yaml" 2>/dev/null \
+                              | tr -d '[:blank:]' | grep -E '^-?(app_label|database):' | paste - - | LC_ALL=C sort
+                      }
+                      ROUTES_BASE=$(read_routes "$MERGE_BASE") || true
+                      ROUTES_HEAD=$(read_routes HEAD) || true
+                      if [ -z "$ROUTES_BASE" ] || [ -z "$ROUTES_HEAD" ] || [ -n "$(comm -23 <(printf '%s\n' "$ROUTES_BASE") <(printf '%s\n' "$ROUTES_HEAD"))" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::db routing config drops or changes a merge-base route, so the schema cache is skipped"
                           exit 0
                       fi
                       echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
