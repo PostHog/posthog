@@ -32,7 +32,7 @@ from posthog.hogql.database.database import Database
 
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
-from posthog.api.services.flags_service import FlagVersionConflictError
+from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
@@ -9067,6 +9067,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             project_id=self.team.project_id,
             flag_key="some-feature",
             expected_version=1,
+            expected_property_matching_version=1,
             cursor=0,
             limit=1_000,
         )
@@ -9098,6 +9099,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_cursor_loop_advances_and_terminates(self, mock_batch_evaluate):
         self._create_flag()
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).update(property_matching_version=2)
         persons = [
             _create_person(team=self.team, distinct_ids=[f"person{i}"], properties={"key": "value"}, immediate=True)
             for i in range(3)
@@ -9118,6 +9120,10 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cursors, [0, 100, 200])
         limits = {call.kwargs["limit"] for call in mock_batch_evaluate.call_args_list}
         self.assertEqual(limits, {2})
+        matching_versions = {
+            call.kwargs["expected_property_matching_version"] for call in mock_batch_evaluate.call_args_list
+        }
+        self.assertEqual(matching_versions, {2})
 
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 3)
@@ -9193,15 +9199,26 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert history.error is not None
         self.assertNotIn("connection refused", history.error)
 
+    @parameterized.expand(
+        [
+            ("flag_version", FlagVersionConflictError("flag changed during cohort generation")),
+            (
+                "property_matching_version",
+                PropertyMatchingVersionConflictError("matching changed during cohort generation"),
+            ),
+        ]
+    )
     @patch("posthog.api.cohort.time.sleep")
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
-    def test_version_conflict_is_not_retried_and_surfaces_user_facing_error(self, mock_batch_evaluate, mock_sleep):
+    def test_pinned_input_conflict_is_not_retried_and_surfaces_user_facing_error(
+        self, _name, conflict, mock_batch_evaluate, mock_sleep
+    ):
         self._create_flag()
         cohort = self._create_static_cohort()
 
-        mock_batch_evaluate.side_effect = FlagVersionConflictError("flag changed during cohort generation")
+        mock_batch_evaluate.side_effect = conflict
 
-        with self.assertRaises(FlagVersionConflictError):
+        with self.assertRaises(type(conflict)):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         # Permanent error: no retries

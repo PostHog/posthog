@@ -333,6 +333,7 @@ pub async fn evaluate_for_request(
     state: &State<router::State>,
     team_id: i32,
     team_timezone: Tz,
+    use_explicit_exact_matching: bool,
     distinct_id: String,
     device_id: Option<String>,
     filtered_flags: FeatureFlagList,
@@ -392,6 +393,7 @@ pub async fn evaluate_for_request(
             .config
             .realtime_cohort_evaluation_team_ids
             .includes_team(team_id),
+        use_explicit_exact_matching,
         membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
         detailed_analysis: detailed_analysis.unwrap_or(false),
         only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),
