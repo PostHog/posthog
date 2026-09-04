@@ -465,7 +465,9 @@ export const WebAnalyticsBotRulesCreateBody = () => zod.object({
         ),
     key: zod
         .string()
-        .describe('Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url.'),
+        .describe(
+            'Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain.'
+        ),
     matcher: zod
         .string()
         .describe(

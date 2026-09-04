@@ -696,7 +696,7 @@ export interface CustomBotRuleApi {
     readonly id: string
     /** Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know. */
     name: string
-    /** Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url. */
+    /** Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
     key: string
     /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only valid with the `$ip` property). */
     matcher: string
