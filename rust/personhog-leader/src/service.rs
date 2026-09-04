@@ -172,6 +172,16 @@ impl PersonHogLeaderService {
         )))
     }
 
+    /// The fence RPCs' exit gate: a success answer re-proves authority at
+    /// the moment it is given. Only a stale Ok can wrongly settle a saga;
+    /// errors bounce and retry.
+    #[allow(clippy::result_large_err)]
+    fn authoritative_ok<T>(&self, partition: u32, resp: T) -> Result<Response<T>, Status> {
+        self.check_authority(partition)?;
+        self.validate_ownership(partition)?;
+        Ok(Response::new(resp))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         cache: Arc<PartitionedCache>,
@@ -1046,6 +1056,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        // The load can park past the claim; the no-change answers below
+        // carry cached state, so they need ownership like any read.
+        self.check_authority(partition)?;
 
         // A destroyed person answers not-found — the caller re-resolves;
         // post-death the distinct id may have been reborn as a new person.
@@ -1340,6 +1353,10 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        // The load can park past the claim, and a not-found here is a
+        // verdict the router delivers, so it needs ownership like any
+        // answer.
+        self.check_authority(partition)?;
         if person.is_deleted {
             return Err(Status::not_found("person is destroyed"));
         }
@@ -1516,9 +1533,12 @@ impl PersonHogLeader for PersonHogLeaderService {
                             "fold target's stored properties exceed the size constraint; \
                              skipping the fold's document write"
                         );
-                        return Ok(Response::new(FoldPersonDocumentResponse {
-                            person: Some(cached_person_to_proto(&person)),
-                        }));
+                        return self.authoritative_ok(
+                            partition,
+                            FoldPersonDocumentResponse {
+                                person: Some(cached_person_to_proto(&person)),
+                            },
+                        );
                     }
                     fold_outcome = "unremediable";
                     folded = target_properties.clone();
@@ -1587,9 +1607,12 @@ impl PersonHogLeader for PersonHogLeaderService {
             .await?;
         counter!("personhog_leader_folds_total", "outcome" => fold_outcome).increment(1);
 
-        Ok(Response::new(FoldPersonDocumentResponse {
-            person: Some(proto),
-        }))
+        self.authoritative_ok(
+            partition,
+            FoldPersonDocumentResponse {
+                person: Some(proto),
+            },
+        )
     }
 
     async fn fence_person(
@@ -1599,6 +1622,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
         self.validate_partition(partition, req.team_id, req.person_id)?;
+        // Ownership below is in-process state, which is what a lease
+        // lapse makes stale: a fence installed here gates no writes.
+        self.check_authority(partition)?;
         let op_id = Uuid::parse_str(&req.op_id)
             .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
         let op_type = req.op_type();
@@ -1675,6 +1701,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         // same-op re-fence takes this path too, re-sealing with fresh
         // state (the saga's seal step is safe to repeat).
         let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        // The load can park on the per-key lock or a recovery; the seal,
+        // not the arrival, must be backed by ownership.
+        self.check_authority(partition)?;
         if person.is_deleted {
             return Err(Status::not_found("person is destroyed"));
         }
@@ -1687,9 +1716,12 @@ impl PersonHogLeader for PersonHogLeaderService {
         self.fences.insert(cache_key, FenceState { op_id, op_type });
         counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
 
-        Ok(Response::new(FencePersonResponse {
-            sealed: Some(sealed),
-        }))
+        self.authoritative_ok(
+            partition,
+            FencePersonResponse {
+                sealed: Some(sealed),
+            },
+        )
     }
 
     async fn release_fence(
@@ -1699,14 +1731,12 @@ impl PersonHogLeader for PersonHogLeaderService {
         let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
         self.validate_partition(partition, req.team_id, req.person_id)?;
+        // The aborted arm would otherwise ack under a lapsed lease; the
+        // committed arm's produce and durable-fact acks need no cover.
+        self.check_authority(partition)?;
         let op_id = Uuid::parse_str(&req.op_id)
             .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
         let outcome = req.outcome();
-
-        // Both outcomes: a release that removed nothing and returned OK
-        // would leave the real owner's fence standing while the saga
-        // believes it released — a person frozen with no retry coming.
-        self.validate_ownership(partition)?;
 
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
@@ -1769,10 +1799,12 @@ impl PersonHogLeader for PersonHogLeaderService {
                 };
 
                 // Duplicate release: the death document already exists;
-                // producing another would only bump the version.
+                // producing another would only bump the version. Gate
+                // first — a refused release must leave the fence.
                 if current.as_ref().is_some_and(|p| p.is_deleted) {
+                    let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
                     self.fences.remove(&cache_key);
-                    return Ok(Response::new(ReleaseFenceResponse {}));
+                    return Ok(resp);
                 }
 
                 // The death document's identity comes from the request (a
@@ -1809,8 +1841,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // already happened and the tombstone is durable;
                     // absorb the retry.
                     Ok(Some(status)) if status == "deleted" => {
+                        let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
                         self.fences.remove(&cache_key);
-                        return Ok(Response::new(ReleaseFenceResponse {}));
+                        return Ok(resp);
                     }
                     Ok(_) => {
                         counter!("personhog_leader_fences_total", "action" => "release_unverified")
@@ -1888,17 +1921,20 @@ impl PersonHogLeader for PersonHogLeaderService {
             }
             ReleaseOutcome::Aborted => {
                 // The op backed out: drop the fence, keep the entry,
-                // produce nothing. The person resumes normal life.
+                // produce nothing. Gate first — a refused release must
+                // leave the fence (pinned).
+                let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
                 self.fences.remove(&cache_key);
                 counter!("personhog_leader_fences_total", "action" => "released_aborted")
                     .increment(1);
+                return Ok(resp);
             }
             ReleaseOutcome::Unspecified => {
                 return Err(Status::invalid_argument("outcome must be specified"));
             }
         }
 
-        Ok(Response::new(ReleaseFenceResponse {}))
+        self.authoritative_ok(partition, ReleaseFenceResponse {})
     }
 }
 
@@ -2195,6 +2231,495 @@ mod tests {
             .get_person(request())
             .await
             .expect("a confirmed renewal serves the read");
+    }
+
+    /// Wiring pin for `fence_person`: with both gates removed the fence
+    /// installs. Either gate alone satisfies it; the parked and
+    /// refused-before-work pins each single out one.
+    #[tokio::test]
+    async fn fence_person_refuses_once_authority_lapses() {
+        let margin = Duration::from_secs(20);
+        let clock = Arc::new(AuthorityClock::stale_for(
+            margin,
+            margin + Duration::from_secs(1),
+        ));
+        let service = PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        };
+        let (team_id, person_id) = (7, 42);
+        service.cache.create_partition(0);
+        service.cache.put(
+            0,
+            PersonCacheKey { team_id, person_id },
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+                team_id,
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
+                created_at: 0,
+                version: 1,
+                is_identified: false,
+                is_deleted: false,
+                last_seen_at: None,
+                approx_bytes: 64,
+            },
+        );
+
+        let request = || {
+            let mut request = Request::new(FencePersonRequest {
+                team_id,
+                person_id,
+                op_id: "11111111-1111-1111-1111-111111111111".to_string(),
+                op_type: LifecycleOpType::Delete as i32,
+            });
+            request
+                .metadata_mut()
+                .insert("x-partition", "0".parse().unwrap());
+            request
+        };
+
+        let err = service
+            .fence_person(request())
+            .await
+            .expect_err("a lapsed lease must not install a fence");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+
+        clock.confirm(Instant::now());
+        service
+            .fence_person(request())
+            .await
+            .expect("a confirmed renewal installs the fence");
+    }
+
+    /// `release_fence`'s aborted arm acks without producing, so
+    /// `commit_document`'s re-check never runs; either release gate may
+    /// refuse here — the timeout test is the admission-specific pin.
+    #[tokio::test]
+    async fn release_fence_refuses_once_authority_lapses() {
+        let margin = Duration::from_secs(20);
+        let clock = Arc::new(AuthorityClock::stale_for(
+            margin,
+            margin + Duration::from_secs(1),
+        ));
+        let service = PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        };
+        let (team_id, person_id) = (7, 42);
+        service.cache.create_partition(0);
+
+        let request = || {
+            let mut request = Request::new(ReleaseFenceRequest {
+                team_id,
+                person_id,
+                op_id: "11111111-1111-1111-1111-111111111111".to_string(),
+                outcome: ReleaseOutcome::Aborted as i32,
+                ..Default::default()
+            });
+            request
+                .metadata_mut()
+                .insert("x-partition", "0".parse().unwrap());
+            request
+        };
+
+        let err = service
+            .release_fence(request())
+            .await
+            .expect_err("a lapsed lease must not ack a release");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+
+        clock.confirm(Instant::now());
+        service
+            .release_fence(request())
+            .await
+            .expect("a confirmed renewal acks the abort");
+    }
+
+    /// A fence admitted before the lapse must not install once parked
+    /// past it. The map assertion is the point: the install, not the
+    /// status, is the danger.
+    #[tokio::test]
+    async fn a_fence_admitted_before_the_lapse_does_not_install() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        service.cache.create_partition(0);
+        // Seeded live, so a confirmed clock would seal successfully; the
+        // refusal must come from the lapse alone.
+        service.cache.put(
+            0,
+            cache_key.clone(),
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+                team_id,
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
+                created_at: 0,
+                version: 1,
+                is_identified: false,
+                is_deleted: false,
+                last_seen_at: None,
+                approx_bytes: 64,
+            },
+        );
+
+        // Hold the per-key lock so the fence parks before its seal.
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let held = mutex.lock().await;
+
+        let mut request = Request::new(FencePersonRequest {
+            team_id,
+            person_id,
+            op_id: "11111111-1111-1111-1111-111111111111".to_string(),
+            op_type: LifecycleOpType::Delete as i32,
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let fencing = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move { service.fence_person(request).await }
+        });
+        tokio::task::yield_now().await;
+
+        clock.surrender();
+        drop(held);
+
+        let err = fencing
+            .await
+            .unwrap()
+            .expect_err("a fence parked past the lapse must refuse");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+        assert!(
+            service.fences.is_empty(),
+            "no fence may install under a lapsed claim"
+        );
+    }
+
+    /// A release admitted while owned must not ack once parked past an
+    /// ordinary handoff: the partition (and its fences) are gone, so the
+    /// ack would report a removal that never happened. The lease stays
+    /// valid throughout — this pins the ownership re-check, not the clock.
+    #[tokio::test]
+    async fn a_release_parked_past_a_handoff_does_not_ack() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        let op_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        service.cache.create_partition(0);
+        service.fences.insert(
+            cache_key.clone(),
+            FenceState {
+                op_id,
+                op_type: LifecycleOpType::Delete,
+            },
+        );
+
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let held = mutex.lock().await;
+
+        let mut request = Request::new(ReleaseFenceRequest {
+            team_id,
+            person_id,
+            op_id: op_id.to_string(),
+            outcome: ReleaseOutcome::Aborted as i32,
+            ..Default::default()
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let releasing = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move { service.release_fence(request).await }
+        });
+        tokio::task::yield_now().await;
+
+        // The handoff completes while the release is parked.
+        service.cache.drop_partition(0);
+        crate::fence::drop_partition_fences(&service.fences, 0, 1);
+        drop(held);
+
+        let err = releasing
+            .await
+            .unwrap()
+            .expect_err("a release parked past a handoff must refuse");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+    }
+
+    /// A release admitted before the lapse must not ack once parked past
+    /// it: removing only this stale map's entry while the saga believes
+    /// the fence released would be a vacuous success.
+    #[tokio::test]
+    async fn a_release_admitted_before_the_lapse_does_not_ack() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        let op_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        service.cache.create_partition(0);
+        service.fences.insert(
+            cache_key.clone(),
+            FenceState {
+                op_id,
+                op_type: LifecycleOpType::Delete,
+            },
+        );
+
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let held = mutex.lock().await;
+
+        let mut request = Request::new(ReleaseFenceRequest {
+            team_id,
+            person_id,
+            op_id: op_id.to_string(),
+            outcome: ReleaseOutcome::Aborted as i32,
+            ..Default::default()
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let releasing = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move { service.release_fence(request).await }
+        });
+        tokio::task::yield_now().await;
+
+        clock.surrender();
+        drop(held);
+
+        let err = releasing
+            .await
+            .unwrap()
+            .expect_err("a release parked past the lapse must refuse");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+        assert!(
+            service.fences.contains_key(&cache_key),
+            "the fence must survive a refused release"
+        );
+    }
+
+    /// The admission gates on both fence RPCs refuse before any work;
+    /// only the wait distinguishes them from the later re-checks, so a
+    /// held per-key lock turns a dropped admission gate into a timeout.
+    #[tokio::test]
+    async fn fence_rpcs_arriving_after_the_lapse_are_refused_at_admission() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        service.cache.create_partition(0);
+
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let _held = mutex.lock().await;
+
+        clock.surrender();
+
+        let mut fence = Request::new(FencePersonRequest {
+            team_id,
+            person_id,
+            op_id: "11111111-1111-1111-1111-111111111111".to_string(),
+            op_type: LifecycleOpType::Delete as i32,
+        });
+        fence
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let err = tokio::time::timeout(Duration::from_millis(200), service.fence_person(fence))
+            .await
+            .expect("the fence must be refused at admission, not behind the lock")
+            .expect_err("a lapsed claim must not fence");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+
+        let mut release = Request::new(ReleaseFenceRequest {
+            team_id,
+            person_id,
+            op_id: "11111111-1111-1111-1111-111111111111".to_string(),
+            outcome: ReleaseOutcome::Aborted as i32,
+            ..Default::default()
+        });
+        release
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let err = tokio::time::timeout(Duration::from_millis(200), service.release_fence(release))
+            .await
+            .expect("the release must be refused at admission, not behind the lock")
+            .expect_err("a lapsed claim must not release");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+    }
+
+    /// A no-change update answers cached state, which is a read: parked
+    /// past the lapse it must refuse rather than answer updated:false.
+    #[tokio::test]
+    async fn a_no_change_update_refuses_once_parked_past_the_lapse() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        service.cache.create_partition(0);
+        service.cache.put(
+            0,
+            cache_key.clone(),
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+                team_id,
+                properties: serde_json::to_vec(&serde_json::json!({"plan": "pro"})).unwrap(),
+                created_at: 0,
+                version: 1,
+                is_identified: false,
+                is_deleted: false,
+                last_seen_at: None,
+                approx_bytes: 64,
+            },
+        );
+
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let held = mutex.lock().await;
+
+        // The same value the cache holds, so the no-change answer path runs.
+        let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
+            team_id,
+            person_id,
+            event_name: "$pageview".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"plan": "pro"})).unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let updating = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move { service.update_person_properties(request).await }
+        });
+        tokio::task::yield_now().await;
+
+        clock.surrender();
+        drop(held);
+
+        let err = updating
+            .await
+            .unwrap()
+            .expect_err("a no-change answer parked past the lapse must refuse");
+        assert_eq!(err.code(), Code::FailedPrecondition);
+    }
+
+    /// A fold parked past the lapse must refuse, not answer: its
+    /// not-found is a verdict the router delivers to the saga, unlike
+    /// the FailedPrecondition a refusal bounces.
+    #[tokio::test]
+    async fn a_fold_parked_past_the_lapse_refuses_instead_of_answering_destroyed() {
+        let clock = Arc::new(AuthorityClock::unclaimed());
+        clock.begin_session(Duration::from_secs(30), Instant::now());
+        let service = Arc::new(PersonHogLeaderService {
+            authority: Some(Arc::clone(&clock)),
+            ..make_test_service().await
+        });
+        let (team_id, person_id) = (7, 42);
+        let cache_key = PersonCacheKey { team_id, person_id };
+        service.cache.create_partition(0);
+        // A death document, so without the gate the fold answers a
+        // definitive not-found from a claim it no longer holds.
+        service.cache.put(
+            0,
+            cache_key.clone(),
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+                team_id,
+                properties: b"{}".to_vec(),
+                created_at: 0,
+                version: 3,
+                is_identified: false,
+                is_deleted: true,
+                last_seen_at: None,
+                approx_bytes: 64,
+            },
+        );
+
+        let mutex = service
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let held = mutex.lock().await;
+
+        let mut request = Request::new(FoldPersonDocumentRequest {
+            team_id,
+            person_id,
+            op_id: "11111111-1111-1111-1111-111111111111".to_string(),
+            sealed_snapshots: vec![wire_snapshot(source_person(43, &serde_json::json!({})), 0)],
+            event_set: b"{}".to_vec(),
+            event_set_once: b"{}".to_vec(),
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        let folding = tokio::spawn({
+            let service = Arc::clone(&service);
+            async move { service.fold_person_document(request).await }
+        });
+        tokio::task::yield_now().await;
+
+        clock.surrender();
+        drop(held);
+
+        let err = folding
+            .await
+            .unwrap()
+            .expect_err("a fold parked past the lapse must refuse");
+        assert_eq!(err.code(), Code::FailedPrecondition);
     }
 
     /// A write is serving too, and the lease-loss path surrenders before
