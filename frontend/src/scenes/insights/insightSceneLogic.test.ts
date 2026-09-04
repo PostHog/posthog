@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { parseURLVariables } from 'scenes/dashboard/dashboardUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -358,6 +359,29 @@ describe('insightSceneLogic', () => {
         // The insight should be reset - no id means it's a new unsaved insight
         expect(logic.values.insightLogicRef?.logic.values.insight.id).toBeUndefined()
         expect(logic.values.insightLogicRef?.logic.values.insight.dashboards).toEqual([6])
+    })
+
+    it('points the dashboard breadcrumb back at the dashboard with its variable overrides applied', async () => {
+        const variableId = '00000000-0000-0000-0000-00000000beef'
+        router.actions.push(
+            urls.insightView(Insight42, 6, {
+                [variableId]: {
+                    variableId,
+                    code_name: 'card_name',
+                    value: 'Polukranos, Unchained',
+                    isNull: false,
+                },
+            })
+        )
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const dashboardBreadcrumb = logic.values.breadcrumbs.find((breadcrumb) => breadcrumb.key === Scene.Dashboard)
+        const { pathname, searchParams } = combineUrl(dashboardBreadcrumb?.path ?? '')
+
+        expect(pathname).toEqual(urls.dashboard(6))
+        expect(parseURLVariables(searchParams)).toEqual({ card_name: 'Polukranos, Unchained' })
     })
 
     it('remounts when URL insight id disagrees with dashboard tile id on the mounted editor (save-as regression)', async () => {

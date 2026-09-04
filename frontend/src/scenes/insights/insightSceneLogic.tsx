@@ -11,7 +11,7 @@ import {
     sharedListeners,
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
-import { urlToAction } from 'kea-router'
+import { combineUrl, urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -22,6 +22,7 @@ import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardSearchParamsFromOverrides } from 'scenes/dashboard/dashboardUtils'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicType } from 'scenes/insights/insightLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -273,7 +274,9 @@ export interface insightSceneLogicMeta {
             insightQuery: Node<Record<string, any>> | null | undefined,
             dashboardId: number | null,
             dashboardName: string | null,
-            sceneSource: InsightSceneSource | null
+            sceneSource: InsightSceneSource | null,
+            variablesOverride: Record<string, HogQLVariable> | null,
+            filtersOverride: DashboardFilter | null
         ) => Breadcrumb[]
         projectTreeRef: (insightId: InsightId) => ProjectTreeRef
         sidePanelContext: (
@@ -512,7 +515,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             (insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined) => insight,
         ],
         breadcrumbs: [
-            (s) => [s.insightLogicRef, s.insight, s.insightQuery, s.dashboardId, s.dashboardName, s.sceneSource],
+            (s) => [
+                s.insightLogicRef,
+                s.insight,
+                s.insightQuery,
+                s.dashboardId,
+                s.dashboardName,
+                s.sceneSource,
+                s.variablesOverride,
+                s.filtersOverride,
+            ],
             (
                 insightLogicRef: {
                     logic: BuiltLogic<insightLogicType>
@@ -522,7 +534,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightQuery: Node<Record<string, any>> | null | undefined,
                 dashboardId: DashboardType['id'] | null,
                 dashboardName: DashboardType['name'] | null,
-                sceneSource: InsightSceneSource | null
+                sceneSource: InsightSceneSource | null,
+                variablesOverride: Record<string, HogQLVariable> | null,
+                filtersOverride: DashboardFilter | null
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
@@ -537,7 +551,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                               {
                                   key: Scene.Dashboard,
                                   name: dashboardLabel,
-                                  path: urls.dashboard(dashboardId),
+                                  // Going back must land on the dashboard as the user left it, not on its saved state
+                                  path: combineUrl(
+                                      urls.dashboard(dashboardId),
+                                      dashboardSearchParamsFromOverrides(variablesOverride, filtersOverride)
+                                  ).url,
                                   iconType: 'dashboard' as FileSystemIconType,
                               },
                           ]
