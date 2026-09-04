@@ -19,14 +19,7 @@ from django.utils.cache import patch_cache_control
 import structlog
 import temporalio
 from dateutil import parser
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import (
-    OpenApiParameter,
-    OpenApiResponse,
-    extend_schema,
-    extend_schema_field,
-    extend_schema_view,
-)
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from openai import APIConnectionError
 from opentelemetry import trace
 from psycopg import OperationalError
@@ -70,7 +63,6 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderDailyThrottle,
     CustomSourceAIBuilderSustainedThrottle,
 )
-from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import (
@@ -992,8 +984,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
-    schemas_count = serializers.SerializerMethodField(read_only=True)
-    rows_synced = serializers.SerializerMethodField(read_only=True)
     engine = serializers.ChoiceField(
         source="connection_metadata.engine",
         read_only=True,
@@ -1097,8 +1087,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "engine",
             "last_run_at",
             "schemas",
-            "schemas_count",
-            "rows_synced",
             "job_inputs",
             "revenue_analytics_config",
             "user_access_level",
@@ -1116,8 +1104,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "latest_error",
             "last_run_at",
             "schemas",
-            "schemas_count",
-            "rows_synced",
             "engine",
             "revenue_analytics_config",
             "user_access_level",
@@ -1204,20 +1190,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return list(instance.schemas.exclude(deleted=True).filter(Q(should_sync=True) | Q(latest_error__isnull=False)))
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        if hasattr(instance, "_summary_has_failures"):
-            status_priority = (
-                ("_summary_has_failures", ExternalDataSchema.Status.FAILED),
-                ("_summary_has_billing_limits", "Billing limits"),
-                ("_summary_has_billing_limit_too_low", "Billing limits too low"),
-                ("_summary_has_paused", ExternalDataSchema.Status.PAUSED),
-                ("_summary_has_running", ExternalDataSchema.Status.RUNNING),
-                ("_summary_has_completed", ExternalDataSchema.Status.COMPLETED),
-            )
-            for attribute, status_value in status_priority:
-                if getattr(instance, attribute):
-                    return status_value
-            return instance.status
-
         active_schemas: list[ExternalDataSchema] = self._active_schemas(instance)
         # Negative statuses should ignore schemas the user has disabled — those can linger in
         # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
@@ -1251,9 +1223,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
-        if hasattr(instance, "_summary_latest_error"):
-            return instance._summary_latest_error
-
         prefetched_schemas = self._prefetched_schemas(instance)
         if prefetched_schemas is not None:
             schema_with_error = next(
@@ -1266,9 +1235,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_schemas(self, instance: ExternalDataSource):
-        if self.context.get("schemas_summary_only"):
-            return []
-
         prefetched_schemas = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
         if prefetched_schemas is not None:
             schemas = [schema for schema in prefetched_schemas if not schema.deleted]
@@ -1280,29 +1246,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=self.context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
-
-    @extend_schema_field(serializers.IntegerField())
-    def get_schemas_count(self, instance: ExternalDataSource) -> int:
-        summary_count = getattr(instance, "_summary_schemas_count", None)
-        if summary_count is not None:
-            return summary_count
-        schemas = self._prefetched_schemas(instance)
-        return len(schemas) if schemas is not None else instance.schemas.exclude(deleted=True).count()
-
-    @extend_schema_field(serializers.IntegerField())
-    def get_rows_synced(self, instance: ExternalDataSource) -> int:
-        summary_rows = getattr(instance, "_summary_rows_synced", None)
-        if summary_rows is not None:
-            return summary_rows
-        schemas = self._prefetched_schemas(instance)
-        if schemas is None:
-            return (
-                instance.schemas.exclude(deleted=True, table__deleted=True).aggregate(total=Sum("table__row_count"))[
-                    "total"
-                ]
-                or 0
-            )
-        return sum(schema.table.row_count or 0 for schema in schemas if schema.table and not schema.table.deleted)
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")
@@ -1639,6 +1582,84 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             updated_source_any._prefetched_objects_cache = {"schemas": schemas}
 
         return updated_source
+
+
+class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """Source-level fields for index pages, without the potentially huge nested schema payload."""
+
+    created_by = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
+    last_run_at = serializers.SerializerMethodField(read_only=True)
+    schemas_count = serializers.SerializerMethodField(read_only=True)
+    rows_synced = serializers.SerializerMethodField(read_only=True)
+    engine = serializers.ChoiceField(
+        source="connection_metadata.engine",
+        read_only=True,
+        allow_null=True,
+        required=False,
+        choices=DIRECT_CONNECTION_ENGINE_CHOICES,
+    )
+    revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
+        source="revenue_analytics_config_safe", read_only=True
+    )
+    access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
+
+    class Meta:
+        model = ExternalDataSource
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "created_via",
+            "status",
+            "source_type",
+            "latest_error",
+            "prefix",
+            "description",
+            "access_method",
+            "direct_query_enabled",
+            "engine",
+            "last_run_at",
+            "revenue_analytics_config",
+            "user_access_level",
+            "schemas_count",
+            "rows_synced",
+        ]
+        read_only_fields = fields
+
+    def get_created_by(self, instance: ExternalDataSource) -> str | None:
+        return instance.created_by.email if instance.created_by else None
+
+    def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
+        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
+        return latest_completed_run.created_at.isoformat() if latest_completed_run else None
+
+    def get_status(self, instance: ExternalDataSource) -> str:
+        status_priority = (
+            ("_summary_has_failures", ExternalDataSchema.Status.FAILED),
+            ("_summary_has_billing_limits", "Billing limits"),
+            ("_summary_has_billing_limit_too_low", "Billing limits too low"),
+            ("_summary_has_paused", ExternalDataSchema.Status.PAUSED),
+            ("_summary_has_running", ExternalDataSchema.Status.RUNNING),
+            ("_summary_has_completed", ExternalDataSchema.Status.COMPLETED),
+        )
+        for attribute, status_value in status_priority:
+            if getattr(instance, attribute):
+                return status_value
+        return instance.status
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, instance: ExternalDataSource) -> str | None:
+        return instance._summary_latest_error
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_schemas_count(self, instance: ExternalDataSource) -> int:
+        return instance._summary_schemas_count
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_rows_synced(self, instance: ExternalDataSource) -> int:
+        return instance._summary_rows_synced
 
 
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
@@ -2059,21 +2080,6 @@ class ResolvedStoredCredential:
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
-@extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="summary",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                description=(
-                    "Return source-level schema counts, row totals, status, and latest errors without embedding schemas. "
-                    "Use this for source index pages; omit it when the caller needs schema details."
-                ),
-            )
-        ]
-    )
-)
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.
@@ -2131,9 +2137,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     # source type ("Stripe", "Postgres") and the HogQL table prefix.
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
-
-    def _is_summary_list(self) -> bool:
-        return self.action == "list" and str_to_bool(self.request.query_params.get("summary", "0"))
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         super().check_object_permissions(request, obj)
@@ -2198,7 +2201,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # tracing. Done here rather than by overriding `list`, since a method named `list` would shadow
         # the builtin `list[...]` type used in annotations elsewhere in this class. Guarded for shape
         # because finalize_response also runs for error responses (no `results`) and other actions.
-        if self.action == "list" and isinstance(response.data, dict):
+        if self.action in ("list", "summary") and isinstance(response.data, dict):
             results = response.data.get("results")
             if isinstance(results, list):
                 span = trace.get_current_span()
@@ -2218,6 +2221,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return ExternalDataSourceCreateSerializer
         if self.action == "database_schema":
             return DatabaseSchemaRequestSerializer
+        if self.action == "summary":
+            return ExternalDataSourceSummarySerializer
         return ExternalDataSourceSerializers
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -2225,11 +2230,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Building the full HogQL Database and serializing per-schema table columns is expensive
         # and only needed when a caller reads `schemas[].table.columns` — which the source list view
         # never does (it only reads name/row_count). Gate both to single-source reads.
-        include_columns = self.action != "list"
+        include_columns = self.action not in ("list", "summary")
         context["include_columns"] = include_columns
         # The list serializes a trimmed per-schema shape; single-source reads serialize the full one.
         context["schemas_list_only"] = self.action == "list"
-        context["schemas_summary_only"] = self._is_summary_list()
         if include_columns:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
@@ -2246,12 +2250,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # (include_columns=True), and building them reads `table.credential.access_key` per schema
         # (see DataWarehouseTable.hogql_definition), so keep the join off the list path only.
         schema_select = ["table__external_data_source"]
-        if self.action != "list":
+        if self.action not in ("list", "summary"):
             schema_select.append("table__credential")
 
         queryset = queryset.select_related("created_by", "revenue_analytics_config")
 
-        if self._is_summary_list():
+        if self.action == "summary":
             schemas = ExternalDataSchema.objects.filter(
                 team_id=self.team_id,
                 source_id=OuterRef("pk"),
@@ -2320,6 +2324,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not is_service_auth(request):
             queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
         return Response(ExternalDataSourceExistsResponseSerializer({"exists": queryset.exists()}).data)
+
+    @extend_schema(
+        responses=ExternalDataSourceSummarySerializer(many=True),
+        description="List source-level status and row aggregates without embedding schemas.",
+    )
+    @action(methods=["GET"], detail=False, url_path="summary")
+    def summary(self, request: Request, *args, **kwargs) -> Response:
+        return super().list(request, *args, **kwargs)
 
     def _resolve_stored_credential(self, source_type: str, payload: dict) -> ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.

@@ -87,6 +87,7 @@ import type {
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { ExternalDataSourceSummaryApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -6459,7 +6460,8 @@ export interface ExternalDataSourceConnectionMetadata {
     available_functions?: string[]
 }
 
-export interface ExternalDataSource {
+export interface ExternalDataSource
+    extends Partial<Pick<ExternalDataSourceSummaryApi, 'rows_synced' | 'schemas_count'>> {
     id: string
     source_id: string
     connection_id: string
@@ -6476,8 +6478,6 @@ export interface ExternalDataSource {
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
-    schemas_count?: number
-    rows_synced?: number
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig

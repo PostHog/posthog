@@ -3326,8 +3326,6 @@ export interface ExternalDataSourceSerializersApi {
     /** @nullable */
     readonly last_run_at: string | null
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
-    readonly schemas_count: number
-    readonly rows_synced: number
     job_inputs?: unknown
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
@@ -4804,8 +4802,6 @@ export interface PatchedExternalDataSourceSerializersApi {
     /** @nullable */
     readonly last_run_at?: string | null
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
-    readonly schemas_count?: number
-    readonly rows_synced?: number
     job_inputs?: unknown
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
@@ -13174,6 +13170,47 @@ export interface SourceCredentialApi {
     expires_at: string
 }
 
+/**
+ * Source-level fields for index pages, without the potentially huge nested schema payload.
+ */
+export interface ExternalDataSourceSummaryApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: string | null
+    readonly created_via: ExternalDataSourceCreatedViaEnumApi | null
+    readonly status: string
+    readonly source_type: ExternalDataSourceTypeEnumApi
+    /** @nullable */
+    readonly latest_error: string | null
+    /** @nullable */
+    readonly prefix: string | null
+    /** @nullable */
+    readonly description: string | null
+    readonly access_method: ExternalDataSourceAccessMethodEnumApi
+    readonly direct_query_enabled: boolean
+    readonly engine: EngineEnumApi | null
+    /** @nullable */
+    readonly last_run_at: string | null
+    readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly schemas_count: number
+    readonly rows_synced: number
+}
+
+export interface PaginatedExternalDataSourceSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataSourceSummaryApi[]
+}
+
 export interface WarehouseColumnStatisticsApi {
     readonly id: string
     /** ID of the data warehouse table this column belongs to. */
@@ -13301,10 +13338,6 @@ export type ExternalDataSourcesListParams = {
      * A search term.
      */
     search?: string
-    /**
-     * Return source-level schema counts, row totals, status, and latest errors without embedding schemas. Use this for source index pages; omit it when the caller needs schema details.
-     */
-    summary?: boolean
 }
 
 export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
@@ -13367,6 +13400,21 @@ export type ExternalDataSourcesStoredCredentialsListParams = {
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
      */
     source_type?: string
+}
+
+export type ExternalDataSourcesSummaryListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type ExternalDataSourcesWizardRetrieveParams = {

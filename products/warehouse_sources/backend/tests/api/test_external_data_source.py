@@ -248,7 +248,7 @@ class TestExternalDataSource(APIBaseTest):
         source.save(update_fields=["deleted"])
         self.assertEqual(self.client.get(url).json(), {"exists": False})
 
-    def test_summary_list_aggregates_schemas_without_serializing_them(self):
+    def test_summary_endpoint_aggregates_schemas_without_serializing_them(self):
         source = self._make_source("summary")
         self._make_schema_with_table(
             source,
@@ -264,11 +264,11 @@ class TestExternalDataSource(APIBaseTest):
             row_count=8,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/?summary=true")
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/summary/")
 
         self.assertEqual(response.status_code, 200)
         result = response.json()["results"][0]
-        self.assertEqual(result["schemas"], [])
+        self.assertNotIn("schemas", result)
         self.assertEqual(result["schemas_count"], 2)
         self.assertEqual(result["rows_synced"], 50)
         self.assertEqual(result["status"], ExternalDataSchema.Status.RUNNING)

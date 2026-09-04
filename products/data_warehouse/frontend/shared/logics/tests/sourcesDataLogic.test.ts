@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api, { ApiError, PaginatedResponse } from 'lib/api'
@@ -19,6 +20,7 @@ jest.mock('lib/api', () => {
         default: {
             externalDataSources: {
                 list: jest.fn(),
+                listSummaries: jest.fn(),
                 update: jest.fn(),
                 updateRevenueAnalyticsConfig: jest.fn(),
             },
@@ -85,12 +87,23 @@ describe('sourcesDataLogic', () => {
                 dataWarehouseSourcesLoading: false,
             })
 
-        expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) }, false)
+        expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
     })
 
-    it('loads source summaries only on the sources list page', () => {
+    it('loads source summaries only on the sources list page', async () => {
         expect(shouldLoadSourceSummaries('/data-management/sources')).toBe(true)
+        expect(shouldLoadSourceSummaries('/project/997/data-management/sources')).toBe(true)
         expect(shouldLoadSourceSummaries('/data-management/revenue')).toBe(false)
+
+        jest.spyOn(api.externalDataSources, 'listSummaries').mockResolvedValue(emptyResponse)
+        jest.spyOn(api.externalDataSources, 'list').mockResolvedValue(emptyResponse)
+
+        logic.mount()
+        router.actions.push('/project/997/data-management/sources')
+        await expectLogic(logic, () => logic.actions.loadSources()).toDispatchActions(['loadSourcesSuccess'])
+
+        expect(api.externalDataSources.listSummaries).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
+        expect(api.externalDataSources.list).not.toHaveBeenCalled()
     })
 
     it.each([
