@@ -218,6 +218,16 @@ def _task_id_for_origin_key(team_id: int, origin_key: str) -> UUID | None:
     return Task.objects.filter(team_id=team_id, origin_key=origin_key).values_list("id", flat=True).first()
 
 
+def _acknowledgement_subject(email: InboundTaskEmail, title: str) -> str:
+    """The sender's own subject, so the acknowledgement lands in their thread.
+
+    Mail clients group on the normalized subject as well as the reference chain, and only a
+    reply prefix normalizes away, so a renamed subject opens a separate conversation.
+    """
+    subject = " ".join(email.subject.split()) or title
+    return subject if _REPLY_PREFIX.match(subject) else f"Re: {subject}"
+
+
 def _send_started_email(email: InboundTaskEmail, team: Team, title: str, task_id: UUID) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -228,7 +238,7 @@ def _send_started_email(email: InboundTaskEmail, team: Team, title: str, task_id
         message = EmailMessage(
             campaign_key=f"task_email_started_{task_id}",
             template_name="task_email_started",
-            subject=f"Started: {title}",
+            subject=_acknowledgement_subject(email, title),
             template_context={"task_title": title, "task_url": absolute_uri(f"/project/{team.id}/tasks/{task_id}")},
             headers={"In-Reply-To": message_id, "References": message_id, "Auto-Submitted": "auto-replied"},
         )

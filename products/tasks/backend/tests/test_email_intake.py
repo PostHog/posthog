@@ -216,10 +216,36 @@ class TestStartTaskFromEmail(APIBaseTest):
             "References": "<abc@example.com>",
             "Auto-Submitted": "auto-replied",
         }
-        assert kwargs["subject"] == "Started: Find out why signups dropped"
+        assert kwargs["subject"] == "Re: Find out why signups dropped"
         assert kwargs["template_context"]["task_url"].endswith(f"/project/{self.team.id}/tasks/{intake.task_id}")
         message_cls.return_value.add_recipient.assert_called_once_with(email=self.user.email, name="Alice")
         message_cls.return_value.send.assert_called_once()
+
+    # The acknowledgement declares itself a reply through In-Reply-To and References, so it has to
+    # carry the sender's subject too: clients group on the normalized subject as well, and a renamed
+    # one opens a second conversation.
+    @parameterized.expand(
+        [
+            ("plain_subject", "Find out why signups dropped", "", "Re: Find out why signups dropped"),
+            (
+                "already_a_reply",
+                "Re: Materialized view 'orders_daily' failed",
+                "",
+                "Re: Materialized view 'orders_daily' failed",
+            ),
+            ("no_subject", "", "Check the funnel\nand tell me where", "Re: Check the funnel"),
+        ]
+    )
+    def test_acknowledgement_keeps_the_senders_subject(
+        self, _workflow, _quota, email_available, _name, subject, body, expected
+    ):
+        email_available.return_value = True
+        with patch(EMAIL_MESSAGE) as message_cls:
+            email_intake.start_task_from_email(
+                self.team, _inbound(sender_email=self.user.email, subject=subject, body=body)
+            )
+
+        assert message_cls.call_args.kwargs["subject"] == expected
 
     def test_failed_acknowledgement_does_not_undo_the_task(self, _workflow, _quota, email_available):
         email_available.return_value = True
