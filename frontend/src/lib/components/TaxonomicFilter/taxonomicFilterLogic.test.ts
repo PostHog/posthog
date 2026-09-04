@@ -532,6 +532,41 @@ describe('taxonomicFilterLogic', () => {
             expect(quickLogic.values.revealBarrierOpen).toBe(true)
         })
 
+        it('renders pageview URL rows below property name rows once the reveal barrier opens', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testDemotedShortcuts',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+            }
+            const demotedLogic = taxonomicFilterLogic(logicProps)
+            demotedLogic.mount()
+
+            await expectLogic(demotedLogic, () => {
+                demotedLogic.actions.setSearchQuery('host')
+                demotedLogic.actions.appendTopMatches([
+                    {
+                        name: 'https://posthog.com/a/very/long/url',
+                        group: TaxonomicFilterGroupType.PageviewUrls,
+                    } as any,
+                    { name: '$host', group: TaxonomicFilterGroupType.EventProperties } as any,
+                ])
+                demotedLogic.actions.openRevealBarrier()
+            }).toMatchValues({
+                topMatchItemsWithSkeletons: [
+                    expect.objectContaining({ name: '$host', group: TaxonomicFilterGroupType.EventProperties }),
+                    expect.objectContaining({
+                        name: 'https://posthog.com/a/very/long/url',
+                        group: TaxonomicFilterGroupType.PageviewUrls,
+                    }),
+                ],
+            })
+
+            demotedLogic.unmount()
+        })
+
         it('does not insert skeletons when search query is empty', async () => {
             const eventsListLogic = infiniteListLogic({
                 ...quickLogic.props,
@@ -1710,25 +1745,6 @@ describe('demoteValueShortcutGroups', () => {
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.EmailAddresses,
             TaxonomicFilterGroupType.PageviewUrls,
-        ])
-    })
-
-    it('ranks pageview URL rows below property name rows in the cross-category list', () => {
-        const makeItem = (name: string, group: TaxonomicFilterGroupType): any => ({ name, group })
-        const groupTypes = [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties]
-
-        expect(
-            redistributeTopMatches(
-                [
-                    makeItem('https://posthog.com/a/very/long/url', TaxonomicFilterGroupType.PageviewUrls),
-                    makeItem('$host', TaxonomicFilterGroupType.EventProperties),
-                ],
-                groupTypes.length,
-                demoteValueShortcutGroups(groupTypes)
-            )
-        ).toEqual([
-            expect.objectContaining({ name: '$host' }),
-            expect.objectContaining({ name: 'https://posthog.com/a/very/long/url' }),
         ])
     })
 })

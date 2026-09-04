@@ -2335,45 +2335,41 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     .join('')
             },
         ],
-        redistributedTopMatchItems: [
-            (s) => [s.topMatchItems, s.taxonomicGroupTypes, s.metaGroupTypes],
+        // The order the cross-category "All" list renders its groups in. Every consumer of that
+        // list must read this, so the skeleton rows and the revealed rows land in the same place.
+        suggestedFilterGroupOrder: [
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
             (
-                topMatchItems: TopMatchItem[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 metaGroupTypes: Set<string>
-            ): TopMatchItem[] => {
-                const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
-                return redistributeTopMatches(
-                    topMatchItems,
-                    nonMetaGroups.length,
-                    demoteValueShortcutGroups(nonMetaGroups)
-                )
-            },
+            ): TaxonomicFilterGroupType[] =>
+                demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))),
+        ],
+        redistributedTopMatchItems: [
+            (s) => [s.topMatchItems, s.suggestedFilterGroupOrder],
+            (topMatchItems: TopMatchItem[], groupOrder: TaxonomicFilterGroupType[]): TopMatchItem[] =>
+                redistributeTopMatches(topMatchItems, groupOrder.length, groupOrder),
         ],
         topMatchItemsWithSkeletons: [
             (s) => [
                 s.redistributedTopMatchItems,
-                s.taxonomicGroupTypes,
+                s.suggestedFilterGroupOrder,
                 s.loadingGroupTypes,
                 s.taxonomicGroups,
                 s.searchQuery,
-                s.metaGroupTypes,
                 s.revealBarrierOpen,
             ],
             (
                 redistributed: TopMatchItem[],
-                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                nonMetaGroups: TaxonomicFilterGroupType[],
                 loadingGroupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[],
                 searchQuery: string,
-                metaGroupTypes: Set<string>,
                 revealBarrierOpen: boolean
             ): (TopMatchItem | SkeletonItem)[] => {
                 if (!searchQuery) {
                     return redistributed
                 }
-
-                const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
 
                 const buildSkeletons = (groupType: TaxonomicFilterGroupType): SkeletonItem[] => {
                     const groupDef = taxonomicGroups.find((g) => g.type === groupType)
