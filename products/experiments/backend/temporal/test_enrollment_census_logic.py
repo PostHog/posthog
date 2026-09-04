@@ -17,7 +17,9 @@ from products.experiments.backend.models.experiment import Experiment, Experimen
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.enrollment_census_logic import (
     BUILD_CAP_EXCLUSION_BYTES,
+    BUILD_LOAD_EXCLUSION_METRICS,
     EXCLUSION_BUILD_BYTE_CAP,
+    EXCLUSION_BUILD_LOAD_CAP,
     MAX_ENROLLMENTS_PER_RUN,
     EnrollmentCensusReport,
     TeamDirectScanStats,
@@ -28,6 +30,10 @@ from products.experiments.backend.temporal.enrollment_census_logic import (
     running_experiment_load,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+def _metric() -> dict[str, Any]:
+    return {"kind": "ExperimentMetric", "uuid": str(uuid.uuid4())}
 
 
 def _stats(**overrides: Any) -> TeamDirectScanStats:
@@ -72,6 +78,39 @@ class TestEnrollmentCensusCriteria(BaseTest):
         assert len(report.excluded) == 1
         assert report.excluded[0].reason == EXCLUSION_BUILD_BYTE_CAP
 
+    @parameterized.expand(
+        [
+            ("over_cap", BUILD_LOAD_EXCLUSION_METRICS + 1, True),
+            ("at_cap", BUILD_LOAD_EXCLUSION_METRICS, False),
+        ]
+    )
+    @freeze_time("2026-01-15")
+    def test_build_load_cap_excludes_team_with_too_many_running_metrics(
+        self, _name: str, metric_count: int, expect_excluded: bool
+    ) -> None:
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, created_by=self.user, key=f"flag-{uuid.uuid4().hex[:8]}"
+            ),
+            name="exp",
+            metrics=[_metric() for _ in range(metric_count)],
+            start_date=timezone.now() - timedelta(days=3),
+        )
+        stats = _stats(team_id=self.team.id, total_read_bytes=6 * 10**12)
+
+        report = build_census_report([stats], window_days=14)
+
+        if expect_excluded:
+            assert report.candidates == ()
+            assert len(report.excluded) == 1
+            assert report.excluded[0].reason == EXCLUSION_BUILD_LOAD_CAP
+            assert report.excluded[0].running_metrics == metric_count
+        else:
+            assert len(report.candidates) == 1
+            assert report.excluded == ()
+
     def test_candidates_ordered_by_total_bytes_descending(self) -> None:
         small = _stats(team_id=1, total_read_bytes=6 * 10**12)
         large = _stats(team_id=2, total_read_bytes=9 * 10**12)
@@ -93,15 +132,18 @@ class TestEnrollmentCensusCriteria(BaseTest):
                 **kwargs,
             )
 
+        # The uuid-less inline metric must not count: recalculation never schedules it.
         running = _experiment(
-            metrics=[{"kind": "ExperimentMetric"}] * 2, metrics_secondary=[{"kind": "ExperimentMetric"}]
+            metrics=[_metric(), _metric(), {"kind": "ExperimentMetric"}], metrics_secondary=[_metric()]
         )
         saved = ExperimentSavedMetric.objects.create(
-            team=self.team, name="saved", query={"kind": "ExperimentMetric", "metric_type": "funnel"}
+            team=self.team,
+            name="saved",
+            query={"kind": "ExperimentMetric", "metric_type": "funnel", "uuid": str(uuid.uuid4())},
         )
         ExperimentToSavedMetric.objects.create(experiment=running, saved_metric=saved, metadata={"type": "primary"})
-        _experiment(metrics=[{"kind": "ExperimentMetric"}], end_date=timezone.now())
-        _experiment(metrics=[{"kind": "ExperimentMetric"}], deleted=True)
+        _experiment(metrics=[_metric()], end_date=timezone.now())
+        _experiment(metrics=[_metric()], deleted=True)
 
         assert running_experiment_load([self.team.id]) == {
             self.team.id: TeamRunningLoad(running_experiments=1, running_metrics=4)

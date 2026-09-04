@@ -19,6 +19,7 @@ import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
+    getEffectiveMCPClientContext,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
@@ -85,6 +86,7 @@ export class RequestContext {
 
     private async api(): Promise<ApiClient> {
         if (!this.apiInstance) {
+            const clientContext = getEffectiveMCPClientContext(this.requestContext, this.sessionContext)
             const customApiBaseUrl = getCustomApiBaseUrl()
             let baseUrl: string
             if (customApiBaseUrl) {
@@ -101,10 +103,10 @@ export class RequestContext {
                 baseUrl,
                 publicBaseUrl: getPublicBaseUrl(),
                 clientUserAgent: this.props.clientUserAgent,
-                mcpClientName: this.props.mcpClientName,
-                mcpClientVersion: this.props.mcpClientVersion,
-                mcpProtocolVersion: this.props.mcpProtocolVersion,
-                mcpConsumer: this.props.mcpConsumer,
+                mcpClientName: clientContext.mcpClientName,
+                mcpClientVersion: clientContext.mcpClientVersion,
+                mcpProtocolVersion: clientContext.mcpProtocolVersion,
+                mcpConsumer: clientContext.mcpConsumer,
                 // Cached from a previous request's token introspection. On a cold cache this is
                 // still unset here, so `StateManager` also stamps it onto the live client's config
                 // the moment introspection resolves it — otherwise a token's first request would
@@ -185,6 +187,10 @@ export class RequestContext {
     setMcpContexts(requestContext: MCPRequestContext, sessionContext: MCPSessionContext | null): void {
         this.requestContext = requestContext
         this.sessionContext = sessionContext
+        if (this.apiInstance) {
+            const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
+            Object.assign(this.apiInstance.config, clientContext)
+        }
     }
 
     async safelyGetAnalyticsContext(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {

@@ -304,6 +304,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Notebooks are a way to organize your work and share it with others.',
         activityScope: ActivityScope.NOTEBOOK,
         docsHref: 'https://posthog.com/docs/notebooks',
+        iconType: 'notebook',
     },
     [Scene.OAuthAuthorize]: {
         name: 'Authorize',

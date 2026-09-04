@@ -39,7 +39,14 @@ from posthog.renderers import SafeJSONRenderer
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_skill_bundle, load_skill_export
+from ..marketplace.adapters import (
+    MARKETPLACE_NAME,
+    PLUGIN_NAME,
+    SANDBOX_SKILLS_FEATURE_FLAG,
+    build_skill_bundle,
+    load_skill_export,
+    sandbox_skills_flag_distinct_id,
+)
 from ..marketplace.credentials import (
     build_codex_install_command,
     build_install_command,
@@ -129,9 +136,6 @@ SKILL_SEARCH_RESULT_LIMIT = 10
 SKILL_SEARCH_MATCH_LIMIT = 2
 SKILL_SEARCH_EXCERPT_LENGTH = 300
 SKILL_SEARCH_TIMEOUT_MS = 5_000
-
-
-SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
 
 
 def _content_search_match(content: str, query: str, *, matched_field: str, path: str) -> dict[str, Any] | None:
@@ -351,6 +355,12 @@ class ZipRenderer(BaseRenderer):
         if renderer_context is not None:
             renderer_context["response"]["Content-Type"] = "application/json"
         return SafeJSONRenderer().render(data, "application/json", renderer_context)
+
+
+def _spec_problems_detail(lead: str, problems: list[str], next_step: str) -> str:
+    # Clients such as the app toast show only `detail`, so the specific problems must live there too.
+    sentences = ". ".join((problem[:1].upper() + problem[1:]).removesuffix(".") for problem in problems)
+    return f"{lead} {sentences}. {next_step}"
 
 
 _ZIP_ACTIONS = ("bundle", "export")
@@ -969,7 +979,14 @@ class LLMSkillViewSet(
         problems = validate_for_export(export)
         if problems:
             return Response(
-                {"detail": "Skill is not export-ready under the Agent Skills spec.", "problems": problems},
+                {
+                    "detail": _spec_problems_detail(
+                        "Couldn't download this skill because it doesn't meet the Agent Skills spec.",
+                        problems,
+                        "Edit the skill to fix this, then try again.",
+                    ),
+                    "problems": problems,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -992,7 +1009,7 @@ class LLMSkillViewSet(
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,
-            user.distinct_id or str(user.uuid),
+            sandbox_skills_flag_distinct_id(user),
             organization_id=self.organization.id,
             team_id=self.team.id,
         )
@@ -1065,7 +1082,14 @@ class LLMSkillViewSet(
         problems = self._import_problems(skill_export)
         if problems:
             return Response(
-                {"detail": "Zip is not a valid, spec-compliant skill.", "problems": problems},
+                {
+                    "detail": _spec_problems_detail(
+                        "Couldn't import this zip because it doesn't meet the Agent Skills spec.",
+                        problems,
+                        "Fix the skill files, then try again.",
+                    ),
+                    "problems": problems,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
