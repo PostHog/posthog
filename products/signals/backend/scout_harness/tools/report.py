@@ -864,12 +864,13 @@ def _report_event_uuid(*parts: object, structured: bool = False) -> str:
     two workers different uuids for one action and ingestion would let the retry through as a second
     event — the exact double-fire this function exists to prevent.
 
-    An edit carrying charts or suggested prompts is a new shape with no key to preserve, so it takes a
-    JSON-encoded one under its own namespace, for the reason `_chart_event_key` gives one level down: the
-    parts are scout-authored free text, so joined on a separator a note of `x|<the chart key>` on a
-    chartless edit would key the same as a note of `x` on an edit appending that chart, and ingestion
-    would drop the second. The namespace literal still reads `_charted` because charts were the first
-    shape to take this branch and its hashes are already in ingestion; renaming it would re-key them."""
+    An edit carrying charts, suggested prompts, or appended evidence is a new shape with no key to
+    preserve, so it takes a JSON-encoded one under its own namespace, for the reason `_chart_event_key`
+    gives one level down: the parts are scout-authored free text, so joined on a separator a note of
+    `x|<the chart key>` on a chartless edit would key the same as a note of `x` on an edit appending
+    that chart, and ingestion would drop the second. The namespace literal still reads `_charted`
+    because charts were the first shape to take this branch and its hashes are already in ingestion;
+    renaming it would re-key them."""
     if structured:
         key = json.dumps(["" if part is None else str(part) for part in parts], separators=(",", ":"))
         return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report_charted:{key}"))
@@ -1055,11 +1056,17 @@ def _capture_report_edited(
     if result.reviewers_set and suggested_reviewers:
         parts.append(",".join(sorted(f"{r.github_login or ''}:{r.user_uuid or ''}" for r in suggested_reviewers)))
     # Evidence is a valid sole input too, so two evidence-only edits to one report in a run share
-    # every other part and would hash identically. Key on the descriptions, and field-tag the part so
+    # every other part and would hash identically. Key on the observations, and field-tag the part so
     # an empty encoding can't collide with another field's, for the reasons the prompts part below
     # gives. A genuinely identical re-send still hashes the same and stays one event, like the charts.
-    if result.evidence_appended and evidence:
-        parts.append(f"evidence:{json.dumps([signal.description for signal in evidence], separators=(',', ':'))}")
+    #
+    # `source_id` and `weight` ride in the key with the description, because the same prose recorded
+    # under two source ids is two distinct rows on the report. Keyed on the description alone, the
+    # second append hashes like the first and ingestion drops its event.
+    appended_evidence = evidence if result.evidence_appended and evidence else None
+    if appended_evidence:
+        observations = [[signal.description, signal.source_id, signal.weight] for signal in appended_evidence]
+        parts.append(f"evidence:{json.dumps(observations, separators=(',', ':'))}")
     # Charts are a valid *sole* input to an edit, so the same reasoning applies: two chart-only edits to
     # one report in a run carry no updated_fields and no title/summary/note, and would hash identically —
     # ingestion would collapse the second and the team would never see that chart land. Key on the charts
@@ -1091,7 +1098,10 @@ def _capture_report_edited(
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
-        event_uuid=_report_event_uuid(*parts, structured=charts is not None or suggested_prompts is not None),
+        event_uuid=_report_event_uuid(
+            *parts,
+            structured=charts is not None or suggested_prompts is not None or appended_evidence is not None,
+        ),
         properties=properties,
     )
 
