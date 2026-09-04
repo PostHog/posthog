@@ -304,9 +304,9 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
         set((state) => {
           if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
           if (state.cells[cellIndex] != null && !replaceExisting) return state;
+          if (state.composer) return state;
           const cells = [...state.cells];
           cells[cellIndex] = null;
-          if (state.composer) return state;
           return {
             activeCellIndex: cellIndex,
             cells,

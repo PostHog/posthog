@@ -304,13 +304,17 @@ describe("commandCenterStore", () => {
     });
 
     it("keeps the first active composer and marks the grid curated", () => {
+      useCommandCenterStore.setState({
+        cells: [null, "unresolved-task", null, null],
+      });
       store().startCreating(2, "session-2");
-      store().startCreating(1, "session-1");
+      store().startCreating(1, "session-1", true);
 
       expect(store().composer).toEqual({
         cellIndex: 2,
         sessionId: "session-2",
       });
+      expect(store().cells[1]).toBe("unresolved-task");
       expect(store().activeCellIndex).toBe(2);
       expect(store().hasAutofilled).toBe(true);
 
