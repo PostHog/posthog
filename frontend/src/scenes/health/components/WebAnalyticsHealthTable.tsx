@@ -31,7 +31,8 @@ const CHECK_META: Record<string, CheckMeta> = {
     },
     authorized_urls: {
         title: 'Authorized URLs',
-        description: "No authorized URLs configured. Some filters won't work correctly until you set your domains.",
+        description:
+            "Authorized URLs tell PostHog which domains you run on. Some filters won't work correctly until the list matches the domains sending events.",
         docsUrl: urls.settings('environment-web-analytics', 'web-analytics-authorized-urls'),
         linkLabel: 'Settings',
     },

@@ -44,6 +44,8 @@ interface WebHealthCheckConfig {
     failingAction?: HealthCheckAction
     docsUrl?: string
     urgent?: boolean
+    /** Overrides `failingDescription` when one `kind` covers more than one failure. */
+    describeFailure?: (issue: HealthIssue) => string | null
 }
 
 const INSTALL_GUIDE_ACTION: HealthCheckAction = {
@@ -100,6 +102,19 @@ const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
             'Authorized URLs configured. Your analytics are filtered to only include traffic from your domains.',
         failingDescription:
             "No authorized URLs configured. Some filters won't work correctly until you let us know what domains you are sending events from.",
+        describeFailure: (issue: HealthIssue): string | null => {
+            if (issue.payload?.reason_code !== 'domain_mismatch') {
+                return null
+            }
+            const host = issue.payload?.unauthorized_hosts?.[0]?.host
+            return [
+                'None of your recent pageviews come from your authorized URLs.',
+                host ? `Pageviews arrive from ${host} instead.` : null,
+                'If you moved to a new domain, add it here so the toolbar and web analytics filters work again.',
+            ]
+                .filter(Boolean)
+                .join(' ')
+        },
         passingAction: { label: 'Manage domains', to: urls.settings('environment-web-analytics') },
         failingAction: { label: 'Add domains', to: urls.settings('environment-web-analytics') },
     },
@@ -420,7 +435,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         id: config.id,
                         category: config.category,
                         title: config.title,
-                        description: config.failingDescription,
+                        description: config.describeFailure?.(issue) ?? config.failingDescription,
                         status,
                         action: config.failingAction,
                         docsUrl: config.docsUrl,

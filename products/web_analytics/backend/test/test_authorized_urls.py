@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models.health_issue import HealthIssue
 from posthog.tasks.health_checks import evaluate_health_check_for_team
 
@@ -96,3 +98,76 @@ class TestAuthorizedUrlsSignal(BaseTest):
             self.team.save(update_fields=["app_urls"])
 
         mock_task.delay.assert_called_with("authorized_urls", self.team.id)
+
+
+class TestAuthorizedUrlsMismatchDetection(BaseTest):
+    def _detect(self, rows: list[tuple]) -> dict:
+        with patch(
+            "products.web_analytics.backend.temporal.health_checks.authorized_urls.execute_clickhouse_health_team_query",
+            return_value=rows,
+        ):
+            return AuthorizedUrlsCheck().detect([self.team.id])
+
+    def _rows(self, hosts: list[tuple[str, int]], total: int | None = None) -> list[tuple]:
+        team_total = total if total is not None else sum(count for _, count in hosts)
+        return [(self.team.id, host, count, team_total) for host, count in hosts]
+
+    def test_flags_team_whose_traffic_left_its_authorized_domains(self):
+        self.team.app_urls = ["https://old.example.com"]
+        self.team.save()
+
+        issues = self._detect(self._rows([("new.example.com", 900), ("blog.example.net", 100)]))
+
+        assert list(issues) == [self.team.id]
+        payload = issues[self.team.id][0].payload
+        assert payload["reason_code"] == "domain_mismatch"
+        assert payload["configured_urls"] == ["https://old.example.com"]
+        assert payload["unauthorized_hosts"][0] == {"host": "new.example.com", "pageviews": 900}
+        assert "new.example.com" in payload["reason"]
+
+    def test_mismatch_issue_hashes_apart_from_the_missing_urls_issue(self):
+        self.team.app_urls = ["https://old.example.com"]
+        self.team.save()
+
+        issues = self._detect(self._rows([("new.example.com", 900)]))
+
+        assert issues[self.team.id][0].hash_keys == ["reason_code"]
+
+    @parameterized.expand(
+        [
+            ("exact host", ["https://example.com"], [("example.com", 900)]),
+            ("host carries a port", ["http://localhost:8000"], [("localhost:3000", 900)]),
+            ("www is equivalent", ["https://example.com"], [("www.example.com", 900)]),
+            ("wildcard subdomain", ["https://*.example.com"], [("app.example.com", 900)]),
+            ("one authorized domain of several", ["https://example.com"], [("other.com", 800), ("example.com", 100)]),
+        ]
+    )
+    def test_stays_quiet_when_traffic_still_reaches_an_authorized_domain(self, _name, app_urls, hosts):
+        self.team.app_urls = app_urls
+        self.team.save()
+
+        assert self._detect(self._rows(hosts)) == {}
+
+    def test_stays_quiet_below_the_minimum_pageview_volume(self):
+        self.team.app_urls = ["https://old.example.com"]
+        self.team.save()
+
+        assert self._detect(self._rows([("new.example.com", 20)])) == {}
+
+    def test_stays_quiet_when_the_ranked_hosts_miss_most_of_the_traffic(self):
+        self.team.app_urls = ["https://old.example.com"]
+        self.team.save()
+
+        assert self._detect(self._rows([("new.example.com", 900)], total=100_000)) == {}
+
+    def test_skips_clickhouse_when_no_team_has_authorized_urls(self):
+        self.team.app_urls = []
+        self.team.save()
+
+        with patch(
+            "products.web_analytics.backend.temporal.health_checks.authorized_urls.execute_clickhouse_health_team_query"
+        ) as mock_query:
+            issues = AuthorizedUrlsCheck().detect([self.team.id])
+
+        mock_query.assert_not_called()
+        assert issues[self.team.id][0].payload["reason_code"] == "missing_urls"

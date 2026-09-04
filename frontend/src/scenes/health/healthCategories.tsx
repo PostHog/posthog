@@ -116,7 +116,7 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     no_live_events: 'No live events',
     no_pageleave_events: 'No pageleave events',
     scroll_depth: 'No scroll depth tracking',
-    authorized_urls: 'No authorized URLs',
+    authorized_urls: 'Authorized URLs',
     reverse_proxy: 'No reverse proxy',
     partial_proxy: 'Partial reverse proxy',
     web_vitals: 'No web vitals',

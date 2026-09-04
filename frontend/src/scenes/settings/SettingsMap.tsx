@@ -1343,7 +1343,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'web-analytics-authorized-urls',
                 title: 'Web analytics domains',
                 description:
-                    'Configure which domains are tracked in web analytics. Wildcards are not allowed — URLs must be concrete and launchable.',
+                    'Configure which domains are tracked in web analytics. Wildcards are not allowed, so URLs must be concrete and launchable. If you move to a new domain, update this list. Nothing else in PostHog is tied to your domain.',
                 component: <TeamAuthorizedURLs />,
                 keywords: ['domain', 'website', 'url'],
             },
