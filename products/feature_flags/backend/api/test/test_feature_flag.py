@@ -8877,7 +8877,9 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
             ("wildcard enforces every rule", {"*"}, _VIOLATES_VARIANT, status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_only_the_rules_in_the_setting_reject(self, name, enforced_rules, filters, expected_status):
+    def test_only_the_rules_in_the_setting_reject(
+        self, name: str, enforced_rules: set[str], filters: dict, expected_status: int
+    ) -> None:
         with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -8888,7 +8890,7 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.json())
 
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={_SUM_RULE})
-    def test_a_rule_still_rolling_out_does_not_reject_by_sharing_a_request(self):
+    def test_a_rule_still_rolling_out_does_not_reject_by_sharing_a_request(self) -> None:
         # Both rules are violated but only one is enforced. The write is rejected for that one
         # alone, so turning on a rule cannot make a second rule's message reach a customer.
         response = self.client.post(
@@ -8909,6 +8911,33 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         body = response.json()
         self.assertEqual(body["code"], self._SUM_RULE)
         self.assertNotIn("ghost", body["detail"])
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"structural.multivariate.variants[].key.max_length"})
+    def test_structural_tier_also_rejects_only_the_enforced_rule(self) -> None:
+        # The structural tier decides separately from the cross-field one, so it needs its own
+        # case. Both violations are on variant keys, which the serde guard only type-checks, so
+        # they reach the structural tier instead of being rejected before it.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "mixed-structural-violations",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "", "rollout_percentage": 50},
+                            {"key": "x" * 401, "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["code"], "structural.multivariate.variants[].key.max_length")
+        self.assertNotIn("blank", body["detail"])
 
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_kill_switch_logs_new_rules_but_still_rejects_serde_unsafe_input(self):
