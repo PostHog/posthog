@@ -46,12 +46,21 @@ function dashboardFilterValuesEqual(previous: unknown, current: unknown): boolea
 }
 
 export function dashboardFiltersEqual(previous: DashboardFilter, current: DashboardFilter): boolean {
+    // Property filters are compared with the same rule that builds the change list, so the unsaved
+    // count can never disagree with what the change list can show. A reordered AND list holds the
+    // same filters, so it is not a change.
+    if (getPropertyFilterChanges(previous, current).length > 0) {
+        return false
+    }
+
     const keys = new Set([...Object.keys(previous), ...Object.keys(current)])
-    return Array.from(keys).every((key) =>
-        dashboardFilterValuesEqual(
-            (previous as Record<string, unknown>)[key],
-            (current as Record<string, unknown>)[key]
-        )
+    return Array.from(keys).every(
+        (key) =>
+            key === 'properties' ||
+            dashboardFilterValuesEqual(
+                (previous as Record<string, unknown>)[key],
+                (current as Record<string, unknown>)[key]
+            )
     )
 }
 
@@ -179,7 +188,7 @@ function getPropertyChanges(previous: AnyPropertyFilter[], current: AnyPropertyF
     return changes
 }
 
-export function getDashboardFilterChanges(
+function getPropertyFilterChanges(
     previousFilters: DashboardFilter,
     currentFilters: DashboardFilter
 ): DashboardFilterChange[] {
@@ -200,6 +209,15 @@ export function getDashboardFilterChanges(
             status: getChangeStatus(previousPropertiesAreExplicit, currentPropertiesAreExplicit),
         })
     }
+
+    return changes
+}
+
+export function getDashboardFilterChanges(
+    previousFilters: DashboardFilter,
+    currentFilters: DashboardFilter
+): DashboardFilterChange[] {
+    const changes = getPropertyFilterChanges(previousFilters, currentFilters)
     const previousHasDate = !!previousFilters.date_from || !!previousFilters.date_to || !!previousFilters.explicitDate
     const currentHasDate = !!currentFilters.date_from || !!currentFilters.date_to || !!currentFilters.explicitDate
 

@@ -1,5 +1,5 @@
 import type { HogQLVariable } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { dashboardFiltersEqual, getDashboardFilterChanges, getDashboardVariableChanges } from './dashboardChanges'
 
@@ -123,6 +123,24 @@ describe('dashboardFiltersEqual', () => {
         ['a null end date against an absent one', { date_from: '-7d' }, { date_from: '-7d', date_to: null }],
     ])('treats %s as unchanged', (_name, saved, current) => {
         expect(dashboardFiltersEqual(saved, current)).toBe(true)
+    })
+
+    it('treats a reordered property list as unchanged, so the change list matches', () => {
+        const browser: AnyPropertyFilter = {
+            key: 'browser',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: 'Chrome',
+        }
+        const os: AnyPropertyFilter = {
+            key: 'os',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: 'macOS',
+        }
+
+        expect(dashboardFiltersEqual({ properties: [browser, os] }, { properties: [os, browser] })).toBe(true)
+        expect(getDashboardFilterChanges({ properties: [browser, os] }, { properties: [os, browser] })).toEqual([])
     })
 
     it.each([
