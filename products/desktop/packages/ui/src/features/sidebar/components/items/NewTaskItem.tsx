@@ -29,8 +29,8 @@ export function NewTaskItem({ isActive, onClick }: NewTaskItemProps) {
       onClick={onClick}
       endContent={
         hasDraft ? (
-          <Badge variant="default" title="You have unsubmitted changes">
-            Draft
+          <Badge variant="default" title="You have unsent changes">
+            Unsent
           </Badge>
         ) : null
       }
