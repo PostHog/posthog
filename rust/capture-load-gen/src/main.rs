@@ -1,6 +1,7 @@
 mod client;
 mod event;
 mod stats;
+mod verify;
 
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -108,6 +109,41 @@ struct Cli {
     /// Print one sample batch as JSON and exit without sending anything.
     #[arg(long)]
     dry_run: bool,
+
+    /// After the load completes, verify shadow parity: poll until the
+    /// Postgres person graph and the personhog temp tables agree on every
+    /// prefix-matched distinct id, and exit nonzero on a mismatch that
+    /// outlasts the deadline. A lagging writer and a real divergence look
+    /// the same row-side, so the deadline is the arbiter. With shards,
+    /// only shard 0 verifies; --count 0 verifies without sending load.
+    #[arg(long)]
+    verify: bool,
+
+    /// Persons database URL, required by --verify.
+    #[arg(long, env = "DATABASE_URL")]
+    database_url: Option<String>,
+
+    /// Prefix on every generated distinct id, and the cohort verify
+    /// compares. A workflow passes its run id here so each run writes and
+    /// verifies only its own persons; the cohort must resolve to one team.
+    #[arg(long, env = "DISTINCT_ID_PREFIX", default_value = "loadgen-")]
+    distinct_id_prefix: String,
+
+    /// How long the graphs get to agree.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "5m")]
+    verify_timeout: Duration,
+
+    /// The personhog writer's person table.
+    #[arg(long, default_value = "personhog_person_tmp")]
+    tmp_person_table: String,
+
+    /// The personhog writer's distinct-id table.
+    #[arg(long, default_value = "personhog_persondistinctid_tmp")]
+    tmp_pdi_table: String,
+
+    /// Port serving /metrics and /_liveness while verifying.
+    #[arg(long, default_value_t = 9090)]
+    metrics_port: u16,
 }
 
 /// Arcs shared by every worker.
@@ -261,6 +297,7 @@ async fn main() -> Result<()> {
     }
 
     let factory = Arc::new(EventFactory::new(
+        &cli.distinct_id_prefix,
         cli.distinct_ids,
         cli.event_names.clone(),
         cli.prop_bytes,
@@ -365,7 +402,45 @@ async fn main() -> Result<()> {
     reporter.await.ok();
 
     stats::print_summary(&counters, &merged, started.elapsed());
+
+    if cli.verify && index == 0 {
+        spawn_metrics_server(cli.metrics_port);
+        let cfg = verify_config(&cli)?;
+        let verifier = verify::Verifier::connect(&cfg).await?;
+        if !verifier.run(&cfg).await? {
+            bail!("shadow parity verification failed");
+        }
+    }
     Ok(())
+}
+
+/// Serve /metrics and /_liveness for the process lifetime; loop mode's
+/// gauges are useless without a scrape surface.
+fn spawn_metrics_server(port: u16) {
+    let router = axum::Router::new().route("/_liveness", axum::routing::get(|| async { "ok" }));
+    let router = common_metrics::setup_metrics_routes(router);
+    let bind = format!("0.0.0.0:{port}");
+    tokio::spawn(async move {
+        if let Err(error) = common_metrics::serve(router, &bind).await {
+            tracing::error!(%error, "metrics server failed");
+            std::process::exit(1);
+        }
+    });
+}
+
+/// The verify flags as a config, failing on the one without a default.
+fn verify_config(cli: &Cli) -> Result<verify::VerifyConfig> {
+    let database_url = cli
+        .database_url
+        .clone()
+        .context("--verify requires --database-url or DATABASE_URL")?;
+    Ok(verify::VerifyConfig {
+        database_url,
+        prefix: cli.distinct_id_prefix.clone(),
+        tmp_person_table: cli.tmp_person_table.clone(),
+        tmp_pdi_table: cli.tmp_pdi_table.clone(),
+        deadline: cli.verify_timeout,
+    })
 }
 
 #[cfg(test)]
