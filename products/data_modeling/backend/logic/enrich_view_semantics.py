@@ -38,7 +38,6 @@ from posthog.llm.semantic_enrichment import (
 from posthog.models import Team
 from posthog.temporal.common.client import sync_connect
 
-from products.data_modeling.backend.logic.saved_query_freshness import saved_query_materialized_at
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
     DataWarehouseSavedQueryColumnAnnotation,
@@ -89,13 +88,15 @@ def _view_columns(saved_query: DataWarehouseSavedQuery) -> list[dict[str, Any]]:
 
 
 def _has_sampleable_rows(saved_query: DataWarehouseSavedQuery) -> bool:
-    """Whether a materialized table with a run behind it exists to read a sample from."""
-    return bool(saved_query.table_id) and saved_query_materialized_at(saved_query) is not None
+    """The prepare step links the table before the succeed activity asks this, while the run's job is
+    still Running, so the link is the one fact that is true on the first success. It is also a column,
+    which keeps the save-signal path free of queries."""
+    return saved_query.table_id is not None
 
 
 def compute_enrichment_hash(saved_query: DataWarehouseSavedQuery) -> str:
     """Fingerprint the inputs that would change the descriptions: query text, column set, and whether a
-    row sample is available. The `sample_bit` flips once the view is first materialized (table + last run),
+    row sample is available. The `sample_bit` flips once the view is first materialized (a backing table is linked),
     so descriptions upgrade exactly once with real row data rather than staying at the definition-only pass.
     """
     query = saved_query.query or {}

@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import contextlib
 from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
@@ -1141,6 +1142,30 @@ class TestSucceedMaterializationActivity:
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
         assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is True
 
+    @pytest.mark.parametrize("edited_after_the_run_started", [False, True])
+    async def test_success_clears_modified_only_when_the_run_started_after_the_edit(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query, edited_after_the_run_started
+    ):
+        # The API stamps Modified on a query edit; a run that started after the edit consumes it,
+        # while an edit landing mid-run must survive until the next run.
+        edited_at = ajob.created_at + dt.timedelta(minutes=1 if edited_after_the_run_started else -1)
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
+            status=DataWarehouseSavedQuery.Status.MODIFIED, updated_at=edited_at
+        )
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        await activity_environment.run(succeed_materialization_activity, inputs)
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        expected = DataWarehouseSavedQuery.Status.MODIFIED if edited_after_the_run_started else None
+        assert asaved_query.status == expected
+
     async def test_flags_enrichment_needed_when_hash_missing(self, activity_environment, ateam, anode, ajob, adag):
         # A view with no stored enrichment hash (never enriched) must signal the workflow to enrich.
         inputs = SucceedMaterializationInputs(
@@ -1170,6 +1195,29 @@ class TestSucceedMaterializationActivity:
         )
         result = await activity_environment.run(succeed_materialization_activity, inputs)
         assert result.enrichment_needed is False
+
+    async def test_flags_enrichment_needed_once_the_table_is_linked(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query
+    ):
+        # The definition-only pass stored an unsampled hash. The first run links the table before this
+        # activity runs, while its own job is still Running, and that alone must flip the hash.
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
+            semantic_enrichment_hash=compute_enrichment_hash(asaved_query)
+        )
+        table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam, name="test_model", format="Delta"
+        )
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(table=table)
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        result = await activity_environment.run(succeed_materialization_activity, inputs)
+        assert result.enrichment_needed is True
 
 
 class TestPrepareQueryableTableActivity:
