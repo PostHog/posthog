@@ -552,7 +552,10 @@ class UserAccessControl:
         """Whether the principal created the object, which grants them the highest access to it.
         Creator is a property of the principal, so a subclass that resolves for someone other than
         the requesting user must override this."""
-        return getattr(obj, "created_by", None) == self._user
+        # Compare ids so callers do not need created_by hydrated on the object. Synthetic and
+        # anonymous principals have id None, and the guard keeps them from matching.
+        creator_id = getattr(obj, "created_by_id", None)
+        return creator_id is not None and creator_id == self._user.id
 
     # ------------------------------------------------------------
     # Access control helpers
