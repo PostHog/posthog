@@ -234,8 +234,8 @@ jobs:
 
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
-            # may not contain it. Cache the store inline instead, sharing the same
-            # pnpm-<os>-<lockhash> key as the action and gating the save to master.
+            # may not contain it. Restore the store inline instead, sharing the same
+            # pnpm-<os>-<lockhash> key as the action.
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -255,13 +255,6 @@ jobs:
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
-
-            - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             # Vite's dependency optimization cache (node_modules/.vite) is the most
             # expensive part of the build — without it, Vite re-bundles every module
@@ -489,6 +482,7 @@ jobs:
               run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
             - name: Restore pnpm cache
+              id: pnpm-restore
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
@@ -498,10 +492,11 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
+            # Inside the playwright container pnpm keeps its store on the workspace mount.
+            # actions/cache keys an entry on key plus path, so this is a separate entry
+            # from the one pnpm-store-cache.yml writes, and one shard saves it.
             - name: Save pnpm cache
-              # The cache key is identical across all visual-regression shards, so only one
-              # shard needs to write it — gating to a single shard avoids redundant concurrent saves.
-              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium'
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium' && steps.pnpm-restore.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
