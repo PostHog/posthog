@@ -6,6 +6,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -20,7 +21,7 @@ import {
     getCalendarGranularity,
     transformDateOnChange,
 } from './batchExportBackfillModalLogic'
-import { formatHourString } from './utils'
+import { formatHourString, humanizeBatchExportName } from './utils'
 
 export function BatchExportBackfillModal({ id, context }: BatchExportBackfillModalLogicProps): JSX.Element {
     const logic = batchExportBackfillModalLogic({ id, context })
@@ -32,6 +33,7 @@ export function BatchExportBackfillModal({ id, context }: BatchExportBackfillMod
         isBackfillFormSubmitting,
         isEarliestBackfill,
         isHogFunction,
+        canDuplicateRows,
         interval,
         timezone,
         dayOfWeek,
@@ -95,6 +97,14 @@ export function BatchExportBackfillModal({ id, context }: BatchExportBackfillMod
                     </b>
                     .
                 </p>
+            )}
+            {canDuplicateRows && (
+                <LemonBanner type="warning" className="mb-2">
+                    A backfill of the {batchExportConfig.model} model adds rows to{' '}
+                    {humanizeBatchExportName(batchExportConfig.destination.type)}. PostHog does not update rows that are
+                    already there, so any part of this range that was exported before ends up with a second copy. Pick a
+                    range you have not exported yet, or try a short range first.
+                </LemonBanner>
             )}
             <Form
                 logic={batchExportBackfillModalLogic}
