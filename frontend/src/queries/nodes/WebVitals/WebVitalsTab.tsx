@@ -14,15 +14,21 @@ type WebVitalsTabProps = {
     isActive: boolean
     setTab?: () => void
     isLoading: boolean
+    errorMessage?: string | null
 }
 
-export function WebVitalsTab({ value, metric, isActive, setTab, isLoading }: WebVitalsTabProps): JSX.Element {
+export function WebVitalsTab({
+    value,
+    metric,
+    isActive,
+    setTab,
+    isLoading,
+    errorMessage,
+}: WebVitalsTabProps): JSX.Element {
     const label = LONG_METRIC_NAME[metric]
 
     const { value: parsedValue, unit } = getValueWithUnit(value, metric)
     const color = getThresholdColor(value, metric)
-
-    const showNoData = !isLoading && value === undefined
 
     return (
         <div
@@ -48,7 +54,11 @@ export function WebVitalsTab({ value, metric, isActive, setTab, isLoading }: Web
             <div className="flex flex-row items-end">
                 {isLoading ? (
                     <LemonSkeleton fade className="w-20 h-8" />
-                ) : showNoData ? (
+                ) : errorMessage ? (
+                    <Tooltip title={errorMessage}>
+                        <span className="text-xs text-danger">Couldn't load</span>
+                    </Tooltip>
+                ) : value === undefined ? (
                     <span className="text-xs text-text-tertiary">No data for this range</span>
                 ) : (
                     <>
