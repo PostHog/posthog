@@ -61,6 +61,9 @@ _PROMPT_PREFIXES = (
     "answer this question about the posthog inbox report at ",
     "a user sent this about the posthog inbox report at ",
 )
+_DESKTOP_DESCRIPTION_PREFIX = "Discuss report: "
+# Keep in sync with `buildDiscussDescription` in the Desktop inbox hook.
+_DESKTOP_DESCRIPTION_MAX_CHARS = 200
 
 
 def forward_discussion_note(
@@ -111,10 +114,6 @@ def _forward(
     scoped_team_ids: Sequence[int] | None,
     api_scopes: Sequence[str] | None,
 ) -> str | None:
-    question = _extract_question(text)
-    if not question:
-        return None
-
     # Scout rows and their notes live under the canonical parent team; forwarding a child
     # environment's question would hand its report id, title, and text to an audience that may
     # have no access to that environment. Those discussions stay on the task only.
@@ -129,6 +128,10 @@ def _forward(
 
     report = SignalReport.objects.filter(team_id=canonical_team.id, id=report_id).first()
     if report is None:
+        return None
+
+    question = _extract_question(text, report_title=report.title, report_id=report_id)
+    if not question:
         return None
 
     skill_name = resolve_report_scout_skill(canonical_team.id, report_id)
@@ -164,19 +167,24 @@ def _scopes_allow_note_write(api_scopes: Sequence[str]) -> bool:
     return "*" in scopes or scopes.issuperset(_REQUIRED_NOTE_SCOPES)
 
 
-def _extract_question(text: str) -> str:
-    """Pull the user's question out of the kickoff prompt, tolerating format drift.
-
-    The prompt's first line is the report link; what the user typed follows it. Text that doesn't
-    carry the prefix is forwarded whole, so a frontend format change costs a noisier note rather than
-    a dropped one — but a prompt that is only the prefix has no question in it, and forwarding the
-    link line as if it were one would put pure noise in the steering channel.
-    """
+def _extract_question(text: str, *, report_title: str | None, report_id: str | None) -> str:
     stripped = text.strip()
-    if not stripped.lower().startswith(_PROMPT_PREFIXES):
-        return stripped
-    _, _, question = stripped.partition("\n")
-    return question.strip()
+    if stripped.lower().startswith(_PROMPT_PREFIXES):
+        _, _, question = stripped.partition("\n")
+        return question.strip()
+
+    if report_id is not None:
+        report_label = (report_title or "").strip() or report_id
+        desktop_base = f"{_DESKTOP_DESCRIPTION_PREFIX}{report_label}"
+        if stripped == desktop_base[:_DESKTOP_DESCRIPTION_MAX_CHARS]:
+            return ""
+        desktop_question_prefix = f"{desktop_base} — "
+        if len(stripped) == _DESKTOP_DESCRIPTION_MAX_CHARS and desktop_question_prefix.startswith(stripped):
+            return ""
+        if stripped.startswith(desktop_question_prefix):
+            return stripped[len(desktop_question_prefix) :].strip()
+
+    return stripped
 
 
 def _build_note_content(*, report: SignalReport, question: str) -> str:
