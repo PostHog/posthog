@@ -522,16 +522,25 @@ class TestExternalTicketAPI(BaseTest):
 
     @parameterized.expand(
         [
-            ("ascii", "x" * 900, "x" * 200),
-            # 3 bytes per character, so the cap lands at 66 characters (198 bytes). A
-            # character-based cap would emit 600 bytes against the workflow variable budget.
-            ("multibyte", "あ" * 300, "あ" * 66),
+            # A cut message ends with an ellipsis in place of its last three characters, so the
+            # 200-byte result is 197 "x" plus "...".
+            ("ascii", "x" * 900, "x" * 197 + "..."),
+            # 3 bytes per character, so the cap lands at 66 characters (198 bytes); the ellipsis
+            # replaces the last three, leaving 63 characters plus "...". A character-based cap
+            # would emit 600 bytes against the workflow variable budget.
+            ("multibyte", "あ" * 300, "あ" * 63 + "..."),
         ]
     )
     def test_get_ticket_truncates_first_message_to_200_bytes(self, _name, content, expected):
         self._create_message(content, minutes_ago=10, item_context={"author_type": "customer"})
 
         self.assertEqual(self._get_first_customer_message_text(), expected)
+
+    def test_get_ticket_first_message_that_fits_has_no_ellipsis(self):
+        # The ellipsis only marks a cut, so a message inside the budget is returned unchanged.
+        self._create_message("All done, thanks!", minutes_ago=10, item_context={"author_type": "customer"})
+
+        self.assertEqual(self._get_first_customer_message_text(), "All done, thanks!")
 
     def test_get_ticket_omits_first_customer_message_text_without_opt_in(self):
         # A customer message exists, but a caller that does not ask for the preview must not get
@@ -880,4 +889,8 @@ class TestTruncateBytes(SimpleTestCase):
         truncated = _truncate_bytes("xxx" + "👨‍👩‍👧" * 20, 200)
 
         self.assertFalse(truncated.endswith("‍"))
+        self.assertTrue(truncated.endswith("..."))
         self.assertLessEqual(len(truncated.encode("utf-8")), 200)
+
+    def test_returns_text_within_budget_unchanged(self):
+        self.assertEqual(_truncate_bytes("short enough", 200), "short enough")

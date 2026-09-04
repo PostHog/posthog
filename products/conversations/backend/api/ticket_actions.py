@@ -190,7 +190,11 @@ def _truncate_bytes(text: str, max_bytes: int) -> str:
     # Slicing encoded bytes can land inside a character, so errors="ignore" drops the partial
     # trailing one. That can also expose the joiner of a split emoji sequence, which renders as
     # a dangling glyph, so strip any joiner the cut left at the end.
-    return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip("‍")
+    truncated = encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip("‍")
+    # The message was longer than the budget, so end it with an ellipsis to show it was cut.
+    # Replacing the last three characters keeps the result within max_bytes: dropping three
+    # characters frees at least three bytes and "..." adds exactly three.
+    return (truncated[:-3] if len(truncated) > 3 else "") + "..."
 
 
 def _first_customer_message_text(team_id: int, ticket_id: str) -> str | None:
