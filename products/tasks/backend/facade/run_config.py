@@ -43,6 +43,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_runtime_adapter_for_model,
     get_supported_reasoning_efforts,
     parse_run_state,
+    runtime_adapter_serves_model,
     validate_model_selection,
 )
 
@@ -81,6 +82,7 @@ __all__ = [
     "get_default_model_for_runtime_adapter",
     "get_model_access_error",
     "get_models_for_runtime_adapter",
+    "runtime_adapter_serves_model",
     "get_provider_for_runtime_adapter",
     "get_reasoning_effort_error",
     "get_required_model_flag",
