@@ -512,6 +512,29 @@ describe('insightSceneLogic', () => {
         }
     )
 
+    it('keeps the dashboard overrides on the back link', async () => {
+        logic = insightSceneLogic()
+        logic.mount()
+
+        router.actions.push(
+            urls.insightView(
+                Insight42,
+                6,
+                { var_1: { variableId: 'var_1', code_name: 'team', value: 'growth' } },
+                { date_from: '-14d' }
+            )
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        const dashboardBreadcrumb = logic.values.breadcrumbs.find((breadcrumb) => breadcrumb.key === Scene.Dashboard)
+        expect(dashboardBreadcrumb?.path).toEqual(
+            combineUrl(urls.dashboard(6), {
+                query_variables: '{"team":"growth"}',
+                query_filters: '{"date_from":"-14d"}',
+            }).url
+        )
+    })
+
     it('does not reload insight when only the URL hash changes', async () => {
         const insightApiCall = jest
             .fn()
