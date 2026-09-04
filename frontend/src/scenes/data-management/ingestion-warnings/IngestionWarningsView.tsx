@@ -27,6 +27,8 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
+    merge_move_limit_exceeded: 'A merge exceeded its distinct id move limit and was dropped',
+    merge_settled_failure: 'A merge settled without merging and cannot be retried',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
@@ -73,6 +75,8 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
 export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     cannot_merge_already_identified: 'refused-to-merge-an-already-identified-user',
     cannot_merge_with_illegal_distinct_id: 'refused-to-merge-with-an-illegal-distinct-id',
+    merge_move_limit_exceeded: 'a-merge-exceeded-its-distinct-id-move-limit-and-was-dropped',
+    merge_settled_failure: 'a-merge-settled-without-merging-and-cannot-be-retried',
     skipping_event_invalid_uuid: 'refused-to-process-event-with-invalid-uuid',
     ignored_invalid_timestamp: 'ignored-an-invalid-timestamp-event-was-still-ingested',
     event_timestamp_in_future: 'an-event-was-sent-more-than-23-hours-in-the-future',
@@ -118,6 +122,47 @@ export const WARNING_TYPE_RENDERER = {
                 <Link to={urls.personByDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
                 <Link to={urls.personByDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
                 $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    merge_move_limit_exceeded: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                Refused to merge{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                because it has more distinct ids than one merge may move (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    merge_settled_failure: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                A merge of{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                settled without merging, and the result is recorded, so a retry cannot change it (event uuid:{' '}
+                <code>{details.eventUuid}</code>).
             </>
         )
     },
