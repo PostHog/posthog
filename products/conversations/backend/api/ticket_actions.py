@@ -10,6 +10,7 @@ import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.db.models.functions import Substr
 from django.utils import timezone
 
 from rest_framework import serializers, status
@@ -148,6 +149,13 @@ _LINK_MARKDOWN = re.compile(r"\[([^\[\]]*)\]\([^)]*\)")
 # ceiling is an order of magnitude wider than the preview it feeds.
 FIRST_MESSAGE_SCAN_CHARS = 2000
 
+# The database fetches one character more than the scan window, never the whole body. The extra
+# character is what lets `_quotable_text` still tell a cut body from a whole one: a body at or
+# under the scan window comes back untouched, and only a longer one comes back at this length,
+# which is strictly greater than the window. Fetch exactly the window and that test can no
+# longer fire. Keep this one above FIRST_MESSAGE_SCAN_CHARS.
+FIRST_MESSAGE_DB_FETCH_CHARS = FIRST_MESSAGE_SCAN_CHARS + 1
+
 # Taking that window can cut an attachment in half, and a fragment like `![shot.png](/uploaded`
 # no longer matches the patterns above, so it would survive into the preview. This drops the
 # unterminated construct a cut leaves behind. The run cannot cross a bracket, so a closed
@@ -177,7 +185,7 @@ def _truncate_bytes(text: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip("‍")
 
 
-def _first_message_text(team_id: int, ticket_id: str) -> str | None:
+def _first_customer_message_text(team_id: int, ticket_id: str) -> str | None:
     """
     Preview of what the customer first asked, so a workflow can remind them which ticket it
     is writing about on channels that carry no email subject.
@@ -195,10 +203,14 @@ def _first_message_text(team_id: int, ticket_id: str) -> str | None:
         .filter(item_context__author_type="customer")
         .exclude(content__isnull=True)
         .exclude(content="")
+        # Fetch only the scan window plus one character, so a 50,000-character email never
+        # crosses the wire in full. The preview keeps the same value it would from the whole
+        # body: the strip and truncation below never look past the window anyway.
+        .annotate(content_preview=Substr("content", 1, FIRST_MESSAGE_DB_FETCH_CHARS))
         # Zendesk-imported messages carry second-resolution timestamps, so created_at alone can
         # tie. Tie-breaking on id keeps the preview stable from one call to the next.
         .order_by("created_at", "id")
-        .values_list("content", flat=True)[:FIRST_MESSAGE_CANDIDATES]
+        .values_list("content_preview", flat=True)[:FIRST_MESSAGE_CANDIDATES]
     )
     for content in candidates:
         quotable = _quotable_text(content or "")
@@ -207,8 +219,25 @@ def _first_message_text(team_id: int, ticket_id: str) -> str | None:
     return None
 
 
-def handle_ticket_get(team: Team, ticket_id: str | uuid.UUID) -> Response:
-    """Fetch a ticket's data for an already-authenticated team."""
+def wants_first_customer_message_text(request: Request) -> bool:
+    """True when the caller opted into first_customer_message_text with ?include_...=true.
+
+    The CDP async function only appends the parameter when the workflow enabled it, so it
+    arrives as the literal "true" or not at all. Parsing both routes the same way keeps them
+    identical.
+    """
+    return request.query_params.get("include_first_customer_message_text", "").lower() == "true"
+
+
+def handle_ticket_get(
+    team: Team, ticket_id: str | uuid.UUID, *, include_first_customer_message_text: bool = False
+) -> Response:
+    """Fetch a ticket's data for an already-authenticated team.
+
+    first_customer_message_text is opt-in: it runs an extra query, so a caller that does not ask
+    for it (the default) pays nothing and gets the response shape it always got. Only the CSAT
+    workflows request it.
+    """
     if error := validate_ticket_id(ticket_id):
         return error
 
@@ -236,37 +265,39 @@ def handle_ticket_get(team: Team, ticket_id: str | uuid.UUID) -> Response:
     # APIViews without scope_object), so the schema-drift risk behind the rule cannot occur,
     # and the wire shape must stay identical to the legacy external route while the worker
     # migrates between them (a serializer would re-format datetimes).
-    return Response(  # nosemgrep: api-response-must-match-schema
-        {
-            "id": str(ticket.id),
-            "number": ticket.ticket_number,
-            "status": ticket.status,
-            "priority": ticket.priority,
-            "channel_source": ticket.channel_source,
-            "channel_detail": ticket.channel_detail,
-            "distinct_id": ticket.distinct_id,
-            "created_at": ticket.created_at.isoformat(),
-            "updated_at": ticket.updated_at.isoformat(),
-            "message_count": ticket.message_count,
-            "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
-            "last_message_text": ticket.last_message_text,
-            "first_message_text": _first_message_text(team.id, str(ticket.id)),
-            "unread_team_count": ticket.unread_team_count,
-            "unread_customer_count": ticket.unread_customer_count,
-            "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
-            "snoozed_until": ticket.snoozed_until.isoformat() if ticket.snoozed_until else None,
-            "assignee": assignee,
-            "url": session_context.get("current_url"),
-            "slack_channel_id": ticket.slack_channel_id,
-            "slack_thread_ts": ticket.slack_thread_ts,
-            "slack_team_id": ticket.slack_team_id,
-            "email_subject": ticket.email_subject,
-            "email_from": ticket.email_from,
-            "email_to": ticket.email_config.from_email if ticket.email_config else None,
-            "cc_participants": ticket.cc_participants,
-            "tags": tags,
-        }
-    )
+    payload = {
+        "id": str(ticket.id),
+        "number": ticket.ticket_number,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "channel_source": ticket.channel_source,
+        "channel_detail": ticket.channel_detail,
+        "distinct_id": ticket.distinct_id,
+        "created_at": ticket.created_at.isoformat(),
+        "updated_at": ticket.updated_at.isoformat(),
+        "message_count": ticket.message_count,
+        "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
+        "last_message_text": ticket.last_message_text,
+        "unread_team_count": ticket.unread_team_count,
+        "unread_customer_count": ticket.unread_customer_count,
+        "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+        "snoozed_until": ticket.snoozed_until.isoformat() if ticket.snoozed_until else None,
+        "assignee": assignee,
+        "url": session_context.get("current_url"),
+        "slack_channel_id": ticket.slack_channel_id,
+        "slack_thread_ts": ticket.slack_thread_ts,
+        "slack_team_id": ticket.slack_team_id,
+        "email_subject": ticket.email_subject,
+        "email_from": ticket.email_from,
+        "email_to": ticket.email_config.from_email if ticket.email_config else None,
+        "cc_participants": ticket.cc_participants,
+        "tags": tags,
+    }
+
+    if include_first_customer_message_text:
+        payload["first_customer_message_text"] = _first_customer_message_text(team.id, str(ticket.id))
+
+    return Response(payload)  # nosemgrep: api-response-must-match-schema
 
 
 def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID) -> Response:

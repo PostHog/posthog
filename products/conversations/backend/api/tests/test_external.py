@@ -3,7 +3,9 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -104,7 +106,8 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(data["message_count"], 0)
         self.assertIsNone(data["last_message_at"])
         self.assertIsNone(data["last_message_text"])
-        self.assertIsNone(data["first_message_text"])
+        # first_customer_message_text is opt-in, so it is absent unless the caller asks for it.
+        self.assertNotIn("first_customer_message_text", data)
         self.assertEqual(data["unread_team_count"], 0)
         self.assertEqual(data["unread_customer_count"], 0)
         self.assertIsNone(data["sla"])
@@ -412,7 +415,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(data["email_to"], "support@example.com")
         self.assertEqual(data["cc_participants"], ["cc1@example.com", "cc2@example.com"])
 
-    # -- GET first_message_text -------------------------------------------
+    # -- GET first_customer_message_text ----------------------------------
 
     def _create_message(
         self,
@@ -434,6 +437,12 @@ class TestExternalTicketAPI(BaseTest):
         Comment.objects.filter(pk=comment.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
         return comment
 
+    def _get_first_customer_message_text(self):
+        """GET the ticket with the opt-in flag and return the first_customer_message_text value."""
+        response = self.client.get(self.url, {"include_first_customer_message_text": "true"}, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["first_customer_message_text"]
+
     @parameterized.expand(
         [
             ("team_authored", {"is_private": False, "author_type": "support"}, False, "Second message"),
@@ -447,9 +456,7 @@ class TestExternalTicketAPI(BaseTest):
         self._create_message("First message", minutes_ago=10, item_context=item_context, deleted=deleted)
         self._create_message("Second message", minutes_ago=5, item_context={"author_type": "customer"})
 
-        response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["first_message_text"], expected)
+        self.assertEqual(self._get_first_customer_message_text(), expected)
 
     @parameterized.expand(
         [
@@ -467,9 +474,7 @@ class TestExternalTicketAPI(BaseTest):
         self._create_message(unquotable, minutes_ago=10, item_context={"author_type": "customer"})
         self._create_message("Actual question", minutes_ago=5, item_context={"author_type": "customer"})
 
-        response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["first_message_text"], "Actual question")
+        self.assertEqual(self._get_first_customer_message_text(), "Actual question")
 
     @parameterized.expand(
         [
@@ -484,9 +489,7 @@ class TestExternalTicketAPI(BaseTest):
     def test_get_ticket_first_message_strips_attachment_markdown(self, _name, content, expected):
         self._create_message(content, minutes_ago=10, item_context={"author_type": "customer"})
 
-        response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["first_message_text"], expected)
+        self.assertEqual(self._get_first_customer_message_text(), expected)
 
     def test_get_ticket_first_message_keeps_bracketed_prose_in_a_body_long_enough_to_cut(self):
         # Only a body past the scan window reaches the severed-attachment strip, so a shorter
@@ -497,9 +500,7 @@ class TestExternalTicketAPI(BaseTest):
             item_context={"author_type": "customer"},
         )
 
-        response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["first_message_text"].startswith("[2026-01-01] ERROR failed on a[0]."))
+        self.assertTrue(self._get_first_customer_message_text().startswith("[2026-01-01] ERROR failed on a[0]."))
 
     @parameterized.expand(
         [
@@ -512,9 +513,33 @@ class TestExternalTicketAPI(BaseTest):
     def test_get_ticket_truncates_first_message_to_200_bytes(self, _name, content, expected):
         self._create_message(content, minutes_ago=10, item_context={"author_type": "customer"})
 
+        self.assertEqual(self._get_first_customer_message_text(), expected)
+
+    def test_get_ticket_omits_first_customer_message_text_without_opt_in(self):
+        # A customer message exists, but a caller that does not ask for the preview must not get
+        # the field at all, so an existing Get ticket node keeps its response shape and cost.
+        self._create_message("Hello there", minutes_ago=10, item_context={"author_type": "customer"})
+
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["first_message_text"], expected)
+        self.assertNotIn("first_customer_message_text", response.json())
+
+    def test_get_ticket_first_customer_message_text_is_null_when_no_customer_message(self):
+        # Opted in, but nothing quotable from the customer: the field is present and null so the
+        # workflow can tell "asked for, none found" apart from "did not ask".
+        self.assertIsNone(self._get_first_customer_message_text())
+
+    def test_default_get_skips_the_first_customer_message_query(self):
+        # The opt-in exists to keep the extra message lookup off every Get ticket call. Pin that:
+        # the opted-in path runs the lookup, the default path must not.
+        self._create_message("Hello there", minutes_ago=10, item_context={"author_type": "customer"})
+        # Warm per-connection caches so the comparison reflects only the opt-in query.
+        self.client.get(self.url, **self._auth_headers())
+        with CaptureQueriesContext(connection) as default_queries:
+            self.client.get(self.url, **self._auth_headers())
+        with CaptureQueriesContext(connection) as opted_in_queries:
+            self.client.get(self.url, {"include_first_customer_message_text": "true"}, **self._auth_headers())
+        self.assertLess(len(default_queries), len(opted_in_queries))
 
     def test_get_ticket_returns_tags(self):
         from posthog.models import Tag
