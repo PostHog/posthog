@@ -15,6 +15,7 @@ from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
+from posthog.errors import RAGGED_ROWS_MESSAGE, wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
@@ -198,6 +199,24 @@ class TestSafeExposeChError:
 
         with pytest.raises(TransientObjectStoreError):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
+
+    def test_wrapped_ragged_csv_error_keeps_the_ragged_row_message(self) -> None:
+        # sync_execute wraps the exception before get_columns/get_count catch it, so this function
+        # receives CHQueryErrorRaggedFileRows, whose message is already RAGGED_ROWS_MESSAGE. Matching
+        # ExtractErrors on that rewritten message misses and dead-ends on the generic bucket blame,
+        # so recognizing the wrapped class is what keeps the ragged-row guidance on this surface.
+        wrapped = wrap_clickhouse_query_error(
+            ServerException(
+                "DB::Exception: Cannot extract table structure from CSV format file. "
+                "Error: Code: 117. DB::Exception: Rows have different amount of values: "
+                "expected 5, got 6. (INCORRECT_DATA) (in file/uri https://example.com/bucket/orders.csv)",
+                code=636,
+            )
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            DataWarehouseTable()._safe_expose_ch_error(wrapped)
+        assert str(exc_info.value) == RAGGED_ROWS_MESSAGE
 
 
 class TestRunChdbQuery:

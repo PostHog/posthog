@@ -92,6 +92,12 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 )
 
 
+RAGGED_ROWS_MESSAGE = (
+    "One of the files has rows with different numbers of values. "
+    "Give every row the same number of values, then try again."
+)
+
+
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
     file_uri = match.group(1) if match else "unknown file"
@@ -149,6 +155,16 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
             return _wrap_storage_file_changed_error(err)
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
+        return _wrap_storage_file_changed_error(err)
+    # Code 636 wraps the real parse failure inside its message, so the nested text decides the class.
+    # Other nested errors stay internal below, because the message can carry data values.
+    elif name == "CANNOT_EXTRACT_TABLE_STRUCTURE" and "Rows have different amount of values" in err.message:
+        return CHQueryErrorRaggedFileRows(RAGGED_ROWS_MESSAGE, code=err.code, code_name="ragged_file_rows")
+    elif (
+        name == "CANNOT_EXTRACT_TABLE_STRUCTURE"
+        and "Not a Parquet file" in err.message
+        and "(in file/uri" in err.message
+    ):
         return _wrap_storage_file_changed_error(err)
     elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
         # A Parquet file with corrupted or oversized thrift metadata (e.g.
@@ -216,6 +232,13 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    # Code 636 stays not user_safe because its raw message can carry data values, so the code lookup
+    # below would classify this as ERROR. The ragged-rows cause is re-wrapped as a user-safe class
+    # with a fixed message, so classify it by class to keep it USER_ERROR, which keeps it out of
+    # error tracking.
+    if isinstance(e, CHQueryErrorRaggedFileRows):
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
@@ -258,6 +281,12 @@ class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
 
 
 class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorRaggedFileRows(ExposedCHQueryError):
+    """A file backing a warehouse table has rows with different numbers of values."""
+
     pass
 
 

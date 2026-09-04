@@ -2,9 +2,12 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    RAGGED_ROWS_MESSAGE,
+    CHQueryErrorS3FileChangedDuringRead,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    classify_query_error,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
@@ -78,6 +81,47 @@ class TestWrapClickhouseQueryError:
     )
     def test_codes_stay_internal(self, code: int, name: str) -> None:
         err = ServerException(f"DB::Exception: {name}", code=code)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, InternalCHQueryError)
+        assert not isinstance(wrapped, ExposedCHQueryError)
+
+    def test_ragged_csv_rows_wrap_as_exposed_error(self) -> None:
+        err = ServerException(
+            "DB::Exception: Cannot extract table structure from CSV format file. "
+            "Error: Code: 117. DB::Exception: Rows have different amount of values: "
+            "expected 5, got 6. (INCORRECT_DATA) (in file/uri https://example.com/bucket/orders.csv)",
+            code=636,
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert str(wrapped) == RAGGED_ROWS_MESSAGE
+        # The wrapped class keeps outer code 636, which is not user_safe, so classification must key
+        # off the class to reach USER_ERROR. Otherwise the query runner captures it to error tracking.
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+    def test_nested_parquet_magic_bytes_wraps_as_file_changed_error(self) -> None:
+        err = ServerException(
+            "DB::Exception: Cannot extract table structure from Parquet format file. "
+            "Error: Code: 117. DB::Exception: Not a Parquet file (wrong magic bytes) "
+            "(in file/uri https://example.com/bucket/events.parquet)",
+            code=636,
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, CHQueryErrorS3FileChangedDuringRead)
+        assert "https://example.com/bucket/events.parquet" in str(wrapped)
+
+    def test_other_nested_extract_failures_stay_internal(self) -> None:
+        err = ServerException(
+            "DB::Exception: Cannot extract table structure from CSV format file. "
+            "Error: Code: 27. DB::Exception: Cannot parse input: expected ',' before: 'secret_value'",
+            code=636,
+        )
 
         wrapped = wrap_clickhouse_query_error(err)
 
