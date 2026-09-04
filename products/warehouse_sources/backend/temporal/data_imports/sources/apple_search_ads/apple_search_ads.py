@@ -325,7 +325,7 @@ def validate_credentials(
         if schema_name is None:
             return True, None
         return False, (
-            "These Apple Ads credentials cannot read this table. Give the API client the API "
+            "These Apple Ads credentials cannot read this table. Give the API user the API "
             "Account Read Only role for this ad account in Apple Ads."
         )
     return False, f"The Apple Ads API returned an unexpected status code: {status}"
@@ -358,8 +358,8 @@ def _readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> str
         named.append(f"{account_id} ({name})" if name else str(account_id))
 
     if not named:
-        return " This API client cannot read any ad account yet. Check its role in Apple Ads."
-    return " This API client can read: " + ", ".join(named) + "."
+        return " These credentials cannot read any ad account yet. Check the API user's role in Apple Ads."
+    return " These credentials can read: " + ", ".join(named) + "."
 
 
 def _today() -> date:

@@ -93,8 +93,9 @@ SELF_DRIVING_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         # Signals report research + repo selection
         "signal_report",
-        # Headless Signals scouts
+        # Headless Signals scouts, and the headless scan that pre-computes scout suggestions
         "signals_scout",
+        "scout_suggestions",
         # ReviewHog's per-chunk review, blind-spot, and validation sandboxes
         "review_hog",
     }
@@ -233,9 +234,13 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset(
     {"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN", "POSTHOG_TASK_RUN_SESSION_TOKEN"}
 )
+SHELL_ARGUMENT_VALUE_PATTERN = r"'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+"
 SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
     r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
-    r"(?P<value>'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+)"
+    rf"(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
+)
+SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
+    rf"(?P<name>--mcpServers)\s+(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
 )
 
 
@@ -250,7 +255,8 @@ def sandbox_repo_path(repository: str) -> str:
 
 
 def redact_sandbox_command(command: str) -> str:
-    return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
+    redacted = SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
+    return SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN.sub(r"\g<name> <redacted>", redacted)
 
 
 def build_agent_runtime_env_prefix(
@@ -270,6 +276,7 @@ def build_agent_runtime_env_prefix(
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
+    benjamin_enabled: bool = False,
     peer_messaging: bool = False,
 ) -> str:
     env_vars = {
@@ -291,6 +298,7 @@ def build_agent_runtime_env_prefix(
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
+        "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
         # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
         # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
         # the peers endpoints re-check authorization server-side regardless.
@@ -546,14 +554,18 @@ class SandboxBase(ABC):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
-    ) -> None:
+    ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
         before calling this method.
         """
         ...
+
+    def supports_combined_agent_server_start_and_health(self) -> bool:
+        return False
 
     @abstractmethod
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
@@ -629,7 +641,11 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
-            for source, target in (("totalMs", "server_total"), ("httpReadyMs", "http_ready")):
+            for source, target in (
+                ("totalMs", "server_total"),
+                ("httpReadyMs", "http_ready"),
+                ("launcherToProcessMs", "launcher_to_process"),
+            ):
                 duration = boot.get(source) if isinstance(boot, dict) else None
                 if isinstance(duration, int | float) and not isinstance(duration, bool):
                     phases[target] = max(0, int(duration))
@@ -719,7 +735,16 @@ def wait_for_health_check(
     Runs a bash polling loop inside the sandbox so only one round-trip is
     needed regardless of how many attempts are required.
     """
-    health_script = (
+    health_script = build_health_check_command(port, max_attempts, poll_interval)
+    result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if result.exit_code == 0:
+        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
+        return True
+    return False
+
+
+def build_health_check_command(port: int, max_attempts: int = 60, poll_interval: float = 0.5) -> str:
+    return (
         f"for i in $(seq 1 {max_attempts}); do "
         f"  body=$(curl -s http://localhost:{port}/health); "
         "  status=$?; "
@@ -734,11 +759,10 @@ def wait_for_health_check(
         f"done; "
         f"exit 1"
     )
-    result = execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
-    if result.exit_code == 0:
-        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
-        return True
-    return False
+
+
+def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
+    return max(30, int(max_attempts * poll_interval) + 5)
 
 
 SandboxClass = type[SandboxBase]

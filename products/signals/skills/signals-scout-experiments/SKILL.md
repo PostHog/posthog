@@ -1,10 +1,9 @@
 ---
 name: signals-scout-experiments
 description: >
-  Signals scout for PostHog A/B experiments. Watches running experiments for validity threats
-  (sample ratio mismatch, contamination, exposure stalls, mid-run flag mutations) and
-  lifecycle drift (zombies, decided-but-running), and files each validated validity threat as
-  a report in the inbox.
+  Signals scout for PostHog A/B experiments. Watches running experiments for validity threats —
+  sample ratio mismatch, contamination, exposure stalls, mid-run flag mutations — and lifecycle
+  drift.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the experiments,

@@ -16,8 +16,11 @@ IngestMode = Literal["legacy", "buffered"]
 
 def parse_ingest_mode(job_inputs: Mapping[str, Any] | None) -> IngestMode:
     """Anything unrecognized reads as legacy: an unknown value must not route a source onto a
-    path it was never flipped to."""
-    return "buffered" if (job_inputs or {}).get("cdc_ingest_mode") == "buffered" else "legacy"
+    path it was never flipped to. `job_inputs` decrypts from EncryptedJSONField, so it is not
+    always a mapping — a non-mapping value is unrecognized too, not an error."""
+    if not isinstance(job_inputs, Mapping):
+        return "legacy"
+    return "buffered" if job_inputs.get("cdc_ingest_mode") == "buffered" else "legacy"
 
 
 @dataclass(frozen=True)

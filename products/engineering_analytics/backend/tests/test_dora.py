@@ -189,7 +189,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.deploy_data_available is True
-        assert result.environment_scope == "production"
+        assert result.environment_scope == "prod"  # the busiest (only) production-marked environment
         assert result.environments == ["prod", "staging"]
         assert result.has_membership_data is False
         assert result.github_teams == []
@@ -207,6 +207,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # work: d1 succeeded after PR 6's merge but its head merged before it, so d1 doesn't count.
         assert result.median_merge_to_deploy_seconds == 9000.0
         assert result.median_merge_to_deploy_seconds_prev == 7200.0
+        # Open→deploy per PR: PR 1 26h, PR 2 28h, PR 6 51h; prev window PR 5 4h.
+        assert result.median_open_to_deploy_seconds == 100800.0
+        assert result.median_open_to_deploy_seconds_prev == 14400.0
         assert result.merged_pr_count == 4  # PRs 1, 2, 4, 6; the bot merge is excluded
         assert result.unattributed_merged_pr_share == 0.25  # PR 4 merged Jan 19, never deployed
         assert result.latest_deploy_status_at == datetime(2026, 1, 13, 12, 0, tzinfo=UTC)
@@ -227,6 +230,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert jan_13.deployed_pr_count == 2  # PRs 2 and 6, both deployed by d3
         assert jan_13.min_seconds == 9000.0
         assert jan_13.max_seconds == 97200.0
+        # ClickHouse quantile interpolates linearly between the two samples.
+        assert jan_13.p05_seconds == 13410.0
+        assert jan_13.p95_seconds == 92790.0
         empty = lead[datetime(2026, 1, 15)]
         assert empty.deployed_pr_count == 0
         assert empty.p50_seconds is None
@@ -419,7 +425,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             curated=curated,
             date_from=datetime(2026, 1, 10, tzinfo=UTC),
             date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            environment="staging",
+            environments_filter=["staging"],
         )
 
         assert result.environment_scope == "staging"
@@ -427,3 +433,43 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.failed_deployment_count == 0
         # PR 1 (merged Jan 12 08:00) reaches staging's 09:00 success: a 1h lead time.
         assert result.median_merge_to_deploy_seconds == 3600.0
+
+        both = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+            environments_filter=["staging", "prod"],
+            granularity="week",
+        )
+
+        assert both.environment_scope == "staging, prod"
+        assert both.deployment_count == 2  # the multi-environment scope admits d1 and d4
+        assert both.series_granularity == "week"  # the caller's override beats the window fit
+
+    def test_default_scope_picks_busiest_production_environment(self):
+        # Two production-marked regions: the default scope takes the busiest one, so a
+        # multi-region repo doesn't double-count every deploy and hand lead time to
+        # whichever region ships first.
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=True),
+                _deployment_row(2, "sha-b", "prod-us", "2026-01-13 09:30:00", production=True),
+                _deployment_row(3, "sha-c", "prod-eu", "2026-01-12 09:30:00", production=True),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod-us", "2026-01-13 10:00:00"),
+                _status_row(31, 3, "success", "prod-eu", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.environment_scope == "prod-us"
+        assert result.environments == ["prod-us", "prod-eu"]
+        assert result.deployment_count == 2

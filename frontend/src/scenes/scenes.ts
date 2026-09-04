@@ -91,6 +91,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Billing]: { organizationBased: true },
     [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
+    [Scene.RealTimeUsage]: { name: 'Real-time usage', organizationBased: true },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
@@ -495,6 +496,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
+    [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
     [Scene.Signup]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
@@ -745,6 +747,10 @@ export const redirects: Record<
 
     // Redirect old path-based /configuration URLs to query param format
     '/functions/:id/configuration': ({ id }) => urls.hogFunction(id, 'configuration'),
+    '/dashboard/:id/text-tiles/:tileId': ({ id, tileId }) =>
+        combineUrl(urls.dashboardTile(id, tileId), { tileType: 'text' }).url,
+    '/dashboard/:id/button-tiles/:tileId': ({ id, tileId }) =>
+        combineUrl(urls.dashboardTile(id, tileId), { tileType: 'button' }).url,
 
     ...productRedirects,
 }
@@ -754,8 +760,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboardTemplateCopyToProject(':sourceTemplateId')]: [Scene.DashboardTemplateCopy, 'dashboardTemplateCopy'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
-    [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
-    [urls.dashboardButtonTile(':id', ':buttonTileId')]: [Scene.Dashboard, 'dashboardButtonTile'],
+    [urls.dashboardTile(':id', ':tileId')]: [Scene.Dashboard, 'dashboardTile'],
     [urls.dashboardSharing(':id')]: [Scene.Dashboard, 'dashboardSharing'],
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
@@ -853,6 +858,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
     [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],
+    [urls.organizationBillingRealTimeUsage()]: [Scene.RealTimeUsage, 'organizationBillingRealTimeUsage'],
     [urls.organizationBillingSection(':section' as BillingSectionId)]: [
         Scene.BillingSection,
         'organizationBillingSection',
@@ -895,7 +901,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
-    [urls.verifyEmail(':uuid', ':token')]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
+    // Links from emails sent before the switch to verification codes.
+    [`${urls.verifyEmail(':uuid')}/:token`]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
     [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
@@ -913,6 +920,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
+    [urls.identityProviderConfig(':feature', ':configId')]: [Scene.IdentityProviderConfig, 'identityProviderConfig'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],

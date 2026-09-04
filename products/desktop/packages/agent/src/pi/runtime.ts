@@ -33,9 +33,12 @@ export class PiRuntime {
   }> = [];
   private directBashActive = false;
 
-  constructor(client: PiRpcClient) {
+  constructor(
+    client: PiRpcClient,
+    getContextWindow?: () => number | undefined,
+  ) {
     this.client = client;
-    this.translator = createPiConversationTranslator();
+    this.translator = createPiConversationTranslator(getContextWindow);
     client.onEvent((event) => this.handleEvent(event));
   }
 

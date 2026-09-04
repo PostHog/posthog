@@ -1,5 +1,6 @@
 export type AgentToolKind =
   | "read"
+  | "list"
   | "edit"
   | "delete"
   | "move"
@@ -18,6 +19,17 @@ export type AgentToolCallStatus =
   | "failed";
 
 export type AgentProgressStatus = "in_progress" | "completed" | "failed";
+
+export interface AgentTurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedReadTokens: number;
+  cachedWriteTokens: number;
+  thoughtTokens?: number;
+  totalTokens: number;
+  contextTokens?: number | null;
+  contextWindow?: number;
+}
 
 export interface AgentTextContent {
   type: "text";
@@ -107,6 +119,7 @@ export interface AgentToolCall {
   locations?: AgentToolCallLocation[];
   rawInput?: unknown;
   rawOutput?: unknown;
+  details?: unknown;
   parentId?: string;
   origin?: "agent" | "user_shell";
 }
@@ -179,6 +192,7 @@ export type AgentConversationEvent = (
       timestamp: number;
       stopReason?: string;
       totalTokens?: number;
+      usage?: AgentTurnUsage;
     }
 ) &
   AgentConversationEventIdentity;

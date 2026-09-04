@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     KLAVIYO_ENDPOINTS,
+    SERIES_REPORT_TIMEFRAME_KEY,
     KlaviyoEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
@@ -1097,7 +1098,7 @@ class TestReportVariants:
                 "send_channel": "email",
                 "date_time": "2026-01-05T00:00:00+00:00",
                 "opens": 1,
-                "timeframe_key": "last_365_days",
+                "timeframe_key": SERIES_REPORT_TIMEFRAME_KEY,
                 "conversion_metric_id": "M_ORDER",
             },
             {
@@ -1106,7 +1107,7 @@ class TestReportVariants:
                 "send_channel": "email",
                 "date_time": "2026-01-12T00:00:00+00:00",
                 "opens": 2,
-                "timeframe_key": "last_365_days",
+                "timeframe_key": SERIES_REPORT_TIMEFRAME_KEY,
                 "conversion_metric_id": "M_ORDER",
             },
         ]
@@ -1163,12 +1164,16 @@ class TestReportVariants:
     def test_series_reports_key_on_the_time_bucket(self, endpoint: str) -> None:
         # Without date_time in the primary key, the ~52 weekly rows per grouping collapse to one on
         # merge, silently discarding the whole time series. Without date_time as a cursor the table
-        # syncs full refresh, so every sync rebuilds it from Klaviyo's rolling 365-day window and
-        # drops the weeks that have since left it, which no later sync can fetch again.
+        # syncs full refresh, so every sync rebuilds it from Klaviyo's rolling window and drops the
+        # weeks that have since left it, which no later sync can fetch again.
         config = KLAVIYO_ENDPOINTS[endpoint]
         assert "date_time" in config.primary_keys
         assert [f["field"] for f in config.incremental_fields] == ["date_time"]
         assert config.default_incremental_field == "date_time"
+        # Klaviyo caps weekly-interval series reports at 52 weeks; last_365_days (365 days) exceeds
+        # that by one day and causes a 400. All series endpoints must use the shorter key.
+        assert config.values_report is not None
+        assert config.values_report.timeframe_key == SERIES_REPORT_TIMEFRAME_KEY
 
 
 class TestEndpointRequestParams:

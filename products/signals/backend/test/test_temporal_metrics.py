@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from prometheus_client import REGISTRY
+
 from products.signals.backend.temporal import metrics
 
 
@@ -7,6 +9,10 @@ def _mock_meter() -> MagicMock:
     meter = MagicMock()
     meter.create_counter.return_value = MagicMock()
     return meter
+
+
+def _sample(metric_name: str) -> float:
+    return REGISTRY.get_sample_value(metric_name) or 0.0
 
 
 class TestCounterHelpers:
@@ -85,6 +91,25 @@ class TestCounterHelpers:
             metrics.increment_llm_call("match", metrics.LLM_STATUS_ERROR)
 
         assert get_meter.call_args[0][0] == {"stage": "match", "status": "error"}
+
+    def test_coordinator_tick_counts_itself_even_when_nothing_was_planned(self):
+        # A tick that plans nothing is what a stalled fleet looks like, so it has to be counted.
+        before = _sample("signals_scout_coordinator_ticks_total")
+
+        metrics.increment_coordinator_tick(0)
+
+        assert _sample("signals_scout_coordinator_ticks_total") == before + 1
+
+    def test_coordinator_tick_warms_both_dispatch_outcome_series(self):
+        # A stall is a run of zero-plan ticks that never dispatch. The dispatch series must exist
+        # anyway, or a zero-rate alert on it reads "no data" instead of zero and stays silent.
+        metrics.increment_coordinator_tick(0)
+
+        for outcome in (metrics.COORDINATOR_DISPATCH_STARTED, metrics.COORDINATOR_DISPATCH_DEDUPED):
+            assert (
+                REGISTRY.get_sample_value("signals_scout_coordinator_dispatched_total", {"outcome": outcome})
+                is not None
+            )
 
     def test_ch_wait_timeout_counter(self):
         meter = _mock_meter()

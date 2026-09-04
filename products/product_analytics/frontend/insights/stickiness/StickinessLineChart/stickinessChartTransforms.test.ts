@@ -147,11 +147,16 @@ describe('stickinessChartTransforms', () => {
             expect(series.map((s) => s.key)).toEqual(['a', 'b'])
         })
 
-        it('assigns yAxisIds [left, y1, y2] across three results when showMultipleYAxes is true', () => {
-            const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        it('groups y-axes by the magnitude of the percent-converted values when showMultipleYAxes is true', () => {
+            // Same raw data, but b's much larger count makes its percentages ~2 orders smaller.
+            const results = [
+                makeResult({ id: 'a', count: 100 }),
+                makeResult({ id: 'b', count: 10000 }),
+                makeResult({ id: 'c', count: 100 }),
+            ]
             const series = buildStickinessSeries(results, { getColor: () => RED, showMultipleYAxes: true })
 
-            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', 'y2'])
+            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', DEFAULT_Y_AXIS_ID])
         })
 
         it('transforms each result independently using its own count', () => {

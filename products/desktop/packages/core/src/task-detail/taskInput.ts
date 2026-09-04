@@ -3,8 +3,8 @@ import type {
   Adapter,
   AgentRuntime,
   CloudMcpServerRelayDesignation,
-  CodexModelAccess,
   McpServerConnection,
+  ModelAccess,
   TaskCreationInput,
   WorkspaceMode,
 } from "@posthog/shared";
@@ -22,7 +22,8 @@ export interface PrepareTaskInputOptions {
   reuseExistingWorktree?: boolean;
   executionMode?: ExecutionMode;
   adapter?: Adapter;
-  codexModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;
@@ -52,6 +53,9 @@ export function prepareTaskInput(
   options: PrepareTaskInputOptions,
 ): TaskCreationInput {
   const isCloud = options.workspaceMode === "cloud";
+  const runtime = options.runtime ?? "acp";
+  const includesCustomInstructions = isCloud || runtime === "pi";
+
   return {
     content: serializedContent,
     taskDescription: isCloud
@@ -70,7 +74,8 @@ export function prepareTaskInput(
     executionMode: options.executionMode,
     adapter: options.adapter,
     codexModelAccess: options.codexModelAccess,
-    runtime: options.runtime ?? "acp",
+    claudeModelAccess: options.claudeModelAccess,
+    runtime,
     model: options.model,
     reasoningLevel: options.reasoningLevel,
     contextWindow: options.contextWindow,
@@ -91,7 +96,9 @@ export function prepareTaskInput(
     channelName: options.channelName,
     channelId: options.channelId,
     channelContextId: options.channelContextId,
-    customInstructions: isCloud ? options.customInstructions : undefined,
+    customInstructions: includesCustomInstructions
+      ? options.customInstructions
+      : undefined,
     allowNoRepo: options.allowNoRepo,
     importedMcpServers: isCloud ? options.importedMcpServers : undefined,
     relayedMcpServers: isCloud ? options.relayedMcpServers : undefined,

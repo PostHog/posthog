@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
@@ -23,7 +24,9 @@ import {
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
+import { prefetchEventSchemasStep } from '~/ingestion/pipelines/analytics/steps/prefetchEventSchemasStep'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
+import { prefetchHogFunctionsStep } from '~/ingestion/pipelines/analytics/steps/prefetchHogFunctionsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
@@ -50,7 +53,10 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
+    eventSchemasPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
+    hogTransformer: HogTransformer
 }
 
 export function createPostTeamPreprocessingSubpipeline<
@@ -75,11 +81,23 @@ export function createPostTeamPreprocessingSubpipeline<
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         groupTypeManager,
+        hogTransformer,
     } = config
 
     return (
         builder
+            // Warm the schema cache with one batched load per chunk before the sequential chain
+            // below reads it one event at a time. The prefetch shares the enforcement flag,
+            // matching when the validation step reads the cache.
+            .pipeChunk(
+                prefetchEventSchemasStep(
+                    eventSchemaEnforcementManager,
+                    eventSchemasPrefetchEnabled && eventSchemaEnforcementEnabled
+                )
+            )
             // These validation steps are synchronous, so we can process events sequentially.
             .sequentially((b) =>
                 b
@@ -115,5 +133,9 @@ export function createPostTeamPreprocessingSubpipeline<
             // Same best-effort, fire-and-forget cache warming for groups: one
             // batched fetch for the chunk's $groupidentify group keys.
             .pipeChunk(prefetchGroupsStep(groupTypeManager, groupsPrefetchEnabled))
+            // Warm the transformation hog-function cache last, after the drop steps above, so
+            // only teams with surviving events are loaded. The transformer runs much later in
+            // the event subpipeline, so the load still lands well ahead of its reads.
+            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, hogFunctionsPrefetchEnabled))
     )
 }

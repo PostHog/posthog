@@ -1,4 +1,5 @@
 import json
+import time
 import shlex
 import threading
 from dataclasses import dataclass, field
@@ -20,7 +21,12 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
+from products.tasks.backend.exceptions import (
+    OAuthTokenError,
+    ProcessTaskError,
+    SandboxExecutionError,
+    SandboxMissingRepositoryError,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
@@ -34,6 +40,7 @@ from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_agent_server_readiness_retry,
     record_agent_server_session_init_ms,
+    record_agent_server_step_ms,
     record_boot_total_ms,
     record_network_enforcement,
     sandbox_runtime_label,
@@ -517,9 +524,10 @@ def _invoke_start_agent_server(
     params: _LaunchParams,
     *,
     repo_ready_file: str | None,
-) -> None:
+    wait_for_health: bool = False,
+) -> int | None:
     try:
-        sandbox.start_agent_server(
+        health_duration_ms = sandbox.start_agent_server(
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
             run_id=ctx.run_id,
@@ -544,11 +552,18 @@ def _invoke_start_agent_server(
             event_ingest_url=params.event_ingest_url,
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
-            wait_for_health=False,
+            wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
+            benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
         )
+        return health_duration_ms if isinstance(health_duration_ms, int) else None
 
+    except ProcessTaskError:
+        if params.agentsh_domains is not None:
+            _emit_agentsh_log_tail(ctx, sandbox)
+        _emit_agent_server_log_tail(ctx, sandbox)
+        raise
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -569,9 +584,12 @@ def _record_agent_server_launch(sandbox: SandboxBase, ctx: TaskProcessingContext
     if params.mcp_configs and params.actor_user_id is not None:
         mark_sandbox_mcp_session(sandbox.id, params.actor_user_id)
     try:
-        TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
+        TaskRun.update_state_atomic(
+            ctx.run_id,
+            updates={"rtk_effective": ctx.rtk_enabled, "benjamin_effective": ctx.benjamin_enabled},
+        )
     except Exception:
-        logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
+        logger.warning("persist_effective_toggles_failed", run_id=ctx.run_id, exc_info=True)
 
 
 def _spawn_post_ready_diagnostics(
@@ -651,14 +669,74 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as ready_timer:
             shadow_launched = _launch_agent_shadow(ctx, sandbox)
-            with StepTimer(
-                "agent_server_invoke", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
-            ) as invoke_timer:
-                _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None)
-            with StepTimer(
-                "agent_server_health", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
-            ) as health_timer:
-                sandbox.wait_for_agent_server_ready(params.agentsh_domains)
+            invoke_ms: int | None
+            health_poll_ms: int | None
+            if sandbox.supports_combined_agent_server_start_and_health():
+                start_time = time.perf_counter()
+                health_poll_ms = None
+                invoke_status = "COMPLETED"
+                health_status = "COMPLETED"
+                start_and_health_ms = None
+                try:
+                    health_poll_ms = _invoke_start_agent_server(
+                        sandbox, ctx, params, repo_ready_file=None, wait_for_health=True
+                    )
+                except ProcessTaskError as error:
+                    failed_health_ms = error.context.get("health_poll_ms")
+                    health_poll_ms = failed_health_ms if isinstance(failed_health_ms, int) else None
+                    failed_start_and_health_ms = error.context.get("start_and_health_ms")
+                    start_and_health_ms = (
+                        failed_start_and_health_ms if isinstance(failed_start_and_health_ms, int) else None
+                    )
+                    invoke_status = "COMPLETED" if health_poll_ms is not None else "FAILED"
+                    health_status = "FAILED"
+                    raise
+                finally:
+                    if start_and_health_ms is None:
+                        start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
+                    invoke_ms = (
+                        max(0, start_and_health_ms - health_poll_ms)
+                        if health_poll_ms is not None
+                        else start_and_health_ms
+                    )
+                    record_agent_server_step_ms(
+                        "agent_server_invoke",
+                        invoke_ms,
+                        input.boot_path,
+                        status=invoke_status,
+                        used_snapshot=input.used_snapshot,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    )
+                    if health_poll_ms is not None:
+                        record_agent_server_step_ms(
+                            "agent_server_health",
+                            health_poll_ms,
+                            input.boot_path,
+                            status=health_status,
+                            used_snapshot=input.used_snapshot,
+                            origin_product=ctx.origin_product,
+                            runtime=runtime,
+                        )
+            else:
+                with StepTimer(
+                    "agent_server_invoke",
+                    used_snapshot=input.used_snapshot,
+                    boot_path=input.boot_path,
+                    origin_product=ctx.origin_product,
+                    runtime=runtime,
+                ) as invoke_timer:
+                    _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None)
+                with StepTimer(
+                    "agent_server_health",
+                    used_snapshot=input.used_snapshot,
+                    boot_path=input.boot_path,
+                    origin_product=ctx.origin_product,
+                    runtime=runtime,
+                ) as health_timer:
+                    sandbox.wait_for_agent_server_ready(params.agentsh_domains)
+                invoke_ms = invoke_timer.elapsed_ms
+                health_poll_ms = health_timer.elapsed_ms
             _record_agent_server_launch(sandbox, ctx, params)
 
         _record_network_enforcement_observation(ctx)
@@ -680,8 +758,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
             prepare_ms=prepare_timer.elapsed_ms,
-            invoke_ms=invoke_timer.elapsed_ms,
-            health_poll_ms=health_timer.elapsed_ms,
+            invoke_ms=invoke_ms,
+            health_poll_ms=health_poll_ms,
             ready_wait_ms=ready_timer.elapsed_ms,
             session_init_ms=session_init_ms,
             boot_phases_ms=boot_phases_ms,

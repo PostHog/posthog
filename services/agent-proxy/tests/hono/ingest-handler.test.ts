@@ -18,6 +18,7 @@
 import type { Redis } from 'ioredis'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { observeStreamWriteSkipped } from '@/hono/metrics.js'
 import type { Config } from '@/lib/config.js'
 import {
     MAX_EVENT_LINE_BYTES,
@@ -26,7 +27,7 @@ import {
     HEARTBEAT_THROTTLE_SECONDS,
 } from '@/lib/constants.js'
 import { logger } from '@/lib/logging.js'
-import { TaskRunRedisStream, getCompletedKey, getStreamKey } from '@/lib/redis-stream.js'
+import { TaskRunRedisStream, getCompletedKey, getStreamKey, getWatchedKey } from '@/lib/redis-stream.js'
 import { heartbeatWorkflowIfNeeded } from '@/lib/side-effects.js'
 import type { SandboxEventIngestTokenPayload } from '@/lib/types.js'
 
@@ -303,6 +304,8 @@ function makeClaims(overrides?: Partial<SandboxEventIngestTokenPayload>): Sandbo
         runId: 'run-123',
         taskId: 'task-abc',
         teamId: 42,
+        presenceGated: false,
+        originProduct: 'unknown',
         ...overrides,
     }
 }
@@ -460,6 +463,53 @@ describe('ingest-handler', () => {
         expect(res.status).toBe(200)
         const body = await decodeJson(res)
         expect(body).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
+    })
+
+    // -----------------------------------------------------------------------
+    // Presence gating
+    // -----------------------------------------------------------------------
+
+    it.each([
+        { name: 'skips the mirror when no reader is attached', watched: false, expectedEntries: 0 },
+        { name: 'mirrors when a reader is attached', watched: true, expectedEntries: 1 },
+    ])('presence-gated ingest $name', async ({ watched, expectedEntries }) => {
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true, originProduct: 'signals_scout' }))
+        if (watched) {
+            await fakeRedis.set(getWatchedKey(getStreamKey(RUN_ID)), '1', 'EX', 300)
+        }
+        const config = makeConfig()
+        const ndjson = JSON.stringify({ seq: 1, event: { type: 'message' } }) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        expect(await decodeJson(res)).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
+        expect(await redisStream.getLastSequence()).toBe(1)
+        expect(await fakeRedis.xrange(getStreamKey(RUN_ID))).toHaveLength(expectedEntries)
+        if (watched) {
+            expect(observeStreamWriteSkipped).not.toHaveBeenCalled()
+        } else {
+            expect(observeStreamWriteSkipped).toHaveBeenCalledWith('ingest', 'signals_scout')
+        }
+    })
+
+    it('still writes the completion sentinel for a presence-gated run with no reader', async () => {
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true }))
+        const config = makeConfig()
+        const ndjson =
+            JSON.stringify({ seq: 1, event: { type: 'message' } }) +
+            '\n' +
+            JSON.stringify({ type: '_posthog/stream_complete', final_seq: 1 }) +
+            '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+        expect(entries).toHaveLength(1)
+        expect(JSON.parse(entries[0]![1]['data']!)).toEqual({ type: 'STREAM_STATUS', status: 'complete' })
     })
 
     it('writes complete NDJSON lines before the request body closes', async () => {

@@ -15,6 +15,9 @@ export const SEVERITY_WIDTH = 8
 export const CHECKBOX_WIDTH = 28
 export const EXPAND_WIDTH = 28
 export const TIMESTAMP_WIDTH = 180
+// A pattern is a whole message line with its variable parts masked, so it starts much wider
+// than an attribute value.
+export const PATTERN_WIDTH = 400
 export const MESSAGE_MIN_WIDTH = 300
 export const LOG_ROW_FAB_WIDTH = 150
 export const ROW_GAP = 8

@@ -41,16 +41,18 @@
 //! The sentinels are pure observers: they never influence routing or commits.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
-use rdkafka::{ClientContext, Statistics};
+use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
+use crate::ledger_shadow::set_held_gauges;
 use crate::types::SerializedKafkaMessage;
+use common_kafka_consumer::{AssignmentEpoch, Held, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,16 +164,21 @@ impl CommitSentinel {
     /// Check a batch's offset spans against the previous commit per partition,
     /// then advance the tracked committed offset to `span.last + 1`. Emits
     /// metrics and logs; returns the violations for tests.
-    pub fn check_commit(&self, spans: &HashMap<(String, i32), OffsetSpan>) -> Vec<CommitViolation> {
+    pub fn check_commit<'a>(
+        &self,
+        spans: impl IntoIterator<Item = (&'a TopicPartition, &'a OffsetSpan)>,
+    ) -> Vec<CommitViolation> {
         if !self.enabled.load(Ordering::Relaxed) {
             return Vec::new();
         }
         let mut partitions = self.partitions.lock().unwrap();
         let mut violations = Vec::new();
 
-        for ((topic, partition), span) in spans {
+        for (topic_partition, span) in spans {
             counter!("ingestion_consumer_commits_checked_total").increment(1);
 
+            let topic = &topic_partition.topic;
+            let partition = &topic_partition.partition;
             let state = partitions.entry((topic.clone(), *partition)).or_default();
             if let Some(prev) = state.attempted {
                 let kind = if span.first == prev {
@@ -333,9 +340,9 @@ pub enum SendKind {
     /// single partition, so their offsets must only move forward; a regression
     /// is a [`KeyOrderViolationKind::SendBelowLastSent`] violation.
     Fresh,
-    /// A retry path (deferred flush or eager release) that re-routes messages
-    /// whose earlier send failed — repeating un-ACKed offsets is expected
-    /// at-least-once behavior, not a violation.
+    /// A deferred-flush retry that re-routes messages whose earlier send
+    /// failed — repeating un-ACKed offsets is expected at-least-once behavior,
+    /// not a violation.
     Resend,
 }
 
@@ -563,38 +570,65 @@ impl KeyOrderSentinel {
 pub struct SentinelContext {
     commit_sentinel: Arc<CommitSentinel>,
     key_sentinel: Arc<KeyOrderSentinel>,
-    /// Bumped on every partition assignment; the gRPC transport stamps it on
-    /// sub-batches so the worker's feed-order sentinel rebaselines across
-    /// rebalances.
-    assignment_epoch: Option<Arc<AtomicU64>>,
+    /// The offset ledger the commit path settles against. Owned here so the
+    /// rebalance callbacks forget partitions on the same ledger. `None` when
+    /// the ledger is switched off: the consumer then has no ledger anywhere.
+    topic_offset_ledger: Option<Arc<TopicOffsetLedger>>,
+    /// Advanced once per assignment callback; the gRPC transport stamps it
+    /// on sub-batches so the worker's feed-order sentinel rebaselines across
+    /// rebalances. Distinct from the offset ledger's generations, which move
+    /// per partition and stamp offset accounting rather than stream order.
+    assignment_epoch: Option<AssignmentEpoch>,
 }
 
 impl SentinelContext {
-    pub fn new(commit_sentinel: Arc<CommitSentinel>, key_sentinel: Arc<KeyOrderSentinel>) -> Self {
+    pub fn new(
+        commit_sentinel: Arc<CommitSentinel>,
+        key_sentinel: Arc<KeyOrderSentinel>,
+        topic_offset_ledger: Option<Arc<TopicOffsetLedger>>,
+    ) -> Self {
         Self {
             commit_sentinel,
             key_sentinel,
+            topic_offset_ledger,
             assignment_epoch: None,
         }
     }
 
-    /// Wire the gRPC transport's assignment-epoch counter. Call before the
-    /// context is handed to the Kafka consumer.
-    pub fn set_assignment_epoch(&mut self, epoch: Arc<AtomicU64>) {
+    /// Wire the process-wide assignment epoch. Call before the context is
+    /// handed to the Kafka consumer.
+    pub fn set_assignment_epoch(&mut self, epoch: AssignmentEpoch) {
         self.assignment_epoch = Some(epoch);
     }
 
-    /// A context with its own free-standing sentinels, for tests and tools
-    /// that build the Kafka consumer separately from the dispatcher.
+    /// A context with its own free-standing sentinels and ledger, for tests
+    /// and tools that build the Kafka consumer separately from the dispatcher.
     pub fn detached() -> Self {
         Self::new(
             Arc::new(CommitSentinel::new()),
             Arc::new(KeyOrderSentinel::new()),
+            Some(Arc::new(TopicOffsetLedger::new())),
         )
     }
 
     pub fn commit_sentinel(&self) -> Arc<CommitSentinel> {
         Arc::clone(&self.commit_sentinel)
+    }
+
+    pub fn topic_offset_ledger(&self) -> Option<Arc<TopicOffsetLedger>> {
+        self.topic_offset_ledger.clone()
+    }
+
+    /// Start a new ledger generation for every partition in `tpl`, dropping
+    /// its window and zeroing its gauges. Nothing to do without a ledger.
+    fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
+        let Some(ledger) = &self.topic_offset_ledger else {
+            return;
+        };
+        ledger.forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
+        for element in tpl.elements() {
+            set_held_gauges(element.topic(), element.partition(), Held::default());
+        }
     }
 }
 
@@ -614,6 +648,7 @@ impl ConsumerContext for SentinelContext {
                 info!(partitions = tpl.count(), "Rebalance: partitions revoked");
                 self.commit_sentinel
                     .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
+                self.forget_ledger_partitions(tpl);
                 // Revoked partitions may be replayed by another consumer (or by
                 // us after re-assignment) from the last commit — every per-key
                 // baseline is stale.
@@ -631,8 +666,13 @@ impl ConsumerContext for SentinelContext {
         if let Rebalance::Assign(tpl) = rebalance {
             counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
             info!(partitions = tpl.count(), "Rebalance: partitions assigned");
+            // An assign list names partitions that start a new assignment, so
+            // any surviving ledger for them is stale. The revoke callback
+            // normally dropped it already; this covers losses with no revoke
+            // callback (an error rebalance, a fenced member).
+            self.forget_ledger_partitions(tpl);
             if let Some(epoch) = &self.assignment_epoch {
-                epoch.fetch_add(1, Ordering::Relaxed);
+                epoch.bump();
             }
         }
     }
@@ -650,12 +690,12 @@ impl ConsumerContext for SentinelContext {
 mod tests {
     use super::*;
 
-    fn spans(entries: &[(&str, i32, i64, i64)]) -> HashMap<(String, i32), OffsetSpan> {
+    fn spans(entries: &[(&str, i32, i64, i64)]) -> HashMap<TopicPartition, OffsetSpan> {
         entries
             .iter()
             .map(|(topic, partition, first, last)| {
                 (
-                    (topic.to_string(), *partition),
+                    TopicPartition::new(*topic, *partition),
                     OffsetSpan {
                         first: *first,
                         last: *last,

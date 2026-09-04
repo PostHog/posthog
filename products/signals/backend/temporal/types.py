@@ -1,20 +1,63 @@
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
-# Above this many assigned signals, an already-researched (READY/RESOLVED) report stops
-# re-researching on new signals; signals are still assigned. See assign_and_emit_signal_activity.
-RERESEARCH_MAX_SIGNALS = int(os.getenv("SIGNAL_RERESEARCH_MAX_SIGNALS", "10"))
+
+def _parse_research_signal_buckets(raw: str) -> tuple[int, ...]:
+    """Parse a comma-separated bucket list into a sorted, deduplicated, strictly positive tuple."""
+    buckets = {int(part) for part in (item.strip() for item in raw.split(",")) if part}
+    return tuple(sorted(b for b in buckets if b > 0))
+
+
+# Cumulative assigned-signal counts at which a report researches, and by their number the most
+# research passes any report gets. Between buckets, and past the last one, signals are still
+# assigned and emitted but no research spawns. The defaults widen as they go because the
+# signals-per-report distribution has a long tail: most reports never leave the first bucket, so
+# most of the research this withholds would have re-read a report that barely moved. Empty disables
+# research entirely, so keep at least one bucket.
+RESEARCH_SIGNAL_BUCKETS = _parse_research_signal_buckets(os.getenv("SIGNAL_RESEARCH_SIGNAL_BUCKETS", "1,2,4,10"))
+
+
+def next_research_bucket(signals_researched: int) -> Optional[int]:
+    """The cumulative signal count at which a report's next research pass runs, or None for no pass.
+
+    `signals_researched` is the count the report's last completed pass covered, so buckets it is
+    already past are skipped instead of firing back to back — a report whose first pass ran at 5
+    signals waits for 10, not for 2. Running out of buckets is also what caps the total: a report
+    researched at the last bucket has no bucket above it, so it never researches again.
+
+    Reading the completed count rather than a count of attempts is what keeps a run that pauses
+    before researching — the quota gates in the summary workflow — from spending a pass, and what
+    keeps a bucket crossing withheld by those gates claimable on the next signal.
+    """
+    return next((bucket for bucket in RESEARCH_SIGNAL_BUCKETS if bucket > signals_researched), None)
+
 
 # How long a research run waits before starting, so signals arriving in a burst are researched
-# together instead of once each. A report re-promotes on *every* new signal, and ~46% of signals join
-# a report within 5 minutes of the previous one, so most research today re-reads the same report for
-# one extra signal. The waiting workflow already owns the report's workflow ID, so signals landing
-# during the wait collapse into it (see the WorkflowAlreadyStartedError handler in grouping) and the
-# run then covers the whole burst. Applies to a report's first research too, so sibling signals join
-# that run rather than forcing an immediate re-research. 0 disables the wait.
+# together instead of once each. Signals cluster in time — a large share join a report within five
+# minutes of the previous one — so a burst that straddles a bucket would otherwise research on the
+# signal that crossed it and leave its siblings for the next bucket. The waiting workflow already
+# owns the report's workflow ID, so signals landing during the wait collapse into it (see the
+# WorkflowAlreadyStartedError handler in grouping) and the run then covers the whole burst. Applies
+# to a report's first research too, so sibling signals join that run rather than spending the
+# report's next bucket immediately after. 0 disables the wait.
 RESEARCH_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_RESEARCH_DEBOUNCE_SECONDS", "0"))
+
+# How long a report waits after research settles (READY, no pending signals) before its
+# implementation task starts. A report re-promotes when a signal carries it to its next research
+# bucket, so a signal landing just after research finishes would otherwise ship a PR for a summary
+# that's about to be rewritten by the re-research. The wait lets that late signal fold into a
+# re-research run instead. The waiting run still owns the report's workflow ID, so a signal arriving
+# during the wait collapses into it (see the WorkflowAlreadyStartedError handler in grouping) and
+# re-promotes the report to CANDIDATE; the run then loops to re-research rather than implement.
+# 0 disables the wait.
+IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_SECONDS", "900"))
+
+# Orgs new to self-driving skip the implementation buffer: a team whose signals config was created
+# within this window implements without the extra wait, so the product feels responsive while
+# they're still evaluating it. Measured against SignalTeamConfig.created_at.
+NEW_SELF_DRIVING_GRACE = timedelta(hours=24)
 
 
 @dataclass

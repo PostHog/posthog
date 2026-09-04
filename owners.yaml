@@ -16,6 +16,7 @@ teams:
         slack: '#team-clickhouse'
     conversations:
         slack: '#team-conversations'
+        notifications: '#support-conversations'
     mcp-analytics:
         slack: '#team-mcp-analytics'
     platform-ux:

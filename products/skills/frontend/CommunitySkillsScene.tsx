@@ -17,7 +17,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { communitySkillsLogic } from './communitySkillsLogic'
-import { TrustTierEnumApi } from './generated/api.schemas'
+import { CommunitySkillTrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi, CommunitySkillTemplateVariableApi } from './generated/api.schemas'
 import { COMMUNITY_SKILLS_TAB_DESCRIPTION, COMMUNITY_SKILLS_TAB_KEY, SkillsSceneShell } from './SkillsSceneShell'
 
@@ -29,7 +29,7 @@ export const scene: SceneExport = {
 
 const SKILL_GRID_CLASSES = 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'
 
-const TRUST_TIER_TAG: Record<TrustTierEnumApi, { label: string; type: LemonTagType }> = {
+const TRUST_TIER_TAG: Record<CommunitySkillTrustTierEnumApi, { label: string; type: LemonTagType }> = {
     official: { label: 'Official', type: 'success' },
     verified: { label: 'Verified', type: 'completion' },
     community: { label: 'Community', type: 'default' },
@@ -49,7 +49,7 @@ function githubSourceUrl(url: string): string | null {
     }
 }
 
-function TrustTierBadge({ tier }: { tier: TrustTierEnumApi }): JSX.Element {
+function TrustTierBadge({ tier }: { tier: CommunitySkillTrustTierEnumApi }): JSX.Element {
     const config = TRUST_TIER_TAG[tier] ?? TRUST_TIER_TAG.community
     return <LemonTag type={config.type}>{config.label}</LemonTag>
 }
@@ -213,7 +213,7 @@ function CommunitySkillsContent(): JSX.Element {
                     onChange={(search) => setFilters({ search })}
                     className="grow max-w-100"
                 />
-                <LemonSelect<TrustTierEnumApi | ''>
+                <LemonSelect<CommunitySkillTrustTierEnumApi | ''>
                     value={filters.trust_tier}
                     onChange={(trust_tier) => setFilters({ trust_tier })}
                     options={[

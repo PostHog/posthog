@@ -12,6 +12,8 @@ So a producer's `record_id` has to be a stable identity for the billed thing: th
 What it protects against is our own duplication, not a sender's.
 If someone sends the same thing twice we ingest it twice and bill it twice, which is correct.
 The identity exists so our retries and reprocessing of one ingested thing collapse to one row.
+`usage_key` is in the key, so a `record_id` does not repeat it.
+CDP is the one producer that still prefixes, because its three call sites share one `usage_key` and the prefix is what separates them.
 
 `timestamp` is in the sort key as a date, because every billing read filters a time range and a date in the key prunes where a skip index only skips granules.
 Every producer stamps it from its own clock when it flushes, never from anything a customer sends — a customer-controlled value would decide whether their own records deduplicate.
@@ -20,17 +22,33 @@ The cost is that deduplication is scoped to a UTC day, so a reprocess that cross
 `inserted_at` is the engine's version column but is deliberately absent from the HogQL schema.
 `timestamp` is monotonic per resend, so `argMax(quantity, timestamp)` reads what a merge would keep, and one time column cannot be confused for the other.
 
-Read with `argMax(quantity, timestamp)` grouped by the sort key. HogQL rejects `FINAL` outright, so this is the only correct shape there.
+A read that must be exact uses `argMax(quantity, timestamp)` grouped by the sort key. HogQL rejects `FINAL` outright, so this is the only exact shape there.
 The collapse happens on merge, so a plain `sum(quantity)` counts every un-merged duplicate.
 Measured locally: two identical batches landing in separate parts read as 6 rows summing 18 without `FINAL`, and 3 rows summing 9 with it.
 
-| producer_id      | usage_key                  | unit        | record_id                                                                                       | deployment            |
-| ---------------- | -------------------------- | ----------- | ----------------------------------------------------------------------------------------------- | --------------------- |
-| `ingestion`      | `events`, `ai_events`      | events      | `{day}:{event}:{distinct_id}:{uuid}`                                                            | ingestion consumers   |
-| `ai-ingestion`   | `ai_events`                | events      | `{day}:{event}:{distinct_id}:{uuid}`                                                            | AI ingestion consumer |
-| `error-tracking` | `exceptions`               | events      | `{day}:{event}:{distinct_id}:{uuid}`                                                            | error tracking server |
-| `cdp`            | `cdp_billable_invocations` | invocations | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers         |
-| `feature-flags`  | `feature_flag_requests`    | requests    | fresh UUIDv7 per flush                                                                          | feature flags service |
+That shape does not scale, so do not reach for it by default.
+`record_id` is unique per row, so grouping by the sort key holds one aggregation state per row, and the query exceeds ClickHouse's per-query memory limit.
+A plain `sum(quantity)` stays inside the limit and overstates a total by a fraction of a percent, because a resend is rare.
+So a monitoring or in-product read sums raw rows and says it is not the billed number.
+Reserve the exact shape for a read that is scoped tightly enough to afford it.
+
+| producer_id         | usage_key                                                         | unit           | record_id                                                                                       | deployment                         |
+| ------------------- | ----------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `ingestion`         | `events`, `ai_events`                                             | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers, ingestion API |
+| `ai-ingestion`      | `ai_events`                                                       | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | AI ingestion consumer              |
+| `error-tracking`    | `exceptions`                                                      | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | error tracking server              |
+| `cdp`               | `cdp_billable_invocations`                                        | invocations    | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers                      |
+| `feature-flags`     | `feature_flag_requests`, `feature_flag_local_evaluation_requests` | requests       | fresh UUIDv7 per flush                                                                          | feature flags service              |
+| `ingestion`         | `survey_responses`                                                | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers, ingestion API |
+| `warehouse-sources` | `warehouse_rows_synced`                                           | rows           | the ExternalDataJob ID                                                                          | warehouse sources worker           |
+| `batch-exports`     | `batch_export_rows`                                               | rows           | the BatchExportRun ID                                                                           | batch exports worker               |
+| `replay-vision`     | `replay_vision_credits`                                           | credits        | the observation ID                                                                              | replay vision worker               |
+| `logs`              | `logs_bytes`, `logs_records`                                      | bytes, records | fresh UUIDv7 per flush                                                                          | logs ingestion server              |
+| `apm-traces`        | `apm_traces_bytes`, `apm_traces_spans`                            | bytes, records | fresh UUIDv7 per flush                                                                          | traces ingestion server            |
+| `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings`           | recordings     | the session ID                                                                                  | session replay consumer            |
+| `ingestion`         | `enhanced_person_events`                                          | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers, ingestion API |
+
+APM names its producer and meters for the signal they carry, not for the product, so metrics get their own names alongside traces rather than inheriting a bare `apm_` prefix that already means spans.
 
 Every producer reads the same four env vars, and each one is its own deployment, so one name still rolls out per producer from that service's own config.
 
@@ -46,6 +64,12 @@ There is deliberately no percentage option: sampling a share of a team's events 
 
 Every record carries quantity 1 and names one billed thing, so the aggregate lives in ClickHouse rather than in the producer.
 A producer that sees the same identity twice sends one record, because two records sharing an identity collapse rather than add.
+
+Three producers break that shape: feature flags, logs and APM send per-flush aggregates rather than one record per billed thing.
+They have no identity to reproduce, so each flush mints a fresh UUIDv7.
+That makes them retry-safe but not replay-safe, and it is deliberate: the quantity is a delta over a window, so a replayed flush is new usage rather than the same usage seen twice.
+Deriving those IDs from a clock instead would let two pods flushing one team in the same millisecond collapse into one row and drop a real quantity.
+Note the existing nightly report reaches the same totals additively — `app_metrics2` is an `AggregatingMergeTree` summing `count` per hour — so it has no identity to collide in the first place.
 
 ## Analytics ingestion
 
@@ -89,7 +113,7 @@ The AI check matches the exact names in `AI_EVENT_TYPES` rather than the `$ai_` 
 
 Overflow is not a drop. A redirected event is consumed again on the overflow lane, whose consumer reports under its own topic and partition, so it is counted exactly once.
 
-### Why the identity mirrors the events table
+### Why the identity is `{day}:{sha256 of event, distinct_id, uuid}`
 
 The first version of this keyed a record on the batch's consumed offset range and carried the batch's count.
 That is not replay-safe: Kafka does not promise the same batch boundaries twice, so a replay produces different IDs and the totals add.
@@ -101,6 +125,7 @@ Measured after the change: the same events re-consumed by a fresh consumer group
 The UUID alone is not that identity. `sharded_events` is itself a `ReplacingMergeTree` sorted by `(team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))`, so two events sharing a UUID but differing in day, name or distinct ID are separate rows there.
 The nightly report counts them separately too — `get_teams_with_billable_event_count_in_period` counts `distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)` — so keying on the UUID alone would have collapsed rows the report bills for.
 The `record_id` therefore carries that whole tuple minus the team the billing sorting key already holds. The timestamp is UTC-normalized upstream, so its first ten characters are the day `toDate` resolves.
+The tuple is hashed rather than joined, because event names and distinct IDs are client-supplied and together exceed the 512-byte identifier the service accepts. One oversized record makes the service reject the whole request, dropping every record batched with it.
 
 The cost is one record per event rather than one per batch. Records are still batched into requests of up to `USAGE_INGESTION_MAX_BATCH_SIZE`, so the request count is a function of batch size, not event count.
 
@@ -159,6 +184,10 @@ Three call sites report, each next to the app metric it is independent of:
 The event-triggered site bills once per triggering event, not per destination, matching the existing app metric.
 The workflow site keys on `actionStepCount` so a cyclotron retry of the same step reuses the ID and deduplicates, while a loop that revisits the same action gets a new one and bills again.
 
+The webhook site mints its `invocationId` when it receives the request, which is what we want: ten webhooks carrying one sender-side ID are ten things we ingested and ten things we bill.
+The ID only has to survive our own retry of that one receipt, which it does.
+The three CDP sites share one `usage_key`, which is why they are the only producer that still prefixes its `record_id`.
+
 The reporter flushes on a timer rather than at a consumer batch boundary, and `CdpBaseConsumer.stop()` flushes it, so a graceful deploy loses nothing.
 An ungraceful exit can still lose up to one interval of records per pod.
 
@@ -173,6 +202,10 @@ ID reuse is therefore scoped to the retry the gRPC client performs on one reques
 
 Sends go through a bounded queue drained by one owned task, and `shutdown` closes the queue and awaits it within the aggregator's flush timeout, so a deploy does not lose records Redis just credited.
 A full queue drops and counts the drop rather than growing; Redis still holds the authoritative count.
+
+The two billable request types get their own usage keys, because the report prices them apart: `billable_feature_flag_requests_count_in_period` is `decide + local_evaluation * 10`.
+The producer reports what happened and leaves the weighting downstream, so a decide request lands under `feature_flag_requests` and a local evaluation under `feature_flag_local_evaluation_requests`, both at their raw counts.
+Remote config requests are telemetry and bill on neither side.
 
 ## Trying it locally
 
@@ -199,6 +232,28 @@ SELECT producer_id, usage_key, sum(quantity), count()
 FROM billing_usage_records GROUP BY 1, 2 ORDER BY 1, 2
 ```
 
+Local development exposes `billing_usage_records` for every organization. Set
+`BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS` to a comma-separated list of organization UUIDs in other deployments.
+Configure that environment variable before enabling the real-time usage feature flag. The table stays hidden for every
+other organization.
+
 ## What is not reported yet
 
-Session replay, surveys, data warehouse rows synced, batch export rows, logs and APM all still reach billing only through the nightly usage report.
+All current collectors mirror usage into usage-ingestion. Existing billing still reads the nightly usage report.
+
+## Where a collector still disagrees with the report
+
+Each row is a case where the two systems would bill the same team differently, so they have to be closed before billing reads these records.
+
+| usage_key                                | the report counts                                                                                                     | the collector counts                   | effect                                          |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `survey_responses`                       | one response per `$survey_submission_id` per survey, and nothing for a survey attached to a product tour              | every `survey sent` event              | over-bills repeat submissions and product tours |
+| `warehouse_rows_synced`                  | nothing for a source created within seven days of the period end, and nothing at all during the warehouse free period | every completed billable job           | over-bills a source's first week                |
+| `feature_flag_local_evaluation_requests` | every local evaluation request                                                                                        | only the ones the Rust service answers | Django's own endpoint writes no record          |
+
+The flags row is about routing, not counting.
+The Rust service records both billable request types - `Decide` from the decide handler, `FlagDefinitions` from the local-evaluation handler - and each has its own usage key.
+Django still serves `/api/feature_flag/local_evaluation` too, and that path increments the report's counter without writing a usage record, so whatever Contour routes there is uncollected.
+
+Session replay is the closest of the ones that were closed: the collector bills a new session under `session_replay_recordings` only when it is not mobile, and under `mobile_replay_recordings` only for the four SDKs the report bills.
+It still bills a recording the report would later drop for `is_deleted`, because deletion happens after the session is counted.

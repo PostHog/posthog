@@ -25,7 +25,14 @@ DASHBOARD_GRID_SPACING_GAPS = {
     "wide": 48,
 }
 
-DASHBOARD_GRID_COMPACTION_MODES = ("vertical", "horizontal", "stable")
+
+class LayoutCompaction(models.TextChoices):
+    VERTICAL = "vertical", "vertical"
+    HORIZONTAL = "horizontal", "horizontal"
+    STABLE = "stable", "stable"
+
+
+DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
 
 
 class DashboardManager(RootTeamManager):

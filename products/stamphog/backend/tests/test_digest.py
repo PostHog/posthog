@@ -24,10 +24,13 @@ from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     RoutingUnavailable,
     SlackChannel,
+    _candidate_repo_configs,
 )
 from products.stamphog.backend.logic.digest import (
     _HEADLINE_MAX_RETRIES,
+    _HEADLINE_MAX_TOKENS,
     _HEADLINE_TIMEOUT_SECONDS,
+    GRAZE_CHANGED_FILES,
     MAX_DIGEST_PRS,
     MAX_FALLBACK_PRS,
     DigestPRSummary,
@@ -450,6 +453,25 @@ def test_an_unreadable_registry_posts_nothing(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_blank_installation_placeholder_is_not_a_routing_candidate(team) -> None:
+    # A repo created through the API carries a blank installation and defaults to enabled, so it
+    # used to join the candidates. It can fetch no routing file, and every candidate is read, so the
+    # failed fetch raised RoutingUnavailable and silenced the whole team's digest. This does not
+    # relax that rule: a repo that was readable and broke still stops the run. A blank installation
+    # was never readable, resolves no webhook, and so reports no merges either.
+    repo_config = _seed_prs(team.id, pr_count=1)
+    with team_scope(team.id):
+        placeholder = StamphogRepoConfig.objects.for_team(team.id).create(
+            team_id=team.id, repository="acme/placeholder", installation_id="", enabled=True
+        )
+
+    candidates = _candidate_repo_configs(team.id)
+
+    assert [config.id for config in candidates] == [repo_config.id]
+    assert placeholder.id not in {config.id for config in candidates}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
     # An unbounded claim grows the LLM prompt and the Slack payload with the merge-burst size, and a
     # rejected oversized payload retries the identical batch forever. The claim caps per run and the
@@ -657,17 +679,18 @@ def _recording_llm_client(answers: list[Any]) -> Any:
     headline call are given different fates.
     """
     prompts: list[str] = []
+    calls: list[dict[str, Any]] = []
 
     def create(**kwargs: Any) -> Any:
+        calls.append(kwargs)
         prompts.append(kwargs["messages"][0]["content"])
         answer = answers[len(prompts) - 1]
         if isinstance(answer, Exception):
             raise answer
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=answer))])
+        # The Anthropic Messages shape: a list of content blocks, text ones carry the answer.
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=answer)])
 
-    client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=create)), prompts=prompts, options=[]
-    )
+    client = SimpleNamespace(messages=SimpleNamespace(create=create), prompts=prompts, calls=calls, options=[])
     # The real client hands back a bounded copy. The fake records the bounds and answers as itself,
     # so a test can assert what the optional headline call was limited to.
     client.with_options = lambda **kwargs: (client.options.append(kwargs), client)[1]
@@ -696,7 +719,7 @@ def test_the_headline_call_never_sees_a_merge_the_thread_left_out() -> None:
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "The kept one shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
         summary = summarize_merged_prs(prs)
 
     assert [p.pr_number for p in summary.prs] == [1]
@@ -720,7 +743,7 @@ def test_a_headline_failure_keeps_the_judged_digest() -> None:
 
     client = _recording_llm_client(answers)
 
-    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
         summary = summarize_merged_prs(prs)
 
     assert summary.judged is True
@@ -730,6 +753,75 @@ def test_a_headline_failure_keeps_the_judged_digest() -> None:
     # and a team's audiences post one at a time, so an unbounded stall on an optional call holds up
     # this digest and every audience behind it. The client's own default is ten minutes with retries.
     assert client.options == [{"timeout": _HEADLINE_TIMEOUT_SECONDS, "max_retries": _HEADLINE_MAX_RETRIES}]
+    # The headline answers in a paragraph, so it reserves far less output than the selection call.
+    assert client.calls[1]["max_tokens"] == _HEADLINE_MAX_TOKENS < client.calls[0]["max_tokens"]
+
+
+def test_the_digest_call_names_its_product_team_and_source() -> None:
+    # The Go gateway serves Claude only on the Messages shape and reads labels from the client's
+    # headers, so the builder carries the product, team and source tag and every call sets the
+    # output ceiling the shape requires. metadata.user_id is for the Python-gateway fallback.
+    prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
+    client = _recording_llm_client([json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "It ships."}]})])
+
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client) as build:
+        summary = summarize_merged_prs(prs)
+
+    team_id = prs[0].team_id
+    assert summary.judged is True
+    build.assert_called_once_with(
+        "stamphog",
+        ai_product="aio_stamphog",
+        team_id=team_id,
+        properties={"source_product": "stamphog_digest"},
+        distinct_id=f"team-{team_id}",
+    )
+    (selection_call,) = client.calls[:1]
+    assert selection_call["model"] == "claude-haiku-4-5"
+    assert selection_call["max_tokens"] > 0
+    assert selection_call["metadata"] == {"user_id": f"team-{team_id}"}
+    assert "extra_headers" not in selection_call and "user" not in selection_call
+
+
+@pytest.mark.parametrize(
+    "owned_count,changed_files,dropped",
+    [
+        (1, GRAZE_CHANGED_FILES, True),
+        (1, GRAZE_CHANGED_FILES - 1, False),
+        (2, GRAZE_CHANGED_FILES, False),
+    ],
+)
+def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
+    owned_count: int, changed_files: int, dropped: bool
+) -> None:
+    # A repo-wide config change owned one line in ten products and reached every one of their
+    # channels. The prompt named the graze and asked the model to drop it, and the model kept it
+    # anyway: the prompt carries no diff, so nothing in it says what that one file does. Code
+    # decides now. The grazed merge goes first so a filter that forgot to renumber the index map
+    # would resolve the model's index 0 to the wrong PR.
+    grazed = _pr_stub("o/r", 1, "Swept in", "https://github.com/o/r/pull/1")
+    grazed.changed_files = changed_files
+    owned = _pr_stub("o/r", 2, "Ours", "https://github.com/o/r/pull/2")
+    audiences = [
+        PullRequestAudience(
+            audience_key=AUDIENCE,
+            reason=AudienceReason.OWNED,
+            owned_files=[f"a{i}.py" for i in range(count)],
+            owned_file_count=count,
+        )
+        for count in (owned_count, 1)
+    ]
+    selection = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "The first one."}]})
+    client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
+        summary = summarize_merged_prs([grazed, owned], audiences)
+
+    assert ("Swept in" in client.prompts[0]) is not dropped
+    assert [p.pr_number for p in summary.prs] == [2 if dropped else 1]
+    # The scope line still counts every merge the audience claimed. Counting only what survived
+    # would tell a swept team that nothing landed in its area at all.
+    assert summary.considered == 2
 
 
 def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
@@ -738,7 +830,9 @@ def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() ->
     # run consumes every merge it claims either way and the post reads like an ordinary quiet day.
     prs = [_pr_stub("o/r", n, f"Change {n}", f"https://github.com/o/r/pull/{n}") for n in range(MAX_FALLBACK_PRS + 3)]
 
-    with patch("products.stamphog.backend.logic.digest.get_llm_client", side_effect=RuntimeError("gateway down")):
+    with patch(
+        "products.stamphog.backend.logic.digest.build_anthropic_client", side_effect=RuntimeError("gateway down")
+    ):
         summary = summarize_merged_prs(prs)
 
     assert summary.judged is False
@@ -766,7 +860,7 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
     )
 
     with patch(
-        "products.stamphog.backend.logic.digest.get_llm_client",
+        "products.stamphog.backend.logic.digest.build_anthropic_client",
         return_value=_recording_llm_client([selection, json.dumps({"headline": "Both repos changed."})]),
     ):
         summary = summarize_merged_prs(prs)
@@ -873,7 +967,9 @@ def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headlin
         json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "Ship it."}]}),
         json.dumps({"headline": raw_headline}),
     ]
-    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_recording_llm_client(contents)):
+    with patch(
+        "products.stamphog.backend.logic.digest.build_anthropic_client", return_value=_recording_llm_client(contents)
+    ):
         summary = summarize_merged_prs([_pr_stub("o/r", 1, "Ship it", "https://example.com/1")])
     assert summary.headline == expected
     # A rejected headline never costs the change line the selection call already wrote.

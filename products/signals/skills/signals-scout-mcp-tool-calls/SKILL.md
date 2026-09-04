@@ -1,15 +1,9 @@
 ---
 name: signals-scout-mcp-tool-calls
 description: >
-  Signals scout for PostHog MCP tool calls. Watches $mcp_tool_call telemetry for tools that
-  need improvement — high, broad-reach failure rates, retry/hammering that betrays a confusing
-  schema, slow or context-bloating responses — groups problem tools by $mcp_tool_category (the
-  owning product team) and files one report per problem category listing that category's
-  problem tools each with a fix suggestion; falls back to one report per tool where category
-  coverage is absent. Immediately-actionable reports carry a fix-loop metric (measurement query,
-  baseline, goal) so the auto-started implementation task iterates until the number moves.
-  Otherwise writes durable memory and closes out empty. Adapts to which fields the project
-  actually captures.
+  Signals scout for PostHog MCP tool calls. Watches `$mcp_tool_call` telemetry for tools that
+  need improvement — broad-reach failure rates, retry hammering, slow or context-bloating
+  responses — grouped by owning product category, each with a fix suggestion.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus execute-sql,

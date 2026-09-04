@@ -978,6 +978,7 @@ doesn't conflict with concurrent PRs.
 - dayforce
 - db2
 - deelflows
+- demodesk
 - deno_deploy
 - depot
 - deputy
@@ -1169,8 +1170,10 @@ doesn't conflict with concurrent PRs.
 - mantle
 - manychat
 - mastodon
+- medusa
 - meetup
 - memberful
+- membrain
 - mendeley
 - mercado_ads
 - mercado_pago
@@ -1297,6 +1300,7 @@ doesn't conflict with concurrent PRs.
 - raygun
 - rb2b
 - rd_station_marketing
+- recall_ai
 - reddit
 - redis
 - redpanda_cloud
@@ -1383,6 +1387,7 @@ doesn't conflict with concurrent PRs.
 - starburst
 - statsig
 - stockx
+- strato
 - strava
 - streamlabs
 - sumsub

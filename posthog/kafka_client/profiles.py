@@ -16,3 +16,4 @@ class KafkaClusterProfile(StrEnum):
     CALCULATED_EVENTS = "calculated_events"
     SHARED = "shared"
     REPLAY = "replay"
+    TRACES = "traces"
