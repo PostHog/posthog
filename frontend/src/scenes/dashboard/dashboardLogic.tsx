@@ -153,7 +153,6 @@ import {
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
     dashboardFilterOverrideChangesFilters,
-    encodeURLFilters,
     encodeURLVariables,
     getDashboardWidgetType,
     getEffectiveDateOverride,

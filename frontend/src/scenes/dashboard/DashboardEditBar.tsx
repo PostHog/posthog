@@ -153,8 +153,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                     ]}
                 />
             </div>
-            {/* Single flex item so the "…" button always wraps together with the breakdown button */}
-            <div className={clsx('content-end flex items-end gap-2', { 'h-[61px]': hasVariables })}>
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <TaxonomicBreakdownFilter
                         insightProps={insightProps}
@@ -178,10 +177,12 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         size="small"
                     />
                 </BindLogic>
-                <DashboardEditBarAdvancedFilters />
             </div>
 
             <VariablesForDashboard />
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <DashboardEditBarAdvancedFilters />
+            </div>
         </div>
     )
 }
