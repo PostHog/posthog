@@ -1,7 +1,9 @@
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { MediaUploadResponse } from '~/types'
 
@@ -71,15 +73,29 @@ function canReduceThisBlobType(file: File): boolean {
     return supportedTypes.includes(file.type)
 }
 
-export async function uploadFile(file: File): Promise<MediaUploadResponse> {
+export interface UploadFileOptions {
+    allowedMimeTypes?: readonly string[]
+    maxSizeBytes?: number
+}
+
+export async function uploadFile(file: File, options: UploadFileOptions = {}): Promise<MediaUploadResponse> {
     if (!file.type.startsWith('image/')) {
         throw new Error('File is not an image')
+    }
+    if (options.allowedMimeTypes && !options.allowedMimeTypes.includes(file.type)) {
+        throw new Error('This image format is not supported')
+    }
+    if (options.maxSizeBytes !== undefined && file.size > options.maxSizeBytes) {
+        throw new Error('Image exceeds the maximum file size')
     }
 
     let fileToUpload = file
     if (canReduceThisBlobType(file)) {
         const compressedBlob = await lazyImageBlobReducer(file)
         fileToUpload = new File([compressedBlob], file.name, { type: compressedBlob.type })
+    }
+    if (options.maxSizeBytes !== undefined && fileToUpload.size > options.maxSizeBytes) {
+        throw new Error('Image exceeds the maximum file size')
     }
 
     const formData = new FormData()
@@ -90,41 +106,69 @@ export async function uploadFile(file: File): Promise<MediaUploadResponse> {
 export function useUploadFiles({
     onUpload,
     onError,
+    uploadFileOptions,
 }: {
     onUpload?: (url: string, fileName: string, uploadedMediaId: string) => void
     onError: (detail: string) => void
+    uploadFileOptions?: UploadFileOptions
 }): {
-    setFilesToUpload: (files: File[]) => void
+    setFilesToUpload: Dispatch<SetStateAction<File[]>>
     filesToUpload: File[]
     uploading: boolean
 } {
     const [uploading, setUploading] = useState(false)
     const [filesToUpload, setFilesToUpload] = useState<File[]>([])
     const uploadInProgressRef = useRef(false)
+    const isMountedRef = useRef(true)
+
+    useEffect(() => {
+        isMountedRef.current = true
+        return () => {
+            isMountedRef.current = false
+        }
+    }, [])
 
     useEffect(() => {
         const uploadFiles = async (): Promise<void> => {
-            if (filesToUpload.length === 0 || uploadInProgressRef.current) {
+            if (filesToUpload.length === 0) {
                 setUploading(false)
                 return
             }
+            if (uploadInProgressRef.current) {
+                return
+            }
 
+            const file = filesToUpload[0]
             try {
                 uploadInProgressRef.current = true
                 setUploading(true)
-                const file: File = filesToUpload[0]
-                const media = await uploadFile(file)
-                onUpload?.(media.image_location, media.name, media.id)
+                const media = await uploadFile(file, uploadFileOptions)
+                if (isMountedRef.current) {
+                    onUpload?.(media.image_location, media.name, media.id)
+                }
             } catch (error) {
-                const errorDetail = (error as any).detail || 'unknown error'
-                onError(errorDetail)
+                if (isMountedRef.current) {
+                    let errorDetail = 'unknown error'
+                    if (error instanceof ApiError && error.detail) {
+                        errorDetail = error.detail
+                    } else if (error instanceof Error && error.message) {
+                        errorDetail = error.message
+                    }
+                    onError(errorDetail)
+                }
             } finally {
                 uploadInProgressRef.current = false
-                setUploading(false)
-                setFilesToUpload([])
+                if (isMountedRef.current) {
+                    setUploading(false)
+                    setFilesToUpload((files) => files.filter((queuedFile) => queuedFile !== file))
+                }
             }
         }
-        uploadFiles().catch(console.error)
+        uploadFiles().catch((error) => {
+            if (isMountedRef.current) {
+                console.error(error)
+            }
+        })
     }, [filesToUpload]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return { setFilesToUpload, filesToUpload, uploading }

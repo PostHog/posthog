@@ -44,12 +44,14 @@ import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
+import { customerAnalyticsEmptyState } from './emptyState/customerAnalyticsEmptyState'
 import { customerAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 
 export const scene: SceneExport = {
     component: CustomerAnalyticsScene,
     logic: customerAnalyticsSceneLogic,
     productKey: ProductKey.CUSTOMER_ANALYTICS,
+    emptyState: customerAnalyticsEmptyState,
 }
 
 export function CustomerAnalyticsScene(): JSX.Element {

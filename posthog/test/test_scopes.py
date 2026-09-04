@@ -76,11 +76,18 @@ class TestDowngradeScopesToReadOnly(BaseTest):
         self.assertIn("openid", result)
 
 
+# sorted: parameterized bakes the iteration order into the test ids, and a frozenset
+# iterates in hash order, which differs per process.
+INTERNAL_SCOPE_CASES = [
+    (f"{obj}:{action}",) for obj in sorted(INTERNAL_API_SCOPE_OBJECTS) for action in API_SCOPE_ACTIONS
+]
+
+
 class TestScopeSets(BaseTest):
     def test_all_scopes_matches_scope_descriptions_keys(self) -> None:
         self.assertEqual(ALL_SCOPES, frozenset(get_scope_descriptions().keys()))
 
-    @parameterized.expand([(f"{obj}:{action}",) for obj in INTERNAL_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS])
+    @parameterized.expand(INTERNAL_SCOPE_CASES)
     def test_all_scopes_excludes_internal_scope(self, scope: str) -> None:
         self.assertNotIn(scope, ALL_SCOPES)
 
@@ -98,7 +105,7 @@ class TestScopeSets(BaseTest):
         # they are not part of the UNPRIVILEGED broad-default set.
         self.assertNotIn(oidc, UNPRIVILEGED_SCOPES)
 
-    @parameterized.expand([(f"{obj}:{action}",) for obj in INTERNAL_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS])
+    @parameterized.expand(INTERNAL_SCOPE_CASES)
     def test_unprivileged_scopes_excludes_internal_scope(self, scope: str) -> None:
         self.assertNotIn(scope, UNPRIVILEGED_SCOPES)
 
