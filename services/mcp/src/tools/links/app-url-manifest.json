@@ -419,11 +419,6 @@
         "params": ["id"],
         "scope": "project"
     },
-    "dashboardButtonTile": {
-        "template": "/dashboard/{id}/button-tiles/{buttonTileId}",
-        "params": ["id", "buttonTileId"],
-        "scope": "project"
-    },
     "dashboardSharing": {
         "template": "/dashboard/{id}/sharing",
         "params": ["id"],
@@ -444,9 +439,9 @@
         "params": ["templateId"],
         "scope": "project"
     },
-    "dashboardTextTile": {
-        "template": "/dashboard/{id}/text-tiles/{textTileId}",
-        "params": ["id", "textTileId"],
+    "dashboardTile": {
+        "template": "/dashboard/{id}/tiles/{tileId}",
+        "params": ["id", "tileId"],
         "scope": "project"
     },
     "dashboards": {

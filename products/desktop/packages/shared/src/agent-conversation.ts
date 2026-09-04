@@ -20,6 +20,17 @@ export type AgentToolCallStatus =
 
 export type AgentProgressStatus = "in_progress" | "completed" | "failed";
 
+export interface AgentTurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedReadTokens: number;
+  cachedWriteTokens: number;
+  thoughtTokens?: number;
+  totalTokens: number;
+  contextTokens?: number | null;
+  contextWindow?: number;
+}
+
 export interface AgentTextContent {
   type: "text";
   text: string;
@@ -181,6 +192,7 @@ export type AgentConversationEvent = (
       timestamp: number;
       stopReason?: string;
       totalTokens?: number;
+      usage?: AgentTurnUsage;
     }
 ) &
   AgentConversationEventIdentity;

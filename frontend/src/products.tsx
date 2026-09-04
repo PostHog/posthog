@@ -1128,10 +1128,7 @@ export const productUrls = {
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
-    dashboardTextTile: (id: string | number, textTileId: string | number): string =>
-        `${urls.dashboard(id)}/text-tiles/${textTileId}`,
-    dashboardButtonTile: (id: string | number, buttonTileId: string | number): string =>
-        `${urls.dashboard(id)}/button-tiles/${buttonTileId}`,
+    dashboardTile: (id: string | number, tileId: string | number): string => `${urls.dashboard(id)}/tiles/${tileId}`,
     dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
     dashboardSubscriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
@@ -2020,6 +2017,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
         iconType: 'cohort',
+        iconColor: [
+            'var(--color-product-customer-analytics-light)',
+            'var(--color-product-customer-analytics-dark)',
+        ] as FileSystemIconColor,
         href: urls.customerAnalytics(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,

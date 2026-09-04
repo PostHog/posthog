@@ -367,6 +367,21 @@ class TestCheckActionability:
         assert "x-posthog-property-$ai_billable" not in headers
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "model,expected_output_config",
+        [("claude-sonnet-5", {"effort": "medium"}), ("claude-sonnet-4-5", None)],
+    )
+    async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+
+        with patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model):
+            await check_actionability(mock_client, 7, _make_output(), "Is this actionable? {description}")
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs.get("output_config") == expected_output_config
+
+    @pytest.mark.asyncio
     @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
     async def test_gateway_mode_labels_ride_on_properties_blob(self):
         mock_client = MagicMock()

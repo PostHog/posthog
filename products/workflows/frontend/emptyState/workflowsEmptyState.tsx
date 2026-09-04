@@ -3,6 +3,7 @@ import { IconDecisionTree } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -14,6 +15,10 @@ const HedgehogWorkflows = pngHoggie(workflowsPng)
 
 export const workflowsEmptyState: SceneProductEmptyState = {
     statusLogic: workflowsSetupLogic,
+    // One scene serves every tab here, but only the workflow list is the product being gated.
+    // Channels, the message library, opt-outs, suppression, and reputation configure resources
+    // that stand on their own, and a person often sets a channel up before a first workflow.
+    scenes: [{ scene: Scene.Workflows, tabs: [undefined, 'workflows'] }],
     config: {
         productKey: ProductKey.WORKFLOWS,
         productName: 'Workflows',

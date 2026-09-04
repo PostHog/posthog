@@ -63,7 +63,11 @@ from products.replay_vision.backend.api.trigger import (
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
-from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
+from products.replay_vision.backend.billing import (
+    observation_credits_case,
+    observation_credits_for_model,
+    projected_monthly_credits,
+)
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -389,11 +393,22 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         allow_null=True,
         help_text="Latest projected observations/month for this scanner. Null until first computed.",
     )
+    estimated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed "
+            "after a config change or has never run, so the stored number may be stale."
+        ),
+    )
     credits_per_observation = serializers.SerializerMethodField(
         help_text="Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`.",
     )
     estimated_monthly_credits = serializers.SerializerMethodField(
-        help_text="`estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.",
+        help_text=(
+            "`estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one "
+            "is set. Null until the estimate is first computed."
+        ),
     )
     credits_this_month = serializers.SerializerMethodField(
         help_text=(
@@ -466,6 +481,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "experiment_targeting",
             "scanner_version",
             "estimated_monthly_observations",
+            "estimated_at",
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
@@ -483,6 +499,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "id",
             "scanner_version",
             "estimated_monthly_observations",
+            "estimated_at",
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
@@ -503,9 +520,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
-        if scanner.estimated_monthly_observations is None:
-            return None
-        return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
+        return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
     def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
         root = self.root
@@ -1089,8 +1104,8 @@ class EstimateRequestSerializer(serializers.Serializer):
             required=False,
             help_text=(
                 "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate "
-                "against all recordings."
+                "ignored — the estimate scans a recent window (`window_days` in the response) and "
+                "scales it to 30 days. Omit to estimate against all recordings."
             ),
         )
     )
@@ -1187,18 +1202,20 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
-            "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
-            "filter but before random sampling."
+            "Distinct sessions matching the query within the scanned window (`window_days`), after the "
+            "sampling_mode quality filter but before random sampling."
         ),
     )
     window_days = serializers.IntegerField(
         help_text=(
-            "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
+            "Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's "
+            "operand rules out sampling); smaller when the team has fewer days of recordings."
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(
         help_text=(
-            "Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate."
+            "Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, "
+            "times sampling_rate."
         ),
     )
     credits_per_observation = serializers.IntegerField(
@@ -2211,9 +2228,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "goal_flow": goal_flow,
             "monthly_credit_budget": monthly_credit_budget,
         }
-        # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
-        # receive its content through the draft either.
-        include_business_context = get_authenticator_scopes(request.successful_authenticator) is None
+        # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
+        # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
+        # actions) is gated per resource against these scopes inside the drafter.
+        allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
+        include_business_context = allowed_scopes is None
 
         try:
             if goal_flow:
@@ -2224,6 +2243,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     monthly_credit_budget=cast(int, monthly_credit_budget),
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
+                    allowed_scopes=allowed_scopes,
                 )
             else:
                 drafted = draft_scanner_from_goal(
