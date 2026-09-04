@@ -714,6 +714,9 @@ class FieldType(Type):
             f"FieldType.resolve_constant_type, for BaseTableType: unknown database_field type: {str(database_field.__class__)}"
         )
 
+    # A property chain on a scalar field is a mistake in the query the user wrote, so both
+    # failures below raise an exposed error. An internal error would classify as a platform
+    # fault, which files a PostHog exception and counts a query SLO failure.
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         database_field = self.resolve_database_field(context)
         if database_field is None:
@@ -722,7 +725,7 @@ class FieldType(Type):
             constant_type = self.resolve_constant_type(context)
             if isinstance(constant_type, (StringJSONType, StringArrayType)):
                 return PropertyType(chain=[name], field_type=self)
-            raise ResolutionError(f'Can not access property "{name}" on field "{self.name}".')
+            raise QueryError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
@@ -730,7 +733,7 @@ class FieldType(Type):
         if isinstance(database_field, StructDatabaseField):
             return PropertyType(chain=[name], field_type=self)
 
-        raise ResolutionError(
+        raise QueryError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
