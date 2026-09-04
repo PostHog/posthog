@@ -232,6 +232,9 @@ export const TaxonomicFilterSearchInput = forwardRef<
         <LemonInput
             {...props}
             ref={ref}
+            className={clsx({
+                'TaxonomicFilter__search-input--with-category': categoriesAreInDropdown,
+            })}
             data-attr="taxonomic-filter-searchfield"
             type="search"
             fullWidth

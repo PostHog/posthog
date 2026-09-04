@@ -1488,6 +1488,12 @@ describe('TaxonomicFilter', () => {
             })
 
             expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            expect(screen.getByTestId('taxonomic-filter-searchfield').closest('.LemonInput')).toHaveClass(
+                'TaxonomicFilter__search-input--with-category'
+            )
+            expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveClass(
+                'TaxonomicFilter__category-dropdown'
+            )
         })
 
         it('pill variant: opening the dropdown and picking a category switches the visible results', async () => {

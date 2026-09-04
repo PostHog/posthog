@@ -84,7 +84,7 @@ function renderTrigger(variant: Exclude<CategoryDropdownVariant, 'control'>, act
             sideIcon={<IconChevronDown />}
             data-attr={`taxonomic-category-dropdown-trigger-${variant}`}
             aria-label={`Current category: ${activeLabel}. Click to change.`}
-            className={CLICK_OUTSIDE_BLOCK_CLASS}
+            className={`${CLICK_OUTSIDE_BLOCK_CLASS} TaxonomicFilter__category-dropdown`}
         >
             {activeLabel}
         </LemonButton>
