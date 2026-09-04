@@ -85,7 +85,7 @@ import {
   type ThreadScrollResume,
   type TurnRow,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
-import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { buildTurnCopyTextCached } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
 import {
@@ -945,7 +945,7 @@ const ThreadRow = memo(function ThreadRow({
           <TurnFooter
             turnId={item.id}
             timestamp={completedTurnTimestamp(item)}
-            copyText={buildTurnCopyText(item.items) ?? undefined}
+            copyText={buildTurnCopyTextCached(item.items) ?? undefined}
           />
         </FooterRevealContext.Provider>
       </ChatMessageScrollerItem>

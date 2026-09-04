@@ -1,7 +1,7 @@
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import type { ToolGroupItem } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
 import { describe, expect, it } from "vitest";
-import { buildTurnCopyText } from "./turnCopyText";
+import { buildTurnCopyText, buildTurnCopyTextCached } from "./turnCopyText";
 
 function userMessage(id: string, content: string): ConversationItem {
   return { type: "user_message", id, content, timestamp: 0 };
@@ -74,5 +74,29 @@ describe("buildTurnCopyText", () => {
     ["blank agent prose", [userMessage("u1", "prompt"), agentText("a1", "\n")]],
   ])("returns null when there is nothing to copy: %s", (_label, items) => {
     expect(buildTurnCopyText(items)).toBeNull();
+  });
+});
+
+describe("buildTurnCopyTextCached", () => {
+  it("matches the uncached result across rebuilt container arrays", () => {
+    const items = [agentText("a1", "first"), agentText("a2", "second")];
+
+    expect(buildTurnCopyTextCached([...items])).toBe(
+      buildTurnCopyText([...items]),
+    );
+    expect(buildTurnCopyTextCached([...items])).toBe("first\n\nsecond");
+  });
+
+  it("recomputes when the turn gains an item", () => {
+    const first = agentText("a1", "first");
+    expect(buildTurnCopyTextCached([first])).toBe("first");
+
+    expect(buildTurnCopyTextCached([first, agentText("a2", "second")])).toBe(
+      "first\n\nsecond",
+    );
+  });
+
+  it("returns null for an empty turn without caching", () => {
+    expect(buildTurnCopyTextCached([])).toBeNull();
   });
 });
