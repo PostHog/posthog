@@ -102,7 +102,7 @@ Actionable and pending-input report details also offer Implement. It opens the s
 
 List cards should prefer fields already present in the list response. Fetching per-card secondary data is acceptable only for small, clearly bounded adornments; avoid new N+1 request patterns without a batching plan.
 
-Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens. Copy link is the menu's only link action; opening a report remains the row's primary interaction.
+Report rows expose the same primary actions through a right-click menu. Reviewer data stays lazy until its submenu opens. Copy link lets users choose a web or Desktop link; opening a report remains the row's primary interaction.
 
 ## Backend Contracts
 
@@ -127,6 +127,8 @@ Card headlines are derived client-side from `summary` by `utils/reportPresentati
 Responder setup lives in `features/agents/components/AgentsView.tsx`, which mounts `ConfigureAgentsSection`. This surface composes existing GitHub, Slack, source-toggle, and MCP configuration pieces. Keep setup copy outcome-focused: the user is asking Self-driving to figure out what matters, not choosing internal artefact types.
 
 Onboarding/setup should be task-backed when it starts work. Do not model it as a static checklist if the intended behavior is to launch an agent task.
+
+An empty Reports view has two distinct causes, and they need different copy: nothing configured yet, versus configured with nothing found. `useSelfDrivingSetupStatus` (`hooks/useSelfDrivingSetupStatus.ts`) reads enabled signal source and scout counts to tell them apart. `ReportsInboxView` only sets `showConfigureAgentsEmptyState` when the inbox is empty with no active filters, so a genuinely quiet but configured project still gets "Nothing to review", not the welcome copy again. The welcome state's CTA links to this same configuration surface; it does not duplicate setup logic.
 
 ## UI Architecture
 
