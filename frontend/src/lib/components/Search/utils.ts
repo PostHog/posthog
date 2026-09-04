@@ -67,6 +67,7 @@ export const getCategoryDisplayName = (category: string): string => {
         persons: 'Persons',
         groups: 'Groups',
         accounts: 'Accounts',
+        tickets: 'Support tickets',
         eventDefinitions: 'Events',
         propertyDefinitions: 'Properties',
         ai: 'PostHog AI',

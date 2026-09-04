@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -29,6 +30,7 @@ describe('searchLogic', () => {
             get: {
                 '/api/environments/:team_id/search/': { results: [], counts: {} },
                 '/api/projects/:team_id/file_system/': { results: [], count: 0 },
+                '/api/projects/:team_id/conversations/tickets/': { results: [], count: 0 },
             },
         })
         initKeaTests()
@@ -82,6 +84,65 @@ describe('searchLogic', () => {
         // The superseded run must not settle the loader the newer run now owns.
         await expectLogic(logic).toNotHaveDispatchedActions(['loadPersonSearchResultsFailure'])
         expect(logic.values.personSearchResultsLoading).toBe(true)
+    })
+
+    it('maps matching support tickets into their own category', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': {
+                    count: 1,
+                    results: [
+                        {
+                            id: '01890a1b-2c3d-4e5f-8a9b-0c1d2e3f4a5b',
+                            ticket_number: 4321,
+                            status: 'on_hold',
+                            email_subject: 'Invoice looks wrong',
+                            last_message_text: 'We were charged twice',
+                        },
+                    ],
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch('invoice')).toDispatchActions([
+            'loadTicketSearchResultsSuccess',
+        ])
+
+        expect(logic.values.ticketItems).toEqual([
+            expect.objectContaining({
+                name: '#4321 Invoice looks wrong',
+                category: 'tickets',
+                href: urls.supportTicketDetail(4321),
+                productCategory: 'On hold',
+            }),
+        ])
+        expect(logic.values.allCategories.find((category) => category.key === 'tickets')?.items).toHaveLength(1)
+    })
+
+    // A Slack or widget ticket has no email subject, so the first message stands in as the title.
+    it('falls back to the last message when a ticket has no subject', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': {
+                    count: 1,
+                    results: [
+                        {
+                            id: '01890a1b-2c3d-4e5f-8a9b-0c1d2e3f4a5c',
+                            ticket_number: 77,
+                            status: 'open',
+                            email_subject: null,
+                            last_message_text: 'Session replay is not recording',
+                        },
+                    ],
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch('replay')).toDispatchActions([
+            'loadTicketSearchResultsSuccess',
+        ])
+
+        expect(logic.values.ticketItems[0].name).toBe('#77 Session replay is not recording')
     })
 
     it('does not cancel a person search that already returned', async () => {

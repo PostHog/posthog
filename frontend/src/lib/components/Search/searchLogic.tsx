@@ -15,7 +15,7 @@ import { uuid } from 'lib/utils/dom'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { toSentenceCase } from 'lib/utils/strings'
+import { capitalizeFirstLetter, toSentenceCase } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,6 +34,8 @@ import { getTitleText } from '~/scenes/settings/settingsSearch'
 import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
+import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
+import type { TicketApi } from 'products/conversations/frontend/generated/api.schemas'
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -208,6 +210,10 @@ export interface searchLogicValues {
     accountSearchResults: AccountApi[]
     accountSearchResultsLoading: boolean
     allCategories: SearchCategory[]
+    customerItems: {
+        accountItems: SearchItem[]
+        ticketItems: SearchItem[]
+    }
     dataManagementItems: SearchItem[]
     groupItems: SearchItem[]
     groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>
@@ -224,6 +230,7 @@ export interface searchLogicValues {
         recentsLoading: boolean
         starredHasLoaded: boolean
         starredLoading: boolean
+        ticketSearchResultsLoading: boolean
         unifiedSearchResultsLoading: boolean
     }
     miscItems: SearchItem[]
@@ -243,6 +250,9 @@ export interface searchLogicValues {
     settingsItems: SearchItem[]
     settingsSections: SettingsSectionSummary[]
     starredItems: SearchItem[]
+    ticketItems: SearchItem[]
+    ticketSearchResults: TicketApi[]
+    ticketSearchResultsLoading: boolean
     toolsItems: SearchItem[]
     unifiedSearchItems: Record<string, SearchItem[]>
     unifiedSearchResults: SearchResponse | null
@@ -331,6 +341,27 @@ export interface searchLogicActions {
         }
     ) => {
         playlistSearchResults: FileSystemEntry[]
+        payload?: {
+            searchTerm: string
+        }
+    }
+    loadTicketSearchResults: ({ searchTerm }: { searchTerm: string }) => {
+        searchTerm: string
+    }
+    loadTicketSearchResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTicketSearchResultsSuccess: (
+        ticketSearchResults: TicketApi[],
+        payload?: {
+            searchTerm: string
+        }
+    ) => {
+        ticketSearchResults: TicketApi[]
         payload?: {
             searchTerm: string
         }
@@ -430,6 +461,14 @@ export interface searchLogicMeta {
         ) => SearchItem[]
         personItems: (personSearchResults: PersonType[]) => SearchItem[]
         accountItems: (accountSearchResults: AccountApi[]) => SearchItem[]
+        ticketItems: (ticketSearchResults: TicketApi[]) => SearchItem[]
+        customerItems: (
+            accountItems: SearchItem[],
+            ticketItems: SearchItem[]
+        ) => {
+            accountItems: SearchItem[]
+            ticketItems: SearchItem[]
+        }
         playlistItems: (playlistSearchResults: FileSystemEntry[]) => SearchItem[]
         healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         miscItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
@@ -448,6 +487,7 @@ export interface searchLogicMeta {
             personSearchResultsLoading: boolean,
             groupSearchResultsLoading: boolean,
             accountSearchResultsLoading: boolean,
+            ticketSearchResultsLoading: boolean,
             playlistSearchResultsLoading: boolean
         ) => {
             accountSearchResultsLoading: boolean
@@ -459,6 +499,7 @@ export interface searchLogicMeta {
             recentsLoading: boolean
             starredHasLoaded: boolean
             starredLoading: boolean
+            ticketSearchResultsLoading: boolean
             unifiedSearchResultsLoading: boolean
         }
         allCategories: (
@@ -473,7 +514,7 @@ export interface searchLogicMeta {
             newItems: SearchItem[],
             personItems: SearchItem[],
             groupItems: SearchItem[],
-            accountItems: SearchItem[],
+            customerItems: any,
             playlistItems: SearchItem[],
             unifiedSearchItems: Record<string, SearchItem[]>,
             loadingStates: {
@@ -486,6 +527,7 @@ export interface searchLogicMeta {
                 recentsLoading: boolean
                 starredHasLoaded: boolean
                 starredLoading: boolean
+                ticketSearchResultsLoading: boolean
                 unifiedSearchResultsLoading: boolean
             },
             search: string
@@ -665,6 +707,34 @@ export const searchLogic = kea<searchLogicType>([
 
                     try {
                         const response = await accountsList(
+                            String(values.currentTeamId),
+                            {
+                                search: trimmed,
+                                limit: SEARCH_LIMIT,
+                            },
+                            { signal: cache.searchAbortController?.signal }
+                        )
+                        breakpoint()
+
+                        return response.results
+                    } catch (error) {
+                        return rethrowSearchError(error, breakpoint)
+                    }
+                },
+            },
+        ],
+        ticketSearchResults: [
+            [] as TicketApi[],
+            {
+                loadTicketSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+
+                    if (trimmed === '' || !values.currentTeamId) {
+                        return []
+                    }
+
+                    try {
+                        const response = await conversationsTicketsList(
                             String(values.currentTeamId),
                             {
                                 search: trimmed,
@@ -1106,6 +1176,40 @@ export const searchLogic = kea<searchLogicType>([
                 })
             },
         ],
+        ticketItems: [
+            (s) => [s.ticketSearchResults],
+            (ticketSearchResults: TicketApi[]): SearchItem[] => {
+                return ticketSearchResults.map((ticket) => {
+                    // A Slack or widget ticket has no email subject, so its first message is the
+                    // only thing that reads as a title. The number always leads: it is how support
+                    // refers to a ticket everywhere else.
+                    const subject = ticket.email_subject || ticket.last_message_text || 'Untitled ticket'
+                    const displayName = `#${ticket.ticket_number} ${subject}`
+                    return {
+                        id: `ticket-${ticket.id}`,
+                        name: displayName,
+                        displayName,
+                        category: 'tickets',
+                        // The detail scene redirects a UUID to the ticket number, so link to the
+                        // canonical URL rather than bouncing through a redirect.
+                        href: urls.supportTicketDetail(ticket.ticket_number),
+                        itemType: 'conversations',
+                        productCategory: ticket.status ? capitalizeFirstLetter(ticket.status.replace('_', ' ')) : null,
+                        record: { type: 'conversations', id: ticket.id, ticketNumber: ticket.ticket_number },
+                    }
+                })
+            },
+        ],
+        // Accounts and support tickets, handed to allCategories as one value. kea types a
+        // selector's dependency list up to 16 entries and allCategories sits on that limit, so the
+        // two customer-scoped lists ride in together rather than one of them being dropped.
+        customerItems: [
+            (s) => [s.accountItems, s.ticketItems],
+            (
+                accountItems: SearchItem[],
+                ticketItems: SearchItem[]
+            ): { accountItems: SearchItem[]; ticketItems: SearchItem[] } => ({ accountItems, ticketItems }),
+        ],
         playlistItems: [
             (s) => [s.playlistSearchResults],
             (playlistSearchResults: FileSystemEntry[]): SearchItem[] => {
@@ -1395,6 +1499,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
                 s.accountSearchResultsLoading,
+                s.ticketSearchResultsLoading,
                 s.playlistSearchResultsLoading,
             ],
             (
@@ -1405,6 +1510,7 @@ export const searchLogic = kea<searchLogicType>([
                 personSearchResultsLoading: boolean,
                 groupSearchResultsLoading: boolean,
                 accountSearchResultsLoading: boolean,
+                ticketSearchResultsLoading: boolean,
                 playlistSearchResultsLoading: boolean
             ) => ({
                 unifiedSearchResultsLoading,
@@ -1416,6 +1522,7 @@ export const searchLogic = kea<searchLogicType>([
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 accountSearchResultsLoading,
+                ticketSearchResultsLoading,
                 playlistSearchResultsLoading,
             }),
         ],
@@ -1432,7 +1539,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.newItems,
                 s.personItems,
                 s.groupItems,
-                s.accountItems,
+                s.customerItems,
                 s.playlistItems,
                 s.unifiedSearchItems,
                 s.loadingStates,
@@ -1450,7 +1557,7 @@ export const searchLogic = kea<searchLogicType>([
                 newItems: SearchItem[],
                 personItems: SearchItem[],
                 groupItems: SearchItem[],
-                accountItems: SearchItem[],
+                customerItems: { accountItems: SearchItem[]; ticketItems: SearchItem[] },
                 playlistItems: SearchItem[],
                 unifiedSearchItems: Record<string, SearchItem[]>,
                 loadingStates: {
@@ -1463,6 +1570,7 @@ export const searchLogic = kea<searchLogicType>([
                     personSearchResultsLoading: boolean
                     groupSearchResultsLoading: boolean
                     accountSearchResultsLoading: boolean
+                    ticketSearchResultsLoading: boolean
                     playlistSearchResultsLoading: boolean
                 },
                 search: string
@@ -1477,8 +1585,11 @@ export const searchLogic = kea<searchLogicType>([
                     personSearchResultsLoading,
                     groupSearchResultsLoading,
                     accountSearchResultsLoading,
+                    ticketSearchResultsLoading,
                     playlistSearchResultsLoading,
                 } = loadingStates
+
+                const { accountItems, ticketItems } = customerItems
 
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
@@ -1661,6 +1772,15 @@ export const searchLogic = kea<searchLogicType>([
                         })
                     }
 
+                    // Add support tickets
+                    if (ticketItems.length > 0 || ticketSearchResultsLoading) {
+                        categories.push({
+                            key: 'tickets',
+                            items: ticketItems,
+                            isLoading: ticketSearchResultsLoading,
+                        })
+                    }
+
                     // Add persons
                     if (personItems.length > 0 || personSearchResultsLoading) {
                         categories.push({
@@ -1731,6 +1851,7 @@ export const searchLogic = kea<searchLogicType>([
             if (values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
                 actions.loadAccountSearchResults({ searchTerm: search })
             }
+            actions.loadTicketSearchResults({ searchTerm: search })
             actions.loadPlaylistSearchResults({ searchTerm: search })
         },
     })),
