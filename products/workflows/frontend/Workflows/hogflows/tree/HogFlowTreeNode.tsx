@@ -74,6 +74,7 @@ export function HogFlowTreeNode({
                     draggedActionId={draggedActionId}
                     edge={node.incomingEdge}
                     showConnector={showIncomingConnector}
+                    compact={!showIncomingConnector}
                 />
             )}
             {node.branches.length === 0 ? (
