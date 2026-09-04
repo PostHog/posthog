@@ -262,6 +262,20 @@ const COMPLEX_WORKFLOW: HogFlow = {
             },
         },
         {
+            id: 'send-activation-outcome',
+            type: 'function',
+            name: 'Send activation outcome',
+            description: 'Record whether the account activated or needs a follow-up.',
+            config: {
+                template_id: 'template-webhook',
+                inputs: {
+                    url: { value: 'https://example.com/hooks/activation-outcomes' },
+                    method: { value: 'POST' },
+                    body: { value: { account_id: '{person.id}' }, templating: 'hog' },
+                },
+            },
+        },
+        {
             id: 'record-self-serve-account',
             type: 'function',
             name: 'Record self-serve account',
@@ -319,9 +333,10 @@ const COMPLEX_WORKFLOW: HogFlow = {
         { from: 'hold-control-group', to: 'pause-before-summary', type: 'continue' },
         { from: 'route-by-stage', to: 'wait-for-activation', type: 'branch', index: 2 },
         { from: 'wait-for-activation', to: 'share-activation', type: 'branch', index: 0 },
-        { from: 'share-activation', to: 'pause-before-summary', type: 'continue' },
+        { from: 'share-activation', to: 'send-activation-outcome', type: 'continue' },
         { from: 'wait-for-activation', to: 'create-follow-up-task', type: 'continue' },
-        { from: 'create-follow-up-task', to: 'pause-before-summary', type: 'continue' },
+        { from: 'create-follow-up-task', to: 'send-activation-outcome', type: 'continue' },
+        { from: 'send-activation-outcome', to: 'pause-before-summary', type: 'continue' },
         { from: 'route-by-stage', to: 'record-self-serve-account', type: 'continue' },
         { from: 'record-self-serve-account', to: 'pause-before-summary', type: 'continue' },
         { from: 'pause-before-summary', to: 'record-workflow-outcome', type: 'continue' },
