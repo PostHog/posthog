@@ -1727,6 +1727,27 @@ def _user_can_access_toolbar(user: User, team: Team) -> bool:
     return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
 
 
+def _domain_not_authorized_context(app_url: str, error_message: str) -> dict[str, Any]:
+    # A URL with no parseable hostname would otherwise print a placeholder such as "null" as
+    # the domain to authorize, which sends the user to fix something that is not their domain.
+    try:
+        hostname = urllib.parse.urlparse(app_url).hostname
+    except ValueError:
+        hostname = None
+    return {
+        "error_title": "Domain not authorized",
+        "error_message": error_message,
+        "error_detail": (
+            f"The hostname {hostname} needs to be added to your project's "
+            "authorized URLs before the toolbar can be used on this site."
+            if hostname
+            else "Add the domain of this site to your project's authorized URLs before you use the toolbar here."
+        ),
+        "error_code": "403",
+        "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
+    }
+
+
 @require_http_methods(["GET"])
 def toolbar_oauth_authorize(request):
     """
@@ -1770,21 +1791,13 @@ def toolbar_oauth_authorize(request):
         )
     except ToolbarOAuthError as exc:
         if exc.code == "forbidden_app_url":
-            parsed_redirect = urllib.parse.urlparse(redirect_url)
-            hostname = parsed_redirect.hostname or redirect_url
             return render_template(
                 "toolbar_oauth_error.html",
                 request,
-                context={
-                    "error_title": "Domain not authorized",
-                    "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
-                    "error_detail": (
-                        f"The hostname {hostname} needs to be added to your project's "
-                        "authorized URLs before the toolbar can be used on this site."
-                    ),
-                    "error_code": "403",
-                    "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-                },
+                context=_domain_not_authorized_context(
+                    redirect_url,
+                    "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                ),
                 status_code=exc.status_code,
             )
         return HttpResponse(exc.detail, status=exc.status_code)
@@ -2055,12 +2068,6 @@ def redirect_to_site(request):
 
     if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        try:
-            hostname = urllib.parse.urlparse(app_url).hostname or app_url
-        except ValueError:
-            # A URL too malformed to parse is still a rejection, so report it back as typed
-            # rather than failing the request with a 500.
-            hostname = app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
@@ -2070,16 +2077,10 @@ def redirect_to_site(request):
         return render_template(
             "toolbar_oauth_error.html",
             request,
-            context={
-                "error_title": "Domain not authorized",
-                "error_message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
-                "error_detail": (
-                    f"The hostname {hostname} needs to be added to your project's "
-                    "authorized URLs before the toolbar can be used on this site."
-                ),
-                "error_code": "403",
-                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-            },
+            context=_domain_not_authorized_context(
+                app_url,
+                "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+            ),
             status_code=403,
         )
 

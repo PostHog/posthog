@@ -14,12 +14,18 @@ interface UiHostConfigModalProps {
 }
 
 export function UiHostConfigModal({ visible, onClose }: UiHostConfigModalProps): JSX.Element | null {
-    const { uiHost } = useValues(toolbarConfigLogic)
+    const { uiHostResolution, apiHostResolution } = useValues(toolbarConfigLogic)
     const floatingContainer = useFloatingContainer()
 
     if (!visible || !floatingContainer) {
         return null
     }
+
+    // A `window_origin` host is the page the toolbar runs on, not a configured PostHog
+    // app URL. Naming it sends the user to fix the wrong host, so stay generic instead.
+    const knownUiHost = uiHostResolution.source === 'window_origin' ? null : uiHostResolution.host
+    const apiHostSnippetValue =
+        apiHostResolution.source === 'posthog_api_host' ? apiHostResolution.host : '<your_api_host>'
 
     return createPortal(
         <div
@@ -39,8 +45,15 @@ export function UiHostConfigModal({ visible, onClose }: UiHostConfigModalProps):
                     <strong>PostHog could not be reached</strong>
                 </div>
                 <p>
-                    The toolbar tried to connect to the PostHog app at <code>{uiHost}</code> but could not reach it.
-                    This happens when you use a reverse proxy for <code>api_host</code> — the toolbar needs to know the
+                    {knownUiHost ? (
+                        <>
+                            The toolbar tried to connect to the PostHog app at <code>{knownUiHost}</code> but could not
+                            reach it.
+                        </>
+                    ) : (
+                        <>The toolbar could not find the URL of the PostHog app, so it could not connect.</>
+                    )}{' '}
+                    This happens when you use a reverse proxy for <code>api_host</code>. The toolbar needs to know the
                     direct URL of the PostHog app to authenticate.
                 </p>
                 <p>
@@ -48,7 +61,7 @@ export function UiHostConfigModal({ visible, onClose }: UiHostConfigModalProps):
                 </p>
                 <pre className="UiHostConfigModal__code">
                     {`posthog.init('<ph_project_api_key>', {
-    api_host: '${uiHost}', // your reverse proxy
+    api_host: '${apiHostSnippetValue}', // your reverse proxy
     ui_host: '<ph_app_host>',  // see note below
 })`}
                 </pre>
