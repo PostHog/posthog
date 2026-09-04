@@ -346,6 +346,25 @@ impl TouchedPersons {
         touch.leaves.insert(leaf);
     }
 
+    /// Admit a leaf the register diff found lagging. The person's provenance stays with the fold's
+    /// last seed; the leaf's run counts only for a person the fold never admitted.
+    pub(crate) fn touch_lagging(
+        &mut self,
+        team_id: TeamId,
+        person: Uuid,
+        run: RunId,
+        leaf: LeafStateKey,
+    ) {
+        self.per_person
+            .entry((team_id, person))
+            .or_insert_with(|| PersonTouch {
+                run,
+                leaves: BTreeSet::new(),
+            })
+            .leaves
+            .insert(leaf);
+    }
+
     fn is_empty(&self) -> bool {
         self.per_person.is_empty()
     }
@@ -563,8 +582,12 @@ impl Folded {
                 .collect();
             for leaf in leaves {
                 if lagging.contains(&leaf.person_id) {
-                    self.recompose
-                        .touch(team_id, leaf.person_id, leaf.run_id, leaf.leaf_state_key);
+                    self.recompose.touch_lagging(
+                        team_id,
+                        leaf.person_id,
+                        leaf.run_id,
+                        leaf.leaf_state_key,
+                    );
                 }
             }
             diff.extend(team_diff);
@@ -1080,6 +1103,7 @@ mod tests {
         let mut touched = TouchedPersons::default();
         touched.touch(team, alice, first, LeafStateKey([1; 16]));
         touched.touch(team, alice, last, LeafStateKey([2; 16]));
+        touched.touch_lagging(team, alice, first, LeafStateKey([3; 16]));
 
         let groups = touched.groups();
         assert_eq!(groups.len(), 1, "one call, not one per seed");
@@ -1087,9 +1111,10 @@ mod tests {
             groups[&(team, last)],
             vec![
                 (LeafStateKey([1; 16]), alice),
-                (LeafStateKey([2; 16]), alice)
+                (LeafStateKey([2; 16]), alice),
+                (LeafStateKey([3; 16]), alice),
             ],
-            "both leaves ride the last run that touched the person",
+            "every leaf rides the last seed's run; a lagging leaf joins without moving it",
         );
     }
 }

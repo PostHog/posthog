@@ -145,6 +145,10 @@ impl Default for RunBudget {
 /// register read, the recompute set, the membership output and its cascades — holds at most one
 /// entry per row, so the budget this feeds is a ceiling on all of them, not on the overlay alone.
 ///
+/// It is a ceiling on what a run retains and emits, not on the reads inside each composed
+/// evaluation: those scale with that cohort's tree exactly as under the per-seed apply, and the
+/// maintenance lane's permits are what meter them.
+///
 /// A seed the catalog cannot place weighs one, so a run of them is still bounded by the seed cap
 /// rather than by nothing. Control and skip seeds weigh nothing: they are always their own group.
 pub(crate) fn row_weight(catalog: &FilterCatalog, work: &SeedWork) -> usize {

@@ -284,10 +284,12 @@ pub struct Config {
     pub cohort_seed_apply_batch_max: usize,
 
     /// Store rows one run may touch: the stage-1 rows its seeds fold plus one stage-2 register per
-    /// cohort those leaves back. A ceiling on the run's whole footprint — overlay, register read,
-    /// recompute set, membership output and cascades — so a hash resolving to many leaves, a leaf
-    /// backing many cohorts, or a 1,024-hash person seed cannot make a run arbitrarily heavy. A run
-    /// closes before the seed that would exceed it; a seed heavier than the whole budget still
+    /// cohort those leaves back. A ceiling on what the run retains and emits — overlay, register
+    /// read, recompute set, membership output and cascades — so a hash resolving to many leaves, a
+    /// leaf backing many cohorts, or a 1,024-hash person seed cannot make a run arbitrarily heavy.
+    /// Not a ceiling on the reads inside each composed evaluation: those scale with that cohort's
+    /// tree as they do under the per-seed apply, and the maintenance lane's permits meter them. A
+    /// run closes before the seed that would exceed it; a seed heavier than the whole budget still
     /// runs alone, which is the per-seed apply's own exposure.
     #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX_ROWS", default = "4096")]
     pub cohort_seed_apply_batch_max_rows: usize,
