@@ -32254,6 +32254,10 @@
                     },
                     "type": "array"
                 },
+                "sessionId": {
+                    "description": "Show logs for a given session ID",
+                    "type": "string"
+                },
                 "severityLevels": {
                     "items": {
                         "$ref": "#/definitions/LogSeverityLevel"
