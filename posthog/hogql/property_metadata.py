@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING, cast
 
+from posthog.hogql.constants import ALWAYS_NUMERIC_EVENT_PROPERTIES
+
 from posthog.clickhouse.materialized_column_types import (
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
@@ -128,6 +130,13 @@ def load_property_metadata(
             prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
 
         event_properties[prop_def.name] = prop_info
+
+    # Always-numeric properties are captured as strings, and a project can have no definition for
+    # them or one typed String. Resolve them as Numeric so numeric aggregates do not reach
+    # ClickHouse with a String argument. An explicit type override still wins.
+    for property_name in ALWAYS_NUMERIC_EVENT_PROPERTIES & event_property_names:
+        if property_name not in type_overrides:
+            event_properties.setdefault(property_name, {})["type"] = "Numeric"
 
     person_property_values = (
         PropertyDefinition.objects.alias(
