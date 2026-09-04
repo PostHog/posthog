@@ -20,15 +20,20 @@ function searchResults(distances: number[]): ObservationSearchResultApi[] {
 describe('observationSearchLogic', () => {
     let searchSpy: jest.Mock
     let suggestionsSpy: jest.Mock
+    let viewedSpy: jest.Mock
 
     beforeEach(() => {
         localStorage.clear()
         searchSpy = jest.fn(() => [200, { results: [{ observation: { id: 'obs-1' }, distance: 0.1 }] }])
         suggestionsSpy = jest.fn(() => [200, { queries: ['coupon rejected at checkout'] }])
+        viewedSpy = jest.fn(() => [204, null])
         useMocks({
             get: {
                 '/api/projects/:team/vision/observations/search/': searchSpy,
                 '/api/projects/:team/vision/observations/search_suggestions/': suggestionsSpy,
+            },
+            post: {
+                '/api/projects/:team/vision/observations/search_viewed/': viewedSpy,
             },
         })
         initKeaTests()
@@ -138,6 +143,9 @@ describe('observationSearchLogic', () => {
         expect(suggestionsSpy).toHaveBeenCalledTimes(1)
         expect(new URL(suggestionsSpy.mock.calls[0][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
         expect(logic.values.suggestedQueries).toEqual(['coupon rejected at checkout'])
+        // The view is recorded through a POST, so the read itself has no side effect.
+        expect(viewedSpy).toHaveBeenCalledTimes(1)
+        expect(await viewedSpy.mock.calls[0][0].request.json()).toEqual({ scanner_id: 'scanner-1' })
         logic.unmount()
     })
 

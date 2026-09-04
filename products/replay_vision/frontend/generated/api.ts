@@ -51,6 +51,7 @@ import type {
     ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
     ScoutReportApi,
+    SearchSuggestionsQueryApi,
     SearchSuggestionsResponseApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
@@ -485,7 +486,7 @@ export const getVisionObservationsSearchSuggestionsRetrieveUrl = (
 
 /**
  * Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
- * scheduled refresher stored and records the view, which is what makes a scanner eligible to refresh.
+ * scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect.
  */
 export const visionObservationsSearchSuggestionsRetrieve = async (
     projectId: string,
@@ -499,6 +500,27 @@ export const visionObservationsSearchSuggestionsRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getVisionObservationsSearchViewedCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/observations/search_viewed/`
+}
+
+/**
+ * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
+ * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ */
+export const visionObservationsSearchViewedCreate = async (
+    projectId: string,
+    searchSuggestionsQueryApi?: SearchSuggestionsQueryApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsSearchViewedCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(searchSuggestionsQueryApi),
+    })
 }
 
 export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {

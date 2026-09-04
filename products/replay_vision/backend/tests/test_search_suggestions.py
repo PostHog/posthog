@@ -227,8 +227,12 @@ class TestSearchSuggestionsEndpoint(_SuggestionsTestCase):
     def url(self) -> str:
         return f"/api/environments/{self.team.id}/vision/observations/search_suggestions/"
 
+    @property
+    def viewed_url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/observations/search_viewed/"
+
     @patch(_GENERATE_PATH)
-    def test_returns_stored_phrases_and_records_the_view_without_calling_the_model(
+    def test_returns_stored_phrases_without_calling_the_model_or_stamping_the_view(
         self, mock_generate: MagicMock
     ) -> None:
         scanner = self._scanner("checkout", search_suggestions=["coupon rejected at checkout"])
@@ -236,8 +240,16 @@ class TestSearchSuggestionsEndpoint(_SuggestionsTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["queries"], ["coupon rejected at checkout"])
         scanner.refresh_from_db()
-        self.assertIsNotNone(scanner.search_last_viewed_at)
+        # A GET is reachable by cross-site navigation, so it must not make the scanner eligible to refresh.
+        self.assertIsNone(scanner.search_last_viewed_at)
         mock_generate.assert_not_called()
+
+    def test_posting_a_view_stamps_the_scope(self) -> None:
+        scanner = self._scanner("checkout")
+        resp = self.client.post(self.viewed_url, {"scanner_id": str(scanner.id)}, format="json")
+        self.assertEqual(resp.status_code, 204)
+        scanner.refresh_from_db()
+        self.assertIsNotNone(scanner.search_last_viewed_at)
 
     def test_a_scanner_with_nothing_stored_is_an_empty_list(self) -> None:
         scanner = self._scanner("new")

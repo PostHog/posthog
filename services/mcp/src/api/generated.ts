@@ -77004,6 +77004,11 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SearchSuggestionsQuery {
+      /** Scope to a single scanner's observations. Defaults to every scanner you can read. */
+      scanner_id?: string;
+    }
+
     export interface SearchSuggestionsResponse {
       /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
       queries: string[];
@@ -100380,7 +100385,7 @@ export namespace Schemas {
 
     export type VisionObservationsSearchSuggestionsRetrieveParams = {
     /**
-     * Suggest for a single scanner's observations. Defaults to every scanner you can read.
+     * Scope to a single scanner's observations. Defaults to every scanner you can read.
      */
     scanner_id?: string;
     };

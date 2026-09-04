@@ -687,6 +687,11 @@ export interface SearchSuggestionsResponseApi {
     queries: string[]
 }
 
+export interface SearchSuggestionsQueryApi {
+    /** Scope to a single scanner's observations. Defaults to every scanner you can read. */
+    scanner_id?: string
+}
+
 export interface VisionQuotaApi {
     /**
      * Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.
@@ -2387,7 +2392,7 @@ export type VisionObservationsSearchRetrieveParams = {
 
 export type VisionObservationsSearchSuggestionsRetrieveParams = {
     /**
-     * Suggest for a single scanner's observations. Defaults to every scanner you can read.
+     * Scope to a single scanner's observations. Defaults to every scanner you can read.
      */
     scanner_id?: string
 }

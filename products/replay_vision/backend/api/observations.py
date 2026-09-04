@@ -1195,7 +1195,7 @@ class ObservationSearchResponseSerializer(serializers.Serializer):
 class SearchSuggestionsQuerySerializer(serializers.Serializer):
     scanner_id = serializers.UUIDField(
         required=False,
-        help_text="Suggest for a single scanner's observations. Defaults to every scanner you can read.",
+        help_text="Scope to a single scanner's observations. Defaults to every scanner you can read.",
     )
 
 
@@ -1330,15 +1330,29 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
     )
     def search_suggestions(self, request: Request, **kwargs: Any) -> Response:
         """Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
-        scheduled refresher stored and records the view, which is what makes a scanner eligible to refresh."""
+        scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect."""
         params = SearchSuggestionsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
-        # One query decides both which scanners this view shows and which ones it marks as wanted.
-        sources = scope_sources(self.team_id, scanner_ids)
-        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in sources])
-        queries = merge_suggestions([stored for _, stored in sources])
+        queries = merge_suggestions([stored for _, stored in scope_sources(self.team_id, scanner_ids)])
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
+
+    @extend_schema(request=SearchSuggestionsQuerySerializer, responses={204: None})
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="search_viewed",
+        throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
+    )
+    def search_viewed(self, request: Request, **kwargs: Any) -> Response:
+        """Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
+        refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read."""
+        params = SearchSuggestionsQuerySerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        # The same rows that a view shows are the ones it marks as wanted.
+        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in scope_sources(self.team_id, scanner_ids)])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:
         serializer = ObservationSearchResponseSerializer(

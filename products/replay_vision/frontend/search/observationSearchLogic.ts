@@ -18,7 +18,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { visionObservationsSearchRetrieve, visionObservationsSearchSuggestionsRetrieve } from '../generated/api'
+import {
+    visionObservationsSearchRetrieve,
+    visionObservationsSearchSuggestionsRetrieve,
+    visionObservationsSearchViewedCreate,
+} from '../generated/api'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
 import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 
@@ -188,11 +192,12 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                     if (!teamId || router.values.searchParams.q) {
                         return []
                     }
+                    const scope = props.scannerId ? { scanner_id: props.scannerId } : undefined
+                    // The view is what keeps a scanner's suggestions refreshing; it is a separate POST so the read
+                    // stays side-effect free, and nothing here waits on it.
+                    void visionObservationsSearchViewedCreate(String(teamId), scope).catch(() => undefined)
                     try {
-                        const response = await visionObservationsSearchSuggestionsRetrieve(
-                            String(teamId),
-                            props.scannerId ? { scanner_id: props.scannerId } : undefined
-                        )
+                        const response = await visionObservationsSearchSuggestionsRetrieve(String(teamId), scope)
                         return response.queries ?? []
                     } catch {
                         // The empty state falls back to fixed examples, so a failed suggestion fetch stays silent.

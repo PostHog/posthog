@@ -486,6 +486,17 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
+ * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
+ * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ */
+export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
+    scanner_id: zod
+        .uuid()
+        .optional()
+        .describe("Scope to a single scanner's observations. Defaults to every scanner you can read."),
+})
+
+/**
  * CRUD for Replay Vision scanners.
  */
 export const visionScannersCreateBodyNameMax = 255
