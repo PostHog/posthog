@@ -202,6 +202,20 @@ class TestInsightDataModelDependencySynchronization(BaseTest):
 
         assert dependencies == []
 
+    def test_facade_reads_resolve_a_child_environment_to_its_project(self) -> None:
+        saved_query = self._saved_query("orders")
+        environment = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        query = {"kind": "HogQLQuery", "query": "SELECT * FROM orders"}
+        insight = Insight.objects.create(team=environment, query=query)
+        self._synchronize(insight, query)
+
+        dependencies = insight_data_model_dependencies_by_saved_query_ids(
+            team_id=environment.id,
+            saved_query_ids=[saved_query.id],
+        )
+
+        assert [dependency.insight_id for dependency in dependencies] == [insight.id]
+
     def test_event_only_insight_does_not_schedule_lineage_work(self) -> None:
         query = {
             "kind": "InsightVizNode",

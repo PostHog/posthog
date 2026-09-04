@@ -1,6 +1,8 @@
 from collections.abc import Collection
 from uuid import UUID
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.product_analytics.backend.facade.contracts import InsightDataModelDependencyDefinition
 from products.product_analytics.backend.models.insight_data_model_dependency import InsightDataModelDependency
 
@@ -8,8 +10,12 @@ from products.product_analytics.backend.models.insight_data_model_dependency imp
 def _dependency_definitions(
     *, team_id: int, insight_ids: Collection[int] | None = None, saved_query_ids: Collection[str | UUID] | None = None
 ) -> list[InsightDataModelDependencyDefinition]:
-    dependencies = InsightDataModelDependency.objects.for_team(team_id).filter(
-        insight__team_id=team_id,
+    # Insights are project-scoped, so both the rows and the insights they point at hold the
+    # project root id. `for_team` resolves an environment id to that root, but the join filter
+    # does not, so resolve once and use the same id for both.
+    project_team_id = resolve_effective_team_id(team_id)
+    dependencies = InsightDataModelDependency.objects.for_team(project_team_id, canonical=True).filter(
+        insight__team_id=project_team_id,
         insight__deleted=False,
     )
     if insight_ids is not None:
