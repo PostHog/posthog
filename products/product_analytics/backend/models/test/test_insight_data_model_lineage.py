@@ -8,6 +8,8 @@ from django.core.management.base import CommandError
 from django.db import transaction
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.models.team import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -43,6 +45,23 @@ class TestInsightDataModelDependencyExtraction(SimpleTestCase):
         }
 
         assert extract_saved_query_names(query) == {"orders", "customers", "products", "subscriptions"}
+
+    @parameterized.expand(
+        [
+            ("cte shadows the view it reads", "WITH orders AS (SELECT * FROM orders) SELECT * FROM orders", {"orders"}),
+            ("cte body reads the view", "WITH recent AS (SELECT * FROM orders) SELECT * FROM recent", {"orders"}),
+            (
+                "inner cte hides the name in its own scope only",
+                "SELECT * FROM orders JOIN (WITH orders AS (SELECT 1 AS id) SELECT * FROM orders) AS s USING (id)",
+                {"orders"},
+            ),
+            ("cte name is not a table", "WITH tmp AS (SELECT 1 AS id) SELECT * FROM tmp", set()),
+        ]
+    )
+    def test_cte_names_hide_tables_only_inside_their_own_scope(
+        self, _name: str, query: str, expected: set[str]
+    ) -> None:
+        assert extract_saved_query_names({"kind": "HogQLQuery", "query": query}) == expected
 
     def test_invalid_discovered_hogql_fails_extraction(self) -> None:
         with self.assertRaises(Exception):
