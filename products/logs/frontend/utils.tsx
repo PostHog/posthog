@@ -226,6 +226,13 @@ export function getSessionIdFromLogAttributes(
     return getSessionIdWithKey(attributes, resourceAttributes, configuredKeys)?.value ?? null
 }
 
+// Log timestamps are ISO strings, but some pipelines send epoch numbers instead. Shared so every
+// surface reading `LogMessage.timestamp` parses it the same way.
+export function parseLogTimestamp(timestamp: string): dayjs.Dayjs {
+    const epoch = Number(timestamp)
+    return Number.isNaN(epoch) ? dayjs(timestamp) : dayjs(epoch)
+}
+
 // How far either side of a log the Related errors lookup searches for exceptions in the same
 // session. Shared so the drawer's tab and the row badge that opens it agree on the range.
 export const RELATED_ERRORS_WINDOW_HOURS = 6

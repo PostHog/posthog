@@ -37,12 +37,25 @@ describe('logsSessionErrorsLogic', () => {
     let logic: ReturnType<typeof logsSessionErrorsLogic.build>
     let dataLogic: ReturnType<typeof logsViewerDataLogic.build>
     let queryBodies: any[]
+    let pageResults: LogMessage[]
+
+    // Loads a page the way the viewer does, through a landing logs query. That path carries the
+    // short debounce; going through setLogs instead would pay the live-tail one in every test.
+    const loadPage = async (logs: LogMessage[]): Promise<void> => {
+        pageResults = logs
+        dataLogic.actions.fetchLogs()
+        await expectLogic(logic).toFinishAllListeners()
+    }
 
     beforeEach(() => {
         queryBodies = []
+        pageResults = []
         useMocks({
             post: {
-                '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
+                '/api/environments/:team_id/logs/query/': () => [
+                    200,
+                    { results: pageResults, maxExportableLogs: 5000 },
+                ],
                 '/api/environments/:team_id/query/HogQLQuery': async ({ request }) => {
                     queryBodies.push(await request.json())
                     return [200, { results: [['session-a', 3]] }]
@@ -64,12 +77,11 @@ describe('logsSessionErrorsLogic', () => {
     })
 
     it('records a zero for every session it looked up, so the next page only asks about new ones', async () => {
-        dataLogic.actions.setLogs([makeLog('log-1', 'session-a'), makeLog('log-2', 'session-b')])
-        await expectLogic(logic).toFinishAllListeners()
+        await loadPage([makeLog('log-1', 'session-a'), makeLog('log-2', 'session-b')])
 
         expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3, 'session-b': 0 })
 
-        // A next page that adds one session must not re-ask about the two already answered.
+        // A live-tail poll that adds one session must not re-ask about the two already answered.
         dataLogic.actions.setLogs([
             makeLog('log-1', 'session-a'),
             makeLog('log-2', 'session-b'),
@@ -83,32 +95,34 @@ describe('logsSessionErrorsLogic', () => {
     })
 
     it('deduplicates the sessions on the page', async () => {
-        dataLogic.actions.setLogs([
-            makeLog('log-1', 'session-a'),
-            makeLog('log-2', 'session-a'),
-            makeLog('log-3', null),
-        ])
-        await expectLogic(logic).toFinishAllListeners()
+        await loadPage([makeLog('log-1', 'session-a'), makeLog('log-2', 'session-a'), makeLog('log-3', null)])
 
         expect(logic.values.sessionIdsInView).toEqual(['session-a'])
         expect(queryBodies[0].query.query.match(/'session-a'/g)).toHaveLength(1)
     })
 
+    it('still builds a window when timestamps arrive as epoch numbers', async () => {
+        await loadPage([
+            { ...BASE_LOG, uuid: 'log-1', attributes: { sessionId: 'session-a' }, timestamp: '1788474031592' },
+        ])
+
+        expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3 })
+        expect(queryBodies[0].query.query).toContain('2026-')
+    })
+
     it('queries nothing while the feature flag is off', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
-        dataLogic.actions.setLogs([makeLog('log-1', 'session-a')])
-        await expectLogic(logic).toFinishAllListeners()
+        await loadPage([makeLog('log-1', 'session-a')])
 
         expect(queryBodies).toHaveLength(0)
         expect(logic.values.sessionErrorCounts).toEqual({})
     })
 
     it('drops counts from the previous filters when a fresh query lands', async () => {
-        dataLogic.actions.setLogs([makeLog('log-1', 'session-a')])
-        await expectLogic(logic).toFinishAllListeners()
+        await loadPage([makeLog('log-1', 'session-a')])
+        expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3 })
 
-        dataLogic.actions.fetchLogs()
-        await expectLogic(logic).toFinishAllListeners()
+        await loadPage([])
 
         expect(logic.values.sessionErrorCounts).toEqual({})
     })
