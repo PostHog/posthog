@@ -12,15 +12,23 @@ def _parse_team_ids(raw: str) -> frozenset[int]:
     return frozenset(int(part) for part in raw.split(",") if part.strip())
 
 
-def resolve_pipeline(options: dict[str, Any]) -> DLQReplayPipeline:
+def resolve_pipeline(
+    pipeline: str,
+    source_topic: str | None = None,
+    target_topic: str | None = None,
+    group_id: str | None = None,
+) -> DLQReplayPipeline:
     """Start from the named pipeline and apply any topic or group id given on the command line."""
-    pipeline = DLQ_REPLAY_PIPELINES[options["pipeline"]]
     overrides = {
-        field: options[field]
-        for field in ("source_topic", "target_topic", "group_id")
-        if options.get(field) is not None
+        name: value
+        for name, value in (
+            ("source_topic", source_topic),
+            ("target_topic", target_topic),
+            ("group_id", group_id),
+        )
+        if value is not None
     }
-    return dataclasses.replace(pipeline, **overrides)
+    return dataclasses.replace(DLQ_REPLAY_PIPELINES[pipeline], **overrides)
 
 
 class Command(BaseCommand):
@@ -69,7 +77,12 @@ class Command(BaseCommand):
         signal.signal(signal.SIGTERM, request_stop)
         signal.signal(signal.SIGINT, request_stop)
 
-        pipeline = resolve_pipeline(options)
+        pipeline = resolve_pipeline(
+            options["pipeline"],
+            source_topic=options["source_topic"],
+            target_topic=options["target_topic"],
+            group_id=options["group_id"],
+        )
         self.stdout.write(
             f"Draining {pipeline.source_topic} into {pipeline.target_topic} with group {pipeline.group_id}"
         )

@@ -1,5 +1,3 @@
-from typing import Any
-
 from unittest import TestCase
 
 from parameterized import parameterized
@@ -40,9 +38,9 @@ class ResolvePipelineTest(TestCase):
         ]
     )
     def test_applies_overrides_on_top_of_preset(
-        self, _name: str, options: dict[str, Any], expected: tuple[str, str, str]
+        self, _name: str, options: dict[str, str], expected: tuple[str, str, str]
     ) -> None:
-        pipeline = resolve_pipeline(options)
+        pipeline = resolve_pipeline(**options)
 
         assert (pipeline.source_topic, pipeline.target_topic, pipeline.group_id) == expected
 
