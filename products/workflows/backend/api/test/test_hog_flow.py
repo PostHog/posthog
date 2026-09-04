@@ -1083,6 +1083,38 @@ class TestHogFlowAPI(APIBaseTest):
         assert conversion["window_minutes"] == 120
         assert len(conversion["events"]) == 1, conversion
 
+    def test_hog_flow_conversion_partial_patch_keeps_a_legacy_goal(self):
+        # Rows written before the conversion.events slot existed hold the event goal as an object in the
+        # property slot. A window-only patch dropped it, so the merge relocates that shape the way the
+        # write path does instead of leaving it behind.
+        event_obj = {
+            "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
+            "source": "events",
+        }
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.conversion = {"filters": event_obj, "window_minutes": 60}
+        flow.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        conversion = response.json()["conversion"]
+        assert conversion["window_minutes"] == 120
+        assert len(conversion["events"]) == 1, conversion
+        assert conversion["events"][0]["filters"]["events"] == event_obj["events"]
+        assert conversion["filters"] == [], conversion
+
     def test_hog_flow_conversion_goal_only_patch_keeps_the_window(self):
         # The mirror of the case above: an edit to the goal must not drop the window.
         hog_flow, _ = self._create_hog_flow_with_action(

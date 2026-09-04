@@ -904,6 +904,18 @@ def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]
     return result
 
 
+def _relocate_legacy_conversion_event_object(conversion: dict) -> dict:
+    # Before the conversion.events slot existed, an event-based goal could be saved as an object in
+    # conversion.filters (e.g. {"events": [...], "source": "events"}). The property slot only takes an
+    # array, so that shape is invisible to the matcher and breaks the property picker — move it to the
+    # events slot (mirrors the one-time backfill in migration 0009). Every other shape is returned
+    # unchanged. Shared by the write path and the partial-update merge so both see one shape.
+    filters = conversion.get("filters")
+    if not isinstance(filters, dict) or not filters.get("events"):
+        return conversion
+    return {**conversion, "events": [*(conversion.get("events") or []), {"filters": filters}], "filters": []}
+
+
 def _event_config_has_event_or_action(event_config: dict) -> bool:
     # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
     # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
@@ -1956,12 +1968,11 @@ class HogFlowConversionSerializer(serializers.Serializer):
         # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).
         if isinstance(data, dict) and "bytecode" in data:
             data = {k: v for k, v in data.items() if k != "bytecode"}
-        # Legacy shape guard (mirrors the one-time backfill in migration 0009): some clients sent an
-        # event-based goal as an object in 'filters' (e.g. {"events": [...], "source": "events"}).
-        # That belongs in 'events' — relocate it before field validation so the old shape is still
-        # accepted and compiled (filters only takes an array of property conditions) instead of 400ing.
-        if isinstance(data, dict) and isinstance(data.get("filters"), dict) and data["filters"].get("events"):
-            data = {**data, "events": [*(data.get("events") or []), {"filters": data["filters"]}], "filters": []}
+        # Legacy shape guard: some clients sent an event-based goal as an object in 'filters'. Relocate
+        # it before field validation so the old shape is still accepted and compiled (filters only takes
+        # an array of property conditions) instead of 400ing.
+        if isinstance(data, dict):
+            data = _relocate_legacy_conversion_event_object(data)
         return super().to_internal_value(data)
 
     def to_representation(self, value):
@@ -3086,13 +3097,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # and would un-clear a goal the draft deliberately emptied. With no draft, _write_draft bases
             # itself on a snapshot of live, so live is the right base for both routes.
             if self.partial and instance and not instance.draft and isinstance(instance.conversion, dict):
+                # Normalize a legacy goal (event object in `filters`) before merging: carried over raw it
+                # would land past the to_internal_value relocation, and skipping it would drop the only
+                # copy of a goal the patch never asked to change.
+                stored_conversion = _relocate_legacy_conversion_event_object(instance.conversion)
                 for key in ("filters", "events", "window_minutes"):
-                    stored = instance.conversion.get(key)
+                    stored = stored_conversion.get(key)
                     if key in conversion or stored is None:
-                        continue
-                    # A legacy goal stored an event object in `filters`; to_internal_value relocates that
-                    # shape on the way in, and copying it raw here would put it back past that check.
-                    if key == "filters" and not isinstance(stored, list):
                         continue
                     conversion[key] = stored
                 data["conversion"] = conversion
