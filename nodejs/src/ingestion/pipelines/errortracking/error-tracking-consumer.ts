@@ -9,6 +9,7 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/cons
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
     EventIngestionRestrictionManagerComponent,
@@ -17,6 +18,7 @@ import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManager, EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { MainLaneOverflowRedirect } from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '~/ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
@@ -78,6 +80,7 @@ export interface ErrorTrackingHogTransformer {
  */
 export interface ErrorTrackingConsumerDeps {
     outputs: ErrorTrackingOutputs
+    postgres: PostgresRouter
     teamManager: TeamManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: ReadOnlyGroupTypeManager
@@ -111,6 +114,9 @@ export class ErrorTrackingConsumer {
     private eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
     protected eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
+    private eventFilterManagerComponent: EventFilterManagerComponent
+    protected eventFilterManager!: EventFilterManager
+    private stopEventFilterManager?: () => Promise<void>
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
@@ -135,6 +141,8 @@ export class ErrorTrackingConsumer {
         this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(deps.redisPool, {
             pipeline: 'errortracking',
         })
+
+        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
 
         // Create shared Redis repository for overflow redirect services
         const overflowRedisRepository = new RedisOverflowRepository({
@@ -187,6 +195,9 @@ export class ErrorTrackingConsumer {
         const started = await this.eventIngestionRestrictionManagerComponent.start()
         this.eventIngestionRestrictionManager = started.value
         this.stopEventIngestionRestrictionManager = started.stop
+        const startedFilters = await this.eventFilterManagerComponent.start()
+        this.eventFilterManager = startedFilters.value
+        this.stopEventFilterManager = startedFilters.stop
         // Initialize pipeline with dependencies
         await this.initializePipeline()
 
@@ -221,6 +232,7 @@ export class ErrorTrackingConsumer {
             groupTypeManager: this.deps.groupTypeManager,
             cookielessManager: this.deps.cookielessManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            eventFilterManager: this.eventFilterManager,
             overflowMode: this.config.overflowMode,
             preservePartitionLocality: this.config.preservePartitionLocality,
             overflowRedirectService: this.overflowRedirectService,
@@ -251,6 +263,8 @@ export class ErrorTrackingConsumer {
         await this.kafkaConsumer.disconnect()
 
         await this.stopEventIngestionRestrictionManager?.()
+
+        await this.stopEventFilterManager?.()
 
         logger.info('👍', `${this.name} - stopped`)
     }

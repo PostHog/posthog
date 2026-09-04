@@ -218,6 +218,7 @@ export class ErrorTrackingServer implements NodeServer {
                 },
                 {
                     outputs,
+                    postgres: this.postgres!,
                     teamManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
                     groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository, {
