@@ -140,6 +140,26 @@ CHDB_QUERY_TIMEOUT_SECONDS = 30.0
 # raw ClickHouse queries below bypass that path and must opt out the same way.
 DISABLE_HIVE_PARTITIONING_SETTINGS: dict[str, int] = {"use_hive_partitioning": 0}
 
+# ClickHouse infers a JSON schema from a bounded sample: in the default schema inference mode as
+# little as the first file, and only the first
+# `input_format_max_rows_to_read_for_schema_inference` rows of it. Every nested object becomes a
+# named Tuple of exactly the keys that sample held, and `hogql_definition` pins that Tuple as the
+# `structure` argument of each read, so a key the sample missed is unreadable at query time and
+# not only absent from the catalog. The `union` mode reads and merges the schema of all files, and
+# the wider row budget finds keys that first occur deeper in a file. Introspection thus does more
+# reads, which is the cost of a schema the user can query. ClickHouse still stops each file at
+# `input_format_max_bytes_to_read_for_schema_inference`, so the added rows only apply to files
+# whose records are compact.
+JSON_SCHEMA_INFERENCE_SETTINGS: dict[str, str | int] = {
+    "schema_inference_mode": "union",
+    "input_format_max_rows_to_read_for_schema_inference": 250_000,
+}
+
+
+def _format_setting_value(value: str | int) -> str:
+    return escape_param_clickhouse(value) if isinstance(value, str) else str(int(value))
+
+
 _CHDB_SUBPROCESS_SCRIPT = """
 import sys
 
@@ -507,11 +527,32 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.columns = columns
         self.column_order = list(columns.keys())
 
-    def get_columns(
+    def _supports_wider_schema_inference(self) -> bool:
+        # ClickHouse refuses the `union` mode for a format that cannot read a subset of the
+        # columns, such as headerless CSV, so the wider inference applies to JSON alone.
+        return self.format == DataWarehouseTable.TableFormat.JSON
+
+    def _default_describe_settings(self) -> dict[str, str | int]:
+        settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
+        if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+            settings["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
+        return settings
+
+    def _wider_describe_settings(self) -> dict[str, str | int]:
+        if not self._supports_wider_schema_inference():
+            return self._default_describe_settings()
+        return {**self._default_describe_settings(), **JSON_SCHEMA_INFERENCE_SETTINGS}
+
+    def _describe_columns(
         self,
-        safe_expose_ch_error: bool = True,
-    ) -> DataWarehouseTableIntrospectedColumns:
-        result: list[tuple[str, ...]] | None = None
+        wider_inference: bool,
+        cluster_attempts: int,
+        capture_errors: bool,
+    ) -> list[tuple[str, ...]]:
+        logger = structlog.get_logger(__name__)
+        # The settings are built here rather than taken as a parameter, because a parameter that
+        # reaches the sync_execute call below trips the clickhouse-fstring-param-audit semgrep rule.
+        describe_settings = self._wider_describe_settings() if wider_inference else self._default_describe_settings()
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
@@ -524,7 +565,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
-        logger = structlog.get_logger(__name__)
         try:
             # chdb hangs in CI during tests
             if TEST:
@@ -532,20 +572,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
-
-            # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
+            #
+            # The settings become SET statements because chdb does not honour the CSV double-quote
+            # setting in any other form. The upstream fix
             # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
-            # so this SET stays until chdb is upgraded past that release.
-            if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-                chdb_query = (
-                    f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
-                )
+            # so these SET statements stay until chdb is upgraded past that release.
+            set_statements = "".join(
+                f"SET {name} = {_format_setting_value(value)}; " for name, value in describe_settings.items()
+            )
+            chdb_query = f"{set_statements}DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
             chdb_result = run_chdb_query(chdb_query)
             reader = csv.reader(StringIO(chdb_result))
-            result = [tuple(row) for row in reader]
+            return [tuple(row) for row in reader]
         except Exception as chdb_error:
-            if self._is_suppressed_chdb_error(chdb_error):
+            if self._is_suppressed_chdb_error(chdb_error) or not capture_errors:
                 logger.debug(chdb_error)
             else:
                 capture_exception(chdb_error)
@@ -561,30 +601,59 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             # The cluster is a little broken right now, and so this can intermittently fail.
             # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
-            attempts = 5
-            for i in range(attempts):
+            for i in range(cluster_attempts):
                 try:
-                    get_columns_settings: dict[str, int] = dict(DISABLE_HIVE_PARTITIONING_SETTINGS)
-                    if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-                        get_columns_settings["format_csv_allow_double_quotes"] = (
-                            1 if self.csv_allow_double_quotes else 0
-                        )
-                    result = sync_execute(
+                    return sync_execute(
                         f"""DESCRIBE TABLE {s3_table_func}""",
                         args=placeholder_context.values,
-                        settings=get_columns_settings,
+                        settings=describe_settings,
                     )
-                    break
-                except Exception as err:
-                    if i >= attempts - 1:
-                        capture_exception(err)
-                        if safe_expose_ch_error:
-                            self._safe_expose_ch_error(err)
-                        else:
-                            raise
+                except Exception:
+                    if i >= cluster_attempts - 1:
+                        raise
 
                     # Pause execution slightly to not overload clickhouse
                     time.sleep(2**i)
+
+        raise Exception("No columns types provided by clickhouse in get_columns")
+
+    def get_columns(
+        self,
+        safe_expose_ch_error: bool = True,
+    ) -> DataWarehouseTableIntrospectedColumns:
+        result: list[tuple[str, ...]] | None = None
+        logger = structlog.get_logger(__name__)
+
+        # The wider inference goes first, because it is the one that finds every key. ClickHouse's
+        # defaults are the fallback, because the `union` mode rejects a table whose files disagree
+        # on the type of a column. Evolving JSON does this, and such a table describes today from
+        # the types in one file, so it must stay describable.
+        attempts = [True, False] if self._supports_wider_schema_inference() else [False]
+        for attempt, wider_inference in enumerate(attempts):
+            has_fallback = attempt < len(attempts) - 1
+            try:
+                result = self._describe_columns(
+                    wider_inference,
+                    # A failure of the wider inference is expected for some tables, so it gets one
+                    # try and the settings that must work keep the retries.
+                    cluster_attempts=1 if has_fallback else 5,
+                    capture_errors=not has_fallback,
+                )
+                break
+            except Exception as err:
+                if not has_fallback:
+                    capture_exception(err)
+                    if safe_expose_ch_error:
+                        self._safe_expose_ch_error(err)
+                    else:
+                        raise
+
+                logger.warning(
+                    "data_warehouse_schema_inference_fallback",
+                    table_id=str(self.id),
+                    team_id=self.team_id,
+                    error=str(err),
+                )
 
         if result is None:
             raise Exception("No columns types provided by clickhouse in get_columns")
