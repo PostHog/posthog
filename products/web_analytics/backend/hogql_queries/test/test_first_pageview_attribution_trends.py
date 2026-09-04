@@ -19,9 +19,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner
 
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
     FirstPageviewAttributionTestMixin,
 )

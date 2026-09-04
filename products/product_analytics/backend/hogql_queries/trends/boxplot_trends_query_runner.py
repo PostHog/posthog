@@ -11,11 +11,12 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.hogql_queries.utils.utils import get_response_hogql
+
+from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import AggregationOperations
+from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
 class BoxPlotTrendsQueryRunner(TrendsQueryRunner):

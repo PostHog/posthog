@@ -2354,7 +2354,7 @@ def snapshot_hogql_queries(fn_or_class):
             pass
 
         try:
-            from posthog.hogql_queries.insights.trends import trends_query_runner
+            from products.product_analytics.backend.hogql_queries.trends import trends_query_runner
 
             if hasattr(trends_query_runner, "execute_hogql_query"):
                 patches.append(patch.object(trends_query_runner, "execute_hogql_query", capture_module_execute))

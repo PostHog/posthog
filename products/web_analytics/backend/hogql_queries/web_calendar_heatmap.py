@@ -20,9 +20,9 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.hogql_queries.insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
 from posthog.models import EventDefinition
 
+from products.product_analytics.backend.facade.queries import CalendarHeatmapTrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,

@@ -8,7 +8,7 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
 class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
@@ -21,7 +21,9 @@ class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
     """
 
     def _calculate(self):
-        from posthog.hogql_queries.insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
+        from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_query_runner import (
+            CalendarHeatmapQueryRunner,
+        )
 
         # Convert TrendsQuery to CalendarHeatmapQuery. Forward calendarHeatmapFilter as-is
         # so opt-in flags (e.g. bucketBySessionStart, set by the web analytics Active Hours

@@ -66,7 +66,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -81,6 +80,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
 @dataclass
@@ -3449,7 +3449,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
+    @patch("products.product_analytics.backend.hogql_queries.trends.trends_query_runner.feature_enabled_or_false")
     def test_session_property_pre_aggregation_modifier_gate(
         self,
         _name: str,
@@ -3465,7 +3465,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert runner.modifiers.sessionPropertyPreAggregation is expected
 
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
+    @patch("products.product_analytics.backend.hogql_queries.trends.trends_query_runner.feature_enabled_or_false")
     def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self, patch_feature_enabled):
         # apply_dashboard_filters re-runs __post_init__. The modifier must reflect the *current*
         # query state, not the initial one — so a session-breakdown query that gets overridden
@@ -3506,7 +3506,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIn("Trends insights require at least one series.", str(context.exception))
 
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
+    @patch("products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):
         patch_sync_execute.side_effect = Exception("Error thrown inside thread")
 

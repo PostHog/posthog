@@ -17,12 +17,13 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.trends.trend_validation_rules import (
+from posthog.hogql_queries.validation.validation import QueryValidationContext
+
+from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
     DisallowDaysOfWeekWithSmoothing,
     DisallowUnsupportedPropertyMathForHistogramBreakdown,
     ValidateDataWarehouseBreakdown,
 )
-from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
 class TestValidateDataWarehouseBreakdown(BaseTest):

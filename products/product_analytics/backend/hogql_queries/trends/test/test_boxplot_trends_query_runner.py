@@ -23,9 +23,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
 from posthog.models.utils import uuid7
 
+from products.product_analytics.backend.hogql_queries.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.boxplot"

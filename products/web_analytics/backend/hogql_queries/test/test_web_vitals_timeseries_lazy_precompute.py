@@ -28,10 +28,10 @@ from posthog.schema import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_vitals_timeseries import WebVitalsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute import (
     is_vitals_precompute_enabled_for_team,

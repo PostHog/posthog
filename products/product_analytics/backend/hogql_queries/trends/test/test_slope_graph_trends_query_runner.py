@@ -21,8 +21,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
 from posthog.models.utils import uuid7
+
+from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (
+    SlopeGraphTrendsQueryRunner,
+)
 
 
 @freeze_time("2024-06-15T12:00:00Z")

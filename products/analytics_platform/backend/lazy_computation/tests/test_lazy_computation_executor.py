@@ -19,7 +19,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -55,6 +54,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     split_ranges_by_ttl,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 
 class TestComputationJob(BaseTest):

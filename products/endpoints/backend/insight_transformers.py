@@ -20,9 +20,11 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
 
 if TYPE_CHECKING:
-    from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-
-    from products.product_analytics.backend.facade.queries import LifecycleQueryRunner, RetentionQueryRunner
+    from products.product_analytics.backend.facade.queries import (
+        LifecycleQueryRunner,
+        RetentionQueryRunner,
+        TrendsQueryRunner,
+    )
 
     InsightRunner = Union["LifecycleQueryRunner", "RetentionQueryRunner", "TrendsQueryRunner"]
 
