@@ -264,10 +264,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Workflow email trust tiers - daily at 8:30 AM UTC. It reads the tenant state the sweep above
-    # writes, so it starts two hours later: that is room for the sweep to finish, and for a retry
-    # after a partial run, before the tiers are computed from what it stored. Promotion is
-    # intentionally slow (a team must hold a tier for days), so a daily pass is enough. Demotions
-    # do not wait for it: the staff suspension action recomputes the team directly.
+    # writes, so it starts two hours later. The gap is a margin, not a bound: nothing couples the
+    # two jobs, and a team the sweep did not reach keeps the state it already had, which the tier
+    # logic treats as advisory (an unknown reputation impact reads the same as a clean one).
+    # Promotion is intentionally slow (a team must hold a tier for days), so a daily pass is
+    # enough. Demotions do not wait for it: the staff suspension action recomputes the team
+    # directly.
     sender.add_periodic_task(
         crontab(hour="8", minute="30"),
         recompute_workflows_email_sending_tiers.s(),
