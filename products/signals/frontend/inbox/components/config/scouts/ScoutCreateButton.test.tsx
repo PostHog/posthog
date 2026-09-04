@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { useMocks } from '~/mocks/jest'
@@ -56,9 +58,16 @@ describe('scout creation buttons', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
     })
 
     afterEach(cleanup)
+
+    function setSuggestionsFlag(enabled: boolean): void {
+        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS] : [], {
+            [FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS]: enabled,
+        })
+    }
 
     it('opens a prefilled form without starting a task', async () => {
         const { findByText, getByText } = render(
@@ -81,15 +90,24 @@ describe('scout creation buttons', () => {
         expect(queryByText('Manual scout form')).toBeNull()
     })
 
-    it('spins only the button that started the task', async () => {
+    // "Suggest a scout" only moves into the Ask menu for people on the suggestions strip. Off the
+    // flag it stays a header button, which is the only way those people can ask for a pick.
+    it.each([
+        ['on the suggestions flag', true, 'Ask'],
+        ['off the suggestions flag', false, 'Suggest a scout'],
+    ])('spins only the button that started the task, %s', async (_name, suggestionsEnabled, spinningLabel) => {
+        setSuggestionsFlag(suggestionsEnabled)
         const { findByText, getByText } = render(<ScoutsRosterActions />)
 
-        // "Suggest a scout" lives in the Ask menu on this surface, so the Ask button is what spins.
-        fireEvent.click(getByText('Ask'))
-        fireEvent.click(await findByText('Suggest a scout'))
+        if (suggestionsEnabled) {
+            fireEvent.click(getByText('Ask'))
+            fireEvent.click(await findByText('Suggest a scout'))
+        } else {
+            fireEvent.click(getByText('Suggest a scout'))
+        }
 
         // Both assertions read the same render, before the task resolves and clears the state.
-        expect(getByText('Ask').closest('button')?.querySelector('.Spinner')).toBeTruthy()
+        expect(getByText(spinningLabel).closest('button')?.querySelector('.Spinner')).toBeTruthy()
         expect(getByText('Create scout').closest('button')?.querySelector('.Spinner')).toBeNull()
         await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
     })

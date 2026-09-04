@@ -24,7 +24,11 @@ const meta: Meta<typeof ScoutsRoster> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS]: true,
+        },
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [

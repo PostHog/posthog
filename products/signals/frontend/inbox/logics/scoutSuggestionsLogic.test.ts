@@ -3,6 +3,8 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -118,8 +120,16 @@ function suggestionSet(overrides: Partial<ScoutSuggestionSetApi> = {}): ScoutSug
 describe('scoutSuggestionsLogic', () => {
     let logic: ReturnType<typeof scoutSuggestionsLogic.build>
 
+    function setSuggestionsFlag(enabled: boolean): void {
+        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS] : [], {
+            [FEATURE_FLAGS.SCOUTS_SUGGESTED_SCOUTS]: enabled,
+        })
+    }
+
     beforeEach(() => {
         initKeaTests()
+        featureFlagLogic.mount()
+        setSuggestionsFlag(true)
         mockList.mockReset().mockResolvedValue(suggestionSet())
         mockDismiss.mockReset().mockResolvedValue(CANONICAL_ITEM)
         mockRefresh.mockReset().mockResolvedValue({ workflow_id: 'workflow-1' })
@@ -141,6 +151,21 @@ describe('scoutSuggestionsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         scoutFleetLogic.actions.loadScoutConfigsSuccess([CONFIG])
     }
+
+    it('reads nothing until the person is on the suggestions flag', async () => {
+        setSuggestionsFlag(false)
+        await mountWithBatch()
+
+        expect(mockList).not.toHaveBeenCalled()
+        expect(logic.values.hasBatch).toBe(false)
+
+        // Flags usually resolve after the tab mounts, so the answer arriving is what starts the read.
+        setSuggestionsFlag(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(logic.values.hasBatch).toBe(true)
+    })
 
     it('shows nothing for a project that has never been scanned', async () => {
         await mountWithBatch(suggestionSet({ status: 'empty', generated_at: null, items: [] }))
