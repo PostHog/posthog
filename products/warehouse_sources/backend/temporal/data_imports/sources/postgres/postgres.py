@@ -3292,6 +3292,7 @@ def postgres_source(
     xmin_last_value: Optional[int] = None,
     xmin_num_wraparound: Optional[int] = None,
     byte_bounded_extraction: bool = False,
+    activity_attempt: int = 1,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -4074,6 +4075,26 @@ def postgres_source(
                 if primary_keys and not is_partitioned and (not used_id_pk_fallback or assumed_id_is_seekable)
                 else None
             )
+
+            # A server cursor idles in an open transaction through every Delta merge, and a replica
+            # that cancels reads during that idle kills each attempt at the same place. The handler
+            # below cannot resume past the first row, because the cursor's order is arbitrary, so
+            # it re-raises for a restart, and a restart on another cursor repeats the failure. The
+            # seek pages in autocommit, so nothing idles and a conflict resumes at the last key.
+            # Only from the second attempt, so a replica that never cancels keeps one snapshot.
+            if (
+                activity_attempt > 1
+                and using_read_replica
+                and keyset_primary_keys is not None
+                and not should_use_incremental_field
+                and xmin_bounds is None
+            ):
+                logger.debug(
+                    f"Attempt {activity_attempt} of a full-table read on a read replica. Seeking from the "
+                    f"start instead of reopening a server cursor. keys = {keyset_primary_keys}"
+                )
+                yield from offset_chunking(0, chunk_size, keyset_primary_keys=keyset_primary_keys)
+                return
 
             initial_read_drop_retries = 0
             initial_read_lock_timeout_retries = 0
