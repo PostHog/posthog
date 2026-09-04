@@ -147,11 +147,16 @@ pub async fn query_detail(
          FROM ts_query_stats WHERE server_id = $1 AND queryid = $2 AND collected_at >= $3 AND collected_at < $4
          GROUP BY 1, 2, 3 ORDER BY 1", b = bucket_expr("collected_at", interval)), &[&server, &queryid, &from, &to]).await?;
     let sampling = log_sampling_settings(db, server).await?;
+    // With sampling off, the only logged durations are the always-logged slow tail,
+    // which says nothing about the distribution; skip the quantiles entirely.
+    let quantiles_available = sampling.enabled;
     // A statement over log_min_duration_statement is always logged, a sampled one
     // stands for 1/rate statements. Weighting by that makes the quantiles unbiased
     // above the sample floor; the log line itself does not say which case it was.
     // Extended-protocol statements log parse and bind durations as separate lines;
     // only the execute line is comparable to pg_stat_statements execution time.
+    // `sampled` counts the rows the sampler chose; a bucket holding only the
+    // always-logged tail must not pass the UI's per-quantile sample floor.
     let weight =
         "CASE WHEN $6::float8 > 0 AND duration_ms >= $6::float8 THEN 1.0 ELSE 1.0 / $7::float8 END";
     let quantile_params: [&(dyn tokio_postgres::types::ToSql + Sync); 7] = [
@@ -171,10 +176,11 @@ pub async fn query_detail(
              AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5))
              AND kind NOT IN ('parse', 'bind')),
          r AS (
-           SELECT bucket, duration_ms, sum(w) OVER (PARTITION BY bucket ORDER BY duration_ms) AS cw,
+           SELECT bucket, duration_ms, w, sum(w) OVER (PARTITION BY bucket ORDER BY duration_ms) AS cw,
                   sum(w) OVER (PARTITION BY bucket) AS tw
            FROM d)
          SELECT bucket, count(*)::bigint AS samples,
+                count(*) FILTER (WHERE w > 1 OR $6::float8 <= 0)::bigint AS sampled,
                 min(duration_ms) FILTER (WHERE cw >= 0.5 * tw)::float8 AS p50,
                 min(duration_ms) FILTER (WHERE cw >= 0.9 * tw)::float8 AS p90,
                 min(duration_ms) FILTER (WHERE cw >= 0.95 * tw)::float8 AS p95,
@@ -183,13 +189,21 @@ pub async fn query_detail(
          FROM r GROUP BY bucket ORDER BY bucket"
         )
     };
-    let latency_series = opt(
-        db,
-        &quantile_sql(&bucket_expr("log_time", interval)),
-        &quantile_params,
-    )
-    .await?;
-    let quantiles = opt(db, &quantile_sql("NULL::timestamptz"), &quantile_params).await?;
+    let latency_series = if quantiles_available {
+        opt(
+            db,
+            &quantile_sql(&bucket_expr("log_time", interval)),
+            &quantile_params,
+        )
+        .await?
+    } else {
+        vec![]
+    };
+    let quantiles = if quantiles_available {
+        opt(db, &quantile_sql("NULL::timestamptz"), &quantile_params).await?
+    } else {
+        vec![]
+    };
     let slow_samples = opt(db, "SELECT log_time, log_stream, datname, usename, duration_ms, left(query, 500) AS query
          FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
            AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5)) AND kind NOT IN ('parse', 'bind')
@@ -216,10 +230,12 @@ pub async fn query_detail(
 struct LogSampling {
     /// `log_min_duration_sample`: statements below this are never sampled (-1 = off).
     sample_floor_ms: f64,
-    /// `log_statement_sample_rate`.
+    /// `log_statement_sample_rate`, as configured.
     rate: f64,
     /// `log_min_duration_statement`: statements at or above this are always logged (-1 = off).
     hard_threshold_ms: f64,
+    /// Sampling is on: a floor is set and the rate is above zero.
+    enabled: bool,
 }
 
 async fn log_sampling_settings(db: &Db, server: &str) -> Result<LogSampling> {
@@ -233,10 +249,12 @@ async fn log_sampling_settings(db: &Db, server: &str) -> Result<LogSampling> {
             .unwrap_or(default)
     };
     let rate = get("log_statement_sample_rate", 1.0);
+    let sample_floor_ms = get("log_min_duration_sample", -1.0);
     Ok(LogSampling {
-        sample_floor_ms: get("log_min_duration_sample", -1.0),
-        rate: if rate > 0.0 { rate } else { 1.0 },
+        sample_floor_ms,
+        rate,
         hard_threshold_ms: get("log_min_duration_statement", -1.0),
+        enabled: sample_floor_ms >= 0.0 && rate > 0.0,
     })
 }
 
