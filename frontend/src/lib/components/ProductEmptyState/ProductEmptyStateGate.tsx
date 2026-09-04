@@ -14,7 +14,18 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductEmptyState } from './ProductEmptyState'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
 import { SetupReminderContext } from './setupReminderContext'
-import type { GatedScene, ProductEmptyStateConfig, ProductEmptyStateMode, SceneProductEmptyState } from './types'
+import type {
+    GatedScene,
+    ProductEmptyStateConfig,
+    ProductEmptyStateMode,
+    ProductSetupStatus,
+    SceneProductEmptyState,
+} from './types'
+
+/** The statuses the setup screen covers: the product has no data a person can use yet. */
+function isEmptyStateStatus(status: ProductSetupStatus): boolean {
+    return status === 'needs-setup' || status === 'no-events' || status === 'waiting-for-data'
+}
 
 /**
  * Search param that puts the setup screen on a scene that already has data, so anyone can
@@ -116,8 +127,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     if (skipHonored) {
         // Skip bypasses the screen, not detection: render the scene, plus a "Set up" reminder
         // until data lands, so there's always a way back to setup.
-        const needsSetup = status === 'needs-setup' || status === 'no-events' || status === 'waiting-for-data'
-        const reminder = needsSetup ? (
+        const reminder = isEmptyStateStatus(status) ? (
             <LemonBanner
                 type="info"
                 action={{
@@ -154,7 +164,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
             </ProductSceneFrame>
         )
     }
-    if (!skipHonored && (status === 'needs-setup' || status === 'no-events' || status === 'waiting-for-data')) {
+    if (!skipHonored && isEmptyStateStatus(status)) {
         return (
             <ProductSceneFrame config={config}>
                 <ProductEmptyState config={config} mode={mode} />
