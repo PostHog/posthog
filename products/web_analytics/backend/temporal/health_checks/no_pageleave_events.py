@@ -54,10 +54,14 @@ class NoPageleaveEventsCheck(HealthCheck):
     active_since_days = 30
     remediation = Remediation(
         human=f"""
-            Open the Web analytics health page. The fix is almost always on the SDK side — make sure you're
-            on a recent posthog-js with pageview autocapture enabled, which emits $pageleave automatically
-            when the user navigates away. {PAGELEAVE_VOLUME_NOTE} In return you get scroll depth, which
-            rides on $pageleave, accurate bounce rate, and time on page. {PAGELEAVE_TIME_ON_PAGE_NOTE}
+            Open the Web analytics health page. The fix is almost always on the SDK side, in your
+            posthog.init call: set `capture_pageleave: true`. Its default of `if_capture_pageview` turns the
+            event off when you capture pageviews yourself, so if you already set `capture_pageview: false`,
+            keep that and add `capture_pageleave: true` beside it. Switching pageview autocapture on instead
+            would make PostHog send its own pageviews on top of yours. If `capture_pageleave` is already
+            true, check that you're on a recent posthog-js. {PAGELEAVE_VOLUME_NOTE} In return you get scroll
+            depth, which rides on $pageleave, accurate bounce rate, and time on page.
+            {PAGELEAVE_TIME_ON_PAGE_NOTE}
         """,
         agent=f"""
             Use `execute-sql` to confirm the gap (`SELECT event, count() FROM events WHERE event IN
