@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 import pytest
 from freezegun import freeze_time
@@ -65,6 +66,8 @@ class TestIsUtcDatetimeBlockedAndNextUnblocked:
 class TestNextCheckAtAfterScheduleRestrictionChange:
     def _hourly_alert(self, **kwargs: Any) -> MagicMock:
         alert = MagicMock(spec=AlertConfiguration)
+        # int % shard_count == 0 → zero shard offset, so hourly snaps to the top of the hour.
+        alert.id = UUID(int=0)
         alert.team = MagicMock()
         alert.team.timezone = "UTC"
         alert.calculation_interval = "hourly"
@@ -97,4 +100,5 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
                 next_check_at=datetime(2026, 4, 6, 20, 0, 0, tzinfo=UTC),
             )
             out = next_check_at_after_schedule_restriction_change(alert)
-            assert out == datetime(2026, 4, 6, 17, 44, 0, tzinfo=UTC)
+            # Hourly now snaps to the top of the hour (17:00), not the now-relative :44.
+            assert out == datetime(2026, 4, 6, 17, 0, 0, tzinfo=UTC)

@@ -27,6 +27,7 @@ from posthog.temporal.alerts.retry_policy import (
     alert_timeouts,
 )
 from posthog.temporal.alerts.types import (
+    AlertInfo,
     CheckAlertWorkflowInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -41,6 +42,14 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
     from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflowInputs
+
+# Cap concurrent child checks per fan-out. A due batch — a large org's same-cadence
+# alerts, or a backlog after downtime — otherwise starts every check at once and
+# saturates ClickHouse. Held for each child's whole run, so it bounds checks in
+# flight, not just starts. Alerts left over stay due and the next cron tick picks
+# them up, so the cap delays rather than drops. Must stay a constant: the semaphore
+# affects child-start ordering, which has to replay deterministically.
+MAX_CONCURRENT_ALERT_CHECKS = 50
 
 
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
@@ -65,39 +74,50 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
         # duplicate checks when schedule runs overlap; Temporal guarantees no
         # two open workflows can share the same ID, so a still-running child
         # rejects the duplicate start.
-        tasks = []
-        for alert in alerts:
-            slo_properties: dict[str, JsonValue] = {
-                "alert_type": "insight",
-                "calculation_interval": alert.calculation_interval,
-                "insight_id": alert.insight_id,
-            }
-            task = temporalio.workflow.execute_child_workflow(
-                CheckAlertWorkflow.run,
-                CheckAlertWorkflowInputs(
-                    alert_id=alert.alert_id,
-                    team_id=alert.team_id,
-                    distinct_id=alert.distinct_id,
-                    calculation_interval=alert.calculation_interval,
-                    insight_id=alert.insight_id,
-                    slo=SloConfig(
-                        operation=SloOperation.ALERT_CHECK,
-                        area=SloArea.ANALYTIC_PLATFORM,
-                        team_id=alert.team_id,
-                        resource_id=alert.alert_id,
-                        distinct_id=alert.distinct_id,
-                        start_properties=slo_properties.copy(),
-                        completion_properties=slo_properties.copy(),
-                    ),
-                ),
-                id=f"check-alert-{alert.alert_id}",
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
+        if alerts:
+            # Gate the cap on a patch marker: pre-patch executions replay the old
+            # unbounded fan-out, so their recorded child-start order still matches.
+            semaphore = (
+                asyncio.Semaphore(MAX_CONCURRENT_ALERT_CHECKS)
+                if temporalio.workflow.patched("alerts-cap-concurrent-child-checks")
+                else None
             )
-            tasks.append(task)
 
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            async def _run_child(alert: AlertInfo) -> None:
+                slo_properties: dict[str, JsonValue] = {
+                    "alert_type": "insight",
+                    "calculation_interval": alert.calculation_interval,
+                    "insight_id": alert.insight_id,
+                }
+                child = temporalio.workflow.execute_child_workflow(
+                    CheckAlertWorkflow.run,
+                    CheckAlertWorkflowInputs(
+                        alert_id=alert.alert_id,
+                        team_id=alert.team_id,
+                        distinct_id=alert.distinct_id,
+                        calculation_interval=alert.calculation_interval,
+                        insight_id=alert.insight_id,
+                        slo=SloConfig(
+                            operation=SloOperation.ALERT_CHECK,
+                            area=SloArea.ANALYTIC_PLATFORM,
+                            team_id=alert.team_id,
+                            resource_id=alert.alert_id,
+                            distinct_id=alert.distinct_id,
+                            start_properties=slo_properties.copy(),
+                            completion_properties=slo_properties.copy(),
+                        ),
+                    ),
+                    id=f"check-alert-{alert.alert_id}",
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
+                )
+                if semaphore is None:
+                    await child
+                    return
+                async with semaphore:
+                    await child
+
+            results = await asyncio.gather(*(_run_child(alert) for alert in alerts), return_exceptions=True)
             failed_ids = []
             for alert, result in zip(alerts, results):
                 if isinstance(result, BaseException):
