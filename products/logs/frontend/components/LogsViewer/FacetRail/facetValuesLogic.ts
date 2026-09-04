@@ -233,7 +233,16 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     // user collapses it, and returning into a dead store throws rather than being
                     // discarded.
                     breakpoint()
-                    return response.results
+                    // One grouped shape whichever target was asked for; a single-target request
+                    // comes back as a one-entry list under the field it asked on.
+                    if (source.type === 'column') {
+                        return response.results.facetField
+                    }
+                    const entries =
+                        source.type === 'attribute'
+                            ? response.results.facetAttributes
+                            : response.results.facetResourceAttributes
+                    return entries[0]?.values ?? []
                 },
             },
         ],

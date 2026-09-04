@@ -5751,6 +5751,14 @@ export const LogsCountRangesCreateBody = () => zod.object({
         .describe('The bucketed-count query to execute.'),
 })
 
+/**
+ * Values and cross-filtered counts for one facet, or for several attribute keys at once.
+ *
+ * The plural key lists exist because attribute facets all read the same rollup with the same
+ * WHERE, so a rail full of them costs one query instead of one per facet. What they give up is
+ * the per-facet part: a key's own filter is not excluded and facetSearch does not apply, so a
+ * facet needing either goes on a single-target field. See LogAttributeFacetValuesBatchQueryRunner.
+ */
 export const LogsFacetValuesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -5771,19 +5779,31 @@ export const LogsFacetValuesCreateBody = () => zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    'Top-level column to facet on. One of the three single-target fields, or one of the plural key lists, is required. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
                 ),
             facetResourceAttribute: zod
                 .string()
                 .nullish()
                 .describe(
-                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Its own log_resource_attribute filter is excluded so counts reflect the other active filters, and facetSearch applies. Use facetResourceAttributes instead to fetch several keys in one query."
                 ),
             facetAttribute: zod
                 .string()
                 .nullish()
                 .describe(
-                    "Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter."
+                    "Log attribute key to facet on (e.g. 'log.iostream'). Counts honour severity, service and resource-attribute filters, but not body search or other log-attribute filters. Use facetAttributes instead to fetch several keys in one query."
+                ),
+            facetResourceAttributes: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Resource attribute keys to fetch together in one query, which is far cheaper than a request per key. Unlike the single-target fields these share one filter set: no key's own filter is excluded and facetSearch does not apply, so a key carrying its own filter belongs on facetResourceAttribute."
+                ),
+            facetAttributes: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Log attribute keys to fetch together in one query. Shares the filter set described on facetResourceAttributes.'
                 ),
             dateRange: zod
                 .object({
@@ -5819,7 +5839,7 @@ export const LogsFacetValuesCreateBody = () => zod.object({
                 .string()
                 .optional()
                 .describe(
-                    "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies."
+                    "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Only applies to a single-target request. Distinct from searchTerm, which searches log bodies."
                 ),
             filterGroup: zod
                 .array(

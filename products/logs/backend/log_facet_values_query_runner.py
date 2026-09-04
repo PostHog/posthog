@@ -373,9 +373,11 @@ class LogAttributeFacetValuesBatchQueryRunner(AnalyticsQueryRunner[LogsQueryResp
             ]
 
         # Split by type rather than tagging each entry, so the response mirrors the request's two
-        # key lists and neither side needs an attribute-type enum.
+        # key lists and neither side needs an attribute-type enum. facetField is always empty here
+        # and present only so every facet_values response carries the same three keys.
         return LogsQueryResponse(
             results={
+                "facetField": [],
                 "facetResourceAttributes": entries("resource"),
                 "facetAttributes": entries("log"),
             }

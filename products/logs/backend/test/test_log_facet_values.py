@@ -31,17 +31,21 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
                 {sql}
             """)
 
-    def _facet(self, facet_field: str, **filters) -> dict[str, int]:
-        body = {"query": {"facetField": facet_field, "dateRange": self.DATE_RANGE, **filters}}
+    def _post_facets(self, query: dict) -> dict:
+        body = {"query": {"dateRange": self.DATE_RANGE, **query}}
         response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return {r["value"]: r["count"] for r in response.json()["results"]}
+        return response.json()["results"]
+
+    def _facet(self, facet_field: str, **filters) -> dict[str, int]:
+        results = self._post_facets({"facetField": facet_field, **filters})
+        return {r["value"]: r["count"] for r in results["facetField"]}
 
     def _facet_attr(self, key: str, target: str = "facetResourceAttribute", **filters) -> dict[str, int]:
-        body = {"query": {target: key, "dateRange": self.DATE_RANGE, **filters}}
-        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return {r["value"]: r["count"] for r in response.json()["results"]}
+        results = self._post_facets({target: key, **filters})
+        group = "facetAttributes" if target == "facetAttribute" else "facetResourceAttributes"
+        entries = results[group]
+        return {r["value"]: r["count"] for r in entries[0]["values"]} if entries else {}
 
     @parameterized.expand(
         [
@@ -295,17 +299,9 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
     BATCH_ATTRIBUTE_KEYS = ["log.iostream"]
 
     def _facet_batch(self, resource_keys, attribute_keys, **filters) -> dict[tuple[str, str], dict[str, int]]:
-        body = {
-            "query": {
-                "facetResourceAttributes": resource_keys,
-                "facetAttributes": attribute_keys,
-                "dateRange": self.DATE_RANGE,
-                **filters,
-            }
-        }
-        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values_batch", body, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
+        results = self._post_facets(
+            {"facetResourceAttributes": resource_keys, "facetAttributes": attribute_keys, **filters}
+        )
         return {
             **{
                 ("resource", e["key"]): {v["value"]: v["count"] for v in e["values"]}
@@ -376,11 +372,15 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             ("no_keys", {}),
             ("empty_lists", {"facetResourceAttributes": [], "facetAttributes": []}),
             ("over_cap", {"facetAttributes": [f"key.{i}" for i in range(51)]}),
+            # The two request shapes apply different filters — a single target excludes its own
+            # filter and honours facetSearch, the key lists do neither — so mixing them would
+            # silently return counts under two different rules in one response.
+            ("single_and_plural", {"facetAttribute": "log.iostream", "facetAttributes": ["hostname"]}),
         ]
     )
-    def test_batch_rejects_invalid_key_lists(self, _name, query):
+    def test_rejects_invalid_target_combinations(self, _name, query):
         body = {"query": {**query, "dateRange": self.DATE_RANGE}}
-        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values_batch", body, format="json")
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_requires_exactly_one_facet_target(self):

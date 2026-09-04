@@ -58,8 +58,6 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
-    _LogsFacetValuesBatchRequestApi,
-    _LogsFacetValuesBatchResponseApi,
     _LogsFacetValuesRequestApi,
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
@@ -451,6 +449,14 @@ export const getLogsFacetValuesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/facet_values/`
 }
 
+/**
+ * Values and cross-filtered counts for one facet, or for several attribute keys at once.
+ *
+ * The plural key lists exist because attribute facets all read the same rollup with the same
+ * WHERE, so a rail full of them costs one query instead of one per facet. What they give up is
+ * the per-facet part: a key's own filter is not excluded and facetSearch does not apply, so a
+ * facet needing either goes on a single-target field. See LogAttributeFacetValuesBatchQueryRunner.
+ */
 export const logsFacetValuesCreate = async (
     projectId: string,
     _logsFacetValuesRequestApi: _LogsFacetValuesRequestApi,
@@ -461,30 +467,6 @@ export const logsFacetValuesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsFacetValuesRequestApi),
-    })
-}
-
-export const getLogsFacetValuesBatchCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/facet_values_batch/`
-}
-
-/**
- * Facet values for several attribute keys in one query.
- *
- * Every attribute facet applies the same filters, so a rail can fetch them together instead of
- * once per facet. A facet that needs its own filter excluded, or a type-ahead search, still
- * goes to `facet_values` — see LogAttributeFacetValuesBatchQueryRunner.
- */
-export const logsFacetValuesBatchCreate = async (
-    projectId: string,
-    _logsFacetValuesBatchRequestApi: _LogsFacetValuesBatchRequestApi,
-    options?: RequestInit
-): Promise<_LogsFacetValuesBatchResponseApi> => {
-    return apiMutator<_LogsFacetValuesBatchResponseApi>(getLogsFacetValuesBatchCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_logsFacetValuesBatchRequestApi),
     })
 }
 
