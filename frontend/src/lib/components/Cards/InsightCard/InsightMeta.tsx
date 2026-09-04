@@ -162,9 +162,8 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query, savingSqlVisualization, sqlVisualizationVersion } = useValues(
-        insightDataLogic(insightLogicProps)
-    )
+    const { exportContext, insightData, insightDataRaw, query, savingSqlVisualization, sqlVisualizationVersion } =
+        useValues(insightDataLogic(insightLogicProps))
     const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
@@ -224,7 +223,7 @@ export function InsightMeta({
     // so the icon clears once the query is fixed. Shared and exported views get no icon, like the retention one.
     const eventsScanWarning =
         placement !== DashboardPlacement.Public && placement !== DashboardPlacement.Export
-            ? eventsScanWarningMessage(insightData ? insightData.warnings : insight.warnings)
+            ? eventsScanWarningMessage(insightDataRaw ? insightData.warnings : insight.warnings)
             : null
     const topHeadingProps = {
         query: insight.query,
