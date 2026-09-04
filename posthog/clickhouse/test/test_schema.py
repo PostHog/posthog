@@ -138,7 +138,17 @@ def _hogql_column_names(table: Table) -> set[str]:
 
 
 # Kafka metadata, deliberately not exposed to customers.
-_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+_FLAG_EVALUATIONS_KAFKA_METADATA_COLUMNS = {"_timestamp", "_offset", "_partition"}
+
+# No producer writes these: serializeEvent omits them and ProcessedEvent has no field to source
+# them from, so they hold '' on every row here and on the events table. Exposing them would promise
+# a group's properties as captured and return nothing. Join to `groups` on `$group_0`..`$group_4`
+# instead.
+_FLAG_EVALUATIONS_UNPOPULATED_GROUP_COLUMNS = {f"group{index}_properties" for index in range(5)}
+
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = (
+    _FLAG_EVALUATIONS_KAFKA_METADATA_COLUMNS | _FLAG_EVALUATIONS_UNPOPULATED_GROUP_COLUMNS
+)
 
 
 def test_flag_evaluations_hogql_table_matches_the_read_table():

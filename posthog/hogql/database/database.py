@@ -1452,6 +1452,9 @@ class Database(BaseModel):
             direct_connection_metadata=None,
             user_access_control=None,
             denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
+            # Resolving the org gate needs a feature-flag check, which is exactly the I/O this path
+            # exists to avoid, so the table is pruned here as the other gated tables are.
+            include_flag_evaluations_table=False,
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
