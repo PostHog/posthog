@@ -2934,6 +2934,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 400, response.json()
 
+    def test_create_from_template_json_rejects_an_empty_body(self) -> None:
+        dashboards_before = Dashboard.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            data="",
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert Dashboard.objects.count() == dashboards_before
+
     def test_create_from_template_json_can_provide_text_tile(self) -> None:
         template: dict = {
             **valid_template,
