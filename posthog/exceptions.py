@@ -30,7 +30,9 @@ class RequestTooLarge(APIException):
     # drf-exceptions-hog has no default type for 413, and its fallback of `server_error` would
     # tell the caller to retry the same body.
     default_type = "invalid_request"
-    default_detail = "Request body is too large. Split the payload across smaller requests."
+    # Every DRF route inherits this detail, and many take a body the sender cannot split, so it
+    # stays neutral. A route with a specific recovery passes its own detail.
+    default_detail = "Request body is too large. Send less data in this request."
 
 
 class QuotaLimitExceeded(APIException):
