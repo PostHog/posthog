@@ -69310,6 +69310,33 @@ export namespace Schemas {
     }
 
     /**
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship
+     */
+    export type PinnedAccountPropertyKindEnum = typeof PinnedAccountPropertyKindEnum[keyof typeof PinnedAccountPropertyKindEnum];
+
+
+    export const PinnedAccountPropertyKindEnum = {
+      CustomProperty: 'custom_property',
+      Relationship: 'relationship',
+    } as const;
+
+    export interface PinnedAccountProperty {
+      /** Definition type for this pinned account property.
+       *
+       * * `custom_property` - Custom property
+       * * `relationship` - Relationship */
+      kind: PinnedAccountPropertyKindEnum;
+      /** Team-scoped custom property or relationship definition UUID. */
+      id: string;
+    }
+
+    export interface PatchedUserCustomerAnalyticsConfigUpdate {
+      /** Complete ordered list of account properties to pin. Pass an empty list to clear it. */
+      pinned_properties?: PinnedAccountProperty[];
+    }
+
+    /**
      * * `attribute` - attribute
      * * `resourceAttribute` - resourceAttribute
      */
@@ -87848,6 +87875,11 @@ export namespace Schemas {
       affected: number;
       /** Total number of entities of this type in the project */
       total: number;
+    }
+
+    export interface UserCustomerAnalyticsConfig {
+      /** Account properties pinned in sidebar display order. */
+      readonly pinned_properties: readonly PinnedAccountProperty[];
     }
 
     export interface UserFacetSettings {

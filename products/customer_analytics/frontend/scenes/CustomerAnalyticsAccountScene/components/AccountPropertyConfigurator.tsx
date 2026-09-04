@@ -14,6 +14,8 @@ export interface AccountPropertyConfiguratorProps {
     onChange: (pinnedPropertyKeys: string[]) => void
     onSave: (pinnedPropertyKeys: string[]) => void
     onCancel: () => void
+    saving?: boolean
+    saveDisabledReason?: string
 }
 
 export function AccountPropertyConfigurator({
@@ -23,6 +25,8 @@ export function AccountPropertyConfigurator({
     onChange,
     onSave,
     onCancel,
+    saving = false,
+    saveDisabledReason,
 }: AccountPropertyConfiguratorProps): JSX.Element {
     const optionsByKey = new Map(options.map((option) => [option.key, option]))
     const selectedOptions = pinnedPropertyKeys.map(
@@ -68,6 +72,8 @@ export function AccountPropertyConfigurator({
                     <LemonButton
                         type="primary"
                         onClick={() => onSave(pinnedPropertyKeys)}
+                        loading={saving}
+                        disabledReason={saveDisabledReason}
                         data-attr="account-pinned-properties-save"
                     >
                         Save

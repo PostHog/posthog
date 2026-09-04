@@ -10,6 +10,9 @@ const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
+const ACCOUNT_SIDEBAR_CONFIG_ENDPOINT = 'api/projects/:team_id/user_customer_analytics_config/@me/'
+const CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/custom_property_definitions/'
+const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
 
 const account = {
     id: ACCOUNT_ID,
@@ -84,6 +87,42 @@ const meta: Meta = {
                         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#8f68d4"/></svg>',
                         { headers: { 'Content-Type': 'image/svg+xml' } }
                     ),
+                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: { pinned_properties: [] },
+                [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: {
+                    count: 1,
+                    results: [
+                        {
+                            id: '22222222-3333-4444-8555-666666666666',
+                            name: 'Annual recurring revenue',
+                            description: null,
+                            display_type: 'currency',
+                            target_type: 'account',
+                            is_big_number: false,
+                            is_canonical: false,
+                            options: null,
+                            source: null,
+                            created_at: '2026-05-10T10:00:00Z',
+                            created_by: 1,
+                            updated_at: '2026-05-20T14:30:00Z',
+                            references: [],
+                            has_workflow_reference: false,
+                        },
+                    ],
+                },
+                [RELATIONSHIP_DEFINITIONS_ENDPOINT]: {
+                    count: 1,
+                    results: [
+                        {
+                            id: '33333333-4444-4555-8666-777777777777',
+                            name: 'Customer success manager',
+                            description: null,
+                            is_single_holder: true,
+                        },
+                    ],
+                },
+            },
+            patch: {
+                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: async ({ request }) => [200, await request.json()],
             },
         }),
     ],
