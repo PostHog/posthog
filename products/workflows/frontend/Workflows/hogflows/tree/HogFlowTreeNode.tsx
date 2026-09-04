@@ -4,6 +4,7 @@ import type { DragEvent } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import {
     Badge,
     Button,
@@ -23,7 +24,6 @@ import { getHogFlowBranchColor, getHogFlowBranchTint, useHogFlowBranchSelection 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeStep } from './HogFlowTreeStep'
-import { countWorkflowTreeNodes } from './workflowTree'
 import type { WorkflowTreeNode } from './workflowTree'
 
 const BRANCH_LIMIT = 6
@@ -102,14 +102,21 @@ export function HogFlowTreeNode({
                             const branchColor = getHogFlowBranchColor(branchIndex)
                             const isBranchSelected =
                                 selectedBranch?.actionId === node.action.id && selectedBranch.index === branchIndex
-                            const branchStepCount = countWorkflowTreeNodes(branch.sequence)
+                            const branchFilters =
+                                branchIndex !== null && node.action.type === 'conditional_branch'
+                                    ? (node.action.config.conditions[branchIndex]?.filters.properties ?? [])
+                                    : []
+                            const cohortPercentage =
+                                branchIndex !== null && node.action.type === 'random_cohort_branch'
+                                    ? node.action.config.cohorts[branchIndex]?.percentage
+                                    : undefined
 
                             return (
                                 <div
                                     key={`${branch.edge.from}-${branch.edge.type}-${branch.edge.index ?? 'continue'}`}
                                     className={cn(
-                                        'flex min-w-0 flex-col ps-3 transition-[border-width] motion-reduce:transition-none',
-                                        isBranchSelected ? 'border-s-4' : 'border-s-2'
+                                        'flex min-w-0 flex-col border-s ps-0 transition-[border-width] motion-reduce:transition-none',
+                                        isBranchSelected && 'border-s-2'
                                     )}
                                     style={{ borderColor: branchColor }}
                                     data-workflow-branch-index={branchIndex ?? 'continue'}
@@ -118,7 +125,10 @@ export function HogFlowTreeNode({
                                         render={<button type="button" />}
                                         variant="muted"
                                         size="xs"
-                                        className={cn('flex-nowrap text-start', isBranchSelected && 'border-2')}
+                                        className={cn(
+                                            'flex-nowrap rounded-s-none text-start',
+                                            isBranchSelected && 'border-2'
+                                        )}
                                         style={{
                                             borderColor: branchColor,
                                             backgroundColor: isBranchSelected
@@ -135,17 +145,31 @@ export function HogFlowTreeNode({
                                     >
                                         <Badge
                                             variant="default"
-                                            className="font-mono"
+                                            className="font-mono text-xxs"
                                             style={{ color: branchColor, borderColor: branchColor }}
                                         >
                                             {branch.edge.type === 'continue' ? 'ELSE' : 'IF'}
                                         </Badge>
                                         <ItemContent className="min-w-0">
-                                            <ItemTitle className="max-w-full truncate">{branch.label}</ItemTitle>
+                                            <ItemTitle className="max-w-full truncate text-xs">
+                                                {branch.label}
+                                            </ItemTitle>
                                         </ItemContent>
-                                        <Text size="xs" variant="muted" render={<span />} className="ms-auto shrink-0">
-                                            {branchStepCount} {branchStepCount === 1 ? 'step' : 'steps'}
-                                        </Text>
+                                        {branchFilters.length > 0 && (
+                                            <div className="ms-auto min-w-0 max-w-[60%] overflow-hidden">
+                                                <PropertyFiltersDisplay filters={branchFilters} compact />
+                                            </div>
+                                        )}
+                                        {cohortPercentage !== undefined && (
+                                            <Text
+                                                size="xs"
+                                                variant="muted"
+                                                render={<span />}
+                                                className="ms-auto shrink-0"
+                                            >
+                                                {cohortPercentage}%
+                                            </Text>
+                                        )}
                                     </Item>
                                     {branch.sequence.nodes.length === 0 && (
                                         <Text size="xs" variant="muted" className="py-2">
