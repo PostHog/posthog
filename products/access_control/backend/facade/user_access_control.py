@@ -762,6 +762,18 @@ class UserAccessControl:
         if not resource or not org_membership:
             return None
 
+        if self._is_most_specific_access_control_enabled:
+            resolved = self.resolve_most_specific_object_access(obj)
+            if resolved is None:
+                return None
+            if specific_only:
+                # Only a member or role row on the object itself is a specific rule.
+                decided_by_object_row = resolved.source == "object" and resolved.source_subject != "default"
+                return resolved.access_level if decided_by_object_row else None
+            if explicit and resolved.source == "system_default":
+                return None
+            return resolved.access_level
+
         # Creators always have highest access
         if self._is_creator(obj):
             return highest_access_level(resource)

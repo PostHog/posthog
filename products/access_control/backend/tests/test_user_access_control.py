@@ -949,6 +949,56 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
         assert access_level == "viewer"  # The member's own row decides, not the highest row
 
+    def test_specific_access_level_uses_member_row_in_most_specific_mode(self):
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="editor",
+            role=self.role_a,
+        )
+
+        assert self.user_access_control.specific_access_level_for_object(self.other_dashboard) == "none"
+
+    def test_specific_access_level_ignores_default_rows_in_most_specific_mode(self):
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="none",
+        )
+
+        assert self.user_access_control.specific_access_level_for_object(self.other_dashboard) is None
+
+    def test_access_level_for_team_uses_member_row_in_most_specific_mode(self):
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            role=self.role_a,
+        )
+
+        assert self.user_access_control.access_level_for_object(self.team) == "none"
+
     def test_project_level_access_for_team_objects(self):
         """Test project-level access for team objects"""
         # Create project-level access control
