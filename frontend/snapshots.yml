@@ -1912,6 +1912,10 @@ snapshots:
         hash: v1.k794b7964.7fb1bfe531cab39785cf3d98edc3fed01122cbe04f2fc10b23054648455ed423.VhFzyJUt9ckAydjv1P6BL83AKLhlKl3NRrb5fL1o2M8
     components-product-empty-state--skills-needs-setup--light:
         hash: v1.k794b7964.6190af5d97300186be7d9edec9bb4139d2681ba6cfcb04961dca1f97d46181e2.puC3H-Nh82vaTwg0DxFehnS9abgqDzd_PW0XOv0QRGo
+    components-product-empty-state--subscriptions-needs-setup--dark:
+        hash: v1.k794b7964.bc7bc4e1e0b0bf5194f2409493a69fd0d630ccb95c240bc218e5a337d1079af1.04db5sSfCI3tTZ5yYWQ-JsVmhekakdoCsgO5LGzsynM
+    components-product-empty-state--subscriptions-needs-setup--light:
+        hash: v1.k794b7964.a5432f63afad30c6582ec786f219ceb409e1c117eabb71f1067fad83319742c6.SPizGdnHCfeluzxbsLLxTRKyrfoMhs0PntrnZ6cmkI8
     components-product-empty-state--support-needs-setup--dark:
         hash: v1.k794b7964.5f6d75f3dccda00b4931407c41fc8a2a3d11bbe477f53b938862867f9d96baad.sdnyT_ZwGyHUuOxOrOCN4oWyqPKe1dZ-iJN8f42ulAs
     components-product-empty-state--support-needs-setup--light:
