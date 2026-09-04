@@ -7728,6 +7728,14 @@ snapshots:
         hash: v1.k794b7964.195aa4a5a39e8f947e17fe67f5c23303b7dd0579c278907761be24a08780be92.t2Zgr2Pj-cL6F6Xx11DpcCyR1L0QQ8fD17WzQNmXbw8
     scenes-app-llm-observability-evaluationreportconfig--quill--light:
         hash: v1.k794b7964.e6179df07dd55d64e0140d40ac812feb4662e28e5bded7ce2cf9e2575f245626.4iGTruUDV858d17xZIUMJCG2xFeWLagkzakPS2Yw4Ps
+    scenes-app-logs-sessionerrorsbadge--one-error--dark:
+        hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.Zoa3-_zRiDxW2DVeBYD64fV80BWOtlngAzOqnRjMam8
+    scenes-app-logs-sessionerrorsbadge--one-error--light:
+        hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.UYQnUZ6SNr2i9-ef8xVE28d2dkzuTsguIKBcFeRtXR0
+    scenes-app-logs-sessionerrorsbadge--several-errors--dark:
+        hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.RmzBOXeIfu6YtXX5xWbtQ-LBgX6Vffw7nsiC9tqy6Nk
+    scenes-app-logs-sessionerrorsbadge--several-errors--light:
+        hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.cBNgS9GhMzI2LlBJ1nlaPLzWNdYY5Xr1P9FhiLoYbFw
     scenes-app-logs-sparkline--volume-by-severity--dark:
         hash: v1.k794b7964.0342a42ad3e96fb82282914a3c60aedb873de9f8dfc94c850b22b3f7f17d56a0.c_sYZ1aNex35E-5hGq0aHwwV1MQCROpZBvMfAznRPoY
     scenes-app-logs-sparkline--volume-by-severity--light:

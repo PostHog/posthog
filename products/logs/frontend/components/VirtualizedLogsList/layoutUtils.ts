@@ -14,6 +14,7 @@ export const RESIZER_HANDLE_WIDTH = 16
 export const SEVERITY_WIDTH = 8
 export const CHECKBOX_WIDTH = 28
 export const EXPAND_WIDTH = 28
+export const SESSION_ERRORS_WIDTH = 24
 export const TIMESTAMP_WIDTH = 180
 // A pattern is a whole message line with its variable parts masked, so it starts much wider
 // than an attribute value.

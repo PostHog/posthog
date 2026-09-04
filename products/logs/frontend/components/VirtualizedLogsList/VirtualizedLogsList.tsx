@@ -168,6 +168,7 @@ export function VirtualizedLogsList({
         columns: columnConfigs,
         selectedLogIds,
         prettifiedLogIds,
+        showSessionErrors,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
@@ -224,7 +225,7 @@ export function VirtualizedLogsList({
         // Move bounds range over movable columns only — pinned columns sort last and never swap
         const movable = columnConfigs.filter((config) => !isPinnedColumn(config))
         return [
-            createControlsColumn({ dataSourceRef }),
+            createControlsColumn({ dataSourceRef, showSessionErrors }),
             ...columnConfigs.map((config) =>
                 createConfiguredColumn({
                     config,
@@ -247,6 +248,7 @@ export function VirtualizedLogsList({
         moveColumn,
         wrapBody,
         prettifyJson,
+        showSessionErrors,
     ])
 
     const minRowWidth = useMemo(() => getColumnsMinRowWidth(columns), [columns])
