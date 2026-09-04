@@ -48,6 +48,23 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * @summary Claim or release a signal report
+ */
+export const signalsReportsClaimBodyReleaseDefault = false
+
+export const SignalsReportsClaimBody = /* @__PURE__ */ zod.object({
+    pr_url: zod
+        .url()
+        .optional()
+        .describe('Optional GitHub pull request to attach to the claim. The report may be claimed without one.'),
+    release: zod
+        .boolean()
+        .default(signalsReportsClaimBodyReleaseDefault)
+        .describe('Release ownership while preserving any attached pull request.'),
+})
+
+/**
  * Record the thumbs rating at the end of a report, with an optional note. For browser-session requests the rating is persisted as a per-person report action, which counts as consumption evidence for the scout that authored the report (scouts whose output nobody consumes are eventually paused); requests authenticated any other way record no action. When a note is present and the report was authored by a scout, the note is also forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer. The report's state is never changed.
  * @summary Leave feedback on a report
  */
@@ -1419,6 +1436,25 @@ export const SignalsScoutRunsEmissionReportsBatchBody = /* @__PURE__ */ zod
         run_ids: zod
             .array(zod.uuid())
             .max(signalsScoutRunsEmissionReportsBatchBodyRunIdsMax)
+            .describe(
+                'UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.'
+            ),
+    })
+    .describe(
+        "Request body for the batched emissions \/ emission-reports lookups: the set of run UUIDs to\nresolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the\nreports lookup, one ClickHouse round-trip — per emitted run) into a single request."
+    )
+
+/**
+ * Return what each requested `SignalScoutRun` spent on model calls, summed from the `$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: a settled run's total is final, a run still in progress reports what it has spent so far. `available` is false where the internal AI observability project holding those events can't be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal operating number, and the events sit outside the project in the path. Strictly team-scoped — run ids belonging to another project contribute no rows.
+ * @summary Get the model spend of many runs at once
+ */
+export const signalsScoutRunsTokenCostsBodyRunIdsMax = 200
+
+export const SignalsScoutRunsTokenCostsBody = /* @__PURE__ */ zod
+    .object({
+        run_ids: zod
+            .array(zod.uuid())
+            .max(signalsScoutRunsTokenCostsBodyRunIdsMax)
             .describe(
                 'UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.'
             ),

@@ -71,6 +71,7 @@ import {
   type AgentTurn,
   CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
   completedTurnTimestamp,
+  completedTurnTraceId,
   countFlatRows,
   type FlatThreadRow,
   FOLLOWING_END,
@@ -113,6 +114,7 @@ import {
 import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
+import { isShowActionsItem } from "@posthog/ui/features/sessions/components/session-update/showActionsItem";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
@@ -280,10 +282,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      // A plan presented for approval renders as the full PlanApprovalView
-      // card — folded into a "N tool calls" chip, the plan the user is being
-      // asked to approve is invisible. Same exemption as buildThreadGroups.
-      if (isPlanItem(item)) {
+      if (isPlanItem(item) || isShowActionsItem(item)) {
         flush();
         out.push(item);
         continue;
@@ -367,10 +366,12 @@ const RawLogsToggleContext = createContext(false);
 
 function TurnFooter({
   turnId,
+  traceId,
   timestamp,
   copyText,
 }: {
   turnId: string;
+  traceId: string | null;
   timestamp?: number;
   copyText?: string;
 }) {
@@ -391,7 +392,7 @@ function TurnFooter({
       </span>
       {copyText && <CopyButton value={copyText} label="Copy turn" />}
       {(revealed || sentiment) && (
-        <TurnFeedback turnId={turnId} sentiment={sentiment} />
+        <TurnFeedback turnId={turnId} traceId={traceId} sentiment={sentiment} />
       )}
     </ChatMessageFooter>
   );
@@ -408,9 +409,11 @@ function TurnFooter({
  */
 function TurnFeedback({
   turnId,
+  traceId,
   sentiment,
 }: {
   turnId: string;
+  traceId: string | null;
   sentiment: AgentTurnFeedbackSentiment | null;
 }) {
   const taskId = useSessionTaskId();
@@ -428,6 +431,7 @@ function TurnFeedback({
       buildTurnRatingMetric({
         run: { taskId, taskRunId },
         turnId,
+        traceId,
         sentiment: next,
       }),
     );
@@ -946,6 +950,7 @@ const ThreadRow = memo(function ThreadRow({
           </div>
           <TurnFooter
             turnId={item.id}
+            traceId={completedTurnTraceId(item)}
             timestamp={completedTurnTimestamp(item)}
             copyText={buildTurnCopyText(item.items) ?? undefined}
           />
@@ -1326,6 +1331,7 @@ const FlatRowView = memo(
           {row.turnId != null && row.turnTimestamp != null && (
             <TurnFooter
               turnId={row.turnId}
+              traceId={row.turnTraceId ?? null}
               timestamp={row.turnTimestamp}
               copyText={row.turnCopyText}
             />

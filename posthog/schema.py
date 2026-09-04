@@ -6733,6 +6733,16 @@ class RecordingsQueryExperimentExposureFilter(BaseModel):
             "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
         ),
     )
+    in_session: bool | None = Field(
+        default=None,
+        description=(
+            "Only sessions carrying in-session exposure evidence: an event matching the"
+            " experiment's exposure criteria inside the session (with the stamped"
+            " `$feature/<flag_key>` property standing in when the exposure event was"
+            " never captured with a session id). Defaults to all exposed persons'"
+            " sessions from first exposure onward."
+        ),
+    )
     variant: str | None = Field(
         default=None,
         description=("Narrow to persons exposed to this variant. Defaults to all of the experiment's variants."),
@@ -29346,6 +29356,7 @@ class LogsQuery(BaseModel):
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
+    sessionId: str | None = Field(default=None, description="Show logs for a given session ID")
     severityLevels: list[LogSeverityLevel]
     sparklineBreakdownBy: LogsSparklineBreakdownBy | None = Field(
         default=None,

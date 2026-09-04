@@ -140,7 +140,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                 <LemonLabel>Release conditions</LemonLabel>
                 {isDisabled && (
                     <LemonTag type="muted" size="small">
-                        Flag disabled – returns false regardless of conditions
+                        Flag disabled: SDKs receive no value
                     </LemonTag>
                 )}
             </div>

@@ -486,6 +486,17 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
+ * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
+ * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ */
+export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
+    scanner_id: zod
+        .uuid()
+        .optional()
+        .describe("Scope to a single scanner's observations. Defaults to every scanner you can read."),
+})
+
+/**
  * CRUD for Replay Vision scanners.
  */
 export const visionScannersCreateBodyNameMax = 255
@@ -528,6 +539,17 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             )
             .describe(
                 'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        creation_method: zod
+            .union([
+                zod
+                    .enum(['ai', 'template', 'scratch'])
+                    .describe('\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
         scanner_config: zod
             .unknown()
@@ -659,6 +681,17 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        creation_method: zod
+            .union([
+                zod
+                    .enum(['ai', 'template', 'scratch'])
+                    .describe('\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
         scanner_config: zod
             .unknown()
