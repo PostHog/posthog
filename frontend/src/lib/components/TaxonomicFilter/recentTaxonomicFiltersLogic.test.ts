@@ -639,7 +639,7 @@ describe('recentTaxonomicFiltersLogic', () => {
 
             const filters = logic.values.recentFilters
             expect(filters).toHaveLength(MAX_RECENT_FILTERS)
-            expect(filters.find((f) => f.value === '$pageview')).toBeDefined()
+            expect(filters.map((f) => f.value)).toContain('$pageview')
             expect(filters.find((f) => f.value === 'person-key-0')).toBeUndefined()
             // Newest-first order survives the trim.
             expect(filters[0].value).toBe(`person-key-${MAX_RECENT_FILTERS - 1}`)
