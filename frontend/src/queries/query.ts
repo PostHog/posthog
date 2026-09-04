@@ -228,22 +228,15 @@ async function executeQuery<N extends DataNode>(
     try {
         statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     } catch (e: any) {
-        // The server no longer knows about this query.
+        // The server keeps a query's status in Redis for 20 minutes. A backgrounded tab stops
+        // polling and stops its own give-up timer, so it can outlive that TTL and then poll for a
+        // query the server has forgotten. That query most likely finished and cached its result.
         //
-        // The browser stops polling while the tab is in the background, and the clock it uses to
-        // give up on a slow query stops with it. The server's clock does not: it drops a query a
-        // fixed time after that query was submitted, whatever the tab is doing. So a tab left in
-        // the background long enough comes back, resumes polling, and asks about a query the
-        // server has already forgotten, even though the query itself most likely finished and
-        // cached its result.
+        // So run it again, once. force_async becomes async, to read the cached result instead of
+        // recomputing it. The query ID is reused, so cancels and log lookups still find the run;
+        // safe because the server only joins a query that is still running.
         //
-        // So run it again, once. force_async becomes async, so the retry reads that cached result
-        // instead of recomputing every tile that comes back from a background tab. The original
-        // query ID is reused, so a cancel or a log lookup still finds the run the user is waiting
-        // for, which is safe because the server only joins a query that is still running.
-        //
-        // A warehouse that is down also answers 404, and there the user needs to see the real
-        // reason instead.
+        // A warehouse that is down also answers 404. Do not retry that one.
         if (retriedAfterExpiry || e?.status !== 404 || e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE) {
             throw e
         }
