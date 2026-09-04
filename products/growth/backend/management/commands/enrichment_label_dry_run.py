@@ -151,8 +151,7 @@ class Command(BaseCommand):
                     deferred_types = sorted(
                         page_type for page_type, page in pages.items() if page.get("error") in TRANSIENT_PAGE_ERRORS
                     )
-                # Classified anyway, unlike the batch command: this is an interactive sample, not
-                # a run that must never freeze a permanent verdict against missing page content.
+                # An interactive sample classifies anyway and only reports the deferral.
                 output = classify_payload(config, fetch.payload, signup_domain, client, pages=pages)
             except Exception as e:
                 errors += 1

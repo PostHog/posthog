@@ -48,8 +48,7 @@ logger = structlog.get_logger(__name__)
 
 _ID_BATCH_SIZE = 500
 
-# So an "absence of this event" alert can catch the label pipeline going silent, mirroring
-# icp_reenrichment_sweep_completed's report_sweep_run_activity (reenrichment.py).
+# So an absence-of-event alert can catch the label pipeline going silent.
 LABEL_BATCH_RUN_EVENT = "ai_enrichment_label_batch_completed"
 
 
@@ -182,10 +181,6 @@ class Command(BaseCommand):
             "pages_scraped": 0,
             "pages_cached": 0,
             "pages_unreachable": 0,
-            # A transient page problem (busy/not_configured) defers the whole org rather than
-            # spend on a permanent verdict against missing content - see _process. Counted per
-            # org deferred, and excluded from success_rate's denominator below for the same
-            # reason "consent_revoked_after_attempt" is: the org was never actually attempted.
             "pages_deferred": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
@@ -252,9 +247,8 @@ class Command(BaseCommand):
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
                 pages = None
-                # Skipped when has_usable_payload is False: classify_payload discards such a
-                # fetch before ever reading `pages`, so fetching here would just spend Firecrawl
-                # budget on orgs whose verdict is already "unknown" regardless.
+                # Skipped when has_usable_payload is False, since fetching pages would spend
+                # Firecrawl budget on an org whose verdict is already "unknown" regardless.
                 if page_types and has_usable_payload(fetch.payload):
                     pages = ensure_pages_fetched(fetch.organization_id, signup_domain, page_types)
                     scraped = cached = unreachable = 0
@@ -275,10 +269,9 @@ class Command(BaseCommand):
                         counts["pages_unreachable"] += unreachable
                     if deferred:
                         # A transient page problem must not compute a permanent verdict against
-                        # missing content, and must not trip the circuit breaker meant for
-                        # genuine classification failures - see enrichment/pages.py's
-                        # TRANSIENT_PAGE_ERRORS. No result row is written, so the next run's
-                        # enumeration re-offers this org.
+                        # missing content or trip the circuit breaker meant for genuine
+                        # classification failures; no result row is written, so the next run
+                        # retries this org.
                         with counts_lock:
                             counts["pages_deferred"] += 1
                         return
@@ -436,8 +429,8 @@ class Command(BaseCommand):
             elapsed_seconds=elapsed_seconds,
             **counts,
         )
-        # Emitted unconditionally too, before any failure decision below: an absence-of-event
-        # alert must see a run that aborted or failed its ratio check, not just a clean one.
+        # Emitted unconditionally too, before any failure decision below, so an absence-of-event
+        # alert also sees a run that aborted or failed its ratio check.
         _report_batch_run(label=label, version=config.version, counts=counts)
         # Written unconditionally, before any failure decision below: a wrapper parsing stdout
         # for these counts needs them most on the run that fails, not just on a clean one.

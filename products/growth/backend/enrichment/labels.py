@@ -25,8 +25,6 @@ from products.growth.backend.models import EnrichmentPromptConfig, OrganizationE
 
 UNKNOWN: Literal["unknown"] = "unknown"
 
-# Namespace prefix for an input_fields path resolved from the page store (enrichment/pages.py)
-# rather than a dotted path into the archived Harmonic payload, e.g. "pages.home.markdown".
 PAGES_INPUT_PREFIX = "pages."
 
 # Keys the stored output dict uses for provenance (see classify_payload below).
@@ -119,9 +117,7 @@ def to_domain(value: Any, depth: int = 0) -> Any:
 
 
 def pages_path(path: str) -> tuple[str, str] | None:
-    """Parse a `pages.<type>.<key>` input_fields path into (page_type, key), or None if `path`
-    isn't in the pages.* namespace, has the wrong number of segments, or has an empty type or key
-    segment. The single parser behind every pages.* path check in this module and in pages.py."""
+    """Parses a `pages.<type>.<key>` input_fields path into (page_type, key), or None if it doesn't match that shape."""
     if not path.startswith(PAGES_INPUT_PREFIX):
         return None
     parts = path.split(".")
@@ -131,9 +127,6 @@ def pages_path(path: str) -> tuple[str, str] | None:
 
 
 def _page_field_value(pages: dict[str, Any] | None, path: str) -> Any:
-    """Resolve one `pages.<type>.<key>` path against the page store enrichment/pages.py already
-    fetched. A malformed path (validate_input_fields rejects these before a config can run) and
-    an absent page or key both resolve to None, same as a missing Harmonic path below."""
     parsed = pages_path(path)
     if pages is None or parsed is None:
         return None
@@ -145,11 +138,7 @@ def _page_field_value(pages: dict[str, Any] | None, path: str) -> Any:
 def extract_input_fields(
     payload: dict[str, Any], input_fields: list[str], pages: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Resolve dotted paths (e.g. "funding.fundingStage") into the archived payload, or — for a
-    `pages.<type>.<key>` path — into `pages`, the page store enrichment/pages.py already fetched
-    for this org (see classify_payload). A configured `pages.<type>.markdown` path also pulls in
-    `pages.<type>.url` even when the config never asked for it, so the model always sees the URL
-    it would need to cite as evidence.
+    """Resolve dotted paths into the archived payload, or `pages.<type>.<key>` paths into `pages`.
 
     Keyed by the full dotted path so the LLM prompt shows provenance. Missing paths,
     None values, and paths that traverse through a non-dict are omitted rather than
@@ -161,8 +150,7 @@ def extract_input_fields(
         if parsed is not None:
             page_value = _page_field_value(pages, path)
             if page_value is not None:
-                # Public page copy skips to_domain's email reduction on purpose — see
-                # enrichment/pages.py's module docstring.
+                # Page copy is public, so it skips the email reduction applied to Harmonic values below.
                 result[path] = page_value
             page_type, key = parsed
             if key == "markdown":
@@ -371,8 +359,7 @@ def validate_output_fields(config: EnrichmentPromptConfig) -> None:
                 raise PromptConfigError(f"enrichment output field {key!r} has min {low} above max {high}")
 
     if any(path.startswith(PAGES_INPUT_PREFIX) for path in config.input_fields):
-        # A page-derived claim without a link back to its source page can't be checked, so a
-        # config that reads page content must also ask the model to cite where it read it.
+        # A page-derived claim can't be checked without a link back to its source page.
         evidence_field = next((field for field in config.output_fields if field.get("key") == "evidence_url"), None)
         if evidence_field is None:
             raise PromptConfigError("enrichment config reads pages.* input but declares no 'evidence_url' output field")
@@ -518,9 +505,8 @@ def _evidence_url_matches_domain(url: str, signup_domain: str | None) -> bool:
 
 
 def _reject_mismatched_evidence_url(output: dict[str, Any], signup_domain: str | None, meta: dict[str, Any]) -> None:
-    """Null a page-derived evidence_url whose host isn't the signup domain or one of its
-    subdomains, rather than fail the whole verdict over one bad citation — a model citing some
-    other site is a mistake in one field, not a reason to discard an otherwise-good answer."""
+    """Nulls a page-derived evidence_url whose host isn't the signup domain or a subdomain, rather
+    than failing the whole verdict over one bad citation."""
     evidence_url = output.get("evidence_url")
     if not evidence_url or not isinstance(evidence_url, str):
         return

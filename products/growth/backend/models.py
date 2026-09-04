@@ -169,8 +169,6 @@ class EnrichmentPromptConfig(UUIDModel):
     prompt_text = models.TextField()
     model = models.CharField(max_length=128)
     # Dotted paths into the archived Harmonic payload fed to the prompt, e.g. ["name", "funding.fundingStage"].
-    # A "pages.<type>.<key>" path (e.g. "pages.home.markdown") resolves from the fetched page
-    # store instead — see enrichment/pages.py and labels.PAGES_INPUT_PREFIX.
     input_fields = models.JSONField(default=list)
     # The classifier's entire output contract: list of {"key", "type"
     # ("boolean"|"number"|"string"), "description"}. These are the keys the prompt asks for and
@@ -199,10 +197,8 @@ class EnrichmentPromptConfig(UUIDModel):
     def __str__(self) -> str:
         return f"{self.name} {self.version}"
 
-    # Bumped whenever the set of fields below changes, or when this module starts interpreting
-    # one of them differently. v2: an input_fields path with a "pages." prefix now resolves via
-    # the page store (enrichment/pages.py) instead of a dotted path into the archived Harmonic
-    # payload — a behavior change with no visible diff in this row's own fields.
+    # Bumped whenever the set of fields below changes, or when this module changes how it
+    # interprets one of them without changing the row itself.
     CONTENT_HASH_VERSION = "v2"
 
     @property

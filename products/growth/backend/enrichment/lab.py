@@ -103,9 +103,6 @@ def classify_fetch_for_run(
     # (nested in output["inputs"]) on success, and re-deriving it here - cheap, pure extraction,
     # no LLM call - is simpler than threading a partial result out of a caught exception. Without
     # it, a row that fails the LLM call would show an empty "inputs sent" despite having built one.
-    # Mirrors classify_payload's own short-circuit for a missing/not-found archived payload
-    # (`{"companyFound": False}`, or no payload at all): it never extracts from one, so a row for
-    # one must not display inputs the classifier never touched.
     page_types = page_types_from_input_fields(config.input_fields)
     pages: dict[str, Any] | None = None
     if not has_usable_payload(fetch.payload):
