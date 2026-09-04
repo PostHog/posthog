@@ -11,6 +11,7 @@ COPY local-workspace/patches /local-workspace/patches
 COPY local-workspace/packages/agent/package.json /local-workspace/packages/agent/package.json
 COPY local-workspace/packages/enricher/package.json /local-workspace/packages/enricher/package.json
 COPY local-workspace/packages/git/package.json /local-workspace/packages/git/package.json
+COPY local-workspace/packages/harness/package.json /local-workspace/packages/harness/package.json
 COPY local-workspace/packages/shared/package.json /local-workspace/packages/shared/package.json
 
 RUN --mount=type=cache,id=posthog-sandbox-local-pnpm,target=/pnpm/store,sharing=locked \
