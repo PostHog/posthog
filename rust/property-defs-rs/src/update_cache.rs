@@ -205,13 +205,16 @@ impl Cache {
                     project_id: def.project_id,
                     name: &def.name,
                 };
-                // A different bucket means the write cadence demands a re-issue;
-                // the get still refreshes the entry's recency either way.
+                // Only a bucket newer than the cached one demands a re-issue.
+                // Producers interleave, so an update from the previous bucket
+                // can be checked after a rollover was cached; the newer write
+                // already refreshed the row, so the older update stays covered.
+                // The get refreshes the entry's recency either way.
                 let covered = self
                     .eventdefs
                     .cache
                     .get(&lookup)
-                    .is_some_and(|bucket| bucket == def.last_seen_at);
+                    .is_some_and(|bucket| bucket >= def.last_seen_at);
                 (covered, &self.eventdefs.hits, &self.eventdefs.misses)
             }
             Update::EventProperty(ep) => (
@@ -244,9 +247,28 @@ impl Cache {
         covered
     }
 
+    // Both valued subcaches only move forward: a newer last_seen bucket, or a
+    // None to Some type upgrade. Concurrent producers interleave their
+    // contains_key/insert pairs, so an insert can arrive after another producer
+    // cached fresher state; replacing that state would make the next sighting
+    // miss and re-issue a write Postgres treats as a no-op. The get-then-insert
+    // pairs below race too, but losing that race costs one redundant upsert.
     pub fn insert(&self, key: Update) {
         match key {
             Update::Event(def) => {
+                let lookup = EventDefKeyRef {
+                    team_id: def.team_id,
+                    project_id: def.project_id,
+                    name: &def.name,
+                };
+                if self
+                    .eventdefs
+                    .cache
+                    .get(&lookup)
+                    .is_some_and(|bucket| bucket >= def.last_seen_at)
+                {
+                    return;
+                }
                 let key = EventDefKey {
                     team_id: def.team_id,
                     project_id: def.project_id,
@@ -256,6 +278,22 @@ impl Cache {
             }
             Update::EventProperty(ep) => self.eventprops.cache.insert(ep, ()),
             Update::Property(def) => {
+                let lookup = PropDefKeyRef {
+                    team_id: def.team_id,
+                    project_id: def.project_id,
+                    name: &def.name,
+                    event_type: def.event_type,
+                    group_name: def.group_type_index.as_ref().map(group_name),
+                };
+                if def.property_type.is_none()
+                    && self
+                        .propdefs
+                        .cache
+                        .get(&lookup)
+                        .is_some_and(|cached| cached.is_some())
+                {
+                    return;
+                }
                 let key = PropDefKey {
                     team_id: def.team_id,
                     project_id: def.project_id,

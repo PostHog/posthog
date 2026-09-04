@@ -266,6 +266,12 @@ fn test_propdef_type_variants_collapse_to_one_entry() {
         cache.contains_key(&retyped),
         "the upsert never overwrites a non-null type"
     );
+
+    cache.insert(untyped);
+    assert!(
+        cache.contains_key(&typed),
+        "a racing untyped insert cannot downgrade the cached type"
+    );
 }
 
 fn make_event_def_at(name: &str, last_seen_at: chrono::DateTime<Utc>) -> Update {
@@ -304,6 +310,16 @@ fn test_eventdef_bucket_rollover_replaces_entry() {
         "rollover must replace, not accumulate"
     );
     assert!(cache.contains_key(&bucket2));
+    assert!(
+        cache.contains_key(&bucket1),
+        "an in-flight older bucket is covered by the newer cached one"
+    );
+
+    cache.insert(bucket1);
+    assert!(
+        cache.contains_key(&bucket2),
+        "a racing older insert cannot replace the newer bucket"
+    );
 }
 
 // Guards the recency contract of `Cache::contains_key`: a lookup must mark the
