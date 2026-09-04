@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
 import {
+    CONVERSATION_NOT_FOUND_RETRY_DELAYS_MS,
     PENDING_MAX_CONTEXT_KEY,
     QUESTION_SUGGESTIONS_DATA,
     SIDE_PANEL_PANEL_ID,
@@ -22,7 +24,7 @@ import {
     mergeConversations,
 } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
-import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
+import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, MOCK_IN_PROGRESS_CONVERSATION, maxMocks } from './testUtils'
 
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
@@ -188,11 +190,95 @@ describe('maxLogic', () => {
         })
     })
 
-    it('does not reset conversation when 404 occurs during active message generation', async () => {
+    it('retries a 404 and loads the conversation once the backend row lands', async () => {
         router.actions.push('', {}, { panel: 'max' })
         sidePanelStateLogic.mount()
 
         const mockConversationId = 'new-conversation-id'
+        let attempts = 0
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${mockConversationId}`]: () => {
+                    attempts++
+                    // The client routes to the chat before the backend has written the row, so the
+                    // first read misses and the second one succeeds.
+                    return attempts === 1
+                        ? [404, { detail: 'Not found' }]
+                        : [200, { ...MOCK_CONVERSATION, id: mockConversationId }]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setQuestion('Test question')
+            logic.actions.setConversationId(mockConversationId)
+        }).toDispatchActions(['setQuestion', 'setConversationId'])
+
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(mockConversationId, 0, 0)
+        }).toDispatchActions(['prependOrReplaceConversation'])
+
+        expect(attempts).toBe(2)
+        await expectLogic(logic).toMatchValues({
+            conversationId: mockConversationId,
+            conversationNotFound: false,
+        })
+    })
+
+    it('stores a still-running conversation returned by a retry instead of leaving the thread blank', async () => {
+        router.actions.push('', {}, { panel: 'max' })
+        sidePanelStateLogic.mount()
+
+        const mockConversationId = 'running-conversation-id'
+        let attempts = 0
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${mockConversationId}`]: () => {
+                    attempts++
+                    // The row lands after the URL does, but the run is still in progress on the read
+                    // that finally succeeds.
+                    return attempts === 1
+                        ? [404, { detail: 'Not found' }]
+                        : [200, { ...MOCK_IN_PROGRESS_CONVERSATION, id: mockConversationId }]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        logic.actions.setConversationId(mockConversationId)
+
+        // The in-progress response is stored (so the thread renders it), and polling continues
+        // rather than reporting the chat as missing.
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(mockConversationId, 0, 0)
+        }).toDispatchActions(['prependOrReplaceConversation'])
+
+        await expectLogic(logic).toMatchValues({
+            conversation: partial({ id: mockConversationId, status: 'in_progress' }),
+            conversationNotFound: false,
+            conversationLoading: false,
+        })
+    })
+
+    it('reports a conversation as not found once the retries are exhausted', async () => {
+        const mockConversationId = 'missing-conversation-id'
 
         useMocks({
             ...maxMocks,
@@ -209,32 +295,55 @@ describe('maxLogic', () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
-        // Wait for initial conversationHistory load to complete
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+        logic.actions.setConversationId(mockConversationId)
+
+        await expectLogic(logic, () => {
+            // Start on the last attempt so the test doesn't wait out the whole backoff ladder.
+            logic.actions.pollConversation(mockConversationId, CONVERSATION_NOT_FOUND_RETRY_DELAYS_MS.length, 0)
+        }).toDispatchActions([logic.actionCreators.endConversationPolling(true)])
+
+        await expectLogic(logic).toMatchValues({
+            conversationNotFound: true,
+            conversationLoading: false,
+        })
+    })
+
+    it('does not let a superseded poll mark the newly opened chat as missing', async () => {
+        const chatA = 'chat-a-id'
+        const chatB = 'chat-b-id'
+
+        // Hold chat A's request open so it resolves only after the user has moved to chat B.
+        let rejectA: (reason: unknown) => void = () => {}
+        const pendingA = new Promise<ConversationDetail>((_resolve, reject) => {
+            rejectA = reject
+        })
+        const getSpy = jest
+            .spyOn(api.conversations, 'get')
+            .mockImplementation((id: string) =>
+                id === chatA ? pendingA : Promise.reject({ status: 404, data: { detail: 'Not found' } })
+            )
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
         await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
 
-        // Simulate asking Max a question (which starts a new conversation)
-        await expectLogic(logic, () => {
-            logic.actions.setQuestion('Test question')
-            logic.actions.setConversationId(mockConversationId)
-        }).toDispatchActions(['setQuestion', 'setConversationId'])
+        // Poll A on its last attempt, so a single 404 would otherwise exhaust the budget and set
+        // the not-found flag. Its request stays in flight.
+        logic.actions.setConversationId(chatA)
+        logic.actions.pollConversation(chatA, CONVERSATION_NOT_FOUND_RETRY_DELAYS_MS.length, 0)
 
-        // Now simulate the race condition: when pollConversation is called from loadConversationHistorySuccess,
-        // it will get a 404 for the conversation that doesn't exist yet on the backend
-        // but is being generated on the frontend
-        await expectLogic(logic, () => {
-            logic.actions.pollConversation(mockConversationId, 0, 0)
-        }).toFinishAllListeners()
+        // The user opens chat B before A's request resolves.
+        logic.actions.setConversationId(chatB)
 
-        // Wait a bit for any async operations
-        await expectLogic(logic).delay(50)
+        // A's request fails now. The stale chain must leave B's state untouched.
+        rejectA({ status: 404, data: { detail: 'Not found' } })
+        await expectLogic(logic).toFinishAllListeners()
 
-        // The conversation should NOT be reset - conversationId should still be set
-        await expectLogic(logic).toMatchValues({
-            conversationId: mockConversationId,
-        })
+        expect(logic.values.conversationId).toBe(chatB)
+        expect(logic.values.conversationNotFound).toBe(false)
 
-        // Verify no error toast was shown and no reset occurred
-        expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
+        getSpy.mockRestore()
     })
 
     it('manages suggestion group selection correctly', async () => {

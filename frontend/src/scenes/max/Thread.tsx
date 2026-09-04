@@ -226,8 +226,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
  * wedged above the conversion divider.
  */
 function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element | null {
-    const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, canCreateTicket } = useValues(maxThreadLogic)
+    const { conversationLoading, messagesLoading, conversationId, conversationNotFound } = useValues(maxLogic)
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, canCreateTicket, conversation } =
+        useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
@@ -380,7 +381,7 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                 />
             )}
         </>
-    ) : conversationId ? (
+    ) : conversationId && (conversationNotFound || conversation) ? (
         <div className="flex flex-1 items-center justify-center">
             <NotFound object="conversation" className="m-0" />
         </div>

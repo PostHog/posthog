@@ -133,6 +133,10 @@ function handleCommandString(options: string, actions: maxLogicType['actions'], 
 const CHAT_TITLE_NEW = 'New chat'
 const CHAT_TITLE_HISTORY = 'Chat history'
 
+// The client mints the conversation UUID and routes to it before the backend writes the row, so the
+// first reads of a freshly opened chat can miss. One delay in ms per retry across that window.
+export const CONVERSATION_NOT_FOUND_RETRY_DELAYS_MS = [200, 400, 800, 1600]
+
 // Fixed panelId for the floating side panel chat, which is not a scene tab.
 export const SIDE_PANEL_PANEL_ID = 'sidepanel'
 
@@ -177,6 +181,8 @@ export interface maxLogicValues {
     conversationHistoryVisible: boolean
     conversationId: string | null
     conversationLoading: boolean
+    conversationNotFound: boolean
+    conversationPolling: boolean
     fillInHint: string | null
     focusCounter: number
     frontendConversationId: string
@@ -248,6 +254,9 @@ export interface maxLogicActions {
     }
     decrActiveStreamingThreads: () => {
         value: true
+    }
+    endConversationPolling: (notFound?: boolean) => {
+        notFound: boolean
     }
     focusInput: () => {
         value: true
@@ -328,7 +337,8 @@ export interface maxLogicMeta {
             conversationHistory: ConversationDetail[],
             conversationHistoryLoading: boolean,
             conversationId: string | null,
-            conversation: ConversationDetail | null
+            conversation: ConversationDetail | null,
+            conversationPolling: boolean
         ) => boolean
         messagesLoading: (conversation: ConversationDetail | null, conversationId: string | null) => boolean
         threadVisible: (conversationId: string | null) => boolean
@@ -419,6 +429,7 @@ export const maxLogic = kea<maxLogicType>([
             currentRecursionDepth,
             leadingTimeout,
         }),
+        endConversationPolling: (notFound: boolean = false) => ({ notFound }),
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
         focusInput: true,
@@ -454,6 +465,26 @@ export const maxLogic = kea<maxLogicType>([
                 setConversationId: (_, { conversationId }) => conversationId,
                 startNewConversation: () => null,
                 toggleConversationHistory: (state, { visible }) => (visible ? null : state),
+            },
+        ],
+
+        conversationPolling: [
+            false,
+            {
+                pollConversation: () => true,
+                endConversationPolling: () => false,
+                setConversationId: () => false,
+                startNewConversation: () => false,
+            },
+        ],
+
+        conversationNotFound: [
+            false,
+            {
+                pollConversation: () => false,
+                endConversationPolling: (_, { notFound }) => notFound,
+                setConversationId: () => false,
+                startNewConversation: () => false,
             },
         ],
 
@@ -571,14 +602,24 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         conversationLoading: [
-            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
+            (s) => [
+                s.conversationHistory,
+                s.conversationHistoryLoading,
+                s.conversationId,
+                s.conversation,
+                s.conversationPolling,
+            ],
             (
                 conversationHistory: ConversationDetail[],
                 conversationHistoryLoading: boolean,
                 conversationId: string | null,
-                conversation: ConversationDetail | null
+                conversation: ConversationDetail | null,
+                conversationPolling: boolean
             ) => {
-                return !conversationHistory.length && conversationHistoryLoading && !!conversationId && !conversation
+                if (!conversationId || conversation) {
+                    return false
+                }
+                return (!conversationHistory.length && conversationHistoryLoading) || conversationPolling
             },
         ],
 
@@ -742,6 +783,7 @@ export const maxLogic = kea<maxLogicType>([
          */
         pollConversation: async ({ conversationId, currentRecursionDepth, leadingTimeout }, breakpoint) => {
             if (currentRecursionDepth > 10) {
+                actions.endConversationPolling()
                 return
             }
 
@@ -754,20 +796,43 @@ export const maxLogic = kea<maxLogicType>([
             try {
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
+                // The user may have opened another chat while this request was in flight. A stale
+                // chain must not retry or write shared state, or it would cancel the active chat's
+                // poll and label it missing.
+                if (values.conversationId !== conversationId) {
+                    return
+                }
                 if (err.status === 404) {
-                    // If conversation is not found, do nothing. In the normal case a NotFound will be shown.
-                    // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
-                    // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
-                    // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
+                    // A chat that is still being created resolves on a retry. Only after the budget runs
+                    // out is it genuinely gone, and only then does the UI say so. Retries never interrupt
+                    // generation, because this call only reads.
+                    const retryDelay = CONVERSATION_NOT_FOUND_RETRY_DELAYS_MS[currentRecursionDepth]
+                    if (retryDelay === undefined) {
+                        actions.endConversationPolling(true)
+                        return
+                    }
+                    actions.pollConversation(conversationId, currentRecursionDepth + 1, retryDelay)
                     return
                 }
 
                 lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
             }
 
-            if (conversation && conversation.status === ConversationStatus.Idle) {
+            // Same guard for the success path: a poll superseded by a newer chat must not touch it.
+            if (values.conversationId !== conversationId) {
+                return
+            }
+
+            // Store every successful read, not only idle ones — a chat opened by link can still be
+            // running, and dropping the in-progress response leaves the thread blank. Keep polling
+            // until it goes idle.
+            if (conversation) {
                 actions.prependOrReplaceConversation(conversation)
+            }
+
+            if (conversation && conversation.status === ConversationStatus.Idle) {
                 actions.scrollThreadToBottom('instant')
+                actions.endConversationPolling()
             } else {
                 actions.pollConversation(conversationId, currentRecursionDepth + 1)
             }

@@ -368,6 +368,25 @@ export const ThreadWithEmptyConversation: Story = {
     },
 }
 
+export const ThreadWithMissingConversation: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                '/api/environments/:team_id/conversations/deleted/': () => [404, { detail: 'Not found' }],
+            },
+        })
+
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+
+        useEffect(() => {
+            setConversationId('deleted')
+        }, [setConversationId])
+
+        return <Template />
+    },
+}
+
 export const SharedThread: Story = {
     render: () => {
         const sharedConversationId = 'shared-conversation-123'
