@@ -43,12 +43,42 @@ describe('getDashboardFilterChanges', () => {
         ).toEqual([
             {
                 label: 'Property filter',
-                previousValue: ['browser = Chrome'],
-                value: ['browser = Firefox'],
+                previousValue: ['browser = Chrome (event property)'],
+                value: ['browser = Firefox (event property)'],
                 status: 'changed',
             },
-            { label: 'Property filter', previousValue: [], value: ['country = Canada'], status: 'new' },
-            { label: 'Property filter', previousValue: ['os = macOS'], value: [], status: 'removed' },
+            {
+                label: 'Property filter',
+                previousValue: [],
+                value: ['country = Canada (event property)'],
+                status: 'new',
+            },
+            { label: 'Property filter', previousValue: ['os = macOS (event property)'], value: [], status: 'removed' },
+        ])
+    })
+
+    it('names the taxonomy of a property filter so a scope switch does not read as a no-op', () => {
+        const eventPlan: AnyPropertyFilter = {
+            key: 'plan',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: 'pro',
+        }
+        const personPlan: AnyPropertyFilter = { ...eventPlan, type: PropertyFilterType.Person }
+
+        expect(getDashboardFilterChanges({ properties: [eventPlan] }, { properties: [personPlan] })).toEqual([
+            {
+                label: 'Property filter',
+                previousValue: [],
+                value: ['plan = pro (person property)'],
+                status: 'new',
+            },
+            {
+                label: 'Property filter',
+                previousValue: ['plan = pro (event property)'],
+                value: [],
+                status: 'removed',
+            },
         ])
     })
 

@@ -5,7 +5,7 @@ import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { DashboardFilter, HogQLVariable, MultipleBreakdownType } from '~/queries/schema/schema-general'
-import type { AnyPropertyFilter, BreakdownType } from '~/types'
+import { type AnyPropertyFilter, type BreakdownType, PropertyFilterType } from '~/types'
 
 export interface DashboardSettingsChange {
     label: string
@@ -91,6 +91,30 @@ export function getDashboardVariableChanges(
             },
         ]
     })
+}
+
+const PROPERTY_FILTER_TYPE_LABELS: Partial<Record<PropertyFilterType, string>> = {
+    [PropertyFilterType.Cohort]: 'cohort',
+    [PropertyFilterType.DataWarehouse]: 'data warehouse property',
+    [PropertyFilterType.DataWarehousePersonProperty]: 'data warehouse person property',
+    [PropertyFilterType.Element]: 'element',
+    [PropertyFilterType.Event]: 'event property',
+    [PropertyFilterType.EventMetadata]: 'event metadata',
+    [PropertyFilterType.Feature]: 'feature flag',
+    [PropertyFilterType.Group]: 'group property',
+    [PropertyFilterType.HogQL]: 'SQL expression',
+    [PropertyFilterType.Person]: 'person property',
+    [PropertyFilterType.RevenueAnalytics]: 'revenue analytics property',
+    [PropertyFilterType.Session]: 'session property',
+}
+
+// The same property name exists in several taxonomies, and the formatted label carries only the
+// name, the operator, and the value. Without the taxonomy, moving a filter from one to the other
+// reads as the same filter removed and added again.
+function formatProperty(property: AnyPropertyFilter): string {
+    const label = formatPropertyLabel(property, {}).trim()
+    const taxonomy = property.type ? PROPERTY_FILTER_TYPE_LABELS[property.type] : undefined
+    return taxonomy ? `${label} (${taxonomy})` : label
 }
 
 function propertyIdentity(property: AnyPropertyFilter): string {
@@ -185,7 +209,7 @@ function getPropertyChanges(previous: AnyPropertyFilter[], current: AnyPropertyF
             changes.push({
                 label: 'Property filter',
                 previousValue: [],
-                value: [formatPropertyLabel(property, {}).trim()],
+                value: [formatProperty(property)],
                 status: 'new',
             })
             return
@@ -195,8 +219,8 @@ function getPropertyChanges(previous: AnyPropertyFilter[], current: AnyPropertyF
         if (!equal(previousProperty, property)) {
             changes.push({
                 label: 'Property filter',
-                previousValue: [formatPropertyLabel(previousProperty, {}).trim()],
-                value: [formatPropertyLabel(property, {}).trim()],
+                previousValue: [formatProperty(previousProperty)],
+                value: [formatProperty(property)],
                 status: 'changed',
             })
         }
@@ -205,7 +229,7 @@ function getPropertyChanges(previous: AnyPropertyFilter[], current: AnyPropertyF
     unmatchedPrevious.forEach((property) => {
         changes.push({
             label: 'Property filter',
-            previousValue: [formatPropertyLabel(property, {}).trim()],
+            previousValue: [formatProperty(property)],
             value: [],
             status: 'removed',
         })
