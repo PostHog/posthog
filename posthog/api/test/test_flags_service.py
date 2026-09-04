@@ -72,6 +72,27 @@ class TestBatchEvaluateFlagForTeam(SimpleTestCase):
 
     @override_settings(INTERNAL_REQUEST_TOKEN="secret")
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
+    def test_accepts_legacy_response_without_property_matching_version(self, mock_post):
+        response_data = {"matched_person_uuids": [], "next_cursor": None, "errors_count": 0}
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = response_data
+        mock_post.return_value = response
+
+        result = batch_evaluate_flag_for_team(
+            team_id=1,
+            project_id=1,
+            flag_key="my-flag",
+            expected_version=7,
+            expected_property_matching_version=1,
+            cursor=0,
+            limit=100,
+        )
+
+        self.assertEqual(result, response_data)
+
+    @override_settings(INTERNAL_REQUEST_TOKEN="secret")
+    @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
     def test_rejects_response_without_pinned_property_matching_version(self, mock_post):
         response = MagicMock()
         response.status_code = 200

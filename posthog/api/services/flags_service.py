@@ -225,7 +225,7 @@ def batch_evaluate_flag_for_team(
         )
     response.raise_for_status()
     response_data = response.json()
-    if response_data.get("property_matching_version") != expected_property_matching_version:
+    if response_data.get("property_matching_version", 1) != expected_property_matching_version:
         raise PropertyMatchingVersionConflictError(
             f"Feature flags service did not use property matching version {expected_property_matching_version} "
             f"while generating a cohort from feature flag '{flag_key}'."
