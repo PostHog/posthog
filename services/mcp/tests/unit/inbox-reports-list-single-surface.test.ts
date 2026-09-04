@@ -26,6 +26,8 @@ describe('inbox-reports-list owns the Inbox reports list operation', () => {
         const call = {
             view: 'actionable',
             use_priority_preference: true,
+            sort: 'priority',
+            limit: 10,
             scope: 'teammate',
             teammate_uuid: '01a04d4c-9994-716b-8038-10627229a016',
             priority: 'P0,P1',

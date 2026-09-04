@@ -177,9 +177,12 @@ tools:
             full work log, including signal findings, judgments, and log entries, is readable via
             inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
             '-is_suggested_reviewer,status,-updated_at' by default. To answer "what should I look at next", pass
-            `view=actionable` with `use_priority_preference=true`: that returns ready, actionable reports that have no
-            implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling back to
-            the project threshold. The other views are `needs_input` (waiting on a human), `monitoring` (an
+            `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready,
+            actionable reports that have no implementation PR yet, at or above the requesting user's personal
+            PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which
+            priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default
+            ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports,
+            each with its summary. The other views are `needs_input` (waiting on a human), `monitoring` (an
             implementation PR is open), `resolved`, `dismissed`, `not_actionable`, and `all`. Narrow by reviewer with
             `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every
             report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving
