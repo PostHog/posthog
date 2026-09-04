@@ -57,6 +57,14 @@ class TestHogQLAggregationUtils(BaseTest):
         self.assertEqual(inner_expr.value, 1)  # type: ignore[attr-defined]
         self.assertIsNone(params)
 
+        # count(*) means the same as count(): the wildcard maps to a per-row 1, not a
+        # bare Field(chain=["*"]) that would break the rebuilt value column.
+        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("count(*)")
+        self.assertEqual(aggregation, "count")
+        self.assertIsInstance(inner_expr, ast.Constant)
+        self.assertEqual(inner_expr.value, 1)  # type: ignore[attr-defined]
+        self.assertIsNone(params)
+
         # Test min with field
         aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("min(properties.score)")
         self.assertEqual(aggregation, "min")
