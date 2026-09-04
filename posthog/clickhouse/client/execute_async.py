@@ -67,6 +67,7 @@ def _query_status_error_code(err: Exception) -> Optional[str]:
 
 def _query_status_error_category(err: Exception) -> Optional[QueryErrorCategory]:
     error_category = classify_query_error(err)
+    # Enum members are singletons, so identity cleanly distinguishes the generic fallback member.
     return error_category if error_category is not QueryErrorCategory.ERROR else None
 
 

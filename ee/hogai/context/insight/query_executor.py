@@ -3,7 +3,7 @@ import time
 import asyncio
 from dataclasses import field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -139,13 +139,14 @@ class QueryStatusError(APIException):
 
 
 def _query_status_error(
-    query_status: dict[str, Any], *, error_category: Optional[QueryErrorCategory]
+    *,
+    error_message: Optional[str],
+    error_code: Optional[str],
+    error_category: Optional[QueryErrorCategory],
 ) -> QueryStatusError:
-    error_message = query_status.get("error_message")
-    error_code = query_status.get("error_code")
     return QueryStatusError(
-        error_message if isinstance(error_message, str) and error_message else "Query failed",
-        code=error_code if isinstance(error_code, str) and error_code else "error",
+        error_message or "Query failed",
+        code=error_code or "error",
         error_category=error_category,
     )
 
@@ -473,7 +474,8 @@ class AssistantQueryExecutor:
                         except Exception:
                             logger.warning("Failed to retrieve internal query error category", exc_info=True)
                     raise _query_status_error(
-                        query_status,
+                        error_message=query_status.get("error_message"),
+                        error_code=query_status.get("error_code"),
                         error_category=(
                             internal_query_status.error_category if internal_query_status is not None else None
                         ),

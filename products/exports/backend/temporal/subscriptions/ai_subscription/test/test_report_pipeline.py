@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import APIException
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
@@ -308,8 +309,11 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
     assert execution.diagnostics[0].hogql == "SELECT 1"
 
 
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_cls: MagicMock) -> None:
+async def test_run_steps_placeholder_omits_undisclosed_error_type(
+    mock_executor_cls: MagicMock, _mock_hogql_fix: AsyncMock
+) -> None:
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=ClickHouseQueryMemoryLimitExceeded())
     execution = await _run_steps(
         _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
@@ -337,7 +341,11 @@ async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
     assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
     assert execution.diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
     assert execution.plan_invalidating_failed_count == 1
-    mock_hogql_fix.assert_not_awaited()
+    assert mock_hogql_fix.await_args is not None
+    assert mock_hogql_fix.await_args.kwargs["error_message"] == (
+        "The query exceeded its execution budget. Rewrite it to preaggregate data, avoid repeated scans, "
+        "and reduce high-cardinality grouping while preserving the requested metric and time window."
+    )
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -424,7 +432,11 @@ async def test_run_steps_preserves_plan_for_transient_capacity_error(
 async def test_run_steps_classifies_async_user_error_code_as_plan_invalidating(
     mock_executor_cls: MagicMock, mock_fix: AsyncMock
 ) -> None:
-    status_error = _query_status_error({"error": True}, error_category=QueryErrorCategory.USER_ERROR)
+    status_error = _query_status_error(
+        error_message=None,
+        error_code=None,
+        error_category=QueryErrorCategory.USER_ERROR,
+    )
     error = MaxToolRetryableError("Query failed")
     error.__context__ = status_error
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
@@ -446,6 +458,48 @@ async def test_run_steps_invalidates_unknown_failure_without_repair(
     mock_executor_cls: MagicMock, mock_fix: AsyncMock
 ) -> None:
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=ValueError("unexpected"))
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.plan_invalidating_failed_count == 1
+    mock_fix.assert_not_awaited()
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_does_not_repair_polling_timeout(
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+) -> None:
+    error = MaxToolRetryableError("Query hasn't completed in time")
+    error.__context__ = APIException("Query hasn't completed in time")
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.plan_invalidating_failed_count == 1
+    mock_fix.assert_not_awaited()
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_does_not_preserve_mixed_self_recoverable_and_unknown_failure(
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+) -> None:
+    status_error = _query_status_error(
+        error_message=None,
+        error_code=None,
+        error_category=QueryErrorCategory.RATE_LIMITED,
+    )
+    status_error.__context__ = ValueError("unexpected")
+    error = MaxToolRetryableError("Query temporarily unavailable")
+    error.__context__ = status_error
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
 
     execution = await _run_steps(
         _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True

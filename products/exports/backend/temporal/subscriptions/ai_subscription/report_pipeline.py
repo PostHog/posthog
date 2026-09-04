@@ -106,6 +106,15 @@ _FIX_LLM_TIMEOUT_SECONDS = 30.0
 # queue and run as slots free up — every step still executes.
 _MAX_CONCURRENT_STEPS = 5
 
+_CLICKHOUSE_QUERY_REPAIR_HINT = "ClickHouse rejected the query. Rewrite it using valid HogQL syntax and functions."
+_ASYNC_USER_QUERY_REPAIR_HINT = "The query was rejected because its structure is invalid. Rewrite it using valid HogQL."
+_QUERY_PERFORMANCE_REPAIR_HINT = (
+    "The query exceeded its execution budget. Rewrite it to preaggregate data, avoid repeated scans, "
+    "and reduce high-cardinality grouping while preserving the requested metric and time window."
+)
+_GENERIC_QUERY_REPAIR_HINT = "The query failed with an adjusted-input error. Rewrite it using valid HogQL."
+_SELF_RECOVERABLE_QUERY_ERROR_CATEGORIES = frozenset({QueryErrorCategory.RATE_LIMITED})
+
 
 def _all_queries_failed_notice(total_steps: int) -> str:
     noun = "the query" if total_steps == 1 else f"all {total_steps} queries"
@@ -115,11 +124,6 @@ def _all_queries_failed_notice(total_steps: int) -> str:
     )
 
 
-_CLICKHOUSE_QUERY_REPAIR_HINT = "ClickHouse rejected the query. Rewrite it using valid HogQL syntax and functions."
-_ASYNC_USER_QUERY_REPAIR_HINT = "The query was rejected because its structure is invalid. Rewrite it using valid HogQL."
-_GENERIC_QUERY_REPAIR_HINT = "The query failed with an adjusted-input error. Rewrite it using valid HogQL."
-
-
 @frozen
 class QueryRepairDecision:
     repair_hint: Optional[str]
@@ -127,12 +131,12 @@ class QueryRepairDecision:
 
 
 def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairDecision:
-    """Return a safe repair hint and whether this failure invalidates the plan."""
     safe_message = safe_error_message(exc)
     categories: set[QueryErrorCategory] = set()
     has_clickhouse_user_error = False
     has_retryable_error = False
     has_unknown_query_status_error = False
+    has_unclassified_error = False
     for current in iter_exception_chain(exc):
         if isinstance(current, MaxToolRetryableError):
             has_retryable_error = True
@@ -145,15 +149,13 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
             category = classify_query_error(current)
             if category is not QueryErrorCategory.ERROR:
                 categories.add(category)
+            elif not isinstance(current, (MaxToolRetryableError, QueryStatusError)):
+                has_unclassified_error = True
             if isinstance(current, InternalCHQueryError) and category is QueryErrorCategory.USER_ERROR:
                 has_clickhouse_user_error = True
 
-    # Capacity pressure is temporary and does not make the query itself invalid. Check it before
-    # the generic retryable wrapper, which otherwise describes every adjusted-input failure alike.
-    if QueryErrorCategory.RATE_LIMITED in categories:
-        return QueryRepairDecision(repair_hint=None, invalidates_plan=False)
     if QueryErrorCategory.QUERY_PERFORMANCE_ERROR in categories:
-        return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
+        return QueryRepairDecision(repair_hint=_QUERY_PERFORMANCE_REPAIR_HINT, invalidates_plan=True)
     if safe_message is not None:
         return QueryRepairDecision(repair_hint=safe_message, invalidates_plan=True)
     if QueryErrorCategory.USER_ERROR in categories:
@@ -161,8 +163,12 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
             repair_hint=_CLICKHOUSE_QUERY_REPAIR_HINT if has_clickhouse_user_error else _ASYNC_USER_QUERY_REPAIR_HINT,
             invalidates_plan=True,
         )
-    if has_unknown_query_status_error:
+    if has_unknown_query_status_error or has_unclassified_error:
         return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
+    # Preserve a plan only when every classified failure is explicitly self-recoverable. This is
+    # deliberately fail-closed so a capacity error cannot mask another unknown or structural cause.
+    if categories and categories <= _SELF_RECOVERABLE_QUERY_ERROR_CATEGORIES:
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=False)
     if has_retryable_error:
         return QueryRepairDecision(repair_hint=_GENERIC_QUERY_REPAIR_HINT, invalidates_plan=True)
     return QueryRepairDecision(repair_hint=None, invalidates_plan=True)

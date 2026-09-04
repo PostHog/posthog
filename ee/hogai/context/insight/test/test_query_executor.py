@@ -57,31 +57,35 @@ from ee.hogai.utils.query import validate_assistant_query
 
 
 @pytest.mark.parametrize(
-    "query_status,error_category,expected_message,expected_code",
+    "error_message,error_code,error_category,expected_message,expected_code",
     [
         pytest.param(
-            {"error": True, "error_message": "Query failed with error", "error_code": "specific_error"},
+            "Query failed with error",
+            "specific_error",
             None,
             "Query failed with error",
             "specific_error",
             id="message_and_public_code",
         ),
         pytest.param(
-            {"error": True, "error_code": "specific_error"},
+            None,
+            "specific_error",
             None,
             "Query failed",
             "specific_error",
             id="public_code_without_message",
         ),
         pytest.param(
-            {"error": True},
+            None,
+            None,
             QueryErrorCategory.USER_ERROR,
             "Query failed",
             "error",
             id="typed_internal_category",
         ),
         pytest.param(
-            {"error": True},
+            None,
+            None,
             None,
             "Query failed",
             "error",
@@ -90,12 +94,17 @@ from ee.hogai.utils.query import validate_assistant_query
     ],
 )
 def test_query_status_error_preserves_public_code_and_typed_category(
-    query_status: dict[str, Any],
+    error_message: str | None,
+    error_code: str | None,
     error_category: QueryErrorCategory | None,
     expected_message: str,
     expected_code: str,
 ) -> None:
-    error = _query_status_error(query_status, error_category=error_category)
+    error = _query_status_error(
+        error_message=error_message,
+        error_code=error_code,
+        error_category=error_category,
+    )
 
     assert isinstance(error, APIException)
     assert str(error) == expected_message
