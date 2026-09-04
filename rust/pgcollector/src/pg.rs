@@ -23,10 +23,16 @@ pub fn tls_policy(url: &str) -> tokio_postgres::config::SslMode {
 pub fn tls_connector() -> tokio_postgres_rustls::MakeRustlsConnect {
     let mut roots = rustls::RootCertStore::empty();
     let native = rustls_native_certs::load_native_certs();
+    for err in &native.errors {
+        tracing::warn!(error = %err, "failed to load a native certificate");
+    }
     for cert in native.certs {
-        drop(roots.add(cert));
+        if let Err(e) = roots.add(cert) {
+            tracing::warn!(error = %e, "failed to add a native certificate to root store");
+        }
     }
     if roots.is_empty() {
+        tracing::info!("no native certs found, falling back to webpki-roots");
         roots.roots = webpki_roots::TLS_SERVER_ROOTS.to_vec();
     }
     let tls_cfg = rustls::ClientConfig::builder()
