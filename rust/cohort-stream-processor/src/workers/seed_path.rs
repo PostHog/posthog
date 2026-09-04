@@ -28,7 +28,8 @@ use crate::filters::TeamId;
 use crate::merge::tombstone_redirect::{self, Resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS};
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_JOBS_ENQUEUED_TOTAL,
-    RECONCILE_JOBS_SUPERSEDED_TOTAL, SEED_HELD_OFFSET_GAUGE, SEED_TILES_SKIPPED_TOTAL,
+    RECONCILE_JOBS_SUPERSEDED_TOTAL, SEED_HELD_OFFSET_GAUGE, SEED_REKEY_HOP_CAPPED_TOTAL,
+    SEED_TILES_SKIPPED_TOTAL, STAGE1_STATE_DECODE_ERROR,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{ChangeOrigin, CohortMembershipChange};
@@ -519,7 +520,7 @@ impl SeedHead for TileHead {
         let Routed { local, re_keys } = route_tiles(deps, run, &mut tally).await?;
         clock.mark(ApplyStage::Resolve);
 
-        let overlay = read_leaf_state(deps, &local, &mut tally).await?;
+        let overlay = read_leaf_state(deps, &local).await?;
         clock.mark(ApplyStage::Read);
 
         let folded = fold_tiles(span, local, re_keys, overlay, stamp, tally);
@@ -591,7 +592,9 @@ async fn route_tiles<'a>(
                 continue;
             }
             SeedRoute::CapExhausted { person } => {
-                tally.add(Outcome::HopCapped(SeedKind::Tile));
+                // On the attempt, with the warning: a run that a later hold keeps from settling
+                // must not hide the anomaly.
+                counter!(SEED_REKEY_HOP_CAPPED_TOTAL).increment(1);
                 // Same degrade as the event path: orphaned-but-bounded state (the survivor's live
                 // path never reads this slice) that ages out via eviction, preferred over a silent
                 // tile loss.
@@ -627,11 +630,11 @@ async fn route_tiles<'a>(
 }
 
 /// One `multi_get` over every leaf the run can touch, on the maintenance lane so backfill never
-/// contends with live event reads.
+/// contends with live event reads. A row that does not decode is counted here, at the read: a run
+/// that a later hold keeps from settling must not hide it.
 async fn read_leaf_state(
     deps: ApplyDeps<'_>,
     local: &[LocalTile<'_>],
-    tally: &mut Tally,
 ) -> Result<Overlay<BehavioralKey, StatefulRecord>, SeedHold> {
     let mut keys: Vec<BehavioralKey> = local
         .iter()
@@ -655,8 +658,9 @@ async fn read_leaf_state(
                 Err(_) => Decoded::Corrupt,
             },
         )?;
-    for _ in 0..overlay.prior_corrupt_rows() {
-        tally.add(Outcome::Stage1DecodeError);
+    let corrupt = overlay.prior_corrupt_rows();
+    if corrupt > 0 {
+        counter!(STAGE1_STATE_DECODE_ERROR).increment(corrupt as u64);
     }
     Ok(overlay)
 }
@@ -685,6 +689,7 @@ fn fold_tiles(
     // Once per team: a run can span teams in different time zones.
     let mut now_days: HashMap<TeamId, DayIdx> = HashMap::new();
     let mut touches: BTreeMap<BehavioralKey, LeafTouch<'_>> = BTreeMap::new();
+    let mut recompose = TouchedPersons::default();
 
     for tile in &local {
         let team_id = tile.tile.team_id();
@@ -754,12 +759,16 @@ fn fold_tiles(
             if deadline_ms != i64::MAX {
                 touch.deadline_ms = deadline_ms;
             }
+            // Merged and Unchanged alike, so a crash between the two commits self-heals on replay:
+            // the replayed run mints no transition, but the leaf's folded truth still diffs against
+            // what downstream was told. Here, in offset order, so the person's provenance is the
+            // last seed that touched them rather than the last leaf in key order.
+            recompose.touch(team_id, tile.person, tile.tile.run_id(), lsk);
         }
     }
 
     let mut records = StagedBatch::default();
     let mut leaves: BTreeMap<TeamId, Vec<FoldedLeaf>> = BTreeMap::new();
-    let mut recompose = TouchedPersons::default();
     let mut schedules = Vec::new();
     for (key, slot) in overlay.touched() {
         let Some(touch) = touches.get(key) else {
@@ -778,10 +787,6 @@ fn fold_tiles(
             minted_transition,
             run_id: touch.run_id,
         });
-        // Merged and Unchanged alike, so a crash between the two commits self-heals on replay: the
-        // replayed run mints no transition, but the leaf's folded truth still diffs against what
-        // downstream was told.
-        recompose.touch(touch.team_id, person_id, touch.run_id, key.lsk);
         if let Some(record) = slot.advanced() {
             records.put::<Behavioral>(key, &record.encode());
             if touch.deadline_ms != i64::MAX {
@@ -944,7 +949,7 @@ mod tests {
     use crate::sweep::EvictionQueue;
     use crate::workers::event_path::{process_event_gated, EventNameGating};
     use crate::workers::seed_apply::handle_seed_groups;
-    use crate::workers::seed_run::{group_seeds, leaf_weight, RunBudget};
+    use crate::workers::seed_run::{group_seeds, row_weight, RunBudget};
 
     use super::*;
 
@@ -1602,10 +1607,14 @@ mod tests {
     }
 
     fn single_leaf_json(window_days: i64) -> Value {
+        single_leaf_json_with("0123456789abcdef", window_days)
+    }
+
+    fn single_leaf_json_with(condition_hash: &str, window_days: i64) -> Value {
         json!({
             "type": "behavioral", "value": "performed_event", "key": "$pageview",
             "time_value": window_days, "time_interval": "day",
-            "conditionHash": "0123456789abcdef",
+            "conditionHash": condition_hash,
             "bytecode": behavioral_bytecode(),
         })
     }
@@ -1811,6 +1820,19 @@ mod tests {
         )
     }
 
+    fn tile_from_run(person: Uuid, condition_hash: &str, run: u128, day: DayIdx) -> SeedTile {
+        SeedTile::new(
+            TEAM,
+            person,
+            ConditionHash::parse(condition_hash).unwrap(),
+            count(1),
+            day,
+            SChunkMs(1_700_000_000_000),
+            RunId(Uuid::from_u128(run)),
+            ClaimEpoch(1),
+        )
+    }
+
     fn person_seed_for(person: Uuid) -> PersonSeed {
         PersonSeed::new(
             TEAM,
@@ -1993,7 +2015,7 @@ mod tests {
                     offset: SeedOffset(offset),
                 })
                 .collect();
-            let groups = group_seeds(admitted, budget, |work| leaf_weight(&snapshot, work));
+            let groups = group_seeds(admitted, budget, |work| row_weight(&snapshot, work));
             handle_seed_groups(
                 deps,
                 &mut self.queue,
@@ -2590,6 +2612,55 @@ mod tests {
             "the other team's register lands under its own team id",
         );
         assert_eq!(shell.committable(partition_id), Some(2));
+    }
+
+    /// A composed change carries the run of the last seed that touched the person, in offset
+    /// order. Picking it in leaf-key order would stamp whichever leaf happens to sort last, so the
+    /// test runs both orders: one of them is the key order, and both must answer alike.
+    #[tokio::test]
+    async fn a_composed_change_carries_the_run_of_the_last_seed_by_offset() {
+        const FIRST_HASH: &str = "0123456789abcdef";
+        const SECOND_HASH: &str = "fedcba0123456789";
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let cohorts = vec![(
+            1,
+            wrap(vec![
+                single_leaf_json_with(FIRST_HASH, 7),
+                single_leaf_json_with(SECOND_HASH, 7),
+            ]),
+        )];
+
+        for [earlier, later] in [[FIRST_HASH, SECOND_HASH], [SECOND_HASH, FIRST_HASH]] {
+            let mut shell = Shell::new(cohorts.clone());
+            shell
+                .run_batch(
+                    partition_id,
+                    vec![
+                        (
+                            SeedWork::Tile(tile_from_run(person, earlier, 0xA, today())),
+                            0,
+                        ),
+                        (
+                            SeedWork::Tile(tile_from_run(person, later, 0xB, today())),
+                            1,
+                        ),
+                    ],
+                )
+                .await;
+
+            let changes = shell.sink.changes();
+            assert_eq!(
+                changes.len(),
+                1,
+                "both leaves entered, so the composed cohort flipped once",
+            );
+            assert_eq!(
+                changes[0].run_id,
+                Some(RunId(Uuid::from_u128(0xB))),
+                "the later seed by offset owns the composed flip, whichever leaf sorts last",
+            );
+        }
     }
 
     /// `OffsetTracker::defer` panics on a second defer of one offset in a tenure. A held run

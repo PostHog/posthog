@@ -29,12 +29,11 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterCatalog, TeamId};
 use crate::observability::metrics::{
     PERSON_SEEDS_APPLIED_TOTAL, PERSON_SEEDS_DROPPED_TOTAL, PERSON_SEEDS_SKIPPED_TOTAL,
-    PERSON_SEEDS_UNCHANGED_TOTAL, PERSON_SEED_PRIOR_CORRUPT_TOTAL, PERSON_SEED_REKEYED_TOTAL,
-    PERSON_SEED_REKEY_HOP_CAPPED_TOTAL, PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
-    SEED_APPLY_RUNS_HELD_TOTAL, SEED_APPLY_RUN_DURATION_SECONDS, SEED_APPLY_RUN_SIZE,
-    SEED_REKEYED_TOTAL, SEED_REKEY_HOP_CAPPED_TOTAL, SEED_REKEY_PRODUCE_FAILURE_TOTAL,
-    SEED_TILES_APPLIED_TOTAL, SEED_TILES_DROPPED_TOTAL, SEED_TILES_SKIPPED_TOTAL,
-    SEED_TILES_UNCHANGED_TOTAL, STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
+    PERSON_SEEDS_UNCHANGED_TOTAL, PERSON_SEED_REKEYED_TOTAL,
+    PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL, SEED_APPLY_RUNS_HELD_TOTAL,
+    SEED_APPLY_RUN_DURATION_SECONDS, SEED_APPLY_RUN_SIZE, SEED_REKEYED_TOTAL,
+    SEED_REKEY_PRODUCE_FAILURE_TOTAL, SEED_TILES_APPLIED_TOTAL, SEED_TILES_DROPPED_TOTAL,
+    SEED_TILES_SKIPPED_TOTAL, SEED_TILES_UNCHANGED_TOTAL, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::producer::{CohortMembershipChange, LastUpdatedClock, MembershipSink};
@@ -284,8 +283,7 @@ impl<K: Ord + Copy, V> Overlay<K, V> {
         self.slots.get_mut(key)
     }
 
-    /// Rows that exist but did not decode. Counted once per row here, where the per-seed apply
-    /// counted once per seed that touched one.
+    /// Rows that exist but did not decode, for the head to count once per row at the read.
     pub(crate) fn prior_corrupt_rows(&self) -> usize {
         self.slots
             .values()
@@ -318,7 +316,7 @@ impl ReKeys {
 }
 
 /// The persons a run touched: which leaves each needs recomposed, and the run of the last seed
-/// that touched them, which is the provenance its recomposed changes carry.
+/// that touched them in offset order, which is the provenance their recomposed changes carry.
 ///
 /// Keeping a person whole matters: splitting their leaves across two recompute calls would
 /// evaluate the same cohort twice against the same uncommitted bit and emit the flip twice.
@@ -342,8 +340,8 @@ impl TouchedPersons {
                 run,
                 leaves: BTreeSet::new(),
             });
-        // Last run wins: the person stays in one recompose group, so their composed flips carry
-        // the provenance of the last run that touched them.
+        // Last call wins, and the heads call in offset order: the person stays in one recompose
+        // group under the run of the last seed that touched them.
         touch.run = run;
         touch.leaves.insert(leaf);
     }
@@ -369,8 +367,9 @@ impl TouchedPersons {
 /// One thing a run did, held as data until the run settles. Exhaustive, so a new outcome cannot be
 /// counted mid-flight by accident.
 ///
-/// Two exceptions stay attempt-based, both pre-existing: failure counters (produce failures, held
-/// runs, dropped hashes) and `OUTPUT_MEMBERSHIP_CHANGES_EMITTED`, which fires inside
+/// Only work the run did is deferred. What a run *found* stays attempt-based, because a run that a
+/// later hold keeps from settling must not hide it: corrupt rows, hop-capped redirects, dropped
+/// hashes, produce failures, held runs, and `OUTPUT_MEMBERSHIP_CHANGES_EMITTED`, which fires inside
 /// `produce_membership` before the stage-2 commit.
 ///
 /// The payloads are the metric labels rather than the domain enums, because that is what a counter
@@ -390,12 +389,9 @@ pub(crate) enum Outcome {
     PersonSkipped(&'static str),
     /// `reason` label.
     PersonDropped(&'static str),
-    PriorCorrupt,
     /// `kind` label, as [`crate::workers::worker::transition_metric_label`] names it.
     Stage1Transition(&'static str),
     ReKeyed(SeedKind),
-    HopCapped(SeedKind),
-    Stage1DecodeError,
 }
 
 /// A run's non-failure counts, emitted only once the run settles, so a hold cannot double-count
@@ -432,9 +428,6 @@ impl Tally {
                 Outcome::PersonDropped(reason) => {
                     counter!(PERSON_SEEDS_DROPPED_TOTAL, "reason" => reason).increment(count);
                 }
-                Outcome::PriorCorrupt => {
-                    counter!(PERSON_SEED_PRIOR_CORRUPT_TOTAL).increment(count);
-                }
                 Outcome::Stage1Transition(kind) => {
                     counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(count);
                 }
@@ -443,15 +436,6 @@ impl Tally {
                 }
                 Outcome::ReKeyed(SeedKind::Person) => {
                     counter!(PERSON_SEED_REKEYED_TOTAL).increment(count);
-                }
-                Outcome::HopCapped(SeedKind::Tile) => {
-                    counter!(SEED_REKEY_HOP_CAPPED_TOTAL).increment(count);
-                }
-                Outcome::HopCapped(SeedKind::Person) => {
-                    counter!(PERSON_SEED_REKEY_HOP_CAPPED_TOTAL).increment(count);
-                }
-                Outcome::Stage1DecodeError => {
-                    counter!(STAGE1_STATE_DECODE_ERROR).increment(count);
                 }
             }
         }

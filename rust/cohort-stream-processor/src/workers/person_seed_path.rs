@@ -19,7 +19,10 @@ use uuid::Uuid;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
 use crate::merge::tombstone_redirect::{self, MAX_CROSS_PARTITION_REDIRECT_HOPS};
-use crate::observability::metrics::PERSON_SEED_HASHES_DROPPED_TOTAL;
+use crate::observability::metrics::{
+    PERSON_SEED_HASHES_DROPPED_TOTAL, PERSON_SEED_PRIOR_CORRUPT_TOTAL,
+    PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
+};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::{
     apply_person_seed, person_seed_verdict, MatchedSet, PersonRecord, PersonSeedOutcome,
@@ -93,7 +96,7 @@ impl SeedHead for PersonHead {
         let Routed { local, re_keys } = route_person_seeds(deps, run, &mut tally).await?;
         clock.mark(ApplyStage::Resolve);
 
-        let overlay = read_person_records(deps, &local, &mut tally).await?;
+        let overlay = read_person_records(deps, &local).await?;
         clock.mark(ApplyStage::Read);
 
         let folded = fold_person_seeds(deps, span, local, re_keys, overlay, tally);
@@ -181,7 +184,9 @@ async fn route_person_seeds<'a>(
             // TTL reclaims it, and `apply_person_seed` floors `last_seen_ms` at the scan instant
             // so it does age out wherever `COHORT_PERSON_RECORD_TTL_DAYS` is set.
             SeedRoute::CapExhausted { person } => {
-                tally.add(Outcome::HopCapped(SeedKind::Person));
+                // On the attempt, with the warning: a run that a later hold keeps from settling
+                // must not hide the anomaly.
+                counter!(PERSON_SEED_REKEY_HOP_CAPPED_TOTAL).increment(1);
                 warn!(
                     partition_id = deps.partition_id,
                     team_id = seed.team_id().0,
@@ -208,13 +213,13 @@ async fn route_person_seeds<'a>(
 /// One `multi_get` over every record the run can touch, on the maintenance lane so backfill never
 /// contends with live event reads.
 ///
-/// A row that exists but does not decode is counted here, the way the event path counts it: the
-/// fold rebuilds from an absent baseline, so without the counter a real codec failure is
-/// indistinguishable from a dormant person that never had a record.
+/// A row that exists but does not decode is counted here, at the read, the way the event path
+/// counts it: the fold rebuilds from an absent baseline, so without the counter a real codec
+/// failure is indistinguishable from a dormant person that never had a record — and a run that a
+/// later hold keeps from settling must not hide it.
 async fn read_person_records(
     deps: ApplyDeps<'_>,
     local: &[LocalPersonSeed<'_>],
-    tally: &mut Tally,
 ) -> Result<Overlay<PersonRecordKey, PersonRecord>, SeedHold> {
     let mut keys: Vec<PersonRecordKey> = local.iter().map(|seed| seed.record_key).collect();
     keys.sort_unstable();
@@ -235,8 +240,9 @@ async fn read_person_records(
                 Err(_) => Decoded::Corrupt,
             },
         )?;
-    for _ in 0..overlay.prior_corrupt_rows() {
-        tally.add(Outcome::PriorCorrupt);
+    let corrupt = overlay.prior_corrupt_rows();
+    if corrupt > 0 {
+        counter!(PERSON_SEED_PRIOR_CORRUPT_TOTAL).increment(corrupt as u64);
     }
     Ok(overlay)
 }
