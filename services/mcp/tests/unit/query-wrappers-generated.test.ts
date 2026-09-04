@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { GENERATED_TOOLS } from '@/tools/generated/query-wrappers'
 
@@ -84,5 +85,15 @@ describe('generated query wrappers', () => {
         const tool = GENERATED_TOOLS['query-stickiness']!()
 
         expect(tool.schema.safeParse({ ...insightQueries[3][1], intervalCount }).success).toBe(expected)
+    })
+
+    it('preserves actor source descriptions when making them strict', () => {
+        const tool = GENERATED_TOOLS['query-stickiness-actors']!()
+        const schema = z.toJSONSchema(tool.schema, { io: 'input', reused: 'inline' })
+
+        expect(schema.properties?.source).toMatchObject({
+            additionalProperties: false,
+            description: 'The source stickiness insight query whose bar we are drilling into.',
+        })
     })
 })

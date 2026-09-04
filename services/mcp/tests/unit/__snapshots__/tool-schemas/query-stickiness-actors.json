@@ -46,6 +46,7 @@
         },
         "source": {
             "additionalProperties": false,
+            "description": "The source stickiness insight query whose bar we are drilling into.",
             "properties": {
                 "compareFilter": {
                     "description": "Compare to date range. When enabled, shows the current and previous period side by side.",
