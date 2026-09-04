@@ -1,9 +1,9 @@
 ---
 name: signals-scout-inbox-validation
 description: >
-  Follow-up Signals scout for the inbox itself. After a deployment soak window, re-measures
-  the problems behind recently resolved reports and files a report when a fix didn't hold,
-  plus a gated escalation check on dismissed reports.
+  Follow-up Signals scout for the inbox itself. Re-measures the problems behind recently
+  resolved reports after a soak window and reports when a fix didn't hold, plus a gated
+  escalation check on dismissed reports.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus inbox-reports-list /

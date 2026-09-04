@@ -2,7 +2,7 @@ import os
 import json
 from contextlib import suppress
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -84,7 +84,9 @@ else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
-    DATABASES: dict[str, dict] = {"default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))}
+    DATABASES: dict[str, dict[str, Any]] = {
+        "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
+    }
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -211,12 +213,12 @@ for route in product_routes:
 
     PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
-    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3  # ty: ignore[invalid-assignment]
+    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
     DATABASES[writer_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     reader_url = os.getenv(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
-    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3  # ty: ignore[invalid-assignment]
+    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
     DATABASES[reader_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     if TEST:
@@ -251,7 +253,7 @@ for route in product_routes:
     if direct_url:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
-        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10  # ty: ignore[invalid-assignment]
+        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
         _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -584,6 +586,13 @@ TASKS_CREATE_JWT_SECRETS = get_list(
     get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
 )
 
+# Signs the tokens a workflow's "Run scout" action calls back with. Its own key rather than
+# TASKS_CREATE_JWT_SECRETS — see products/workflows/backend/service_jwt.py for why. The dev/test
+# value must match the plugin server's minting default.
+WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
+)
+
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
 # ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
 # Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every
@@ -670,6 +679,13 @@ CACHES = {
     }
 }
 
+# Authorization cache reads must use the writer. Reading membership versions and values from
+# different replicas can otherwise make a revoked membership appear valid after invalidation.
+CACHES["organization_access"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -732,6 +748,7 @@ else:
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
     CACHES["query_cache"] = CACHES["default"]
+    CACHES["organization_access"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

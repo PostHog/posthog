@@ -343,6 +343,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                     .filter((part): part is string | JSX.Element => part !== null)
             }
 
+            if (isExperiment && changes.length > 0 && listParts.length === 0) {
+                // humanize() skips log items with a null description
+                return { description: null }
+            }
+
             if (isExperiment && changes.length > 0 && listParts.length > 0) {
                 const lastIndex = listParts.length - 1
                 listParts[lastIndex] = appendPreposition(listParts[lastIndex])

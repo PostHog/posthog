@@ -130,16 +130,16 @@ from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_acti
 from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
-from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
-from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
-from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
+from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
+from posthog.hogql_queries.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
@@ -755,7 +755,7 @@ def get_query_runner(
         "StickinessActorsQuery",
         "PathsV2ActorsQuery",
     ):
-        from .insights.insight_actors_query_runner import InsightActorsQueryRunner
+        from .insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
             query=cast(InsightActorsQuery | dict[str, Any], query),
@@ -766,7 +766,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "InsightActorsQueryOptions":
-        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+        from .insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 
         return InsightActorsQueryOptionsRunner(
             query=cast(InsightActorsQueryOptions | dict[str, Any], query),

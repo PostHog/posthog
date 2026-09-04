@@ -21,6 +21,7 @@ const buildMember = (overrides: Partial<OrganizationMemberType> = {}): Organizat
             last_name: 'Mercer',
             email: 'alex@example.com',
         },
+        last_login: '2026-01-02T03:04:05Z',
         ...overrides,
     }) as OrganizationMemberType
 
@@ -125,14 +126,15 @@ describe('accountRelatedUsersLogic', () => {
 
     const buildEuRow = (
         n: number,
-        level: OrganizationMembershipLevel = OrganizationMembershipLevel.Member
-    ): unknown[] => [100 + n, `eu-m-${n}`, level, `First${n}`, `Last${n}`, `eu${n}@example.com`, `did-${n}`]
+        level: OrganizationMembershipLevel = OrganizationMembershipLevel.Member,
+        lastLogin: string | null = null
+    ): unknown[] => [100 + n, `eu-m-${n}`, level, `First${n}`, `Last${n}`, `eu${n}@example.com`, `did-${n}`, lastLogin]
 
     it('falls back to the EU warehouse view when the org has no local members', async () => {
         jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(buildResponse([], 0))
-        const query = jest
-            .spyOn(api, 'query')
-            .mockResolvedValue({ results: [buildEuRow(1, OrganizationMembershipLevel.Admin), buildEuRow(2)] } as any)
+        const query = jest.spyOn(api, 'query').mockResolvedValue({
+            results: [buildEuRow(1, OrganizationMembershipLevel.Admin, '2026-01-02T03:04:05Z'), buildEuRow(2)],
+        } as any)
 
         logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
         logic.mount()
@@ -146,12 +148,14 @@ describe('accountRelatedUsersLogic', () => {
                     id: 'eu-m-1',
                     level: OrganizationMembershipLevel.Admin,
                     user: { id: 101, first_name: 'First1', email: 'eu1@example.com', distinct_id: 'did-1' },
+                    last_login: '2026-01-02T03:04:05Z',
                     region: Region.EU,
                 },
                 {
                     id: 'eu-m-2',
                     level: OrganizationMembershipLevel.Member,
                     user: { id: 102, first_name: 'First2', email: 'eu2@example.com', distinct_id: 'did-2' },
+                    last_login: null,
                     region: Region.EU,
                 },
             ],

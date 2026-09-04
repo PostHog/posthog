@@ -231,7 +231,15 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .withTeamId(team.id)
                     .withStatus('active')
                     .withSimpleWorkflow({
-                        trigger: { type: 'github-event', filters: { properties: [], bytecode: ['_h', 29] } } as any,
+                        trigger: {
+                            type: 'internal-event',
+                            filters: {
+                                source: 'internal-events',
+                                events: [{ id: '$github_event_received', type: 'events' }],
+                                properties: [],
+                                bytecode: ['_h', 29],
+                            },
+                        } as any,
                     })
                     .build()
             )

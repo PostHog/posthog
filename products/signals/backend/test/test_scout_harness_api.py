@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -327,6 +328,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
 _FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
+_RUN_TOKEN_COSTS_QUERY = "products.signals.backend.scout_harness.run_costs.get_local_task_run_token_costs"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -493,6 +495,37 @@ class TestScoutHarnessEmissionReportsBatchAPI(APIBaseTest):
             response = self.client.post(self._url(), data={"run_ids": [str(run.id), str(other_run.id)]}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+
+class TestScoutHarnessRunTokenCostsAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/token-costs/"
+
+    def test_staff_reads_the_cost_of_every_requested_run(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        priced = _make_run(self.team)
+        unpriced = _make_run(self.team)
+        with patch(_RUN_TOKEN_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.25")}):
+            response = self.client.post(
+                self._url(), data={"run_ids": [str(priced.id), str(unpriced.id)]}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["available"] is True
+        costs = {row["run_id"]: row["token_cost_usd"] for row in body["costs"]}
+        # A run with no generations attributed reports null, not 0 — the number the roster showed
+        # for every scout run while the read was keyed on the desktop `ai_product`.
+        assert costs == {str(priced.id): 1.25, str(unpriced.id): None}
+
+    def test_non_staff_is_refused(self) -> None:
+        # Fleet spend is an internal operating number, and the generations sit in a project other
+        # than the one in the path.
+        run = _make_run(self.team)
+        with patch(_RUN_TOKEN_COSTS_QUERY) as query:
+            response = self.client.post(self._url(), data={"run_ids": [str(run.id)]}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
 
 
 class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
@@ -1407,7 +1440,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def test_remember_drops_run_id_from_another_team(self) -> None:
         # A run UUID from another team must not create cross-team lineage on this
         # team's memory row — but lineage is best-effort, so the write still lands
-        # with `created_by_run_id` left null rather than being rejected.
+        # with `created_by_run_id` left null rather than being rejected. This caller's
+        # token names no task, so there is no sandbox run to fall back to either.
         other = Team.objects.create(organization=self.organization, name="Other")
         other_run = _make_run(other)
         response = self.client.post(
@@ -1421,7 +1455,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 
     def test_remember_drops_unknown_run_id(self) -> None:
         # A well-formed UUID that doesn't reference any run row is dropped (no orphan
-        # lineage), but the memory write itself must never be lost over it.
+        # lineage), but the memory write itself must never be lost over it. This caller's
+        # token names no task, so there is no sandbox run to fall back to either.
         response = self.client.post(
             self._list_url(),
             data={"key": "k1", "content": "v", "run_id": "00000000-0000-0000-0000-000000000000"},
@@ -1431,14 +1466,65 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert row.created_by_run_id is None
 
-    def test_remember_rejects_malformed_run_id(self) -> None:
-        # UUIDField in the serializer rejects non-UUID strings before the view runs.
+    @parameterized.expand(
+        [
+            ("not_a_uuid", "not-a-uuid"),
+            # The shape scouts actually send: a run UUID retyped out of the run prompt with a
+            # group dropped.
+            ("truncated_uuid", "01a0658a-30c3-7efb-bf14e4690b67"),
+        ]
+    )
+    def test_remember_keeps_the_write_when_run_id_is_unparseable(self, _name: str, run_id: str) -> None:
+        # The scout copies `run_id` out of its prompt by hand, so a share of writes carry a
+        # mistyped one. Lineage is best-effort metadata and the memory is the part worth keeping,
+        # so an unparseable id must not cost the whole write. Wiring guard for the best-effort field.
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "run_id": "not-a-uuid"},
+            data={"key": "k1", "content": "v", "run_id": run_id},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v"
+
+    @parameterized.expand(
+        [
+            ("omitted", None),
+            ("unparseable", "01a0658a-30c3-7efb-bf14e4690b67"),
+            ("names_no_run", "00000000-0000-0000-0000-000000000000"),
+        ]
+    )
+    def test_remember_attributes_the_entry_to_the_sandbox_run(self, _name: str, run_id: str | None) -> None:
+        # The contract the scout fleet depends on: a memory written from a scout sandbox keeps its
+        # run link even when the body carries no usable `run_id`. The token's bound task is the
+        # server's own record of which run is writing, so the typo costs nothing.
+        run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+        body: dict = {"key": "k1", "content": "v"}
+        if run_id is not None:
+            body["run_id"] = run_id
+
+        response = self.client.post(self._list_url(), data=body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert str(row.created_by_run_id) == str(run.id)
+
+    def test_remember_prefers_a_run_id_the_body_names_over_the_sandbox_run(self) -> None:
+        # The fallback only fills a gap. A scout writing on behalf of an earlier run still gets
+        # the run it named.
+        named = _make_run(self.team)
+        sandbox_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=sandbox_run.task_run.task_id)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "run_id": str(named.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert str(row.created_by_run_id) == str(named.id)
 
 
 class TestScoutHarnessNotesAPI(APIBaseTest):
@@ -3147,12 +3233,14 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
         assert body["limits"]["runs_today"] == 1
 
 
-_QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
-_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
+# The gates themselves live in `run_gates`, shared with the workflow-triggered run path, so
+# that's where they're patched; the view only maps their outcome onto DRF exceptions.
+_QUOTA = "products.signals.backend.scout_harness.run_gates.is_team_signals_quota_limited"
+_DAILY_GATE = "products.signals.backend.scout_harness.run_gates.daily_report_limit_gate"
+_FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
-_FLAG = "products.signals.backend.scout_harness.views._read_flag_payload"
 
 
 class TestScoutHarnessConfigRunAPI(APIBaseTest):

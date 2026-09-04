@@ -1515,4 +1515,28 @@ describe("TaskCreationSaga", () => {
       );
     },
   );
+
+  it("forwards the selected Claude model access to the agent session", async () => {
+    const createTaskMock = vi.fn().mockResolvedValue(createTask());
+    mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
+    mockHost.detectRepo.mockResolvedValue(null);
+
+    const saga = makeSaga({ createTask: createTaskMock });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repoPath: "/repo",
+      workspaceMode: "local",
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sessionService.connectToTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+      }),
+    );
+  });
 });

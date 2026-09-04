@@ -21,10 +21,12 @@ import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
+import { TRACING_DISPLAY_TIMEZONE } from './dateFormats'
 import { tracingEmptyState } from './emptyState/tracingEmptyState'
 import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
+import { TracingAgentIntegration } from './TracingAgentIntegration'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
@@ -59,6 +61,7 @@ export default function TracingScene(): JSX.Element {
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
                 <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                    <TracingAgentIntegration />
                     <TracingSceneContents />
                 </BindLogic>
             </BindLogic>
@@ -203,7 +206,7 @@ function TracingSceneContents(): JSX.Element {
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
-                    displayTimezone="UTC"
+                    displayTimezone={TRACING_DISPLAY_TIMEZONE}
                     compare={compareConfig}
                     visibleRowDateRange={visibleRowDateRange}
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}

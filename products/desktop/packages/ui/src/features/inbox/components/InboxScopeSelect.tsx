@@ -1,4 +1,8 @@
-import { AsteriskSimpleIcon, CaretDownIcon } from "@phosphor-icons/react";
+import {
+  AsteriskSimpleIcon,
+  CaretDownIcon,
+  UserIcon,
+} from "@phosphor-icons/react";
 import {
   INBOX_SCOPE_ENTIRE_PROJECT,
   INBOX_SCOPE_FOR_YOU,
@@ -8,39 +12,27 @@ import {
   teammateInboxScope,
 } from "@posthog/core/inbox/reportMembership";
 import {
+  Button,
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
+  ComboboxTrigger,
 } from "@posthog/quill";
 import { ReviewerAvatar } from "@posthog/ui/features/inbox/components/ReviewerAvatar";
 import { getSuggestedReviewerDisplayName } from "@posthog/ui/features/inbox/filterOptions";
 import { useInboxScopeOptions } from "@posthog/ui/features/inbox/hooks/useInboxScopeOptions";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
-import { SegmentedControl } from "@radix-ui/themes";
 import { useMemo, useRef, useState } from "react";
 
-/**
- * Two-segment scope toggle. Left segment is "For you"; right segment shows
- * either "Entire project" or the currently-selected teammate's name, and
- * opens a Quill Combobox with a searchable list of "Entire project + each
- * teammate" when clicked.
- *
- * Segments share equal width – Radix Themes' SegmentedControl indicator is
- * hardcoded to equal-width math (`width: calc(100% / N)` + percentage
- * translate), so a fit-content override desyncs the pill from the items.
- * Keeping the default avoids a custom toggle just for this surface.
- */
 const PICKER_ENTIRE_PROJECT_VALUE = "__entire-project__";
-
-type SegmentValue = "for-you" | "entire-project";
 
 export function InboxScopeSelect() {
   const scope = useInboxReviewerScopeStore((s) => s.scope);
   const setScope = useInboxReviewerScopeStore((s) => s.setScope);
-  const anchorRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const { teammateOptions } = useInboxScopeOptions();
 
@@ -52,35 +44,31 @@ export function InboxScopeSelect() {
     );
   }, [scope, teammateOptions]);
 
-  const segmentValue: SegmentValue =
-    scope === INBOX_SCOPE_FOR_YOU ? "for-you" : "entire-project";
-
   const rightLabel = selectedTeammate
     ? getSuggestedReviewerDisplayName(selectedTeammate)
     : "Entire project";
 
   const pickerItems = useMemo(() => {
-    const items: string[] = [PICKER_ENTIRE_PROJECT_VALUE];
+    const items: string[] = [INBOX_SCOPE_FOR_YOU, PICKER_ENTIRE_PROJECT_VALUE];
     for (const teammate of teammateOptions) {
       items.push(teammateInboxScope(teammate.uuid));
     }
     return items;
   }, [teammateOptions]);
 
-  const pickerValue: string = isTeammateInboxScope(scope)
-    ? scope
-    : PICKER_ENTIRE_PROJECT_VALUE;
-
-  const handleSegmentValueChange = (next: string) => {
-    if (next === "for-you") {
-      setScope(INBOX_SCOPE_FOR_YOU);
-      setOpen(false);
-    }
-  };
+  const pickerValue: string =
+    scope === INBOX_SCOPE_FOR_YOU
+      ? INBOX_SCOPE_FOR_YOU
+      : isTeammateInboxScope(scope)
+        ? scope
+        : PICKER_ENTIRE_PROJECT_VALUE;
+  const triggerLabel = scope === INBOX_SCOPE_FOR_YOU ? "For you" : rightLabel;
 
   const handlePickerValueChange = (value: unknown) => {
     if (typeof value !== "string") return;
-    if (value === PICKER_ENTIRE_PROJECT_VALUE) {
+    if (value === INBOX_SCOPE_FOR_YOU) {
+      setScope(INBOX_SCOPE_FOR_YOU);
+    } else if (value === PICKER_ENTIRE_PROJECT_VALUE) {
       setScope(INBOX_SCOPE_ENTIRE_PROJECT);
     } else {
       setScope(value as InboxScope);
@@ -96,40 +84,27 @@ export function InboxScopeSelect() {
       open={open}
       onOpenChange={setOpen}
     >
-      <div ref={anchorRef} className="ml-2 inline-flex">
-        <SegmentedControl.Root
-          value={segmentValue}
-          size="1"
-          onValueChange={handleSegmentValueChange}
-          aria-label="Self-driving scope"
-        >
-          <SegmentedControl.Item value="for-you">For you</SegmentedControl.Item>
-          <SegmentedControl.Item
-            value="entire-project"
-            onClick={() => setOpen(true)}
-            aria-haspopup="listbox"
-            aria-expanded={open}
+      <ComboboxTrigger
+        render={
+          <Button
+            ref={anchorRef}
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label={`Self-driving scope: ${triggerLabel}`}
+            className="gap-1.5"
           >
-            <span className="inline-flex items-center gap-1.5">
-              {rightLabel}
-              <CaretDownIcon
-                size={10}
-                weight="bold"
-                className="text-muted-foreground"
-              />
-            </span>
-          </SegmentedControl.Item>
-        </SegmentedControl.Root>
-      </div>
+            {triggerLabel}
+            <CaretDownIcon size={11} weight="bold" className="text-gray-10" />
+          </Button>
+        }
+      />
       <ComboboxContent
         anchor={anchorRef}
         align="end"
         side="bottom"
         sideOffset={6}
-        // The segmented toggle already shows which scope is active, so the
-        // Combobox's built-in right-edge check on the selected row is just
-        // visual noise — hide it and reclaim the reserved padding.
-        className="min-w-[220px] [&_[data-slot=combobox-item]>span.absolute]:hidden [&_[data-slot=combobox-item][aria-selected=true]]:pe-2!"
+        className="min-w-[220px]"
       >
         <ComboboxInput
           placeholder="Search people…"
@@ -139,6 +114,23 @@ export function InboxScopeSelect() {
         <ComboboxEmpty>No matching people.</ComboboxEmpty>
         <ComboboxList className="max-h-[min(16rem,calc(var(--available-height,16rem)-5rem))]">
           {(itemValue: string) => {
+            if (itemValue === INBOX_SCOPE_FOR_YOU) {
+              return (
+                <ComboboxItem
+                  key={INBOX_SCOPE_FOR_YOU}
+                  value={INBOX_SCOPE_FOR_YOU}
+                  title="For you"
+                  className="gap-2"
+                >
+                  <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-(--gray-7) text-gray-11">
+                    <UserIcon size={12} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    For you
+                  </span>
+                </ComboboxItem>
+              );
+            }
             if (itemValue === PICKER_ENTIRE_PROJECT_VALUE) {
               return (
                 <ComboboxItem

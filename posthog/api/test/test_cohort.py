@@ -364,6 +364,62 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_list_cohorts_does_not_hydrate_team(self, patch_calculate_cohort, patch_capture):
+        # The list serializer never reads `cohort.team`, so the cohort SELECT must not hydrate the
+        # team payload — the heavy JSON and array columns each row would otherwise carry. Project
+        # scoping still JOINs `posthog_team` to filter on `project_id`, so guard the payload columns
+        # specifically rather than the JOIN. The nplus1 query-count guard would not catch a re-added
+        # `select_related("team")`, since hydrating columns onto that existing JOIN adds no query,
+        # so assert the SQL directly.
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        with capture_db_queries() as context:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        assert response.status_code == status.HTTP_200_OK
+
+        cohort_queries = [q["sql"] for q in context.captured_queries if 'FROM "posthog_cohort"' in q["sql"]]
+        assert cohort_queries, "expected the list to run a query against posthog_cohort"
+        # These team payload columns are never part of the cohort filter, so their presence would
+        # mean the team row is hydrated onto each cohort row.
+        for sql in cohort_queries:
+            for column in ("test_account_filters", "session_replay_config"):
+                assert f'posthog_team"."{column}"' not in sql
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_detail_cohort_defers_deprecated_team_columns(self, patch_calculate_cohort, patch_capture):
+        # Detail and write actions read `cohort.team`, so they keep the hydrating `select_related("team")`
+        # JOIN. They must re-apply `.defer(*DEPRECATED_ATTRS)` the way `TeamManager` does on lazy loads, or
+        # every retrieve re-reads the deprecated taxonomy columns (`event_names` and siblings) that TOAST
+        # out to megabytes per team. `test_list_cohorts_does_not_hydrate_team` guards only the list query
+        # and only non-deprecated columns, so it cannot catch a dropped defer here. Assert the SQL directly.
+        cohort_id = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        ).json()["id"]
+
+        with capture_db_queries() as context:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # The query that hydrates the team carries a non-deprecated team column; find it to make sure the
+        # detail path still JOINs and hydrates the team, so the deprecated-column check below is not vacuous.
+        team_hydrating_queries = [
+            q["sql"]
+            for q in context.captured_queries
+            if 'FROM "posthog_cohort"' in q["sql"] and 'posthog_team"."test_account_filters"' in q["sql"]
+        ]
+        assert team_hydrating_queries, "expected the detail fetch to hydrate the team onto the cohort row"
+        # `event_names` is a deprecated taxonomy column that TOASTs out to megabytes. The defer keeps it off
+        # the hydrated team row; dropping the defer would pull it back in.
+        for sql in team_hydrating_queries:
+            assert 'posthog_team"."event_names"' not in sql
+
     @parameterized.expand(
         [
             # A group with none of properties/action_id/event_id used to raise an uncaught
@@ -3174,39 +3230,6 @@ email@example.org,
                             "operator": PropertyOperator.EXACT,
                         }
                     ],
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 400, response.content)
-
-    @parameterized.expand(
-        [
-            ("time_series_without_day", None, None),
-            ("total_value_with_day", "BoldNumber", "2026-07-01"),
-        ]
-    )
-    def test_creating_static_cohort_from_trends_actors_with_invalid_day_is_rejected(
-        self, _name: str, display: str | None, day: str | None
-    ) -> None:
-        trends_filter = {"display": display} if display else None
-        actors_source: dict[str, Any] = {
-            "kind": "InsightActorsQuery",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                **({"trendsFilter": trends_filter} if trends_filter else {}),
-            },
-            **({"day": day} if day else {}),
-        }
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={
-                "name": "cohort A",
-                "is_static": True,
-                "query": {
-                    "kind": "ActorsQuery",
-                    "select": ["person"],
-                    "source": actors_source,
                 },
             },
         )
@@ -6079,9 +6102,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             name="Insight Referencing Cohort",
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
+                    "kind": "EventsQuery",
+                    "select": ["*"],
                     "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
                 },
             },
@@ -6106,13 +6130,12 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         insight = Insight.objects.create(
             team=self.team,
-            name="Trends With Cohort Breakdown",
+            name="Insight With Cohort Breakdown",
+            # `get_insights_using_cohort` matches `source.breakdownFilter` by JSON path and never
+            # reads the query kind, so the fixture carries only the path the predicate walks.
             query={
                 "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]},
-                },
+                "source": {"breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]}},
             },
         )
 
@@ -6132,9 +6155,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         )
         cohort_id = response.json()["id"]
         cohort_query = {
-            "kind": "InsightVizNode",
+            "kind": "DataTableNode",
             "source": {
-                "kind": "TrendsQuery",
+                "kind": "EventsQuery",
+                "select": ["*"],
                 "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
             },
         }
@@ -6157,9 +6181,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         )
         cohort_id = response.json()["id"]
         cohort_query = {
-            "kind": "InsightVizNode",
+            "kind": "DataTableNode",
             "source": {
-                "kind": "TrendsQuery",
+                "kind": "EventsQuery",
+                "select": ["*"],
                 "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
             },
         }
@@ -6239,9 +6264,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             team=other_team,
             name="Sibling Insight",
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
+                    "kind": "EventsQuery",
+                    "select": ["*"],
                     "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
                 },
             },

@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections.abc import Mapping
 from urllib.parse import parse_qs, urlparse
@@ -5,8 +6,11 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+from django.test import override_settings
+
 import stripe as stripe_lib
 import requests
+from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from stripe._http_client import HTTPClient
 
@@ -41,7 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
 )
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
-from .data import BALANCE_TRANSACTIONS
+from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -1168,3 +1172,188 @@ class TestCreateWebhook:
         assert "account" in result.error.lower()
         assert "Failed to create webhook automatically" not in result.error
         assert "permission to create webhooks" not in result.error
+
+
+# --- fan-out parent reuse -----------------------------------------------------------------
+#
+# The child under test is `CustomerBalanceTransaction`, whose sweep pages the whole customer
+# listing before it can call anything. These run the real workflow, so they assert on what the
+# sync actually did: which Stripe endpoints it hit, and what landed in the table.
+
+# Every customer the skip predicate lets through: the two credits, the null balance (probed
+# because an unexpected shape must not silently drop data), and the one deleted upstream. The
+# zero-balance customers are absent, which is the saving the projection buys. Compared sorted
+# throughout: the API path walks Stripe's reverse-chronological listing while the warehouse
+# path walks parquet file order, and neither promises the other's ordering.
+PROBED_CUSTOMERS = ["cus_credit_1", "cus_credit_2", "cus_gone", "cus_null_balance"]
+
+FANOUT_GATE = (
+    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
+    "import_data_sync.is_fanout_warehouse_reuse_enabled"
+)
+
+
+@sync_to_async
+def _customer_schema(source, team, sync_type: str):
+    return ExternalDataSchema.objects.create(
+        name="Customer",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=sync_type,
+        sync_type_config={},
+        should_sync=True,
+    )
+
+
+@sync_to_async
+def _balance_transaction_child(source, team):
+    return ExternalDataSchema.objects.create(
+        name="CustomerBalanceTransaction",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+        should_sync=True,
+    )
+
+
+def _listing_calls(mock_stripe_api) -> list[str]:
+    return [c.url for c in mock_stripe_api.get_all_api_calls() if urlparse(c.url).path == "/v1/customers"]
+
+
+def _child_calls(mock_stripe_api) -> list[str]:
+    return [
+        urlparse(c.url).path.split("/")[3]
+        for c in mock_stripe_api.get_all_api_calls()
+        if re.match(r"^/v1/customers/[^/]+/balance_transactions$", urlparse(c.url).path)
+    ]
+
+
+async def _sync_parent_then_child(team, source, parent, child, mock_stripe_api, *, reuse_enabled: bool):
+    """Sync the parent so its table exists, then the child, and report what the child did."""
+    # The parent sync hands DuckLake a prepared folder and starts a registration child. Under
+    # test settings every task queue collapses to one name, so this worker picks that child up
+    # and fails on a workflow it does not register. Point it at a queue nobody polls: the child
+    # is ABANDON-policy fire-and-forget, so leaving it pending is what production does anyway.
+    with override_settings(DUCKLAKE_TASK_QUEUE="ducklake-task-queue-not-polled-in-tests"):
+        await run_external_data_job_workflow(
+            team=team,
+            external_data_source=source,
+            external_data_schema=parent,
+            table_name="stripe_customer",
+            expected_rows_synced=len(CUSTOMERS),
+            expected_total_rows=len(CUSTOMERS),
+        )
+    calls_before = len(mock_stripe_api.get_all_api_calls())
+
+    expected_rows = sum(len(rows) for rows in CUSTOMER_BALANCE_TRANSACTIONS.values())
+    with mock.patch(FANOUT_GATE, return_value=reuse_enabled):
+        response = await run_external_data_job_workflow(
+            team=team,
+            external_data_source=source,
+            external_data_schema=child,
+            table_name="stripe_customerbalancetransaction",
+            expected_rows_synced=expected_rows,
+            expected_total_rows=expected_rows,
+        )
+
+    child_phase = mock_stripe_api.get_all_api_calls()[calls_before:]
+    listing = [c.url for c in child_phase if urlparse(c.url).path == "/v1/customers"]
+    probed = [
+        urlparse(c.url).path.split("/")[3]
+        for c in child_phase
+        if re.match(r"^/v1/customers/[^/]+/balance_transactions$", urlparse(c.url).path)
+    ]
+    return response, listing, probed
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_fanout_pages_the_customer_listing_with_reuse_disabled(team, mock_stripe_api, external_data_source):
+    """Baseline: the sweep re-pages the parent listing every run, which is the cost being removed."""
+    parent = await _customer_schema(external_data_source, team, "full_refresh")
+    child = await _balance_transaction_child(external_data_source, team)
+
+    _, listing, probed = await _sync_parent_then_child(
+        team, external_data_source, parent, child, mock_stripe_api, reuse_enabled=False
+    )
+
+    assert listing, "with reuse off the child must page the customer listing itself"
+    assert sorted(probed) == PROBED_CUSTOMERS
+
+
+@pytest.mark.parametrize("parent_sync_type", ["full_refresh", "webhook"])
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_fanout_reads_the_parent_from_the_warehouse(
+    team, mock_stripe_api, external_data_source, parent_sync_type
+):
+    """The conversion: same child rows, without a single request for the parent listing."""
+    parent = await _customer_schema(external_data_source, team, parent_sync_type)
+    child = await _balance_transaction_child(external_data_source, team)
+
+    _, listing, probed = await _sync_parent_then_child(
+        team, external_data_source, parent, child, mock_stripe_api, reuse_enabled=True
+    )
+
+    assert listing == [], f"the parent listing must not be requested, got {listing}"
+    # Zero-balance customers are skipped by the predicate reading the warehouse row's balance;
+    # the null balance is probed, because an unexpected shape must not silently drop data.
+    assert sorted(probed) == PROBED_CUSTOMERS
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_both_paths_write_the_same_child_rows(team, mock_stripe_api, external_data_source):
+    """Parity: where the parent rows came from must not change what the child produces."""
+    api_parent = await _customer_schema(external_data_source, team, "full_refresh")
+    api_child = await _balance_transaction_child(external_data_source, team)
+    api_response, _, _ = await _sync_parent_then_child(
+        team, external_data_source, api_parent, api_child, mock_stripe_api, reuse_enabled=False
+    )
+
+    warehouse_response, _, _ = await _sync_parent_then_child(
+        team, external_data_source, api_parent, api_child, mock_stripe_api, reuse_enabled=True
+    )
+
+    assert warehouse_response.results is not None and api_response.results is not None
+    assert sorted(map(str, warehouse_response.results)) == sorted(map(str, api_response.results))
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_parent_the_gate_refuses_keeps_the_api_path(team, mock_stripe_api, external_data_source):
+    """Only sync types that hold one row per key are readable; the rest fall back, never fail.
+
+    `append` accumulates a row per sync, so reading it would fan the child out once per copy.
+    """
+    parent = await _customer_schema(external_data_source, team, "append")
+    child = await _balance_transaction_child(external_data_source, team)
+
+    _, listing, probed = await _sync_parent_then_child(
+        team, external_data_source, parent, child, mock_stripe_api, reuse_enabled=True
+    )
+
+    assert listing, "an append parent must not be read from the warehouse"
+    assert sorted(probed) == PROBED_CUSTOMERS
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_missing_parent_schema_keeps_the_api_path(team, mock_stripe_api, external_data_source):
+    """The child can be enabled without its parent, and that must cost the run nothing."""
+    child = await _balance_transaction_child(external_data_source, team)
+
+    expected_rows = sum(len(rows) for rows in CUSTOMER_BALANCE_TRANSACTIONS.values())
+    with mock.patch(FANOUT_GATE, return_value=True):
+        await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=child,
+            table_name="stripe_customerbalancetransaction",
+            expected_rows_synced=expected_rows,
+            expected_total_rows=expected_rows,
+        )
+
+    assert _listing_calls(mock_stripe_api), "with no parent table there is nothing to read but the API"
+    assert sorted(_child_calls(mock_stripe_api)) == PROBED_CUSTOMERS

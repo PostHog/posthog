@@ -151,7 +151,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
@@ -196,7 +196,7 @@ class TestSignupAPI(APIBaseTest):
         mock_email_verifier.assert_called_once_with(user)
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     @patch("posthog.api.signup.is_email_verification_disabled", return_value=True)
     def test_api_sign_up_doesnt_require_verification_if_disabled(
         self,
@@ -1480,7 +1480,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertFalse(WebauthnCredential.objects.filter(user=existing_user).exists())
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_sign_up_preserves_next_param(self, mock_email_verifier, mock_is_email_available):
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
 
@@ -1504,10 +1504,10 @@ class TestSignupAPI(APIBaseTest):
             response_data["redirect_url"],
             f"/verify_email/{user.uuid}?next=%2Fnext_path",
         )
-        mock_email_verifier.assert_called_once_with(user, "/next_path")
+        mock_email_verifier.assert_called_once_with(user)
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_sign_up_preserves_oauth_next_param_with_query_string(
         self, mock_email_verifier, mock_is_email_available
     ):
@@ -1535,7 +1535,7 @@ class TestSignupAPI(APIBaseTest):
             response_data["redirect_url"],
             f"/verify_email/{user.uuid}?next={expected_encoded}",
         )
-        mock_email_verifier.assert_called_once_with(user, oauth_url)
+        mock_email_verifier.assert_called_once_with(user)
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
@@ -2898,7 +2898,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_social_invite_sign_up_if_email_verification_on(self, email_mock, email_available_mock):
         """Test to make sure that social signups skip email verification"""
         Organization.objects.all().delete()  # Can only create organizations in fresh instances

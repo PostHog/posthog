@@ -1,18 +1,22 @@
-import { INBOX_ACTIONABLE_REPORT_STATUS_FILTER } from "@posthog/core/inbox/reportFiltering";
-import { partitionInboxReports } from "@posthog/core/inbox/reportInboxSections";
+import {
+  buildStatusFilterParam,
+  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+  sortInboxReports,
+} from "@posthog/core/inbox/reportFiltering";
 import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
+import type { SignalReportStatus } from "@posthog/shared/types";
 import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
+import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRow } from "@posthog/ui/features/inbox/components/InboxReportRow";
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
-import { InboxSearchFilterBar } from "@posthog/ui/features/inbox/components/InboxSearchFilterBar";
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
-import { ResolvedReportsSection } from "@posthog/ui/features/inbox/components/ResolvedReportsSection";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
-import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
+  DEFAULT_INBOX_REPORT_STATE_FILTER,
   hasActiveInboxFilters,
   useInboxSignalsFilterStore,
 } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
@@ -33,22 +37,58 @@ function isTypingTarget(target: EventTarget | null): boolean {
 const AUTOPAGE_REPORT_LIMIT = 400;
 
 export function ReportsInboxView(): React.JSX.Element {
+  const reportStateFilter = useInboxSignalsFilterStore(
+    (state) => state.reportStateFilter,
+  );
+  const showAllStates = reportStateFilter.length === 0;
+  const showReviewAndMerge =
+    showAllStates || reportStateFilter.includes("review_and_merge");
+  const showNeedsDecision =
+    showAllStates || reportStateFilter.includes("needs_decision");
+  const showResolved = showAllStates || reportStateFilter.includes("resolved");
+  const showDismissed =
+    showAllStates || reportStateFilter.includes("dismissed");
+  const terminalStatusFilter = useMemo(() => {
+    const statuses: SignalReportStatus[] = [];
+    if (showResolved) statuses.push("resolved");
+    if (showDismissed) statuses.push("suppressed");
+    return buildStatusFilterParam(statuses);
+  }, [showDismissed, showResolved]);
+  const reviewAndMergeQuery = useInboxAllReports({
+    enabled: showReviewAndMerge,
+    statusFilter: "ready",
+    hasImplementationPr: true,
+    applySourceFilter: false,
+    applySearchFilter: false,
+    groupByStatus: false,
+    withPullRequestCount: false,
+  });
+  const needsDecisionQuery = useInboxAllReports({
+    enabled: showNeedsDecision,
+    statusFilter: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+    actionabilityFilter: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+    hasImplementationPr: false,
+    applySourceFilter: false,
+    applySearchFilter: false,
+    groupByStatus: false,
+    withPullRequestCount: false,
+  });
+  const terminalQuery = useInboxAllReports({
+    enabled: showResolved || showDismissed,
+    statusFilter: terminalStatusFilter,
+    applySourceFilter: false,
+    applySearchFilter: false,
+    groupByStatus: false,
+    withPullRequestCount: false,
+  });
   const {
-    scopedReports,
-    allReports,
-    isLoading,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
     searchQuery,
     scope,
-    isSuccess,
     sourceProductFilter,
     priorityFilter,
-  } = useInboxAllReports({
-    statusFilter: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-    applySourceFilter: false,
-  });
+    sortField,
+    sortDirection,
+  } = reviewAndMergeQuery;
   const triageFocusEnabled = useTriageFocusEnabled();
   const triageOrigin = useInboxTriageOrigin();
   const navigate = useNavigate();
@@ -67,59 +107,158 @@ export function ReportsInboxView(): React.JSX.Element {
     });
   }, [navigate, triageOrigin]);
 
-  const sections = useMemo(
-    () => partitionInboxReports(scopedReports),
-    [scopedReports],
-  );
-  const serverCounts = useInboxSectionCounts();
   const hasActiveFilters = useInboxSignalsFilterStore((state) =>
     hasActiveInboxFilters(state, {
       includePrFilter: false,
       includeSourceFilter: false,
+      includeReportStateFilter: true,
+      includeSearchFilter: false,
     }),
   );
   const resetFilters = useInboxSignalsFilterStore(
     (state) => state.resetFilters,
   );
-  const searchActive = searchQuery.trim().length > 0;
-  const reviewAndMergeCount = searchActive
-    ? sections.reviewAndMerge.length
-    : serverCounts.reviewAndMerge;
-  const needsPrCount = searchActive
-    ? sections.needsPr.length
-    : serverCounts.needsPr;
-  const triageReports = useMemo(
-    () => [...sections.reviewAndMerge, ...sections.needsPr],
-    [sections.reviewAndMerge, sections.needsPr],
+  const reviewAndMergeCount = showReviewAndMerge
+    ? reviewAndMergeQuery.totalCount
+    : 0;
+  const needsPrCount = showNeedsDecision ? needsDecisionQuery.totalCount : 0;
+  const triageReports = showNeedsDecision
+    ? needsDecisionQuery.scopedReports
+    : [];
+  const visibleReports = useMemo(() => {
+    const reports = [
+      ...(showReviewAndMerge ? reviewAndMergeQuery.scopedReports : []),
+      ...(showNeedsDecision ? needsDecisionQuery.scopedReports : []),
+      ...(showResolved || showDismissed ? terminalQuery.scopedReports : []),
+    ];
+    return sortInboxReports(
+      Array.from(
+        new Map(reports.map((report) => [report.id, report])).values(),
+      ),
+      sortField === "priority" ||
+        sortField === "created_at" ||
+        sortField === "total_weight"
+        ? sortField
+        : "created_at",
+      sortDirection,
+    );
+  }, [
+    needsDecisionQuery.scopedReports,
+    reviewAndMergeQuery.scopedReports,
+    showDismissed,
+    showNeedsDecision,
+    showResolved,
+    showReviewAndMerge,
+    sortDirection,
+    sortField,
+    terminalQuery.scopedReports,
+  ]);
+
+  const terminalCount =
+    showResolved || showDismissed ? terminalQuery.totalCount : 0;
+  const reportCount = reviewAndMergeCount + needsPrCount + terminalCount;
+  const selectedQueries = [
+    ...(showReviewAndMerge ? [reviewAndMergeQuery] : []),
+    ...(showNeedsDecision ? [needsDecisionQuery] : []),
+    ...(showResolved || showDismissed ? [terminalQuery] : []),
+  ];
+  const allReports = visibleReports;
+  const isLoading = selectedQueries.some((query) => query.isPending);
+  const isSuccess = selectedQueries.every((query) => query.isSuccess);
+  const isError =
+    visibleReports.length === 0 &&
+    selectedQueries.some((query) => query.isError);
+  const isFetchingNextPage = selectedQueries.some(
+    (query) => query.isFetchingNextPage,
+  );
+  const hasNextPage = selectedQueries.some(
+    (query) =>
+      query.hasNextPage && query.allReports.length >= AUTOPAGE_REPORT_LIMIT,
   );
 
   useTrackReportsInboxViewed({
-    reports: triageReports,
-    totalCount: reviewAndMergeCount + needsPrCount,
-    isReady: isSuccess && !serverCounts.isLoading,
+    reports: visibleReports,
+    totalCount: reportCount,
+    isReady: isSuccess,
     sourceProductFilter,
     priorityFilter,
     searchQuery,
     scope: inboxReviewerScopeValue(scope),
+    reportStateFilter,
+    defaultReportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
   });
 
   useEffect(() => {
     if (
-      !hasNextPage ||
-      isFetchingNextPage ||
-      isLoading ||
-      allReports.length >= AUTOPAGE_REPORT_LIMIT
+      !showReviewAndMerge ||
+      !reviewAndMergeQuery.hasNextPage ||
+      reviewAndMergeQuery.isFetchingNextPage ||
+      reviewAndMergeQuery.isLoading ||
+      reviewAndMergeQuery.allReports.length >= AUTOPAGE_REPORT_LIMIT
     ) {
       return;
     }
-    fetchNextPage();
+    void reviewAndMergeQuery.fetchNextPage();
   }, [
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-    allReports.length,
-    fetchNextPage,
+    reviewAndMergeQuery.allReports.length,
+    reviewAndMergeQuery.fetchNextPage,
+    reviewAndMergeQuery.hasNextPage,
+    reviewAndMergeQuery.isFetchingNextPage,
+    reviewAndMergeQuery.isLoading,
+    showReviewAndMerge,
   ]);
+
+  useEffect(() => {
+    if (
+      !showNeedsDecision ||
+      !needsDecisionQuery.hasNextPage ||
+      needsDecisionQuery.isFetchingNextPage ||
+      needsDecisionQuery.isLoading ||
+      needsDecisionQuery.allReports.length >= AUTOPAGE_REPORT_LIMIT
+    ) {
+      return;
+    }
+    void needsDecisionQuery.fetchNextPage();
+  }, [
+    needsDecisionQuery.allReports.length,
+    needsDecisionQuery.fetchNextPage,
+    needsDecisionQuery.hasNextPage,
+    needsDecisionQuery.isFetchingNextPage,
+    needsDecisionQuery.isLoading,
+    showNeedsDecision,
+  ]);
+
+  useEffect(() => {
+    if (
+      (!showResolved && !showDismissed) ||
+      !terminalQuery.hasNextPage ||
+      terminalQuery.isFetchingNextPage ||
+      terminalQuery.isLoading ||
+      terminalQuery.allReports.length >= AUTOPAGE_REPORT_LIMIT
+    ) {
+      return;
+    }
+    void terminalQuery.fetchNextPage();
+  }, [
+    showDismissed,
+    showResolved,
+    terminalQuery.allReports.length,
+    terminalQuery.fetchNextPage,
+    terminalQuery.hasNextPage,
+    terminalQuery.isFetchingNextPage,
+    terminalQuery.isLoading,
+  ]);
+
+  const loadMore = (): void => {
+    for (const query of selectedQueries) {
+      if (query.hasNextPage && !query.isFetchingNextPage) {
+        void query.fetchNextPage();
+      }
+    }
+  };
+  const retry = (): void => {
+    for (const query of selectedQueries) void query.refetch();
+  };
 
   useEffect(() => {
     if (!triageFocusEnabled || focusMode) return;
@@ -150,44 +289,29 @@ export function ReportsInboxView(): React.JSX.Element {
     );
   }
 
-  const isEmpty = searchActive
-    ? sections.reviewAndMerge.length === 0 && sections.needsPr.length === 0
-    : !serverCounts.isLoading &&
-      serverCounts.reviewAndMerge === 0 &&
-      serverCounts.needsPr === 0;
+  const isEmpty = isSuccess && reportCount === 0;
 
   return (
     <ReportsInboxViewPresentation
-      reviewAndMerge={sections.reviewAndMerge}
-      reviewAndMergeCount={reviewAndMergeCount}
-      needsPr={sections.needsPr}
-      needsPrCount={needsPrCount}
+      reports={visibleReports}
+      triageReportCount={needsPrCount}
       isLoading={isLoading}
       isFetchingNextPage={isFetchingNextPage}
+      hasNextPage={hasNextPage}
+      isError={isError}
       isEmpty={isEmpty}
       hasActiveFilters={hasActiveFilters}
       triageEnabled={triageFocusEnabled}
+      filterControl={<InboxReportFilters />}
       scopeControl={<InboxScopeSelect />}
-      searchControl={
-        <InboxSearchFilterBar
-          searchPlaceholder="Search reports…"
-          showSourceFilter={false}
-        />
-      }
-      resolvedSection={
-        !isEmpty ? (
-          <ResolvedReportsSection
-            searchQuery={searchQuery}
-            count={serverCounts.resolved}
-          />
-        ) : undefined
-      }
       renderReport={(report) => (
         <InboxReportRow key={report.id} report={report} />
       )}
       onConfigureAgents={navigateToAgents}
       onEnterTriage={() => setFocusMode(true)}
       onClearFilters={resetFilters}
+      onLoadMore={loadMore}
+      onRetry={retry}
     />
   );
 }

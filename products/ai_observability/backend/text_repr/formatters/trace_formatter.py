@@ -436,7 +436,7 @@ def _render_tree(
         lines.append(f"{prefix}  [... max depth reached]")
         return lines
 
-    options = options or {}  # ty: ignore[invalid-assignment]
+    options = options or {}
     include_markers = options.get("include_markers", True)
     collapsed = options.get("collapsed", False)
 

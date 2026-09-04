@@ -29,6 +29,8 @@ export const subscriptionsCreateBodyTitleMax = 100
 
 export const subscriptionsCreateBodySummaryPromptGuideMax = 500
 
+export const subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
+
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod
@@ -107,12 +109,16 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -150,7 +156,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -194,6 +204,18 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
 
@@ -216,6 +238,8 @@ export const subscriptionsUpdateBodyCountMax = 2147483647
 export const subscriptionsUpdateBodyTitleMax = 100
 
 export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -295,12 +319,16 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -338,7 +366,11 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsUpdateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -382,6 +414,18 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
 
@@ -404,6 +448,8 @@ export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 export const subscriptionsPartialUpdateBodyTitleMax = 100
 
 export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -483,14 +529,18 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
             .optional()
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
             .optional()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -533,7 +583,9 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
         start_date: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -577,5 +629,17 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')

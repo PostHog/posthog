@@ -357,3 +357,42 @@ class TestUrlValidation:
     )
     def test_has_ambiguous_authority(self, url, expected):
         assert uv.has_ambiguous_authority(url) is expected
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=x",
+            "https://acme.webhook.office.com/webhookb2/guid@guid/IncomingWebhook/hash/guid",
+            "https://europe.powerautomate.com/manual/paths/invoke",
+            "https://prod-01.flow.microsoft.com/manual/paths/invoke",
+            "https://acme.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/abc",
+        ],
+    )
+    def test_accepts_microsoft_teams_webhook_url(self, url):
+        assert uv.is_microsoft_teams_webhook_url(url) is True
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # Both hostnames are registrable by anyone and satisfy the unescaped-dot patterns in
+            # the CDP Teams template. They must not satisfy these.
+            "https://evilpowerautomate.com/x",
+            "https://aaaflow-microsoft.com/y",
+            "https://evil.example.com/logic.azure.com/workflows/abc",
+            "https://logic.azure.com.evil.example.com/workflows/abc",
+            "http://prod-25.westeurope.logic.azure.com/workflows/abc/triggers/manual/paths/invoke",
+            "https://prod-25.westeurope.logic.azure.com:8443/workflows/abc/triggers/manual/paths/invoke",
+            "https://prod-25.westeurope.logic.azure.com/workflows/abc",
+            "https://acme.webhook.office.com/webhookb2/guid",
+            "https://acme.webhook.office.com/something-else/guid",
+            "https://prod-25.westeurope.logic.azure.com\\@evil.example.com/workflows/abc/triggers/manual/paths/invoke",
+            "definitely not a url",
+            "",
+            # `requests` would turn the userinfo into a Basic Authorization header on the send,
+            # and the credential would live on in the stored subscription.
+            "https://user:pass@prod-25.westeurope.logic.azure.com/workflows/abc/triggers/manual/paths/invoke",
+            "https://user@prod-25.westeurope.logic.azure.com/workflows/abc/triggers/manual/paths/invoke",
+        ],
+    )
+    def test_rejects_non_teams_webhook_url(self, url):
+        assert uv.is_microsoft_teams_webhook_url(url) is False

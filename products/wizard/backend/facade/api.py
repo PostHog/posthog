@@ -13,8 +13,12 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from products.wizard.backend import metrics
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
-from products.wizard.backend.logic import pubsub, sessions
+from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardProgram, WizardSessionDTO
+from products.wizard.backend.logic import (
+    pubsub,
+    registry as registry_service,
+    sessions,
+)
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -65,3 +69,7 @@ def record_latest_session_poll(raw_source: str | None, result: str) -> None:
     metrics.WIZARD_LATEST_SESSION_REQUESTS_TOTAL.labels(
         source=metrics.poll_source_label(raw_source), result=result
     ).inc()
+
+
+def get_registry(*, distinct_id: str, organization_id: str) -> tuple[WizardProgram, ...]:
+    return registry_service.get_registry(distinct_id=distinct_id, organization_id=organization_id)

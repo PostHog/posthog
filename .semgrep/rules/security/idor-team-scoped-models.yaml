@@ -119,6 +119,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
+                              |DashboardSavedView
                               |DashboardTemplate
                               |DashboardWidget
                               |DataColorTheme
@@ -159,6 +160,9 @@ rules:
                               |EventFilterConfig
                               |EventStream
                               |EventStreamMember
+                              |ErrorTrackingAlert
+                              |ErrorTrackingAlertDestination
+                              |ErrorTrackingAlertThread
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
@@ -181,10 +185,13 @@ rules:
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
+                              |ExternalDataDestination
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaDestination
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
+                              |ExternalDataSourceDestination
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
@@ -192,11 +199,15 @@ rules:
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
+                              |GeneratedWidget
+                              |GeneratedWidgetGenerationJob
+                              |GeneratedWidgetVersion
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamMCPGatewayConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
+                              |UserCustomerAnalyticsConfig
                               |FieldNote
                               |FileSystem
                               |FileSystemFolderInstructions
@@ -232,6 +243,7 @@ rules:
                               |LogsView
                               |Loop
                               |LoopFire
+                              |NotebookWidgetInstance
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -242,6 +254,7 @@ rules:
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
+                              |ManagedWarehouseViewTranslationResult
                               |MarketingAnalyticsGoalMapping
                               |Meeting
                               |MeetingParticipant
@@ -256,6 +269,7 @@ rules:
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
+                              |MCPMeasuredStats
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
@@ -308,6 +322,7 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -318,6 +333,7 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutSuggestionSet
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -343,6 +359,7 @@ rules:
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
+                              |UserTasksConfig
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -367,8 +384,6 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
-                              |VisionAction
-                              |VisionActionRun
                               |VisionAlertConfiguration
                               |VisionAlertMatch
                               |WarehouseColumnAnnotation
@@ -377,7 +392,10 @@ rules:
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardRun
+                              |WizardRunArtifact
                               |WizardSession
+                              |WizardWorker
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -498,6 +516,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
+                        |DashboardSavedView
                         |DashboardTemplate
                         |DashboardWidget
                         |DataColorTheme
@@ -538,6 +557,9 @@ rules:
                         |EventFilterConfig
                         |EventStream
                         |EventStreamMember
+                        |ErrorTrackingAlert
+                        |ErrorTrackingAlertDestination
+                        |ErrorTrackingAlertThread
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
@@ -571,11 +593,15 @@ rules:
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
+                        |GeneratedWidget
+                        |GeneratedWidgetGenerationJob
+                        |GeneratedWidgetVersion
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamMCPGatewayConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
+                        |UserCustomerAnalyticsConfig
                         |FieldNote
                         |FileSystem
                         |FileSystemFolderInstructions
@@ -607,6 +633,7 @@ rules:
                         |Loop
                         |LoopFire
                         |LoopTrigger
+                        |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptLabel
@@ -616,6 +643,7 @@ rules:
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob
+                        |ManagedWarehouseViewTranslationResult
                         |MarketingAnalyticsGoalMapping
                         |Meeting
                         |MeetingParticipant
@@ -681,6 +709,7 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
@@ -691,6 +720,7 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutSuggestionSet
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -715,6 +745,7 @@ rules:
                         |TaskRun
                         |TaskWorkflowDispatch
                         |TaskSession
+                        |UserTasksConfig
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -739,8 +770,6 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
-                        |VisionAction
-                        |VisionActionRun
                         |VisionAlertConfiguration
                         |VisionAlertMatch
                         |WarehouseColumnAnnotation
@@ -749,7 +778,10 @@ rules:
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardRun
+                        |WizardRunArtifact
                         |WizardSession
+                        |WizardWorker
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)
@@ -847,6 +879,7 @@ rules:
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
+                              |ManagedWarehouseViewTranslationJob
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
@@ -922,6 +955,7 @@ rules:
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
+                        |ManagedWarehouseViewTranslationJob
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
