@@ -32,7 +32,9 @@ The bar is the same as the Slack entrypoint: the sender must be a member of the 
 - `Task.origin_product` is `email`, `Task.origin_key` is `email:<Message-ID>`. The unique index on `origin_key` makes Mailgun retries idempotent.
 - AI credits quota is checked before creation, like the PostHog AI entrypoint.
 
-Replies to the acknowledgement are not read back into the task yet. A follow-up needs a message-id mapping for tasks, like `EmailMessageMapping` does for tickets.
+A reply to the acknowledgement does nothing.
+The acknowledgement does not carry the inbox address as `Reply-To`, so the reply goes to the instance's default reply address and no task is created.
+Reading a reply back into the running task needs more than a `Reply-To`: a message-id mapping for tasks, like `EmailMessageMapping` does for tickets.
 
 ## Replying to a PostHog email
 
