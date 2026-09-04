@@ -116,8 +116,7 @@ deeper, so the product is half-migrated.
 
 Still on `ProductIntroduction`: engineering analytics,
 comments, ingestion warnings (v1 and v2),
-Max conversation history, and data pipelines destinations and transformations
-(`frontend/src/scenes/data-pipelines/DataPipelinesHogFunctions.tsx` covers the last two).
+and Max conversation history.
 
 Hand-rolled empty states: review hog, streamlit apps, groups (`GroupsIntroduction`), persons, and
 the LLM analytics sessions tab.
