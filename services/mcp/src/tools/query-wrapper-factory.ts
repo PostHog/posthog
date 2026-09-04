@@ -132,7 +132,16 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
     // Both the advertised tool schema and the handler's re-parse must use the
     // stripped schema — parsing with the original would re-apply the `false`
     // default and make omission indistinguishable from an explicit `false`.
-    const schema = withoutTestAccountFilterDefault(config.schema)
+    const baseSchema = withoutTestAccountFilterDefault(config.schema)
+    const schema = (
+        baseSchema instanceof z.ZodObject
+            ? baseSchema
+                  .extend(
+                      baseSchema.shape.source instanceof z.ZodObject ? { source: baseSchema.shape.source.strict() } : {}
+                  )
+                  .strict()
+            : baseSchema
+    ) as T
     return () => ({
         name: config.name,
         schema,

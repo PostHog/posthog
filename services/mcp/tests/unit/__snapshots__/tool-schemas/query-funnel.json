@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "aggregation_group_type_index": {
             "description": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.",

@@ -4871,17 +4871,6 @@
         "AssistantStickinessQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
-                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range. When enabled, shows the current and previous period side by side."
@@ -4901,7 +4890,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one \"interval\" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days."
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: \"day\"` with `intervalCount: 7` groups by 7-day periods."
                 },
                 "kind": {

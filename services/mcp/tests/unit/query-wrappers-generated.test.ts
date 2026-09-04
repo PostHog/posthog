@@ -61,4 +61,28 @@ describe('generated query wrappers', () => {
             }).success
         ).toBe(false)
     })
+
+    it.each([
+        ['query-stickiness', { ...insightQueries[3][1], aggregation_group_type_index: 0 }],
+        [
+            'query-stickiness-actors',
+            {
+                day: 1,
+                source: { ...insightQueries[3][1], aggregation_group_type_index: 0 },
+            },
+        ],
+    ])('rejects group aggregation for %s', (toolName, input) => {
+        const tool = GENERATED_TOOLS[toolName]!()
+
+        expect(tool.schema.safeParse(input).success).toBe(false)
+    })
+
+    it.each([
+        ['zero interval count', 0, false],
+        ['one interval', 1, true],
+    ])('validates stickiness %s', (_case, intervalCount, expected) => {
+        const tool = GENERATED_TOOLS['query-stickiness']!()
+
+        expect(tool.schema.safeParse({ ...insightQueries[3][1], intervalCount }).success).toBe(expected)
+    })
 })

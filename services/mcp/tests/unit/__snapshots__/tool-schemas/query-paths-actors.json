@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "includeRecordings": {
             "default": true,
@@ -32,7 +33,7 @@
             "type": "string"
         },
         "source": {
-            "description": "The source paths insight query whose actors we are listing.",
+            "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
                     "anyOf": [

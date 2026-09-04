@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "day": {
             "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
@@ -31,7 +32,7 @@
             "type": "string"
         },
         "source": {
-            "description": "The source lifecycle insight query whose bucket we are drilling into.",
+            "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
                     "anyOf": [

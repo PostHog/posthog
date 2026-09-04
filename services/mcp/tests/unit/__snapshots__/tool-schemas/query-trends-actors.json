@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "breakdown": {
             "description": "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions.",
@@ -54,7 +55,7 @@
             "type": "integer"
         },
         "source": {
-            "description": "The source insight query whose data point we are drilling into.",
+            "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
                     "anyOf": [

@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "properties": {
         "funnelStep": {
             "description": "Step mode only (source `funnelVizType: \"steps\"`). The 1-based index of the step to drill into.\n**Positive** lists actors who converted through that step; **negative** lists actors who dropped off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest negative value is `-2` (no one can drop off at the entry step).",
@@ -53,7 +54,7 @@
             "type": "string"
         },
         "source": {
-            "description": "The source funnel insight query whose step (or trends point) we are drilling into.",
+            "additionalProperties": false,
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.",
