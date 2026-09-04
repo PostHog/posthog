@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
-    Charge, GroupCompletion, Offset, Partition, Settlement, TopicOffsetLedger, TopicPartition,
+    Charge, GroupCompletion, Offset, Partition, Rejection, TopicOffsetLedger, TopicPartition,
 };
 use futures::StreamExt;
 use lifecycle::Handle;
@@ -710,11 +710,11 @@ impl IngestionConsumer {
         let mut settled = Vec::with_capacity(partitions.len());
         let mut frontier_spans = Vec::with_capacity(partitions.len());
         for (topic_partition, partition) in partitions {
-            let Some(settlement) = self.settle(topic_partition, partition) else {
+            let Ok(frontier) = self.settle(topic_partition, partition) else {
                 continue;
             };
             settled.push(topic_partition);
-            if let Some(span) = frontier_span(&partition.span, settlement.frontier) {
+            if let Some(span) = frontier_span(&partition.span, frontier) {
                 frontier_spans.push((topic_partition, span));
             }
         }
@@ -735,20 +735,19 @@ impl IngestionConsumer {
         Ok(())
     }
 
-    /// Settle one partition's slice of a batch against the ledger. `None`
-    /// when the ledger rejected the slice, which it has already counted.
+    /// Settle one partition's slice of a batch against the ledger and report
+    /// the frontier it reached. `Err` when the ledger rejected the slice,
+    /// which it has already counted.
     fn settle(
         &self,
         topic_partition: &TopicPartition,
         partition: &PartitionDeliveries,
-    ) -> Option<Settlement> {
-        self.topic_offset_ledger
-            .settle(
-                topic_partition,
-                partition.generation,
-                partition.charges.iter().map(|(offset, _)| *offset),
-            )
-            .ok()
+    ) -> Result<Option<Offset>, Rejection> {
+        self.topic_offset_ledger.settle(
+            topic_partition,
+            partition.generation,
+            partition.charges.iter().map(|(offset, _)| *offset),
+        )
     }
 
     /// Validate and submit one commit to Kafka.

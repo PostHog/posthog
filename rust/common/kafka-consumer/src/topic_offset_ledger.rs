@@ -49,18 +49,6 @@ pub enum Rejection {
     Violation(LedgerError),
 }
 
-/// One batch's settled view of its partition ledger: the frontier after its
-/// offsets landed, plus the context a mismatch report needs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Settlement {
-    /// Next-to-read frontier, `None` while the first offset of the window is
-    /// still incomplete.
-    pub frontier: Option<Offset>,
-    /// What the window still holds after the completion.
-    pub held: Held,
-    pub generation: u64,
-}
-
 /// One [`PartitionOffsetLedger`] per partition, each founded under a
 /// per-partition generation. Forgetting a partition advances its generation and
 /// replaces its ledger in one step, so charges and completions stamped with an
@@ -145,14 +133,15 @@ impl TopicOffsetLedger {
 
     /// Settle one batch's offsets, stamped with the generation they were
     /// buffered under: mark them complete on the partition's ledger and
-    /// report the frontier that results. The window holds the offsets until
-    /// `take_frontier` drains them.
+    /// report the next-to-read frontier that results, `None` while the first
+    /// offset of the window is still incomplete. The window holds the offsets
+    /// until `take_frontier` drains them.
     pub fn settle(
         &self,
         topic_partition: &TopicPartition,
         stamp: u64,
         offsets: impl IntoIterator<Item = Offset>,
-    ) -> Result<Settlement, Rejection> {
+    ) -> Result<Option<Offset>, Rejection> {
         let result = {
             let mut partitions = self.partitions.lock().unwrap();
             match partitions.get_mut(topic_partition) {
@@ -167,11 +156,7 @@ impl TopicOffsetLedger {
                         Err(Rejection::Stale { stamp, generation })
                     } else {
                         match ledger.complete(offsets) {
-                            Ok(()) => Ok(Settlement {
-                                frontier: ledger.frontier(),
-                                held: ledger.held(),
-                                generation,
-                            }),
+                            Ok(()) => Ok(ledger.frontier()),
                             Err(error) => {
                                 *ledger = PartitionOffsetLedger::new(generation + 1);
                                 self.generations_version.fetch_add(1, Ordering::Relaxed);
@@ -322,10 +307,10 @@ mod tests {
         charge(&ledger, &p0, 0, &[10]);
         charge(&ledger, &p0, 0, &[11]);
 
-        let settlement = ledger
+        let frontier = ledger
             .settle(&p0, 0, [Offset(10), Offset(11)])
             .expect("live ledger settles");
-        assert_eq!(settlement.frontier, Some(Offset(12)));
+        assert_eq!(frontier, Some(Offset(12)));
 
         assert_eq!(ledger.take_frontier(&p0), Some(Offset(12)));
         assert_eq!(ledger.held(&p0).offsets, 0);
@@ -376,20 +361,19 @@ mod tests {
         charge(&ledger, &p0, 0, &[10]);
         charge(&ledger, &p0, 0, &[11]);
 
-        let settlement = ledger
+        let frontier = ledger
             .settle(&p0, 0, [Offset(11)])
             .expect("live ledger settles");
-        assert_eq!(settlement.frontier, None);
-        assert_eq!(settlement.held.offsets, 2);
+        assert_eq!(frontier, None);
         assert_eq!(ledger.take_frontier(&p0), None);
         assert_eq!(ledger.held(&p0).offsets, 2);
 
         // The late completion arrives with the next batch and the held
         // offsets drain.
-        let settlement = ledger
+        let frontier = ledger
             .settle(&p0, 0, [Offset(10)])
             .expect("live ledger settles");
-        assert_eq!(settlement.frontier, Some(Offset(12)));
+        assert_eq!(frontier, Some(Offset(12)));
         assert_eq!(ledger.take_frontier(&p0), Some(Offset(12)));
         assert_eq!(ledger.held(&p0).offsets, 0);
     }
@@ -405,11 +389,11 @@ mod tests {
         let settled = ledger
             .settle(&p0, 0, [Offset(10), Offset(11)])
             .expect("live ledger settles");
-        assert_eq!(settled.frontier, Some(Offset(12)));
+        assert_eq!(settled, Some(Offset(12)));
         let held = ledger
             .settle(&p1, 0, [Offset(21)])
             .expect("live ledger settles");
-        assert_eq!(held.frontier, None);
+        assert_eq!(held, None);
 
         ledger.take_frontier(&p0);
         ledger.take_frontier(&p1);
