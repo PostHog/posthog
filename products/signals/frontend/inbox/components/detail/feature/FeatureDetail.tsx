@@ -134,7 +134,7 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
         })),
         {
             value: OTHER_ANSWER_VALUE,
-            label: 'Other',
+            label: <span className="sr-only">Other</span>,
             disabledReason: answerSaving ? 'Saving answer' : undefined,
             'data-attr': 'feature-question-other-option',
             inlineControl: (
@@ -146,7 +146,7 @@ function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact
                         }
                     }}
                     onChange={(value) => selectAnswer(artefact.id, value)}
-                    placeholder="Type an answer"
+                    placeholder="Other"
                     size="xsmall"
                     transparentBackground
                     fullWidth

@@ -75,13 +75,13 @@ export const WithInlineControl: Story = {
                     { value: 'calculator', label: 'Calculator' },
                     {
                         value: 'other',
-                        label: 'Other',
+                        label: <span className="sr-only">Other</span>,
                         inlineControl: (
                             <LemonInput
                                 value={customValue}
                                 onFocus={() => setValue('other')}
                                 onChange={setCustomValue}
-                                placeholder="Type an answer"
+                                placeholder="Other"
                                 size="xsmall"
                                 transparentBackground
                                 fullWidth
