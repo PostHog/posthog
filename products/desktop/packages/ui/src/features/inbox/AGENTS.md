@@ -87,6 +87,8 @@ The detail components share the same shape: load the report, render a common hea
 
 `useInboxAllReports` is the list source of truth. It reads UI scope/filter state, calls the paginated report list hook, returns filtered reports, and computes counts used by the tabs. Multiple tab bodies can call it because React Query dedupes the underlying request.
 
+The sidebar badge counts only the active `Review and merge` and `Needs decision` groups selected by the persisted status filter. Its count-only queries also apply the current priority and reviewer-scope filters, so the badge matches the report list.
+
 Tab membership and counts live in `utils/reportMembership.ts`. Keep that file as the canonical place for report partitioning rules so the tab bodies, counts, and tests stay aligned.
 
 Detail screens layer additional data on top of the base report:
