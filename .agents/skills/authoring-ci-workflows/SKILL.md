@@ -298,7 +298,7 @@ The default is 6 hours — a hung job burns paid minutes silently.
 
 ## Caching
 
-Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, save gated to master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
+Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, restore only; `pnpm-store-cache.yml` writes it on master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 
@@ -360,16 +360,20 @@ Those suites skip `push` and take their master coverage — and their Trunk flak
 
 Crons are offset so the runs do not all fire at once, and the offsets live here rather than in the workflows:
 
-| Workflow          | Minute |
-| ----------------- | ------ |
-| `ci-frontend.yml` | 7      |
-| `ci-nodejs.yml`   | 13     |
-| `ci-backend.yml`  | 23     |
-| `ci-dagster.yml`  | 33     |
-| `ci-python.yml`   | 43     |
-| `ci-mcp.yml`      | 53     |
+| Workflow                            | Minute |
+| ----------------------------------- | ------ |
+| `ci-frontend.yml`                   | 7      |
+| `ci-nodejs.yml`                     | 13     |
+| `ci-backend.yml`                    | 23     |
+| `ci-dagster.yml`                    | 33     |
+| `ci-python.yml`                     | 43     |
+| `ci-mcp.yml`                        | 53     |
+| `ci-backend-update-test-timing.yml` | 17     |
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
+
+`ci-backend-update-test-timing.yml` sits in the table too.
+It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
 
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.

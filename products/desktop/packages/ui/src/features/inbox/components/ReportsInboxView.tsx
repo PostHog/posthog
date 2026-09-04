@@ -14,7 +14,7 @@ import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/compone
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
-import { useSignalSourceConfigs } from "@posthog/ui/features/inbox/hooks/useSignalSourceConfigs";
+import { useSelfDrivingSetupStatus } from "@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
   DEFAULT_INBOX_REPORT_STATE_FILTER,
@@ -91,7 +91,7 @@ export function ReportsInboxView(): React.JSX.Element {
     sortDirection,
   } = reviewAndMergeQuery;
   const triageFocusEnabled = useTriageFocusEnabled();
-  const sourceConfigs = useSignalSourceConfigs();
+  const setupStatus = useSelfDrivingSetupStatus();
   const triageOrigin = useInboxTriageOrigin();
   const navigate = useNavigate();
   const [focusMode, setFocusMode] = useState(() => triageOrigin !== null);
@@ -293,12 +293,12 @@ export function ReportsInboxView(): React.JSX.Element {
 
   const isEmpty = isSuccess && reportCount === 0;
   const isAgentConfigurationLoading =
-    isEmpty && !hasActiveFilters && sourceConfigs.isPending;
+    isEmpty && !hasActiveFilters && setupStatus.isLoading;
   const showConfigureAgentsEmptyState =
     isEmpty &&
     !hasActiveFilters &&
-    sourceConfigs.isSuccess &&
-    !sourceConfigs.data?.some((config) => config.enabled);
+    !setupStatus.isLoading &&
+    !setupStatus.isConfigured;
 
   return (
     <ReportsInboxViewPresentation
