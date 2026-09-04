@@ -1,5 +1,6 @@
 import {
     CostableJob,
+    OrderableWorkflowRow,
     RunCostSummary,
     computeFleetSummary,
     computeHealthSummary,
@@ -216,31 +217,35 @@ describe('runHealth', () => {
         expect(computeFleetSummary(rows).passRate).toBe(expected)
     })
 
-    const orderable = (
-        workflowName: string,
-        runCount: number,
-        mergeQueueRunCount: number
-    ): { workflowName: string; runCount: number; mergeQueueRunCount: number } => ({
-        workflowName,
-        runCount,
-        mergeQueueRunCount,
-    })
-
-    it.each<[string, { workflowName: string; runCount: number; mergeQueueRunCount: number }[], string[]]>([
+    it.each<[string, OrderableWorkflowRow[], string[]]>([
         // A gating workflow outranks a busier non-gating one: the queue runs it before every merge.
         [
             'merge-queue workflows first, then run count',
-            [orderable('Docs', 900, 0), orderable('Backend CI', 40, 12), orderable('Frontend CI', 300, 5)],
+            [
+                { workflowName: 'Docs', runCount: 900, mergeQueueRunCount: 0 },
+                { workflowName: 'Backend CI', runCount: 40, mergeQueueRunCount: 12 },
+                { workflowName: 'Frontend CI', runCount: 300, mergeQueueRunCount: 5 },
+            ],
             ['Frontend CI', 'Backend CI', 'Docs'],
         ],
         // A repo with no merge queue falls straight through to run count.
         [
             'no gating rows leaves pure run-count order',
-            [orderable('Docs', 90, 0), orderable('Backend CI', 400, 0)],
+            [
+                { workflowName: 'Docs', runCount: 90, mergeQueueRunCount: 0 },
+                { workflowName: 'Backend CI', runCount: 400, mergeQueueRunCount: 0 },
+            ],
             ['Backend CI', 'Docs'],
         ],
         // Equal run counts settle by name, so the table keeps a fixed order between renders.
-        ['equal run counts settle by name', [orderable('Zeta', 10, 0), orderable('Alpha', 10, 0)], ['Alpha', 'Zeta']],
+        [
+            'equal run counts settle by name',
+            [
+                { workflowName: 'Zeta', runCount: 10, mergeQueueRunCount: 0 },
+                { workflowName: 'Alpha', runCount: 10, mergeQueueRunCount: 0 },
+            ],
+            ['Alpha', 'Zeta'],
+        ],
     ])('orderWorkflowHealthRows: %s', (_name, rows, expected) => {
         expect(orderWorkflowHealthRows(rows).map((row) => row.workflowName)).toEqual(expected)
     })

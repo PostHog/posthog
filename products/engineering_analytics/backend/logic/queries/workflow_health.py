@@ -46,7 +46,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     SUCCESSFUL_RUN_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
-    non_default_branch_predicate,
+    default_branch_predicate,
     run_duration_percentile_expr,
     run_scope_filter_clause,
     run_started_floor_constant,
@@ -102,9 +102,9 @@ _PREV_SELECT = f"""
 
 # Merge-queue run counts over the same window with no branch/run_scope filter, so the list can rank
 # queue-gating workflows whatever scope is active. Only needed when a filter is on: without one, the
-# main query's own countIf already answers this. HAVING keeps only gating workflows, and the explicit
-# bound keeps HogQL's default 100-row cap from silently dropping some of them.
-_GATING_LIMIT = 10000
+# main query's own countIf already answers this. The scan covers only the workflows the main query
+# returned, HAVING keeps the gating ones, and the explicit bound keeps HogQL's default 100-row cap
+# from silently dropping some of them.
 _GATING_SELECT = f"""
     SELECT
         repo_owner,
@@ -112,10 +112,10 @@ _GATING_SELECT = f"""
         workflow_name,
         countIf(is_merge_queue) AS merge_queue_run_count
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ AND workflow_name IN {{gating_workflow_names}}
     GROUP BY repo_owner, repo_name, workflow_name
     HAVING merge_queue_run_count > 0
-    LIMIT {_GATING_LIMIT}
+    LIMIT {_LIMIT}
 """
 
 _BUCKET_SELECT = f"""
@@ -171,7 +171,7 @@ _TIME_TO_GREEN_CTES = f"""
         FROM __RUNS_SOURCE__ AS r
         WHERE run_started_at >= {{scan_from}} __DATE_TO__
           AND NOT r.is_merge_queue
-          AND {non_default_branch_predicate()}
+          AND NOT {default_branch_predicate()}
         GROUP BY repo_owner, repo_name, head_sha, workflow_name
     ),
     green_rounds AS (
@@ -361,7 +361,10 @@ def query_workflow_health(
         gating_response = curated.run(
             fill(_GATING_SELECT),
             query_type="engineering_analytics.workflow_health_gating",
-            placeholders=placeholders,
+            placeholders={
+                **placeholders,
+                "gating_workflow_names": ast.Constant(value=sorted({row[2] for row in response.results})),
+            },
             workload=workload,
         )
         gating_by_workflow = {

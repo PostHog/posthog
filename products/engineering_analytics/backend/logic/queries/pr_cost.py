@@ -48,9 +48,9 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     branch_filter_clause,
+    cost_run_scope_filter_clause,
     date_to_filter_clause,
     merge_queue_branch_predicate,
-    run_scope_filter_clause,
     run_windowed_job_created_floor_constant,
     window_pair_predicates,
 )
@@ -275,12 +275,7 @@ def query_workflow_window_costs(
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="c.run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="c.run_head_branch")
-    run_scope_clause = run_scope_filter_clause(
-        run_scope,
-        branch_column="c.run_head_branch",
-        attributed_predicate="c.pr_number IS NOT NULL",
-        merge_queue_predicate="c.is_merge_queue",
-    )
+    run_scope_clause = cost_run_scope_filter_clause(run_scope)
     sql = (
         _WINDOW_COST_SELECT.replace("__COST_SOURCE__", cost_source)
         .replace("__COST_AGGREGATES__", _cost_aggregates())
@@ -597,12 +592,7 @@ def query_workflow_runner_costs(
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="c.run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="c.run_head_branch")
-    run_scope_clause = run_scope_filter_clause(
-        run_scope,
-        branch_column="c.run_head_branch",
-        attributed_predicate="c.pr_number IS NOT NULL",
-        merge_queue_predicate="c.is_merge_queue",
-    )
+    run_scope_clause = cost_run_scope_filter_clause(run_scope)
     sql = (
         _RUNNER_COST_SELECT.replace("__COST_SOURCE__", cost_source)
         .replace("__COST_AGGREGATES__", _cost_aggregates())

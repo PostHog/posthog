@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
+    cost_run_scope_filter_clause,
     date_to_filter_clause,
     run_scope_filter_clause,
     run_windowed_job_created_floor_constant,
@@ -82,12 +83,21 @@ _COST_SELECT = f"""
     GROUP BY job_name
 """
 
-_RUN_COUNT_SELECT = """
+_RUNS_WINDOW = (
+    "workflow_name = {workflow_name} AND run_started_at >= {date_from}"
+    " __RUNS_DATE_TO__ __RUNS_BRANCH__ __RUNS_RUN_SCOPE__"
+)
+
+_RUN_COUNT_SELECT = f"""
     SELECT count() AS total_runs
     FROM __RUNS_SOURCE__ AS r
-    WHERE workflow_name = {workflow_name} AND run_started_at >= {date_from} __RUNS_DATE_TO__ __RUNS_BRANCH__
-        __RUNS_RUN_SCOPE__
+    WHERE {_RUNS_WINDOW}
 """
+
+# The jobs source carries no attribution or merge-queue column, so a job can only be scoped through
+# the run it belongs to. The subquery reuses the run-count window so both sides of the jobs table read
+# the same population.
+_RUNS_SCOPE_SUBQUERY = f"AND run_id IN (SELECT id FROM __RUNS_SOURCE__ AS r WHERE {_RUNS_WINDOW})"
 
 
 def query_job_aggregates(
@@ -122,22 +132,8 @@ def query_job_aggregates(
     branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
     runs_branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
     runs_run_scope_clause = run_scope_filter_clause(run_scope)
-    cost_run_scope_clause = run_scope_filter_clause(
-        run_scope,
-        branch_column="run_head_branch",
-        attributed_predicate="pr_number IS NOT NULL",
-        merge_queue_predicate="is_merge_queue",
-    )
-    # The jobs source carries no attribution or merge-queue column, so a job can only be scoped
-    # through the run it belongs to. The subquery reuses the run-count template's window so both
-    # sides of the jobs table read the same population.
-    jobs_run_scope_clause = ""
-    if runs_run_scope_clause:
-        jobs_run_scope_clause = (
-            "AND run_id IN (SELECT id FROM __RUNS_SOURCE__ AS r"
-            " WHERE workflow_name = {workflow_name} AND run_started_at >= {date_from}"
-            f" __RUNS_DATE_TO__ {runs_run_scope_clause})"
-        )
+    cost_run_scope_clause = cost_run_scope_filter_clause(run_scope)
+    jobs_run_scope_clause = _RUNS_SCOPE_SUBQUERY if runs_run_scope_clause else ""
 
     def fill(template: str) -> str:
         return (

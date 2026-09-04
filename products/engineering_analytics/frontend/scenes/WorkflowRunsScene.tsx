@@ -113,10 +113,12 @@ export function WorkflowRunsScene(): JSX.Element {
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
     // The rim spinner means "these numbers are updating", so each read only counts once it has data on
     // screen to update. A first load shows the sections' own skeletons instead.
+    const healthBusy = runActivityLoading && activityRuns.length > 0
+    const costBusy = runnerCostsLoading && runnerCosts.length > 0
     const panelBusy =
         (runsLoading && runRows.length > 0) ||
-        (runActivityLoading && activityRuns.length > 0) ||
-        (runnerCostsLoading && runnerCosts.length > 0) ||
+        healthBusy ||
+        costBusy ||
         (jobAggregatesLoading && jobAggregates.length > 0)
     // Master's own verdict when the window has master runs; the overall fleet state otherwise.
     const verdictPill =
@@ -386,7 +388,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         loading={runnerCostsLoading}
                     />
                 </div>
-                <Section id="health" title="Health" busy={runActivityLoading && activityRuns.length > 0}>
+                <Section id="health" title="Health" busy={healthBusy}>
                     <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
                 </Section>
                 <Section id="jobs" title="Jobs">
@@ -396,7 +398,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         totalCostUsd={costSummary?.estimatedCostUsd ?? null}
                     />
                 </Section>
-                <Section id="cost" title="Cost" busy={runnerCostsLoading && runnerCosts.length > 0}>
+                <Section id="cost" title="Cost" busy={costBusy}>
                     {runnerCosts.length > 0 ? (
                         <RunnerTierCard costs={runnerCosts} />
                     ) : (
