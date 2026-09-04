@@ -548,20 +548,27 @@ def test_comment_goes_out_only_when_an_entry_slips(previous_states: dict[str, st
 
 
 @pytest.mark.parametrize(
-    "has_items, existing, expected_action, expected_subcommands",
+    "has_items, existing, expected_action, expected_subcommands, expected_preview",
     [
-        (False, None, "nothing to report", []),
-        (False, (7, ""), "closed #7", ["issue close"]),
-        (True, None, "opened https://x/1", ["label create", "issue create"]),
-        (True, (7, ""), "updated #7 and notified owners", ["issue edit", "issue comment"]),
+        (False, None, "nothing to report", [], "nothing to report"),
+        (False, (7, ""), "closed #7", ["issue close"], "would close #7\n\n{close_comment}"),
+        (True, None, "opened https://x/1", ["label create", "issue create"], "would open a new issue\n\n{body}"),
+        (
+            True,
+            (7, ""),
+            "updated #7 and notified owners",
+            ["issue edit", "issue comment"],
+            "would update #7 and notify owners\n\n{body}\n\n--- comment ---\n{comment}",
+        ),
     ],
 )
-def test_apply_reconciles_one_tracking_issue(
+def test_preview_and_apply_agree_on_the_tracking_issue(
     monkeypatch: pytest.MonkeyPatch,
     has_items: bool,
     existing: tuple[int, str] | None,
     expected_action: str,
     expected_subcommands: list[str],
+    expected_preview: str,
 ) -> None:
     calls: list[str] = []
 
@@ -572,6 +579,9 @@ def test_apply_reconciles_one_tracking_issue(
     monkeypatch.setattr(report, "_gh", fake_gh)
     entries = [make_entry(added=TODAY - timedelta(days=20), expires=TODAY - timedelta(days=2))] if has_items else []
     built = report.build_report(report.collect(entries, TODAY), {}, core.DEFAULT_GRACE_DAYS)
+    assert report.preview(built, existing) == expected_preview.format(
+        body=built.body, comment=built.comment, close_comment=report.CLOSE_COMMENT
+    )
     assert report.apply(built, existing, "PostHog/posthog") == expected_action
     assert calls == expected_subcommands
 
@@ -583,5 +593,5 @@ def test_dry_run_previews_what_a_real_run_would_post(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(report, "_gh", lambda *a, **k: pytest.fail("a dry run must not write"))
 
     built, action = report.run([entry], TODAY, repo="PostHog/posthog", dry_run=True)
-    assert action == "dry run"
     assert built.comment is None
+    assert action == f"would update #7\n\n{built.body}"

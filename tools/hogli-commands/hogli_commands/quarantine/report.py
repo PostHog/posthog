@@ -26,6 +26,7 @@ ISSUE_TITLE = "Quarantined tests are due for removal or re-triage"
 ISSUE_LABEL = "test-quarantine"
 ISSUE_LABEL_COLOR = "d4c5f9"
 ISSUE_LABEL_DESCRIPTION = "Automated digest of .test_quarantine.json entries near or past expiry"
+CLOSE_COMMENT = "Every quarantine entry is inside its window again."
 
 # The states worth telling an owner about, most urgent first.
 REPORTABLE_STATES = (core.OVERDUE, core.IN_GRACE, core.EXPIRING_SOON)
@@ -201,14 +202,15 @@ def run(
 ) -> tuple[Report, str]:
     """Build the digest and, unless ``dry_run``, reconcile it into the issue.
 
-    A dry run still reads the open issue, so the preview says what a real run
-    would post rather than re-announcing every entry.
+    A dry run still reads the open issue, so the preview names the action a
+    real run would take, and the text it would post, rather than re-announcing
+    every entry.
     """
     items = collect(entries, today, grace_days, soon_days)
     existing = open_issue(repo)
     previous = read_states(existing[1]) if existing else {}
     built = build_report(items, previous, grace_days, workflow_url)
-    return built, "dry run" if dry_run else apply(built, existing, repo)
+    return built, preview(built, existing) if dry_run else apply(built, existing, repo)
 
 
 def _gh(*args: str, repo: str, stdin: str | None = None) -> str:
@@ -233,8 +235,7 @@ def apply(report: Report, existing: tuple[int, str] | None, repo: str) -> str:
     if not report.items:
         if existing is None:
             return "nothing to report"
-        closing = "Every quarantine entry is inside its window again."
-        _gh("issue", "close", str(existing[0]), "--comment", closing, repo=repo)
+        _gh("issue", "close", str(existing[0]), "--comment", CLOSE_COMMENT, repo=repo)
         return f"closed #{existing[0]}"
 
     if existing is None:
@@ -250,3 +251,22 @@ def apply(report: Report, existing: tuple[int, str] | None, repo: str) -> str:
         return f"updated #{number}"
     _gh("issue", "comment", str(number), "--body-file", "-", repo=repo, stdin=report.comment)
     return f"updated #{number} and notified owners"
+
+
+def preview(report: Report, existing: tuple[int, str] | None) -> str:
+    """What ``apply`` would do, and the text it would post, without writing.
+
+    The branches mirror ``apply``, because a preview that only rendered the
+    digest would show nothing for an all-clear run, which in fact closes the
+    issue. Creation drops the comment, so this drops it too: the new body
+    already mentions every owner.
+    """
+    if not report.items:
+        if existing is None:
+            return "nothing to report"
+        return f"would close #{existing[0]}\n\n{CLOSE_COMMENT}"
+    if existing is None:
+        return f"would open a new issue\n\n{report.body}"
+    if report.comment is None:
+        return f"would update #{existing[0]}\n\n{report.body}"
+    return f"would update #{existing[0]} and notify owners\n\n{report.body}\n\n--- comment ---\n{report.comment}"

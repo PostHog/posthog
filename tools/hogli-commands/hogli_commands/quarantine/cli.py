@@ -175,7 +175,7 @@ def check(path: Path, grace_days: int) -> None:
     "--dry-run",
     is_flag=True,
     envvar="QUARANTINE_REPORT_DRY_RUN",
-    help="Print the report instead of editing the tracking issue; the issue is still read.",
+    help="Print what a real run would do and post, instead of editing the tracking issue; the issue is still read.",
 )
 @click.pass_obj
 def report(path: Path, repo: str, grace_days: int, soon_days: int, workflow_url: str, dry_run: bool) -> None:
@@ -184,7 +184,7 @@ def report(path: Path, repo: str, grace_days: int, soon_days: int, workflow_url:
     # A malformed file silently drops entries, so reporting "all clear" from it
     # would be worse than saying nothing.
     result = _load_for_writing(path)
-    built, action = report_module.run(
+    _, action = report_module.run(
         result.entries,
         core.today_utc(),
         repo=repo,
@@ -193,11 +193,6 @@ def report(path: Path, repo: str, grace_days: int, soon_days: int, workflow_url:
         workflow_url=workflow_url,
         dry_run=dry_run,
     )
-    if dry_run:
-        click.echo(built.body)
-        if built.comment is not None:
-            click.echo(f"\n--- comment ---\n{built.comment}")
-        return
     click.echo(action)
 
 
