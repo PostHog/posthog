@@ -31,6 +31,7 @@ interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
      */
     rounded?: boolean
     disabledReason?: string
+    'data-attr'?: string
 }
 
 export function SettingsBar({
@@ -68,6 +69,7 @@ export function SettingsMenu({
     whenUnavailable,
     rounded = false,
     disabledReason,
+    'data-attr': dataAttr,
     ...props
 }: SettingsMenuProps): JSX.Element {
     const active = items.some((cf) => !!cf.active)
@@ -84,6 +86,7 @@ export function SettingsMenu({
                 size="xsmall"
                 icon={icon}
                 disabledReason={disabledReason}
+                data-attr={dataAttr}
             >
                 {label}
             </LemonButton>

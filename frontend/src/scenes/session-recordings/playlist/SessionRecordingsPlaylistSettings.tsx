@@ -591,7 +591,12 @@ export function SessionRecordingsPlaylistTopSettings({
                 {selectedRecordingsIds.length > 0 && (
                     <SettingsMenu
                         items={getActionsMenuItems()}
-                        label={<LemonBadge content={selectedRecordingsIds.length.toString()} size="small" />}
+                        label={
+                            <span className="inline-flex items-center gap-1">
+                                <LemonBadge content={selectedRecordingsIds.length.toString()} size="small" />
+                                selected
+                            </span>
+                        }
                         data-attr="bulk-action-menu"
                     />
                 )}
