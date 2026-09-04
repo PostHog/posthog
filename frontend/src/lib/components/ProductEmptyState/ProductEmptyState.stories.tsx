@@ -11,6 +11,8 @@ import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptySt
 import { alertsEmptyState } from 'products/alerts/frontend/emptyState/alertsEmptyState'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { businessKnowledgeEmptyState } from 'products/business_knowledge/frontend/emptyState/businessKnowledgeEmptyState'
+import { destinationsEmptyState } from 'products/cdp/frontend/emptyState/destinationsEmptyState'
+import { transformationsEmptyState } from 'products/cdp/frontend/emptyState/transformationsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
@@ -388,6 +390,30 @@ export const PulseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(pu
         },
     },
 })
+
+// Destinations detection counts hog functions, legacy plugin destinations, and batch
+// exports on mount - answer "none yet" to each.
+export const DestinationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    destinationsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/hog_functions/': [200, emptyEntityList],
+                '/api/projects/:team_id/pipeline_destination_configs/': [200, emptyEntityList],
+                // nosemgrep: no-environments-api-urls-frontend -- batch exports are env-scoped, so the msw mock must match /api/environments to intercept them
+                '/api/environments/:team_id/batch_exports/': [200, emptyEntityList],
+            },
+        },
+    }
+)
+
+// Transformations detection counts transformation hog functions on mount - answer "none yet".
+export const TransformationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    transformationsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/hog_functions/': [200, emptyEntityList] } } }
+)
 
 export const HeatmapsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(heatmapsEmptyState, 'needs-setup')
 
