@@ -6,11 +6,11 @@ import time
 import uuid
 import asyncio
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from temporalio.client import WorkflowFailureError
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.facade.agents import (
@@ -106,7 +106,7 @@ async def _finish_workflow(handle: WorkflowHandle, *, status: str, reason: str |
     return await _wait_for_workflow_terminal(handle, WORKFLOW_CANCELLATION_GRACE_SECONDS)
 
 
-@dataclass
+@frozen
 class EvalCaseResult:
     artifacts: AgentArtifacts
     trace_id: str = ""
@@ -189,7 +189,7 @@ async def run_eval_case(
                 logger.warning("Provider cleanup failed for eval task %s", state.task.id, exc_info=True)
 
 
-@dataclass
+@frozen(frozen=False)
 class _CaseRunState:
     """Provisioning state a turn helper fills in before it can raise.
 
