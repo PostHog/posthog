@@ -260,6 +260,7 @@ export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyOutputConfigTrueIsFailureDefault = false
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -307,7 +308,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -334,9 +337,17 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .default(evaluationsCreateBodyOutputConfigTrueIsFailureDefault)
+                    .describe(
+                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem."
+            ),
         conditions: zod
             .array(
                 zod
@@ -457,6 +468,7 @@ export const evaluationsUpdateBodyNameMax = 400
 
 export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsUpdateBodyOutputConfigTrueIsFailureDefault = false
 export const evaluationsUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -504,7 +516,9 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -531,9 +545,17 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(evaluationsUpdateBodyOutputConfigAllowsNaDefault)
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .default(evaluationsUpdateBodyOutputConfigTrueIsFailureDefault)
+                    .describe(
+                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem."
+            ),
         conditions: zod
             .array(
                 zod
@@ -654,6 +676,7 @@ export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyOutputConfigTrueIsFailureDefault = false
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -702,7 +725,9 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -730,9 +755,17 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .default(evaluationsPartialUpdateBodyOutputConfigTrueIsFailureDefault)
+                    .describe(
+                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem."
+            ),
         conditions: zod
             .array(
                 zod
@@ -870,7 +903,9 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     source: zod
         .string()
         .min(1)
-        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N\/A.'),
+        .describe(
+            'Hog source code to test. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+        ),
     sample_count: zod
         .number()
         .min(1)
