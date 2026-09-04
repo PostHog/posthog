@@ -874,12 +874,12 @@ export interface dashboardLogicActions {
         dataColorThemeId: number | null
     }
     setDates: (
-        date_from: string | null,
-        date_to: string | null | undefined,
+        dateFrom: string | null,
+        dateTo: string | null | undefined,
         explicitDate?: boolean
     ) => {
-        date_from: string | null
-        date_to: string | null | undefined
+        dateFrom: string | null
+        dateTo: string | null | undefined
         explicitDate: boolean | undefined
     }
     setExternalFilters: (filters: DashboardFilter) => {
@@ -1438,9 +1438,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /*
          * Dashboard filters & variables.
          */
-        setDates: (date_from: string | null, date_to: string | null | undefined, explicitDate?: boolean) => ({
-            date_from,
-            date_to,
+        setDates: (dateFrom: string | null, dateTo: string | null | undefined, explicitDate?: boolean) => ({
+            dateFrom,
+            dateTo,
             explicitDate,
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
@@ -2580,10 +2580,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 filterTestAccounts: undefined,
             } as DashboardFilter,
             {
-                setDates: (state, { date_from, date_to, explicitDate }) => ({
+                setDates: (state, { dateFrom, dateTo, explicitDate }) => ({
                     ...state,
-                    date_from,
-                    date_to,
+                    date_from: dateFrom,
+                    date_to: dateTo,
                     explicitDate,
                 }),
                 setProperties: (state, { properties }) => ({
@@ -5007,14 +5007,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        setDates: ({ date_from, date_to, explicitDate }) => {
+        setDates: ({ dateFrom, dateTo, explicitDate }) => {
             actions.setDashboardSettingsDraft({
                 ...values.currentDashboardSettings,
-                filters: { ...values.currentDashboardSettings.filters, date_from, date_to, explicitDate },
+                filters: {
+                    ...values.currentDashboardSettings.filters,
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    explicitDate,
+                },
             })
             eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'date', {
-                date_from,
-                date_to: date_to ?? null,
+                date_from: dateFrom,
+                date_to: dateTo ?? null,
             })
 
             if (values.canAutoPreview) {
