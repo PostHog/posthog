@@ -8,7 +8,7 @@ from products.slack_app.backend.services.model_catalogue import (
     ModelChoice,
     available_model_choices,
     describe_run_model,
-    format_model_id,
+    display_name_for_model,
 )
 from products.slack_app.backend.services.run_preferences import (
     SLACK_DEFAULT_MODEL,
@@ -226,10 +226,12 @@ class TestFormatModelId:
             ("gpt-5-mini", "GPT-5 Mini"),
             # A provider-prefixed id drops the prefix before naming.
             ("openai/gpt-5.5", "GPT-5.5"),
+            # A vendor-served id derives badly, so the catalog names it and that name wins.
+            ("@cf/zai-org/glm-5.2", "GLM-5.2"),
         ],
     )
     def test_names_every_family_without_a_lookup_table(self, model_id, expected):
-        assert format_model_id(model_id) == expected
+        assert display_name_for_model(model_id) == expected
 
 
 class TestAvailableModelChoices:

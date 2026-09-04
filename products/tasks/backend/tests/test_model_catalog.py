@@ -130,12 +130,10 @@ def test_default_model_is_one_the_catalog_serves() -> None:
 def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
     # A pin that the formatter would produce anyway is dead weight that outlives the
     # formatter improving, so assert the property rather than restating the six strings.
-    from products.tasks.backend.logic.services.model_catalogue import format_model_id
-
     for entry in model_catalog.MODELS:
         if entry.label is None:
             continue
-        assert entry.label != format_model_id(entry.id), (
+        assert entry.label != model_catalog.format_model_id(entry.id), (
             f"'{entry.id}' pins the label the formatter already derives; drop the pin"
         )
 

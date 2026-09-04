@@ -25,8 +25,9 @@ export interface CatalogModel {
     runtimeAdapter: RuntimeAdapter
     /** Empty for a model with no effort control: render no dropdown. */
     reasoningEfforts: readonly ReasoningEffort[]
-    /** Display name, set only where formatting the id gets it wrong. */
-    label?: string
+    /** What a picker shows. Resolved when this file is generated, so every
+        surface names a model the same way without carrying a formatter. */
+    label: string
 }
 
 /** Which vendor API each runtime adapter speaks. */
@@ -72,71 +73,85 @@ export const MODELS: readonly CatalogModel[] = [
         id: 'claude-opus-4-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high'],
+        label: 'Claude Opus 4.5',
     },
     {
         id: 'claude-opus-4-6',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        label: 'Claude Opus 4.6',
     },
     {
         id: 'claude-opus-4-7',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Opus 4.7',
     },
     {
         id: 'claude-opus-4-8',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Opus 4.8',
     },
     {
         id: 'claude-opus-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Opus 5',
     },
     {
         id: 'claude-fable-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Fable 5',
     },
     {
         id: 'claude-fable-5-1',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Fable 5.1',
     },
     {
         id: 'claude-sonnet-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Sonnet 5',
     },
     {
         id: 'claude-sonnet-4-6',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high'],
+        label: 'Claude Sonnet 4.6',
     },
     {
         id: 'gpt-5',
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high'],
+        label: 'GPT-5',
     },
     {
         id: 'gpt-5.5',
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+        label: 'GPT-5.5',
     },
     {
         id: 'gpt-5.6-sol',
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        label: 'GPT-5.6 Sol',
     },
     {
         id: 'gpt-5.6-terra',
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        label: 'GPT-5.6 Terra',
     },
     {
         id: 'gpt-5.6-luna',
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        label: 'GPT-5.6 Luna',
     },
 ]
 
