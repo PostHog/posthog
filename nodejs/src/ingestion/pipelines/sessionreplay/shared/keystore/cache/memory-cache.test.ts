@@ -223,23 +223,37 @@ describe('MemoryCachedKeyStore', () => {
         })
 
         it('should expire cached items after ttlMs', async () => {
-            const ttlMs = 50 // Short TTL for testing
-            const customCachedKeyStore = new MemoryCachedKeyStore(mockDelegate, { ttlMs })
+            // lru-cache binds to a clock object when its module first loads. Install fake timers first, then
+            // load the store in isolation, so its lru-cache reads the fake clock and the TTL follows it.
+            jest.useFakeTimers()
+            try {
+                let IsolatedKeyStore!: typeof MemoryCachedKeyStore
+                jest.isolateModules(() => {
+                    ;({ MemoryCachedKeyStore: IsolatedKeyStore } = require('./memory-cache'))
+                })
+                // Move the clock off zero — lru-cache reads a zero start time as "no TTL" and never expires.
+                await jest.advanceTimersByTimeAsync(1000)
 
-            // First call populates cache
-            await customCachedKeyStore.getKey('session-123', 1)
-            mockDelegate.getKey.mockClear()
+                const ttlMs = 50
+                const customCachedKeyStore = new IsolatedKeyStore(mockDelegate, { ttlMs })
 
-            // Immediate second call should use cache
-            await customCachedKeyStore.getKey('session-123', 1)
-            expect(mockDelegate.getKey).not.toHaveBeenCalled()
+                // First call populates cache
+                await customCachedKeyStore.getKey('session-123', 1)
+                mockDelegate.getKey.mockClear()
 
-            // Wait for TTL to expire
-            await new Promise((resolve) => setTimeout(resolve, ttlMs + 10))
+                // Immediate second call should use cache
+                await customCachedKeyStore.getKey('session-123', 1)
+                expect(mockDelegate.getKey).not.toHaveBeenCalled()
 
-            // After TTL - should call delegate
-            await customCachedKeyStore.getKey('session-123', 1)
-            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
+                // Advance past the TTL
+                await jest.advanceTimersByTimeAsync(ttlMs + 10)
+
+                // After TTL - should call delegate
+                await customCachedKeyStore.getKey('session-123', 1)
+                expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
