@@ -6,7 +6,7 @@ export function isDashboardFilterEmpty(filter: DashboardFilter | TileFilters | n
         !filter ||
         (filter.date_from === undefined &&
             filter.date_to === undefined &&
-            (!filter.properties || filter.properties.length === 0) &&
+            filter.properties === undefined &&
             filter.breakdown_filter === undefined &&
             filter.interval === undefined &&
             filter.filterTestAccounts === undefined &&
