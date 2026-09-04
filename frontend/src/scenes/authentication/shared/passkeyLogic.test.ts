@@ -1,7 +1,9 @@
 import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simplewebauthn/browser'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
-import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { PASSKEY_LOGIN_TIMEOUT_MS, passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -9,7 +11,9 @@ import { initKeaTests } from '~/test/init'
 jest.mock('@simplewebauthn/browser', () => ({
     startAuthentication: jest.fn(),
     browserSupportsWebAuthnAutofill: jest.fn(),
+    WebAuthnAbortService: { cancelCeremony: jest.fn() },
 }))
+jest.mock('posthog-js')
 
 // isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
 const WEBKIT_VENDOR = 'Apple Computer, Inc.'
@@ -94,6 +98,93 @@ describe('passkeyLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(beginHandler).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('startPasskeyAuthentication (the passkey button prompt)', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(CHROMIUM_VENDOR)
+            jest.useFakeTimers()
+            // A ceremony that never settles is the stuck sign-in this suite is about.
+            ;(startAuthentication as jest.Mock).mockImplementation(() => new Promise(() => {}))
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': () => [200, {}],
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.useRealTimers()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('stops the spinner and shows an error when the passkey never answers', async () => {
+            logic.actions.beginPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(PASSKEY_LOGIN_TIMEOUT_MS + 1000)
+
+            expect(logic.values.isLoading).toBe(false)
+            expect(loginLogic.values.generalError?.code).toBe('passkey_error')
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'passkey login timed out',
+                expect.objectContaining({ method: 'prompt' })
+            )
+        })
+
+        it('clears the timeout banner when the next attempt starts', async () => {
+            logic.actions.beginPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(PASSKEY_LOGIN_TIMEOUT_MS + 1000)
+            expect(loginLogic.values.generalError?.code).toBe('passkey_error')
+
+            logic.actions.beginPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(loginLogic.values.generalError).toBeFalsy()
+
+            logic.actions.cancelPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(loginLogic.values.generalError).toBeFalsy()
+        })
+
+        it('stops the spinner when the user cancels the attempt', async () => {
+            logic.actions.beginPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(0)
+
+            logic.actions.cancelPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(logic.values.isLoading).toBe(false)
+            expect(loginLogic.values.generalError).toBeFalsy()
+        })
+
+        it('starts a new attempt when a request repeats while one is in flight', async () => {
+            logic.actions.beginPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(startAuthentication).toHaveBeenCalledTimes(1)
+
+            logic.actions.beginPasskeyLogin()
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(startAuthentication).toHaveBeenCalledTimes(2)
+            expect(logic.values.isLoading).toBe(true)
         })
     })
 })

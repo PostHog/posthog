@@ -6,6 +6,7 @@ import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { BeginPasskeyLoginParams, passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
@@ -81,21 +82,32 @@ interface PasskeyLoginButtonProps {
 }
 
 export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
-    const { beginPasskeyLogin } = useActions(passkeyLogic)
+    const { beginPasskeyLogin, cancelPasskeyLogin } = useActions(passkeyLogic)
     const { isLoading } = useValues(passkeyLogic)
 
     return (
         <div className="relative">
             <LemonButton
                 size="large"
-                icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+                // The `loading` prop disables the button, which leaves a sign-in that does not answer
+                // with no exit. The spinner is the icon instead, so a click can cancel the attempt.
+                icon={
+                    isLoading ? (
+                        <Spinner className="w-7 h-7" />
+                    ) : (
+                        <img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />
+                    )
+                }
                 active={isLastUsed}
-                tooltip="Passkey"
+                tooltip={isLoading ? 'Cancel passkey login' : 'Passkey'}
                 htmlType="button"
                 onClick={() => {
+                    if (isLoading) {
+                        cancelPasskeyLogin()
+                        return
+                    }
                     beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
                 }}
-                loading={isLoading}
                 data-attr="passkey-login"
             />
             {isLastUsed && (
