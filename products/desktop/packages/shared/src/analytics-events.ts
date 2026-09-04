@@ -32,7 +32,12 @@ type GitActionType =
   | "update-pr"
   | "branch-here";
 export type FeedbackType = "good" | "bad" | "general";
-type FileOpenSource = "sidebar" | "agent-suggestion" | "search" | "diff";
+export type FileOpenSource =
+  | "sidebar"
+  | "agent-suggestion"
+  | "markdown-link"
+  | "search"
+  | "diff";
 export type FileChangeType = "added" | "modified" | "deleted";
 type StopReason = "user_cancelled" | "completed" | "error" | "timeout";
 export type SkillButtonId =

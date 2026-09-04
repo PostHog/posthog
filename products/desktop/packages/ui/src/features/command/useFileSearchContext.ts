@@ -39,7 +39,7 @@ export function useFileSearchContext(): FileSearchContext {
   const selectFile = useCallback(
     (path: string) => {
       if (fileTaskId) {
-        openFileInSplit(fileTaskId, path, false);
+        openFileInSplit(fileTaskId, path, false, "search");
       } else {
         openNewTaskFile(path);
       }
