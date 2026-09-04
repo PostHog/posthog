@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconChevronRight } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -17,8 +17,8 @@ interface TicketsListProps {
 }
 
 export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.Element {
-    const { tickets, ticketsLoading, canCreateTicket } = useValues(sidepanelTicketsLogic)
-    const { setCurrentTicket, setView } = useActions(sidepanelTicketsLogic)
+    const { tickets, ticketsLoading, ticketsError, canCreateTicket } = useValues(sidepanelTicketsLogic)
+    const { setCurrentTicket, setView, loadTickets } = useActions(sidepanelTicketsLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
@@ -38,8 +38,40 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
         )
     }
 
+    // Only take over the whole panel when there is nothing to show. A failed poll keeps the
+    // previously loaded tickets in state, so hiding them behind the error would lock the person
+    // out of tickets they could still open or reply to. Show an inline notice above the list instead.
+    if (ticketsError && tickets.length === 0) {
+        return (
+            <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-8">
+                <p className="m-0">
+                    {ticketsError === 'rate_limited'
+                        ? 'Too many requests. Wait a moment, then try again.'
+                        : "We couldn't load your tickets."}
+                </p>
+                <LemonButton type="secondary" onClick={() => loadTickets()} data-attr="sidebar-retry-load-tickets">
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col gap-2">
+            {ticketsError && (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadTickets(),
+                        'data-attr': 'sidebar-retry-load-tickets',
+                    }}
+                >
+                    {ticketsError === 'rate_limited'
+                        ? 'Too many requests. This list might be out of date.'
+                        : "We couldn't refresh your tickets. This list might be out of date."}
+                </LemonBanner>
+            )}
             {canCreateTicket && (
                 <LemonButton
                     type="primary"

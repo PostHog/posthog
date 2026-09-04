@@ -507,4 +507,94 @@ describe('sidepanelTicketsLogic', () => {
             message_preview: 'here is the error I get',
         })
     })
+
+    // posthog-js reports an unreachable server as statusCode 0 and a non-2xx rejection with the real
+    // status. Both send-failure branches are live, so each has to stay separable in analytics, and
+    // neither may clear the draft — onSuccess is the only path that does.
+    it.each([
+        ['an unreachable server', { statusCode: 0 }, 'server_unreachable', 0],
+        ['a server rejection', { statusCode: 400 }, 'send_failed', 400],
+    ])('reports %s send failure with its status', async (_case, thrown, expectedReason, expectedStatus) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        ;(posthog as any).conversations.sendMessage = jest.fn().mockRejectedValue(thrown)
+        ;(posthog.capture as jest.Mock).mockClear()
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        const onSuccess = jest.fn()
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('here is my problem', onSuccess)
+        }).toFinishAllListeners()
+
+        expect(onSuccess).not.toHaveBeenCalled()
+        const failures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support ticket send blocked'
+        )
+        expect(failures).toHaveLength(1)
+        expect(failures[0][1]).toMatchObject({
+            reason: expectedReason,
+            status_code: expectedStatus,
+            message_preview: 'here is my problem',
+        })
+        errorToast.mockRestore()
+    })
+
+    // A failed ticket load used to raise a toast that blocked the panel and, on a throttled poll,
+    // fired every minute. It now shows inline with a retry, and a 429 reads as rate limiting.
+    it.each([
+        ['a generic failure', { message: 'boom' }, 'load_failed'],
+        ['a rate-limit response', { statusCode: 429 }, 'rate_limited'],
+    ])('surfaces %s in the list instead of a toast', async (_case, thrown, expectedError) => {
+        ;(posthog as any).conversations.getTickets = jest.fn().mockRejectedValue(thrown)
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.ticketsError).toBe(expectedError)
+        expect(errorToast).not.toHaveBeenCalled()
+        errorToast.mockRestore()
+    })
+
+    // A send switches views and can unmount this logic while the follow-up loadMessages is in flight.
+    // Reporting that as thread_load_failed put a red error over a message that actually sent, and the
+    // customer re-sent and created a duplicate ticket. The in-flight load can settle either way after
+    // the unmount: a resolve hits the guard after the await, a rejection (network error, 5xx, 429)
+    // hits the guard in the catch. Both must stay quiet.
+    it.each([
+        ['resolves', false, { messages: [], has_more: false }],
+        ['rejects', true, new Error('network error')],
+    ])(
+        'stays quiet when the panel unmounts before the follow-up message load %s',
+        async (_label, shouldReject, payload) => {
+            let settleGet: (value: any) => void = () => {}
+            ;(posthog as any).conversations.getMessages = jest.fn(
+                () => new Promise((resolve, reject) => (settleGet = shouldReject ? reject : resolve))
+            )
+            const localLogic = sidepanelTicketsLogic.build()
+            localLogic.mount()
+            await expectLogic(localLogic).toFinishAllListeners()
+            ;(posthog.capture as jest.Mock).mockClear()
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+
+            // setCurrentTicket kicks off loadMessages, which now parks on the pending getMessages
+            localLogic.actions.setCurrentTicket({
+                id: 't1',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-13T00:00:00Z',
+            } as ConversationTicket)
+            localLogic.unmount()
+            settleGet(payload)
+            await new Promise((resolve) => setTimeout(resolve))
+
+            const threadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event, props]) => event === 'support widget load failed' && props?.reason === 'thread_load_failed'
+            )
+            expect(threadFailures).toHaveLength(0)
+            expect(errorToast).not.toHaveBeenCalled()
+            errorToast.mockRestore()
+        }
+    )
 })

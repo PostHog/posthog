@@ -56,7 +56,8 @@ export type SupportFailureSurface =
 export type SupportSendFailureReason =
     | 'widget_unavailable' // extension never loaded (ad blocker, network policy) — no retry will fix it
     | 'widget_declined' // extension returned no response; nothing left the browser
-    | 'send_failed' // the request threw
+    | 'send_failed' // the request threw with a server status (a non-2xx rejection)
+    | 'server_unreachable' // the request never reached a server (posthog-js statusCode 0)
     | 'message_too_long' // rejected by the client-side cap before we tried
     | 'not_entitled' // plan has no ticket channel, so the draft was dropped on the floor
     | 'invalid_email' // logged-out submit with no usable reply address, so the ticket would be orphaned
@@ -121,6 +122,7 @@ export function captureSupportTicketBlocked({
     kind?: SupportTicketKind | null
     is_new_ticket?: boolean
     can_create_ticket?: boolean
+    status_code?: number | null
 }): void {
     posthog.capture('support ticket send blocked', {
         channel: 'conversations',
@@ -144,6 +146,7 @@ export function captureSupportWidgetLoadFailed({
     reason: SupportLoadFailureReason
     error?: unknown
     can_create_ticket?: boolean
+    status_code?: number | null
 }): void {
     posthog.capture('support widget load failed', {
         surface,
