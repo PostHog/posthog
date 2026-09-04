@@ -53,7 +53,6 @@ from products.experiments.backend.session_event_deltas import (
     MAX_CARD_HIGHLIGHTS,
     MAX_CARD_RECORDINGS,
     MAX_DELTA_SCAN_DAYS,
-    MAX_FALLBACK_DELTA_SCAN_DAYS,
     DeltaStrength,
     WatchCardKind,
     WatchEmptyReason,
@@ -2058,11 +2057,9 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     date_from = serializers.DateTimeField(
         help_text=(
             f"Start of what was actually compared. The requested window is the experiment's run window clamped "
-            f"to its most recent {MAX_DELTA_SCAN_DAYS} days ({MAX_FALLBACK_DELTA_SCAN_DAYS} when sessions are "
-            "matched on the stamped flag property, which no event name can prune a scan on), but a busy "
-            "experiment reaches the session ceiling long before that, and this reports where the compared "
-            "sessions really begin - often hours rather than days back. Display this, not the experiment's own "
-            "dates."
+            f"to its most recent {MAX_DELTA_SCAN_DAYS} days, but a busy experiment reaches the session ceiling "
+            "long before that, and this reports where the compared sessions really begin - often hours rather "
+            "than days back. Display this, not the experiment's own dates."
         )
     )
     date_to = serializers.DateTimeField(
@@ -2076,11 +2073,9 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     used_exposure_fallback = serializers.BooleanField(
         help_text=(
-            "True when the compared sessions were matched on the stamped $feature/<flag key> event property "
-            "instead of the exposure event, because the default exposure event has only ever been captured "
-            "server-side and can never match a session. The sessions then mean 'the flag was active in this "
-            "session', and the variant comes from the flag's value on each event, so a returning user can be "
-            "counted under a variant they were re-bucketed into later."
+            "Always false. The compared population is the exposed population the experiment's results count, "
+            "matched to sessions by person, so no stamped-property fallback exists any more. The field stays "
+            "for compatibility with existing readers."
         )
     )
     sessions_truncated = serializers.BooleanField(
@@ -2119,7 +2114,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and "
             "cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would "
             "read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: "
-            "this is also true when the variants are empty because no exposure in the window carried a session, "
+            "this is also true when the variants are empty because the people exposed have no sessions we can see, "
             "which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own."
         )
     )
@@ -2134,12 +2129,11 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants "
             "apart, but no recording behind them can be opened, so the project's session replay sampling and "
             "retention are what decide whether this surface can ever show anything. "
-            "'no_session_linked_exposures': people were exposed between date_from and date_to, and not one exposure "
-            "carried a session id, so there was nothing to compare. Only that window was checked, so say so. It is "
-            "how exposure is captured rather than a wait: exposures captured from a client-side SDK carry a session "
-            "and exposures captured server-side do not, so more of the same capture yields more of the same. Point "
-            "at capturing exposure from a client-side SDK before telling anyone to check back. Never fill an empty "
-            "shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for "
-            "exactly that reason."
+            "'no_session_linked_exposures': people were exposed between date_from and date_to and none of them has "
+            "a session we can see, so there was nothing to compare. Only that window was checked, so say so. "
+            "Sessions exist only where a browser or mobile SDK captured events, so point at capturing events from "
+            "such an SDK before telling anyone to check back: more exposures captured the same way yield more of "
+            "the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' "
+            "events are withheld here for exactly that reason."
         ),
     )

@@ -13,8 +13,9 @@ must never claim the analysis counted or discounted anyone.
 
 The population is session-scoped exposure evidence: an event matching the experiment's
 exposure criteria, carrying one of the flag's defined variants, inside the session. That is a
-deliberate choice, kept even though the tab's own list is person-scoped
-(`RecordingsQuery.experiment_exposure`): every bucket asks what happened *in the session*, and
+deliberate choice, kept even though the tab's own list
+(`RecordingsQuery.experiment_exposure`) and the watch shelf are person-scoped: every bucket
+asks what happened *in the session*, and
 "fired none of these metrics" only means something over sessions that demonstrably saw the
 experiment, whereas over all of an exposed person's sessions it would surface their unrelated
 browsing. The playlist ANDs the returned ids with its person-scoped filter, so a bucket session
