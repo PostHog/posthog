@@ -12,6 +12,7 @@ export interface WorkflowTreeNode {
     incomingEdge: HogFlowEdge | null
     branches: WorkflowTreeBranch[]
     joinActionId: string | null
+    joinAction: HogFlowAction | null
 }
 
 export interface WorkflowTreeBranch {
@@ -189,6 +190,7 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
                 incomingEdge: edgeIntoAction,
                 branches: [],
                 joinActionId: null,
+                joinAction: null,
             }
 
             if (outgoingEdges.length <= 1) {
@@ -206,6 +208,7 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
                 actionOrder
             )
             node.joinActionId = joinActionId
+            node.joinAction = joinActionId ? (actionsById.get(joinActionId) ?? null) : null
             node.branches = outgoingEdges.map((edge) => ({
                 edge,
                 label: getWorkflowBranchLabel(action, edge),

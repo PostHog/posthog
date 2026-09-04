@@ -2,6 +2,8 @@ import { useActions } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 
+import { IconArrowRight } from '@posthog/icons'
+
 import {
     Badge,
     Button,
@@ -12,7 +14,6 @@ import {
     Item,
     ItemContent,
     ItemTitle,
-    Separator,
     Text,
     cn,
 } from 'lib/ui/quill'
@@ -47,6 +48,7 @@ export function HogFlowTreeNode({
     const visibleBranches = showAllBranches ? node.branches : node.branches.slice(0, BRANCH_LIMIT)
     const hiddenBranchCount = node.branches.length - visibleBranches.length
     const joinEdge = node.branches.find((branch) => branch.sequence.trailingEdge)?.sequence.trailingEdge
+    const joinAction = node.joinAction
 
     useEffect(() => {
         if (selectedBranch?.actionId === node.action.id) {
@@ -177,14 +179,31 @@ export function HogFlowTreeNode({
                                 {showAllBranches ? 'Show fewer branches' : `Show ${hiddenBranchCount} more branches`}
                             </Button>
                         )}
-                        {node.joinActionId && (
+                        {joinAction && (
                             <>
-                                <div className="flex items-center gap-2">
-                                    <Separator className="flex-1" />
-                                    <Text size="xs" variant="muted" render={<span />}>
-                                        Branches continue below
+                                <div className="flex items-center gap-1 ps-3">
+                                    <Text size="xxs" variant="muted" render={<span />}>
+                                        {node.action.type === 'random_cohort_branch'
+                                            ? 'End of cohort split · continues to'
+                                            : 'End of condition · continues to'}
                                     </Text>
-                                    <Separator className="flex-1" />
+                                    <Button
+                                        type="button"
+                                        variant="link"
+                                        size="xs"
+                                        className="min-w-0 max-w-56 px-0"
+                                        onClick={() => {
+                                            setSelectedBranch(null)
+                                            setSelectedNodeId(joinAction.id)
+                                            document
+                                                .getElementById(`workflow-tree-step-${joinAction.id}`)
+                                                ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                        }}
+                                        data-attr="workflow-tree-select-continuation"
+                                    >
+                                        <span className="truncate">{joinAction.name}</span>
+                                        <IconArrowRight className="size-3" />
+                                    </Button>
                                 </div>
                                 {joinEdge && (
                                     <HogFlowTreeDropzone
