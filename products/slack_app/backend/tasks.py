@@ -6,6 +6,7 @@ import structlog
 from celery import shared_task
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.scoping_audit import skip_team_scope_audit
 
 from products.slack_app.backend import api as slack_api
 from products.slack_app.backend.api import (
@@ -41,6 +42,7 @@ def mirror_slack_message_event(
 
 
 @shared_task(ignore_result=True, max_retries=0)
+@skip_team_scope_audit  # Integration is on the default manager; the lookup pins the team the callback resolved
 def run_error_tracking_issue_action(
     *,
     action_id: str,
@@ -48,6 +50,7 @@ def run_error_tracking_issue_action(
     fingerprint: str | None,
     team_id: int | None,
     integration_id: int,
+    integration_team_id: int,
     slack_user_id: str,
     channel_id: str,
 ) -> None:
@@ -64,8 +67,8 @@ def run_error_tracking_issue_action(
     )
 
     integration = Integration.objects.filter(
-        id=integration_id, kind=SLACK_INTEGRATION_KIND
-    ).first()  # nosemgrep: idor-lookup-without-team
+        id=integration_id, team_id=integration_team_id, kind=SLACK_INTEGRATION_KIND
+    ).first()
     if integration is None:
         return
 
