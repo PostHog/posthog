@@ -59,6 +59,7 @@ const DATA_REQUEST_TIMEOUT_MS = 30_000;
 const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 
 export interface BoardFrameEvents {
+  onExitFocus(): void;
   onReady(): void;
   onFragmentRendered(id: string): void;
   onFragmentError(id: string, message: string, stack?: string): void;
@@ -195,6 +196,7 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
       ]);
       for (const key of keys) {
         const value = next.state[key] ?? null;
+        if (value === (prevState[key] ?? null)) continue;
         const json = stableJson(value);
         if (stableJson(prevState[key] ?? null) === json) continue;
         if (fromFrame.current.get(key) === json) {
@@ -324,6 +326,9 @@ export function useBoardFrame(options: UseBoardFrameOptions): BoardFrameHandle {
           readyRef.current = true;
           setReady(true);
           events.onReady();
+          break;
+        case "exit-focus":
+          events.onExitFocus();
           break;
         case "fragment-rendered":
           events.onFragmentRendered(message.id);

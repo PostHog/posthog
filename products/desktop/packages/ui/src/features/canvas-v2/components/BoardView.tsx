@@ -28,8 +28,8 @@ import {
   findFreeSpot,
   maxZ,
   minZ,
-  nextFragmentId,
 } from "@posthog/shared";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
@@ -61,6 +61,7 @@ import { useBoardStream } from "@posthog/ui/features/canvas-v2/presence/useBoard
 import { usePresenceSender } from "@posthog/ui/features/canvas-v2/presence/usePresenceSender";
 import { useBoardSync } from "@posthog/ui/features/canvas-v2/sync/useBoardSync";
 import { HeaderTitleEditor } from "@posthog/ui/features/task-detail/HeaderTitleEditor";
+import { toast } from "@posthog/ui/primitives/toast";
 import {
   navigateToCanvases,
   navigateToSpaceCanvases,
@@ -103,7 +104,8 @@ export function BoardView({
   const paneRef = useRef<HTMLDivElement | null>(null);
   const queryClient = useQueryClient();
   const api = useBoardApi();
-  const currentUser = useCurrentUser();
+  const authClient = useOptionalAuthenticatedClient();
+  const currentUser = useCurrentUser({ client: authClient });
   const theme = useThemeStore((s) => (s.isDarkMode ? "dark" : "light"));
   const actorUser = useMemo(
     () =>
@@ -173,7 +175,7 @@ export function BoardView({
   }, [boardId, markCanvasViewed]);
   const shareChannelId = channelId ?? state.channelId;
   const [renaming, setRenaming] = useState(false);
-  const { renameBoard } = useCanvasV2BoardMutations();
+  const { renameBoard, isRenaming } = useCanvasV2BoardMutations();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
@@ -194,7 +196,7 @@ export function BoardView({
       };
       const spot = world ?? findFreeSpot(snapshot, size.w, size.h);
       const fragment: CanvasV2Fragment = {
-        id: nextFragmentId(entry.name, snapshot.fragments),
+        id: `${entry.name}-${globalThis.crypto.randomUUID()}`,
         title: entry.label,
         x: Math.round(spot.x),
         y: Math.round(spot.y),
@@ -319,7 +321,12 @@ export function BoardView({
               onSubmit={(next) => {
                 setRenaming(false);
                 client?.setName(next);
-                void renameBoard(boardId, next);
+                void renameBoard(boardId, next).catch((error: unknown) => {
+                  client?.setName(state.name);
+                  toast.error(
+                    error instanceof Error ? error.message : String(error),
+                  );
+                });
               }}
               onCancel={() => setRenaming(false)}
               className="h-7 min-w-0 flex-1 px-1.5 font-semibold text-[15px] tracking-tight"
@@ -328,6 +335,7 @@ export function BoardView({
             <button
               type="button"
               title={RENAME_BOARD_ACTION}
+              disabled={isRenaming}
               className="min-w-0 truncate rounded-(--radius-2) px-1.5 py-0.5 text-left font-semibold text-[15px] tracking-tight transition-colors hover:bg-(--gray-3)"
               onClick={() => setRenaming(true)}
             >

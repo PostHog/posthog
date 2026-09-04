@@ -16,7 +16,7 @@ stream is told to page ``ops/?since=`` instead of missing an op.
 import json
 import time
 import asyncio
-from collections.abc import AsyncGenerator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 import structlog
@@ -32,6 +32,7 @@ OPS_STREAM_KEY_PATTERN = "canvas:board:{{{team_id}:{board_id}}}:ops"
 
 OPS_STREAM_TTL_SECONDS = 60 * 60 * 24  # 1 day, refreshed on every XADD
 OPS_STREAM_MAX_LENGTH = 5000
+OPS_STREAM_MAX_PAYLOAD_BYTES = 64 * 1024
 STREAM_READ_COUNT = 32
 
 # Max XREAD wait, proxies idle-kill connections around 60s
@@ -61,10 +62,12 @@ def publish_ops(team_id: int, board_id: str, entries: Sequence[Mapping[str, Any]
     stream_key = OPS_STREAM_KEY_PATTERN.format(team_id=team_id, board_id=board_id)
     try:
         for entry in entries:
-            payload = {"type": OP_EVENT_TYPE, **entry}
+            payload = json.dumps({"type": OP_EVENT_TYPE, **entry}, separators=(",", ":"))
+            if len(payload) > OPS_STREAM_MAX_PAYLOAD_BYTES:
+                payload = json.dumps({"type": RELOAD_EVENT_TYPE, "since": entry["seq"] - 1}, separators=(",", ":"))
             client.xadd(
                 stream_key,
-                {"data": json.dumps(payload, separators=(",", ":"))},
+                {"data": payload},
                 id=f"{entry['seq']}-0",
                 maxlen=OPS_STREAM_MAX_LENGTH,
                 approximate=True,
@@ -116,6 +119,7 @@ async def stream_board_sse(
     team_id: int,
     board_id: str,
     *,
+    can_read: Callable[[], Awaitable[bool]],
     last_event_id: str | None = None,
 ) -> AsyncGenerator[bytes]:
     """
@@ -127,6 +131,8 @@ async def stream_board_sse(
     stream, never the ephemeral presence stream (which backfills the last few
     seconds instead).
     """
+    if not await can_read():
+        return
     client = redis_module.get_async_client()
     ops_key = OPS_STREAM_KEY_PATTERN.format(team_id=team_id, board_id=board_id)
     presence_key = PRESENCE_STREAM_KEY_PATTERN.format(team_id=team_id, board_id=board_id)
@@ -165,6 +171,9 @@ async def stream_board_sse(
                     yield b'event: error\ndata: {"error":"stream error"}\n\n'
                     return
 
+                if not await can_read():
+                    return
+
                 if not messages:
                     yield KEEPALIVE_COMMENT
                     continue
@@ -185,6 +194,9 @@ async def stream_board_sse(
                             data = json.loads(fields[DATA_KEY])
                         except json.JSONDecodeError:
                             logger.warning("canvas_board_invalid_payload", stream_key=ops_key, stream_id=ops_id)
+                            continue
+                        if data.get("type") == RELOAD_EVENT_TYPE:
+                            yield reload_sse_frame(data["since"])
                             continue
                         if data.get("type") != OP_EVENT_TYPE:
                             logger.warning("canvas_board_unknown_payload", stream_key=ops_key, stream_id=ops_id)

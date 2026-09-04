@@ -2,6 +2,11 @@ import json
 import asyncio
 
 from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, patch
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from posthog import redis
 
@@ -21,13 +26,33 @@ def op_event(seq: int) -> dict:
 
 def first_frame(team_id: int, board_id: str, last_event_id: str | None) -> bytes:
     async def read() -> bytes:
-        frames = stream_board_sse(team_id, board_id, last_event_id=last_event_id)
+        frames = stream_board_sse(team_id, board_id, can_read=AsyncMock(return_value=True), last_event_id=last_event_id)
         try:
             return await anext(frames)
         finally:
             await frames.aclose()
 
     return asyncio.run(read())
+
+
+class TestCanvasBoardStreamAccess(SimpleTestCase):
+    @parameterized.expand([("before_connect", [False], 0), ("after_event", [True, True, False], 1)])
+    def test_access_loss_stops_events(self, _name: str, access: list[bool], expected_frames: int) -> None:
+        client = AsyncMock()
+        client.xrevrange.return_value = []
+        client.xread.return_value = [
+            (b"ops", [(b"1-0", {b"data": json.dumps({"type": "op", **op_event(1)}).encode()})])
+        ]
+
+        async def read() -> list[bytes]:
+            return [frame async for frame in stream_board_sse(1, "board", can_read=AsyncMock(side_effect=access))]
+
+        with patch("products.canvas.backend.board_stream.redis_module.get_async_client", return_value=client):
+            frames = asyncio.run(read())
+
+        assert len(frames) == expected_frames
+        if frames:
+            assert b"event: op" in frames[0]
 
 
 class TestCanvasBoardStream(BaseTest):
@@ -78,6 +103,17 @@ class TestCanvasBoardStream(BaseTest):
         publish_ops(self.team.pk, "board3", [op_event(40)])
 
         assert first_frame(self.team.pk, "board3", "12-0") == (b'event: reload\ndata: {"type":"reload","since":12}\n\n')
+
+    def test_large_operations_use_a_reload_marker(self) -> None:
+        event = op_event(1)
+        event["op"] = {"type": "update_fragment", "id": "note", "patch": {"code": "x" * 100_000}}
+        publish_ops(self.team.pk, "large-board", [event])
+
+        entries = redis.get_client().xrange(OPS_STREAM_KEY_PATTERN.format(team_id=self.team.pk, board_id="large-board"))
+        assert json.loads(entries[0][1][b"data"]) == {"type": "reload", "since": 0}
+        assert (
+            first_frame(self.team.pk, "large-board", "0-0") == b'event: reload\ndata: {"type":"reload","since":0}\n\n'
+        )
 
     def test_resume_the_stream_still_holds_sends_no_reload(self):
         publish_ops(self.team.pk, "board4", [op_event(12), op_event(13)])

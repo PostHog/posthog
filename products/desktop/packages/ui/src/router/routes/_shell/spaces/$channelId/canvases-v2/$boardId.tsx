@@ -1,4 +1,5 @@
 import { BoardView } from "@posthog/ui/features/canvas-v2/components/BoardView";
+import { CanvasV2Gate } from "@posthog/ui/features/canvas-v2/components/CanvasV2Gate";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute(
@@ -9,5 +10,9 @@ export const Route = createFileRoute(
 
 function SpaceBoardRoute() {
   const { channelId, boardId } = Route.useParams();
-  return <BoardView boardId={boardId} channelId={channelId} />;
+  return (
+    <CanvasV2Gate>
+      <BoardView boardId={boardId} channelId={channelId} />
+    </CanvasV2Gate>
+  );
 }

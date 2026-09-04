@@ -8,77 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * One fragment as a plain box, so a list can draw the shape of a board.
- */
-export interface CanvasBoardPreviewBoxApi {
-    /** Left edge of the fragment, in world units. */
-    readonly x: number
-    /** Top edge of the fragment, in world units. */
-    readonly y: number
-    /** Width of the fragment, in world units. */
-    readonly w: number
-    /** Height of the fragment, in world units. */
-    readonly h: number
-}
-
-/**
- * A board as listed, without its contents.
- */
-export interface CanvasBoardSummaryApi {
-    /** Id of the board. */
-    readonly id: string
-    /** Display name of the board. */
-    readonly name: string
-    /** Id of the space the board is filed in. */
-    readonly channel: string
-    /** When the board was created. */
-    readonly created_at: string
-    /** When the board or its log last changed. */
-    readonly updated_at: string
-    /** Seq of the newest op in the board's log. */
-    readonly head_seq: number
-    /** Number of fragments in the stored snapshot. */
-    readonly fragment_count: number
-    /** Boxes of the first fragments, so a list can draw the shape of the board. At most 24. */
-    readonly preview: readonly CanvasBoardPreviewBoxApi[]
-}
-
-export interface PaginatedCanvasBoardSummaryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CanvasBoardSummaryApi[]
-}
-
-/**
- * Payload for creating a board in a space.
- */
-export interface CanvasBoardCreateApi {
-    /**
-     * Display name of the board.
-     * @maxLength 120
-     */
-    name: string
-    /** Id of the space the board belongs to. */
-    channel_id: string
-}
-
-export type CanvasBoardApiSnapshotFragmentsItem = { [key: string]: unknown }
-
-export type CanvasBoardApiSnapshotState = { [key: string]: unknown }
-
-/**
- * Newest folded board the server holds.
- */
-export type CanvasBoardApiSnapshot = {
-    readonly schemaVersion: number
-    readonly fragments: CanvasBoardApiSnapshotFragmentsItem[]
-    readonly state: CanvasBoardApiSnapshotState
-}
-
-/**
  * * `user` - User
  * * `agent` - Agent
  */
@@ -108,6 +37,164 @@ export interface CanvasBoardCreatorApi {
      * @nullable
      */
     user_name: string | null
+    /**
+     * Uuid of the user, for a stable avatar color.
+     * @nullable
+     */
+    user_uuid: string | null
+    /**
+     * Email of the user, for a Gravatar.
+     * @nullable
+     */
+    user_email: string | null
+}
+
+/**
+ * One fragment as a plain box, so a list can draw the shape of a board.
+ */
+export interface CanvasBoardPreviewBoxApi {
+    /** Left edge of the fragment, in world units. */
+    readonly x: number
+    /** Top edge of the fragment, in world units. */
+    readonly y: number
+    /** Width of the fragment, in world units. */
+    readonly w: number
+    /** Height of the fragment, in world units. */
+    readonly h: number
+}
+
+/**
+ * A board as listed, without its contents.
+ */
+export interface CanvasBoardSummaryApi {
+    /** Id of the board. */
+    readonly id: string
+    /** Display name of the board. */
+    readonly name: string
+    /** Id of the space the board is filed in. */
+    readonly channel: string
+    /** When the board was created. */
+    readonly created_at: string
+    /** When the board or its log last changed. */
+    readonly updated_at: string
+    /** Seq of the newest op in the board's log. */
+    readonly head_seq: number
+    /** True while the board is pinned to the top of its space. */
+    readonly pinned: boolean
+    /** Who created the board, or null. */
+    readonly created_by: CanvasBoardCreatorApi | null
+    /** Who recorded the newest op, or the creator when the board has no ops. */
+    readonly last_actor: CanvasBoardCreatorApi | null
+    /** Number of fragments in the stored snapshot. */
+    readonly fragment_count: number
+    /** Boxes of the first fragments, so a list can draw the shape of the board. At most 24. */
+    readonly preview: readonly CanvasBoardPreviewBoxApi[]
+}
+
+export interface PaginatedCanvasBoardSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CanvasBoardSummaryApi[]
+}
+
+/**
+ * Payload for creating a board in a space.
+ */
+export interface CanvasBoardCreateApi {
+    /**
+     * Display name of the board.
+     * @maxLength 120
+     */
+    name: string
+    /** Id of the space the board belongs to. */
+    channel_id: string
+}
+
+/**
+ * Source text by SHA-256 hash. Present only for compact reads of migrated boards.
+ */
+export type CanvasBoardApiSourceVersions = { [key: string]: string }
+
+export type CanvasLayoutSchemaVersionEnumApi =
+    (typeof CanvasLayoutSchemaVersionEnumApi)[keyof typeof CanvasLayoutSchemaVersionEnumApi]
+
+export const CanvasLayoutSchemaVersionEnumApi = {
+    Number1: 1,
+} as const
+
+export type CanvasBoardReadSnapshotApiFragmentsItem =
+    | {
+          /**
+           * @minLength 1
+           * @maxLength 64
+           * @pattern ^[a-z0-9][a-z0-9-_]*$
+           */
+          id: string
+          /** @maxLength 120 */
+          title?: string
+          x: number
+          y: number
+          /**
+           * @minimum 80
+           * @maximum 4000
+           */
+          w: number
+          /**
+           * @minimum 60
+           * @maximum 4000
+           */
+          h: number
+          z?: number
+          /**
+           * @minLength 1
+           * @maxLength 200000
+           */
+          code: string
+          codeVersion?: number
+          surface?: 'card' | 'plain'
+          hidden?: boolean
+      }
+    | {
+          /**
+           * @minLength 1
+           * @maxLength 64
+           * @pattern ^[a-z0-9][a-z0-9-_]*$
+           */
+          id: string
+          /** @maxLength 120 */
+          title?: string
+          x: number
+          y: number
+          /**
+           * @minimum 80
+           * @maximum 4000
+           */
+          w: number
+          /**
+           * @minimum 60
+           * @maximum 4000
+           */
+          h: number
+          z?: number
+          codeVersion?: number
+          surface?: 'card' | 'plain'
+          hidden?: boolean
+          /**
+           * @minLength 64
+           * @maxLength 64
+           */
+          codeRef: string
+      }
+
+export type CanvasBoardReadSnapshotApiState = { [key: string]: unknown }
+
+export interface CanvasBoardReadSnapshotApi {
+    schemaVersion: CanvasLayoutSchemaVersionEnumApi
+    fragments?: CanvasBoardReadSnapshotApiFragmentsItem[]
+    state?: CanvasBoardReadSnapshotApiState
 }
 
 /**
@@ -130,32 +217,178 @@ export interface CanvasBoardActorApi {
      */
     user_name: string | null
     /**
+     * Uuid of the user, for a stable avatar color.
+     * @nullable
+     */
+    user_uuid: string | null
+    /**
+     * Email of the user, for a Gravatar.
+     * @nullable
+     */
+    user_email: string | null
+    /**
      * Id of the agent task that made the change, or null.
      * @nullable
      */
     task_id: string | null
 }
 
-export type CanvasBoardLogEntryApiOpType =
-    (typeof CanvasBoardLogEntryApiOpType)[keyof typeof CanvasBoardLogEntryApiOpType]
+export type CanvasBoardOperationTypeEnumApi =
+    (typeof CanvasBoardOperationTypeEnumApi)[keyof typeof CanvasBoardOperationTypeEnumApi]
 
-export const CanvasBoardLogEntryApiOpType = {
+export const CanvasBoardOperationTypeEnumApi = {
     AddFragment: 'add_fragment',
-    UpdateFragment: 'update_fragment',
-    RemoveFragment: 'remove_fragment',
-    BringToFront: 'bring_to_front',
-    SetState: 'set_state',
-    Restore: 'restore',
-    EditField: 'edit_field',
 } as const
 
-/**
- * The op itself.
- */
-export type CanvasBoardLogEntryApiOp = {
-    readonly type: CanvasBoardLogEntryApiOpType
-    [key: string]: unknown
-}
+export type CanvasBoardOperationKindEnumApi =
+    (typeof CanvasBoardOperationKindEnumApi)[keyof typeof CanvasBoardOperationKindEnumApi]
+
+export const CanvasBoardOperationKindEnumApi = {
+    Text: 'text',
+    List: 'list',
+} as const
+
+export type CanvasBoardOperationApi =
+    | {
+          type: CanvasBoardOperationTypeEnumApi
+          fragment: {
+              /**
+               * @minLength 1
+               * @maxLength 64
+               * @pattern ^[a-z0-9][a-z0-9-_]*$
+               */
+              id: string
+              /** @maxLength 120 */
+              title?: string
+              x: number
+              y: number
+              /**
+               * @minimum 80
+               * @maximum 4000
+               */
+              w: number
+              /**
+               * @minimum 60
+               * @maximum 4000
+               */
+              h: number
+              z?: number
+              /**
+               * @minLength 1
+               * @maxLength 200000
+               */
+              code: string
+              codeVersion?: number
+              surface?: 'card' | 'plain'
+              hidden?: boolean
+          }
+      }
+    | {
+          type: CanvasBoardOperationTypeEnumApi
+          id: string
+          patch: {
+              /** @maxLength 120 */
+              title?: string
+              x?: number
+              y?: number
+              /**
+               * @minimum 80
+               * @maximum 4000
+               */
+              w?: number
+              /**
+               * @minimum 60
+               * @maximum 4000
+               */
+              h?: number
+              z?: number
+              /**
+               * @minLength 1
+               * @maxLength 200000
+               */
+              code?: string
+              codeVersion?: number
+              surface?: 'card' | 'plain'
+              hidden?: boolean
+          }
+      }
+    | {
+          type: CanvasBoardOperationTypeEnumApi
+          id: string
+      }
+    | {
+          type: CanvasBoardOperationTypeEnumApi
+          /**
+           * @minLength 1
+           * @maxLength 128
+           */
+          key: string
+          value: unknown
+      }
+    | {
+          type: CanvasBoardOperationTypeEnumApi
+          snapshot: {
+              schemaVersion: 1
+              fragments?: {
+                  /**
+                   * @minLength 1
+                   * @maxLength 64
+                   * @pattern ^[a-z0-9][a-z0-9-_]*$
+                   */
+                  id: string
+                  /** @maxLength 120 */
+                  title?: string
+                  x: number
+                  y: number
+                  /**
+                   * @minimum 80
+                   * @maximum 4000
+                   */
+                  w: number
+                  /**
+                   * @minimum 60
+                   * @maximum 4000
+                   */
+                  h: number
+                  z?: number
+                  /**
+                   * @minLength 1
+                   * @maxLength 200000
+                   */
+                  code: string
+                  codeVersion?: number
+                  surface?: 'card' | 'plain'
+                  hidden?: boolean
+              }[]
+              state?: { [key: string]: unknown }
+          }
+          toSeq: number
+      }
+    | {
+          type: CanvasBoardOperationTypeEnumApi
+          /**
+           * @minLength 1
+           * @maxLength 128
+           */
+          key: string
+          kind: CanvasBoardOperationKindEnumApi
+          /** @maxItems 2000 */
+          insert?: {
+              /** @maxLength 64 */
+              id: string
+              /**
+               * @minLength 1
+               * @maxLength 64
+               */
+              k: string
+              v: unknown
+          }[]
+          /**
+           * @maxItems 2000
+           * @items.maxLength 64
+           */
+          remove?: string[]
+      }
 
 /**
  * One recorded op on a board.
@@ -170,7 +403,7 @@ export interface CanvasBoardLogEntryApi {
     /** When the server recorded the op. */
     readonly created_at: string
     /** The op itself. */
-    readonly op: CanvasBoardLogEntryApiOp
+    readonly op: CanvasBoardOperationApi
 }
 
 /**
@@ -189,10 +422,16 @@ export interface CanvasBoardApi {
     readonly updated_at: string
     /** Who created the board, or null. */
     readonly created_by: CanvasBoardCreatorApi | null
+    /** True while the board is pinned to the top of its space. */
+    readonly pinned: boolean
     /** Seq of the newest op in the board's log. */
     readonly head_seq: number
-    /** Newest folded board the server holds. */
-    readonly snapshot: CanvasBoardApiSnapshot
+    /** The server applies saved operations. Clients do not need to send snapshots. */
+    readonly server_snapshots: boolean
+    /** Current board. Compact reads use source_versions to resolve fragment codeRef values. */
+    readonly snapshot: CanvasBoardReadSnapshotApi
+    /** Source text by SHA-256 hash. Present only for compact reads of migrated boards. */
+    readonly source_versions: CanvasBoardApiSourceVersions
     /** Seq the snapshot reflects. */
     readonly snapshot_seq: number
     /** Ops with seq greater than snapshot_seq, ascending, at most 2000. Page with ops/ for the rest. */
@@ -210,6 +449,8 @@ export interface PatchedCanvasBoardWriteApi {
     name?: string
     /** Id of the space the board belongs to. */
     channel_id?: string
+    /** Pin the board to the top of its space. */
+    pinned?: boolean
 }
 
 /**
@@ -223,36 +464,6 @@ export interface CanvasBoardOpsPageApi {
 }
 
 /**
- * Folded board at base_seq plus these ops, or null to send none.
- * @nullable
- */
-export type CanvasBoardAppendOpsApiSnapshot = {
-    schemaVersion: number
-    fragments: { [key: string]: unknown }[]
-    state: { [key: string]: unknown }
-} | null
-
-export type CanvasBoardOpDraftApiOpType = (typeof CanvasBoardOpDraftApiOpType)[keyof typeof CanvasBoardOpDraftApiOpType]
-
-export const CanvasBoardOpDraftApiOpType = {
-    AddFragment: 'add_fragment',
-    UpdateFragment: 'update_fragment',
-    RemoveFragment: 'remove_fragment',
-    BringToFront: 'bring_to_front',
-    SetState: 'set_state',
-    Restore: 'restore',
-    EditField: 'edit_field',
-} as const
-
-/**
- * The op. Capped at 256 KB serialized.
- */
-export type CanvasBoardOpDraftApiOp = {
-    type: CanvasBoardOpDraftApiOpType
-    [key: string]: unknown
-}
-
-/**
  * One op the client wants recorded.
  */
 export interface CanvasBoardOpDraftApi {
@@ -261,8 +472,8 @@ export interface CanvasBoardOpDraftApi {
      * @maxLength 64
      */
     op_id: string
-    /** The op. Capped at 256 KB serialized. */
-    op: CanvasBoardOpDraftApiOp
+    /** The op. Restore uses the request size limit; other ops are capped at 256 KB. */
+    op: CanvasBoardOperationApi
 }
 
 /**
@@ -282,24 +493,66 @@ export interface CanvasBoardActorInputApi {
     task_id?: string | null
 }
 
-/**
- * Payload for appending ops to a board's log, with an optional checkpoint snapshot.
- */
+export type CanvasBoardSnapshotApiFragmentsItemSurface =
+    (typeof CanvasBoardSnapshotApiFragmentsItemSurface)[keyof typeof CanvasBoardSnapshotApiFragmentsItemSurface]
+
+export const CanvasBoardSnapshotApiFragmentsItemSurface = {
+    Card: 'card',
+    Plain: 'plain',
+} as const
+
+export type CanvasBoardSnapshotApiFragmentsItem = {
+    /**
+     * @minLength 1
+     * @maxLength 64
+     * @pattern ^[a-z0-9][a-z0-9-_]*$
+     */
+    id: string
+    /** @maxLength 120 */
+    title?: string
+    x: number
+    y: number
+    /**
+     * @minimum 80
+     * @maximum 4000
+     */
+    w: number
+    /**
+     * @minimum 60
+     * @maximum 4000
+     */
+    h: number
+    z?: number
+    /**
+     * @minLength 1
+     * @maxLength 200000
+     */
+    code: string
+    codeVersion?: number
+    surface?: CanvasBoardSnapshotApiFragmentsItemSurface
+    hidden?: boolean
+}
+
+export type CanvasBoardSnapshotApiState = { [key: string]: unknown }
+
+export interface CanvasBoardSnapshotApi {
+    schemaVersion: CanvasLayoutSchemaVersionEnumApi
+    fragments?: CanvasBoardSnapshotApiFragmentsItem[]
+    state?: CanvasBoardSnapshotApiState
+}
+
 export interface CanvasBoardAppendOpsApi {
-    /** Ops to record, in order. May be empty to send only a snapshot. */
+    /** Ops to record, in order. An empty list makes no change. */
     ops: CanvasBoardOpDraftApi[]
     /** Who is making the change. */
     actor: CanvasBoardActorInputApi
     /**
-     * head_seq the client had folded up to. The snapshot is stored only when it matches.
+     * Last operation sequence known to the client.
      * @minimum 0
      */
     base_seq: number
-    /**
-     * Folded board at base_seq plus these ops, or null to send none.
-     * @nullable
-     */
-    snapshot?: CanvasBoardAppendOpsApiSnapshot
+    /** Legacy client checkpoint. The server derives the board from saved operations. */
+    snapshot?: CanvasBoardSnapshotApi | null
 }
 
 /**
@@ -390,7 +643,10 @@ export interface CanvasBoardPresenceApi {
      * @items.maxLength 64
      */
     selected_ids?: string[]
-    /** Where the caller writes, at most 4 fields at a time. */
+    /**
+     * Where the caller writes, at most 4 fields at a time.
+     * @maxItems 4
+     */
     carets?: CanvasBoardCaretApi[]
 }
 
@@ -1160,16 +1416,6 @@ export interface CanvasPublishConflictApi {
 }
 
 /**
- * * `1` - 1
- */
-export type CanvasLayoutSchemaVersionEnumApi =
-    (typeof CanvasLayoutSchemaVersionEnumApi)[keyof typeof CanvasLayoutSchemaVersionEnumApi]
-
-export const CanvasLayoutSchemaVersionEnumApi = {
-    Number1: 1,
-} as const
-
-/**
  * * `4` - 4
  * * `6` - 6
  * * `8` - 8
@@ -1795,6 +2041,13 @@ export type CanvasBoardsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type CanvasBoardsRetrieveParams = {
+    /**
+     * Return source text once per version instead of once per fragment.
+     */
+    compact?: boolean
 }
 
 export type CanvasBoardsOpsRetrieveParams = {

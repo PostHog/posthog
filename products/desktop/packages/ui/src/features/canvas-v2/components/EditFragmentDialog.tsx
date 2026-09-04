@@ -31,7 +31,7 @@ import {
   fragmentCodeBlockedReason,
 } from "@posthog/ui/features/canvas-v2/canvasV2Copy";
 import { SkillCodeEditor } from "@posthog/ui/features/skills/SkillCodeEditor";
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 
 interface EditFragmentDialogProps {
   open: boolean;
@@ -54,9 +54,15 @@ export function EditFragmentDialog({
   const [code, setCode] = useState("");
   // The editor is uncontrolled after mount, so its document must stay stable.
   const [initialCode, setInitialCode] = useState("");
+  const editingId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!open || !fragment) return;
+    if (!open || !fragment) {
+      editingId.current = null;
+      return;
+    }
+    if (editingId.current === fragment.id) return;
+    editingId.current = fragment.id;
     setTitle(fragment.title ?? "");
     setCode(fragment.code);
     setInitialCode(fragment.code);

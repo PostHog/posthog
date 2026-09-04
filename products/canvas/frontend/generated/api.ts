@@ -23,6 +23,7 @@ import type {
     CanvasBoardPresenceApi,
     CanvasBoardsListParams,
     CanvasBoardsOpsRetrieveParams,
+    CanvasBoardsRetrieveParams,
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
@@ -114,8 +115,20 @@ export const canvasBoardsCreate = async (
     })
 }
 
-export const getCanvasBoardsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/canvas_boards/${id}/`
+export const getCanvasBoardsRetrieveUrl = (projectId: string, id: string, params?: CanvasBoardsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvas_boards/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvas_boards/${id}/`
 }
 
 /**
@@ -124,9 +137,10 @@ export const getCanvasBoardsRetrieveUrl = (projectId: string, id: string) => {
 export const canvasBoardsRetrieve = async (
     projectId: string,
     id: string,
+    params?: CanvasBoardsRetrieveParams,
     options?: RequestInit
 ): Promise<CanvasBoardApi> => {
-    return apiMutator<CanvasBoardApi>(getCanvasBoardsRetrieveUrl(projectId, id), {
+    return apiMutator<CanvasBoardApi>(getCanvasBoardsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

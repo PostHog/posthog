@@ -187,6 +187,7 @@ export function BoardStage({
     applyLocal,
     reportCaret: onCaret,
     events: {
+      onExitFocus: () => setFocusedId(null),
       onReady: () => {
         syncedSnapshot.current = snapshotRef.current;
         frameRef.current?.sendInit(viewportRef.current);

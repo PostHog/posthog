@@ -30,6 +30,7 @@ export const CanvasBoardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasBoardsPartialUpdateBodyNameMax).optional().describe('Display name of the board.'),
         channel_id: zod.uuid().optional().describe('Id of the space the board belongs to.'),
+        pinned: zod.boolean().optional().describe('Pin the board to the top of its space.'),
     })
     .describe('Payload for renaming a board or filing it in another space.')
 
@@ -38,67 +39,310 @@ export const CanvasBoardsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const canvasBoardsOpsAppendBodyOpsItemOpIdMax = 64
 
+export const canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentIdMax = 64
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentIdRegExp = new RegExp('^[a-z0-9][a-z0-9-_]\*$')
+export const canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentTitleMax = 120
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentWMin = 80
+export const canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentWMax = 4000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentHMin = 60
+export const canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentHMax = 4000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentCodeMax = 200000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchTitleMax = 120
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchWMin = 80
+export const canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchWMax = 4000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchHMin = 60
+export const canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchHMax = 4000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchCodeMax = 200000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneFiveKeyMax = 128
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemIdMax = 64
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemIdRegExp = new RegExp(
+    '^[a-z0-9][a-z0-9-_]\*$'
+)
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemTitleMax = 120
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemWMin = 80
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemWMax = 4000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemHMin = 60
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemHMax = 4000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCodeMax = 200000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSevenKeyMax = 128
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSevenInsertItemIdMax = 64
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSevenInsertItemKMax = 64
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSevenInsertMax = 2000
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSevenRemoveItemMax = 64
+
+export const canvasBoardsOpsAppendBodyOpsItemOpOneSevenRemoveMax = 2000
+
 export const canvasBoardsOpsAppendBodyActorOneTaskIdMax = 64
 
 export const canvasBoardsOpsAppendBodyBaseSeqMin = 0
 
-export const CanvasBoardsOpsAppendBody = /* @__PURE__ */ zod
-    .object({
-        ops: zod
-            .array(
-                zod
-                    .object({
-                        op_id: zod
-                            .string()
-                            .max(canvasBoardsOpsAppendBodyOpsItemOpIdMax)
-                            .describe('Client-chosen id, unique per board. Resending the same id records nothing new.'),
-                        op: zod
-                            .object({
-                                type: zod.enum([
-                                    'add_fragment',
-                                    'update_fragment',
-                                    'remove_fragment',
-                                    'bring_to_front',
-                                    'set_state',
-                                    'restore',
-                                    'edit_field',
-                                ]),
-                            })
-                            .describe('The op. Capped at 256 KB serialized.'),
-                    })
-                    .describe('One op the client wants recorded.')
-            )
-            .describe('Ops to record, in order. May be empty to send only a snapshot.'),
-        actor: zod
-            .object({
-                kind: zod
-                    .enum(['user', 'agent'])
-                    .describe('\* `user` - User\n\* `agent` - Agent')
-                    .describe(
-                        'user for a direct edit, agent for a change made by an agent.\n\n\* `user` - User\n\* `agent` - Agent'
-                    ),
-                task_id: zod
-                    .string()
-                    .max(canvasBoardsOpsAppendBodyActorOneTaskIdMax)
-                    .nullish()
-                    .describe('Id of the agent task making the change, if any.'),
-            })
-            .describe('Who the client says is making the change. The user is always the caller.')
-            .describe('Who is making the change.'),
-        base_seq: zod
-            .number()
-            .min(canvasBoardsOpsAppendBodyBaseSeqMin)
-            .describe('head_seq the client had folded up to. The snapshot is stored only when it matches.'),
-        snapshot: zod
-            .object({
-                schemaVersion: zod.number(),
-                fragments: zod.array(zod.record(zod.string(), zod.unknown())),
-                state: zod.record(zod.string(), zod.unknown()),
-            })
-            .nullish()
-            .describe('Folded board at base_seq plus these ops, or null to send none.'),
-    })
-    .describe("Payload for appending ops to a board's log, with an optional checkpoint snapshot.")
+export const canvasBoardsOpsAppendBodySnapshotOneFragmentsItemIdMax = 64
+
+export const canvasBoardsOpsAppendBodySnapshotOneFragmentsItemIdRegExp = new RegExp('^[a-z0-9][a-z0-9-_]\*$')
+export const canvasBoardsOpsAppendBodySnapshotOneFragmentsItemTitleMax = 120
+
+export const canvasBoardsOpsAppendBodySnapshotOneFragmentsItemWMin = 80
+export const canvasBoardsOpsAppendBodySnapshotOneFragmentsItemWMax = 4000
+
+export const canvasBoardsOpsAppendBodySnapshotOneFragmentsItemHMin = 60
+export const canvasBoardsOpsAppendBodySnapshotOneFragmentsItemHMax = 4000
+
+export const canvasBoardsOpsAppendBodySnapshotOneFragmentsItemCodeMax = 200000
+
+export const CanvasBoardsOpsAppendBody = /* @__PURE__ */ zod.object({
+    ops: zod
+        .array(
+            zod
+                .object({
+                    op_id: zod
+                        .string()
+                        .max(canvasBoardsOpsAppendBodyOpsItemOpIdMax)
+                        .describe('Client-chosen id, unique per board. Resending the same id records nothing new.'),
+                    op: zod
+                        .union([
+                            zod.object({
+                                type: zod.enum(['add_fragment']),
+                                fragment: zod.object({
+                                    id: zod
+                                        .string()
+                                        .min(1)
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentIdMax)
+                                        .regex(canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentIdRegExp),
+                                    title: zod
+                                        .string()
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentTitleMax)
+                                        .optional(),
+                                    x: zod.number(),
+                                    y: zod.number(),
+                                    w: zod
+                                        .number()
+                                        .min(canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentWMin)
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentWMax),
+                                    h: zod
+                                        .number()
+                                        .min(canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentHMin)
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentHMax),
+                                    z: zod.number().optional(),
+                                    code: zod
+                                        .string()
+                                        .min(1)
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneOneFragmentCodeMax),
+                                    codeVersion: zod.number().optional(),
+                                    surface: zod.enum(['card', 'plain']).optional(),
+                                    hidden: zod.boolean().optional(),
+                                }),
+                            }),
+                            zod.object({
+                                type: zod.enum(['add_fragment']),
+                                id: zod.string(),
+                                patch: zod.object({
+                                    title: zod
+                                        .string()
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchTitleMax)
+                                        .optional(),
+                                    x: zod.number().optional(),
+                                    y: zod.number().optional(),
+                                    w: zod
+                                        .number()
+                                        .min(canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchWMin)
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchWMax)
+                                        .optional(),
+                                    h: zod
+                                        .number()
+                                        .min(canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchHMin)
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchHMax)
+                                        .optional(),
+                                    z: zod.number().optional(),
+                                    code: zod
+                                        .string()
+                                        .min(1)
+                                        .max(canvasBoardsOpsAppendBodyOpsItemOpOneTwoPatchCodeMax)
+                                        .optional(),
+                                    codeVersion: zod.number().optional(),
+                                    surface: zod.enum(['card', 'plain']).optional(),
+                                    hidden: zod.boolean().optional(),
+                                }),
+                            }),
+                            zod.object({
+                                type: zod.enum(['add_fragment']),
+                                id: zod.string(),
+                            }),
+                            zod.object({
+                                type: zod.enum(['add_fragment']),
+                                id: zod.string(),
+                            }),
+                            zod.object({
+                                type: zod.enum(['add_fragment']),
+                                key: zod.string().min(1).max(canvasBoardsOpsAppendBodyOpsItemOpOneFiveKeyMax),
+                                value: zod.unknown(),
+                            }),
+                            zod.object({
+                                type: zod.enum(['add_fragment']),
+                                snapshot: zod.object({
+                                    schemaVersion: zod.literal(1),
+                                    fragments: zod
+                                        .array(
+                                            zod.object({
+                                                id: zod
+                                                    .string()
+                                                    .min(1)
+                                                    .max(
+                                                        canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemIdMax
+                                                    )
+                                                    .regex(
+                                                        canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemIdRegExp
+                                                    ),
+                                                title: zod
+                                                    .string()
+                                                    .max(
+                                                        canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemTitleMax
+                                                    )
+                                                    .optional(),
+                                                x: zod.number(),
+                                                y: zod.number(),
+                                                w: zod
+                                                    .number()
+                                                    .min(
+                                                        canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemWMin
+                                                    )
+                                                    .max(
+                                                        canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemWMax
+                                                    ),
+                                                h: zod
+                                                    .number()
+                                                    .min(
+                                                        canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemHMin
+                                                    )
+                                                    .max(
+                                                        canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemHMax
+                                                    ),
+                                                z: zod.number().optional(),
+                                                code: zod
+                                                    .string()
+                                                    .min(1)
+                                                    .max(
+                                                        canvasBoardsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCodeMax
+                                                    ),
+                                                codeVersion: zod.number().optional(),
+                                                surface: zod.enum(['card', 'plain']).optional(),
+                                                hidden: zod.boolean().optional(),
+                                            })
+                                        )
+                                        .optional(),
+                                    state: zod.record(zod.string(), zod.unknown()).optional(),
+                                }),
+                                toSeq: zod.number(),
+                            }),
+                            zod.object({
+                                type: zod.enum(['add_fragment']),
+                                key: zod.string().min(1).max(canvasBoardsOpsAppendBodyOpsItemOpOneSevenKeyMax),
+                                kind: zod.enum(['text', 'list']),
+                                insert: zod
+                                    .array(
+                                        zod.object({
+                                            id: zod
+                                                .string()
+                                                .max(canvasBoardsOpsAppendBodyOpsItemOpOneSevenInsertItemIdMax),
+                                            k: zod
+                                                .string()
+                                                .min(1)
+                                                .max(canvasBoardsOpsAppendBodyOpsItemOpOneSevenInsertItemKMax),
+                                            v: zod.unknown(),
+                                        })
+                                    )
+                                    .max(canvasBoardsOpsAppendBodyOpsItemOpOneSevenInsertMax)
+                                    .optional(),
+                                remove: zod
+                                    .array(zod.string().max(canvasBoardsOpsAppendBodyOpsItemOpOneSevenRemoveItemMax))
+                                    .max(canvasBoardsOpsAppendBodyOpsItemOpOneSevenRemoveMax)
+                                    .optional(),
+                            }),
+                        ])
+                        .describe('The op. Restore uses the request size limit; other ops are capped at 256 KB.'),
+                })
+                .describe('One op the client wants recorded.')
+        )
+        .describe('Ops to record, in order. An empty list makes no change.'),
+    actor: zod
+        .object({
+            kind: zod
+                .enum(['user', 'agent'])
+                .describe('\* `user` - User\n\* `agent` - Agent')
+                .describe(
+                    'user for a direct edit, agent for a change made by an agent.\n\n\* `user` - User\n\* `agent` - Agent'
+                ),
+            task_id: zod
+                .string()
+                .max(canvasBoardsOpsAppendBodyActorOneTaskIdMax)
+                .nullish()
+                .describe('Id of the agent task making the change, if any.'),
+        })
+        .describe('Who the client says is making the change. The user is always the caller.')
+        .describe('Who is making the change.'),
+    base_seq: zod
+        .number()
+        .min(canvasBoardsOpsAppendBodyBaseSeqMin)
+        .describe('Last operation sequence known to the client.'),
+    snapshot: zod
+        .union([
+            zod.object({
+                schemaVersion: zod.literal(1),
+                fragments: zod
+                    .array(
+                        zod.object({
+                            id: zod
+                                .string()
+                                .min(1)
+                                .max(canvasBoardsOpsAppendBodySnapshotOneFragmentsItemIdMax)
+                                .regex(canvasBoardsOpsAppendBodySnapshotOneFragmentsItemIdRegExp),
+                            title: zod
+                                .string()
+                                .max(canvasBoardsOpsAppendBodySnapshotOneFragmentsItemTitleMax)
+                                .optional(),
+                            x: zod.number(),
+                            y: zod.number(),
+                            w: zod
+                                .number()
+                                .min(canvasBoardsOpsAppendBodySnapshotOneFragmentsItemWMin)
+                                .max(canvasBoardsOpsAppendBodySnapshotOneFragmentsItemWMax),
+                            h: zod
+                                .number()
+                                .min(canvasBoardsOpsAppendBodySnapshotOneFragmentsItemHMin)
+                                .max(canvasBoardsOpsAppendBodySnapshotOneFragmentsItemHMax),
+                            z: zod.number().optional(),
+                            code: zod.string().min(1).max(canvasBoardsOpsAppendBodySnapshotOneFragmentsItemCodeMax),
+                            codeVersion: zod.number().optional(),
+                            surface: zod.enum(['card', 'plain']).optional(),
+                            hidden: zod.boolean().optional(),
+                        })
+                    )
+                    .optional(),
+                state: zod.record(zod.string(), zod.unknown()).optional(),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Legacy client checkpoint. The server derives the board from saved operations.'),
+})
 
 /**
  * Broadcast the caller's pointer, viewport, and selection on the board's live stream.
@@ -120,6 +364,8 @@ export const canvasBoardsPresenceCreateBodyCaretsItemKeyMax = 128
 export const canvasBoardsPresenceCreateBodyCaretsItemAnchorMax = 64
 
 export const canvasBoardsPresenceCreateBodyCaretsItemFocusMax = 64
+
+export const canvasBoardsPresenceCreateBodyCaretsMax = 4
 
 export const CanvasBoardsPresenceCreateBody = /* @__PURE__ */ zod
     .object({
@@ -182,6 +428,7 @@ export const CanvasBoardsPresenceCreateBody = /* @__PURE__ */ zod
                     })
                     .describe('One text caret of the caller, as the ids of the characters it sits between.')
             )
+            .max(canvasBoardsPresenceCreateBodyCaretsMax)
             .optional()
             .describe('Where the caller writes, at most 4 fields at a time.'),
     })
@@ -773,10 +1020,7 @@ export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
     .object({
         layout: zod
             .object({
-                schemaVersion: zod
-                    .literal(1)
-                    .describe('\* `1` - 1')
-                    .describe('Layout schema version. Currently always 1.\n\n\* `1` - 1'),
+                schemaVersion: zod.literal(1).describe('Layout schema version. Currently always 1.\n\n\* `1` - 1'),
                 grid: zod
                     .object({
                         columns: zod

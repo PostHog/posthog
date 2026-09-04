@@ -258,18 +258,15 @@ export function useChannelItems(channelId: string): {
       // delete costs nothing.
       remove: (item) => {
         if (item.kind !== "canvas") return;
-        if (item.canvasVersion === 2) {
-          removeBoard(item.id).catch(() => {
-            toast.error("Couldn't delete the board");
-          });
-          return;
-        }
         deleteCanvasWithUndo({
           dashboardId: item.id,
           channelId,
           name: item.title,
           surface: "sidebar",
-          invalidate: invalidateDashboards,
+          remove:
+            item.canvasVersion === 2 ? () => removeBoard(item.id) : undefined,
+          invalidate:
+            item.canvasVersion === 2 ? undefined : invalidateDashboards,
         });
       },
     }),

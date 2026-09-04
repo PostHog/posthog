@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const deleteMutate = vi.fn().mockResolvedValue(undefined);
+const removeBoard = vi.fn().mockResolvedValue(undefined);
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
 
@@ -22,17 +23,6 @@ import {
 } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 
-function schedule(invalidate = vi.fn()) {
-  deleteCanvasWithUndo({
-    dashboardId: "d1",
-    channelId: "c1",
-    name: "Weekly report",
-    surface: "dashboards_grid",
-    invalidate,
-  });
-  return invalidate;
-}
-
 // The Undo button handed to the toast.
 function undo(): () => void {
   const options = toastSuccess.mock.calls.at(-1)?.[1] as {
@@ -45,7 +35,24 @@ function isPending(id: string): boolean {
   return !!usePendingCanvasDeleteStore.getState().pending[id];
 }
 
-describe("deleteCanvasWithUndo", () => {
+describe.each([
+  ["canvas", undefined],
+  ["board", removeBoard],
+] as const)("deleteCanvasWithUndo (%s)", (_kind, remove) => {
+  const deleteRequest = remove ?? deleteMutate;
+
+  function schedule(invalidate = vi.fn()) {
+    deleteCanvasWithUndo({
+      dashboardId: "d1",
+      channelId: "c1",
+      name: "Weekly report",
+      surface: "dashboards_grid",
+      remove,
+      invalidate,
+    });
+    return invalidate;
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -60,11 +67,13 @@ describe("deleteCanvasWithUndo", () => {
     const invalidate = schedule();
 
     expect(isPending("d1")).toBe(true);
-    expect(deleteMutate).not.toHaveBeenCalled();
+    expect(deleteRequest).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(CANVAS_DELETE_UNDO_MS);
 
-    expect(deleteMutate).toHaveBeenCalledWith({ id: "d1" });
+    expect(deleteRequest).toHaveBeenCalledTimes(1);
+    if (remove) expect(deleteMutate).not.toHaveBeenCalled();
+    else expect(deleteMutate).toHaveBeenCalledWith({ id: "d1" });
     expect(invalidate).toHaveBeenCalled();
     expect(isPending("d1")).toBe(false);
   });
@@ -77,11 +86,11 @@ describe("deleteCanvasWithUndo", () => {
 
     await vi.advanceTimersByTimeAsync(CANVAS_DELETE_UNDO_MS * 2);
 
-    expect(deleteMutate).not.toHaveBeenCalled();
+    expect(deleteRequest).not.toHaveBeenCalled();
   });
 
   it("restores the canvas and toasts when the delete fails", async () => {
-    deleteMutate.mockRejectedValueOnce(new Error("host offline"));
+    deleteRequest.mockRejectedValueOnce(new Error("host offline"));
     schedule();
 
     await vi.advanceTimersByTimeAsync(CANVAS_DELETE_UNDO_MS);
@@ -99,6 +108,6 @@ describe("deleteCanvasWithUndo", () => {
     schedule();
     await vi.advanceTimersByTimeAsync(CANVAS_DELETE_UNDO_MS);
 
-    expect(deleteMutate).toHaveBeenCalledTimes(1);
+    expect(deleteRequest).toHaveBeenCalledTimes(1);
   });
 });

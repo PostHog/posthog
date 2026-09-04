@@ -273,13 +273,6 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
 
 
 class CanvasBoard(TeamScopedRootMixin, UUIDModel):
-    """An infinite board of fragments edited by many people and agents at once.
-
-    The board is an append-only log of ``CanvasBoardOp`` rows. ``snapshot`` is
-    the newest folded state a client checkpointed and ``snapshot_seq`` the log
-    position it reflects; clients fold the ops after that position themselves.
-    """
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     channel = models.ForeignKey(
         "tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="canvas_boards"
@@ -290,6 +283,7 @@ class CanvasBoard(TeamScopedRootMixin, UUIDModel):
     )
     snapshot = models.JSONField(default=dict)
     snapshot_seq = models.IntegerField(default=0)
+    records_seq = models.IntegerField(null=True, blank=True)
     head_seq = models.IntegerField(default=0)
     pinned_at = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
@@ -299,6 +293,26 @@ class CanvasBoard(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_canvas_board"
         indexes = [models.Index(fields=["channel", "-created_at"], name="canvas_board_channel_recency")]
+
+
+class CanvasBoardRecord(TeamScopedRootMixin, UUIDModel):
+    class Kind(models.TextChoices):
+        FRAGMENT = "fragment"
+        SOURCE = "source"
+        STATE = "state"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE, related_name="records")
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    key = models.CharField(max_length=128)
+    value = models.JSONField()
+    position = models.IntegerField(default=0)
+    seq = models.IntegerField()
+
+    class Meta:
+        db_table = "posthog_canvas_board_record"
+        constraints = [models.UniqueConstraint(fields=["board", "kind", "key"], name="canvas_board_record_key")]
+        indexes = [models.Index(fields=["board", "kind", "position"], name="canvas_board_record_order")]
 
 
 class CanvasBoardOp(TeamScopedRootMixin, UUIDModel):

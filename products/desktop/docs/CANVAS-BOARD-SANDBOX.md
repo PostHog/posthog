@@ -56,6 +56,75 @@ bounded: 8 reads at a time, more are queued, at most 120 in a burst and 3 a
 second after that; shared-state writes get their own allowance. A person's board
 never meets these numbers. A loop meets them at once.
 
+## Shared edits
+
+The client reads all missing operations before it accepts a new board snapshot.
+It keeps stream operations received during the initial read. A failed initial
+read retries the board snapshot, not only the operation log. A live connection
+keeps polling while operations are missing, then stops after recovery.
+It keeps each submitted operation unchanged until the server confirms it.
+New edits use new operation IDs, including after a failed response.
+When the server reports `server_snapshots`, saves send operations without a full
+board snapshot. This includes moves and size changes. Older servers keep the
+existing client checkpoint path. Layout changes update board previews at once.
+When a full restore is present, the fold starts there. Earlier operations stay
+in history but do not need to run again to produce the current board.
+
+Undo removes the user's last edit and keeps unrelated later edits from other users.
+Undo requires a known user identity. The board loads that identity through the
+existing authenticated client and applies it to new edits when it arrives.
+Each board owns its state subscription. Updates from a closed board do not
+render the next board.
+The code editor keeps an open draft when another user changes the fragment.
+Board lists are cleared when the user changes accounts or projects.
+Board deletion uses the existing eight-second Undo window. Undo cancels the
+request before the server receives it. The Undo notice closes when deletion starts,
+even if the notice has keyboard focus.
+
+The local board cache stores synced data, including name changes. It waits for
+missing operations before it writes a new head. An unchanged poll or repeated
+stream event does not rebuild the snapshot or write the cache file.
+The workspace server writes one cache file at a time per board. While a write
+is active, it keeps only the latest queued snapshot. Different boards can write
+in parallel. Cache files use compact JSON, and failed writes remove their
+temporary files.
+
+The server checks operation and snapshot fields before it stores them.
+An open board stream checks access before it sends each group of events.
+The stream closes if the board is deleted or moves to a space the user cannot read.
+
+The server uses a bulk insert for operation batches. A retry with no new
+operations does not update the board row. Each board uses its existing row lock
+to sequence edits. The log and current records change in the same transaction.
+The server applies operations to fragment and shared-state records. A normal
+move reads and writes only the affected fragment metadata, not source or state.
+The first write to an old board converts its saved snapshot and later operations.
+The old snapshot and history remain available. Normal saves do not read them.
+Board-list queries project the fragment count and the first 24 preview boxes in
+Postgres. They do not transfer fragment code or shared state into Django.
+
+Source text is immutable and addressed by its SHA-256 hash within a board.
+Fragments and new history records use source references. The API resolves these
+references for older clients. New desktop clients request `compact=true` and
+receive each active source version once. Board reads select the record values
+and their sequence in one database query, so concurrent writes cannot mix them.
+
+The frame has a bounded compile cache for identical source. The cache holds at
+most 2,097,152 characters of source and output. Modules remain separate for
+each fragment, so their module state is not shared. Custom code still runs while
+its fragment is outside the visible area; this change does not suspend effects.
+
+Cursor coordinates are rounded to world units. Presence uses one request at a
+time and sends at most ten requests per second, including selection and caret
+changes. While a request is active, only the latest pending presence is kept.
+Presence does not include fragment code or shared state and is not saved in the
+board log. Closing or switching boards cancels queued presence work.
+
+A restore sends its snapshot once and uses the normal request size limit.
+Redis keeps a reload marker for an operation larger than 64 KB. Clients use the
+existing database log to read that operation. The full restore is kept in history.
+The desktop does not retry operations that the server rejects as invalid input.
+
 ## What stays open
 
 - **Name resolution.** A page can make the browser resolve a name, and a name

@@ -103,6 +103,8 @@ export function NewBoardDialog({
               onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229)
+                  return;
                 if (event.key === "Enter") submit();
               }}
             />

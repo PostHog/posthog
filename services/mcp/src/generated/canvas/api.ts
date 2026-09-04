@@ -710,10 +710,7 @@ export const CanvasesLayoutPublishCreateBody = () => zod
     .object({
         layout: zod
             .object({
-                schemaVersion: zod
-                    .literal(1)
-                    .describe('\* `1` - 1')
-                    .describe('Layout schema version. Currently always 1.\n\n\* `1` - 1'),
+                schemaVersion: zod.literal(1).describe('Layout schema version. Currently always 1.\n\n\* `1` - 1'),
                 grid: zod
                     .object({
                         columns: zod

@@ -15705,18 +15705,10 @@ export namespace Schemas {
       component?: CanvasArtifactManifestComponent;
     }
 
-    export type CanvasBoardSnapshotFragmentsItem = { [key: string]: unknown };
-
-    export type CanvasBoardSnapshotState = { [key: string]: unknown };
-
     /**
-     * Newest folded board the server holds.
+     * Source text by SHA-256 hash. Present only for compact reads of migrated boards.
      */
-    export type CanvasBoardSnapshot = {
-      readonly schemaVersion: number;
-      readonly fragments: CanvasBoardSnapshotFragmentsItem[];
-      readonly state: CanvasBoardSnapshotState;
-    };
+    export type CanvasBoardSourceVersions = {[key: string]: string};
 
     /**
      * * `user` - User
@@ -15749,6 +15741,93 @@ export namespace Schemas {
          * @nullable
          */
       user_name: string | null;
+      /**
+         * Uuid of the user, for a stable avatar color.
+         * @nullable
+         */
+      user_uuid: string | null;
+      /**
+         * Email of the user, for a Gravatar.
+         * @nullable
+         */
+      user_email: string | null;
+    }
+
+    export type CanvasLayoutSchemaVersionEnum = typeof CanvasLayoutSchemaVersionEnum[keyof typeof CanvasLayoutSchemaVersionEnum];
+
+
+    export const CanvasLayoutSchemaVersionEnum = {
+      Number1: 1,
+    } as const;
+
+    export type CanvasBoardReadSnapshotFragmentsItem = {
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code: string;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+    } | {
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      z?: number;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+      /**
+         * @minLength 64
+         * @maxLength 64
+         */
+      codeRef: string;
+    };
+
+    export type CanvasBoardReadSnapshotState = { [key: string]: unknown };
+
+    export interface CanvasBoardReadSnapshot {
+      schemaVersion: CanvasLayoutSchemaVersionEnum;
+      fragments?: CanvasBoardReadSnapshotFragmentsItem[];
+      state?: CanvasBoardReadSnapshotState;
     }
 
     /**
@@ -15771,32 +15850,172 @@ export namespace Schemas {
          */
       user_name: string | null;
       /**
+         * Uuid of the user, for a stable avatar color.
+         * @nullable
+         */
+      user_uuid: string | null;
+      /**
+         * Email of the user, for a Gravatar.
+         * @nullable
+         */
+      user_email: string | null;
+      /**
          * Id of the agent task that made the change, or null.
          * @nullable
          */
       task_id: string | null;
     }
 
-    export type CanvasBoardLogEntryOpType = typeof CanvasBoardLogEntryOpType[keyof typeof CanvasBoardLogEntryOpType];
+    export type CanvasBoardOperationTypeEnum = typeof CanvasBoardOperationTypeEnum[keyof typeof CanvasBoardOperationTypeEnum];
 
 
-    export const CanvasBoardLogEntryOpType = {
+    export const CanvasBoardOperationTypeEnum = {
       AddFragment: 'add_fragment',
-      UpdateFragment: 'update_fragment',
-      RemoveFragment: 'remove_fragment',
-      BringToFront: 'bring_to_front',
-      SetState: 'set_state',
-      Restore: 'restore',
-      EditField: 'edit_field',
     } as const;
 
-    /**
-     * The op itself.
-     */
-    export type CanvasBoardLogEntryOp = {
-      readonly type: CanvasBoardLogEntryOpType;
-      [key: string]: unknown;
-     };
+    export type CanvasBoardOperationKindEnum = typeof CanvasBoardOperationKindEnum[keyof typeof CanvasBoardOperationKindEnum];
+
+
+    export const CanvasBoardOperationKindEnum = {
+      Text: 'text',
+      List: 'list',
+    } as const;
+
+    export type CanvasBoardOperation = {
+      type: CanvasBoardOperationTypeEnum;
+      fragment: {
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code: string;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+    };
+    } | {
+      type: CanvasBoardOperationTypeEnum;
+      id: string;
+      patch: {
+      /** @maxLength 120 */
+      title?: string;
+      x?: number;
+      y?: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w?: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h?: number;
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code?: string;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+    };
+    } | {
+      type: CanvasBoardOperationTypeEnum;
+      id: string;
+    } | {
+      type: CanvasBoardOperationTypeEnum;
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      key: string;
+      value: unknown;
+    } | {
+      type: CanvasBoardOperationTypeEnum;
+      snapshot: {
+      schemaVersion: 1;
+      fragments?: ({
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code: string;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+    })[];
+      state?: { [key: string]: unknown };
+    };
+      toSeq: number;
+    } | {
+      type: CanvasBoardOperationTypeEnum;
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      key: string;
+      kind: CanvasBoardOperationKindEnum;
+      /** @maxItems 2000 */
+      insert?: {
+      /** @maxLength 64 */
+      id: string;
+      /**
+         * @minLength 1
+         * @maxLength 64
+         */
+      k: string;
+      v: unknown;
+    }[];
+      /**
+         * @maxItems 2000
+         * @items.maxLength 64
+         */
+      remove?: string[];
+    };
 
     /**
      * One recorded op on a board.
@@ -15811,7 +16030,7 @@ export namespace Schemas {
       /** When the server recorded the op. */
       readonly created_at: string;
       /** The op itself. */
-      readonly op: CanvasBoardLogEntryOp;
+      readonly op: CanvasBoardOperation;
     }
 
     /**
@@ -15830,10 +16049,16 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Who created the board, or null. */
       readonly created_by: CanvasBoardCreator | null;
+      /** True while the board is pinned to the top of its space. */
+      readonly pinned: boolean;
       /** Seq of the newest op in the board's log. */
       readonly head_seq: number;
-      /** Newest folded board the server holds. */
-      readonly snapshot: CanvasBoardSnapshot;
+      /** The server applies saved operations. Clients do not need to send snapshots. */
+      readonly server_snapshots: boolean;
+      /** Current board. Compact reads use source_versions to resolve fragment codeRef values. */
+      readonly snapshot: CanvasBoardReadSnapshot;
+      /** Source text by SHA-256 hash. Present only for compact reads of migrated boards. */
+      readonly source_versions: CanvasBoardSourceVersions;
       /** Seq the snapshot reflects. */
       readonly snapshot_seq: number;
       /** Ops with seq greater than snapshot_seq, ascending, at most 2000. Page with ops/ for the rest. */
@@ -15858,37 +16083,6 @@ export namespace Schemas {
     }
 
     /**
-     * Folded board at base_seq plus these ops, or null to send none.
-     * @nullable
-     */
-    export type CanvasBoardAppendOpsSnapshot = {
-      schemaVersion: number;
-      fragments: { [key: string]: unknown }[];
-      state: { [key: string]: unknown };
-    } | null;
-
-    export type CanvasBoardOpDraftOpType = typeof CanvasBoardOpDraftOpType[keyof typeof CanvasBoardOpDraftOpType];
-
-
-    export const CanvasBoardOpDraftOpType = {
-      AddFragment: 'add_fragment',
-      UpdateFragment: 'update_fragment',
-      RemoveFragment: 'remove_fragment',
-      BringToFront: 'bring_to_front',
-      SetState: 'set_state',
-      Restore: 'restore',
-      EditField: 'edit_field',
-    } as const;
-
-    /**
-     * The op. Capped at 256 KB serialized.
-     */
-    export type CanvasBoardOpDraftOp = {
-      type: CanvasBoardOpDraftOpType;
-      [key: string]: unknown;
-     };
-
-    /**
      * One op the client wants recorded.
      */
     export interface CanvasBoardOpDraft {
@@ -15897,28 +16091,70 @@ export namespace Schemas {
          * @maxLength 64
          */
       op_id: string;
-      /** The op. Capped at 256 KB serialized. */
-      op: CanvasBoardOpDraftOp;
+      /** The op. Restore uses the request size limit; other ops are capped at 256 KB. */
+      op: CanvasBoardOperation;
     }
 
-    /**
-     * Payload for appending ops to a board's log, with an optional checkpoint snapshot.
-     */
+    export type CanvasBoardSnapshotFragmentsItemSurface = typeof CanvasBoardSnapshotFragmentsItemSurface[keyof typeof CanvasBoardSnapshotFragmentsItemSurface];
+
+
+    export const CanvasBoardSnapshotFragmentsItemSurface = {
+      Card: 'card',
+      Plain: 'plain',
+    } as const;
+
+    export type CanvasBoardSnapshotFragmentsItem = {
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code: string;
+      codeVersion?: number;
+      surface?: CanvasBoardSnapshotFragmentsItemSurface;
+      hidden?: boolean;
+    };
+
+    export type CanvasBoardSnapshotState = { [key: string]: unknown };
+
+    export interface CanvasBoardSnapshot {
+      schemaVersion: CanvasLayoutSchemaVersionEnum;
+      fragments?: CanvasBoardSnapshotFragmentsItem[];
+      state?: CanvasBoardSnapshotState;
+    }
+
     export interface CanvasBoardAppendOps {
-      /** Ops to record, in order. May be empty to send only a snapshot. */
+      /** Ops to record, in order. An empty list makes no change. */
       ops: CanvasBoardOpDraft[];
       /** Who is making the change. */
       actor: CanvasBoardActorInput;
       /**
-         * head_seq the client had folded up to. The snapshot is stored only when it matches.
+         * Last operation sequence known to the client.
          * @minimum 0
          */
       base_seq: number;
-      /**
-         * Folded board at base_seq plus these ops, or null to send none.
-         * @nullable
-         */
-      snapshot?: CanvasBoardAppendOpsSnapshot;
+      /** Legacy client checkpoint. The server derives the board from saved operations. */
+      snapshot?: CanvasBoardSnapshot | null;
     }
 
     /**
@@ -16032,7 +16268,10 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       selected_ids?: string[];
-      /** Where the caller writes, at most 4 fields at a time. */
+      /**
+         * Where the caller writes, at most 4 fields at a time.
+         * @maxItems 4
+         */
       carets?: CanvasBoardCaret[];
     }
 
@@ -16066,6 +16305,12 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Seq of the newest op in the board's log. */
       readonly head_seq: number;
+      /** True while the board is pinned to the top of its space. */
+      readonly pinned: boolean;
+      /** Who created the board, or null. */
+      readonly created_by: CanvasBoardCreator | null;
+      /** Who recorded the newest op, or the creator when the board has no ops. */
+      readonly last_actor: CanvasBoardCreator | null;
       /** Number of fragments in the stored snapshot. */
       readonly fragment_count: number;
       /** Boxes of the first fragments, so a list can draw the shape of the board. At most 24. */
@@ -16400,16 +16645,6 @@ export namespace Schemas {
          */
       gap: number;
     }
-
-    /**
-     * * `1` - 1
-     */
-    export type CanvasLayoutSchemaVersionEnum = typeof CanvasLayoutSchemaVersionEnum[keyof typeof CanvasLayoutSchemaVersionEnum];
-
-
-    export const CanvasLayoutSchemaVersionEnum = {
-      Number1: 1,
-    } as const;
 
     /**
      * * `pending` - pending
@@ -61623,6 +61858,8 @@ export namespace Schemas {
       name?: string;
       /** Id of the space the board belongs to. */
       channel_id?: string;
+      /** Pin the board to the top of its space. */
+      pinned?: boolean;
     }
 
     /**
@@ -93116,6 +93353,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type CanvasBoardsRetrieveParams = {
+    /**
+     * Return source text once per version instead of once per fragment.
+     */
+    compact?: boolean;
     };
 
     export type CanvasBoardsOpsRetrieveParams = {

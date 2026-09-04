@@ -2,9 +2,11 @@ import json
 from typing import Any, cast
 from uuid import UUID
 
+from django.contrib.postgres.expressions import ArraySubquery
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
-from django.db.models import OuterRef, Q, QuerySet, Subquery
+from django.db.models import Case, Count, F, Func, IntegerField, JSONField, OuterRef, Q, QuerySet, Subquery, When
+from django.db.models.functions import Coalesce, JSONObject
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -29,10 +31,12 @@ from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import board_log, board_presence, board_stream, build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
+from products.canvas.backend.board_records import with_board_records
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
@@ -47,6 +51,7 @@ from products.canvas.backend.models import (
     Canvas,
     CanvasBoard,
     CanvasBoardOp,
+    CanvasBoardRecord,
     CanvasBuild,
     CanvasHomePreference,
     CanvasSourceVersion,
@@ -64,6 +69,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBoardOpsPageSerializer,
     CanvasBoardOpsQuerySerializer,
     CanvasBoardPresenceSerializer,
+    CanvasBoardReadQuerySerializer,
     CanvasBoardSerializer,
     CanvasBoardSummarySerializer,
     CanvasBoardWriteSerializer,
@@ -1938,6 +1944,10 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.filter(team_id=self.team_id, deleted=False).filter(
             tasks_facade.visible_channels_q(user.id if user else None, relation="channel")
         )
+        if self.action in {"ops", "append_ops", "presence", "stream"}:
+            queryset = queryset.defer("snapshot").select_related(None)
+        if self.action in {"retrieve", "partial_update"}:
+            queryset = with_board_records(queryset, self.team_id)
         if self.action == "list":
             channel_id = self.request.query_params.get("channel")
             if channel_id:
@@ -1947,9 +1957,52 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return queryset.none()
                 queryset = queryset.filter(channel_id=channel_id)
             newest = CanvasBoardOp.objects.for_team(self.team_id).filter(board_id=OuterRef("pk")).order_by("-seq")
+            fragments = Func(
+                F("snapshot"),
+                template="CASE WHEN jsonb_typeof(%(expressions)s->'fragments') = 'array' "
+                "THEN %(expressions)s->'fragments' ELSE '[]'::jsonb END",
+                output_field=JSONField(),
+            )
+            queryset = (
+                queryset.defer("snapshot")
+                .annotate(
+                    last_actor_user_id=Subquery(newest.values("actor_user_id")[:1]),
+                    last_actor_kind=Subquery(newest.values("actor_kind")[:1]),
+                )
+                .alias(
+                    legacy_fragment_count=Func(fragments, function="jsonb_array_length", output_field=IntegerField()),
+                    legacy_preview_fragments=Func(
+                        fragments,
+                        template="(SELECT COALESCE(jsonb_agg(jsonb_build_object("
+                        "'x', fragment->'x', 'y', fragment->'y', 'w', fragment->'w', 'h', fragment->'h') "
+                        "ORDER BY position), '[]'::jsonb) FROM jsonb_array_elements("
+                        "jsonb_path_query_array(%(expressions)s, '$[0 to %(last_box)s]')) "
+                        "WITH ORDINALITY AS preview(fragment, position))",
+                        last_box=CanvasBoardSummarySerializer.MAX_PREVIEW_BOXES - 1,
+                        output_field=JSONField(),
+                    ),
+                )
+            )
+            records = CanvasBoardRecord.objects.for_team(self.team_id).filter(board_id=OuterRef("pk"), kind="fragment")
+            count = records.order_by().values("board_id").annotate(total=Count("pk")).values("total")
+            preview = (
+                records.order_by("position", "key")
+                .annotate(box=JSONObject(x="value__x", y="value__y", w="value__w", h="value__h"))
+                .values("box")[: CanvasBoardSummarySerializer.MAX_PREVIEW_BOXES]
+            )
             queryset = queryset.annotate(
-                last_actor_user_id=Subquery(newest.values("actor_user_id")[:1]),
-                last_actor_kind=Subquery(newest.values("actor_kind")[:1]),
+                fragment_count=Case(
+                    When(records_seq=F("head_seq"), then=Coalesce(Subquery(count), 0)),
+                    default=F("legacy_fragment_count"),
+                ),
+                preview_fragments=Case(
+                    When(
+                        records_seq=F("head_seq"),
+                        then=Func(ArraySubquery(preview), function="to_jsonb", output_field=JSONField()),
+                    ),
+                    default=F("legacy_preview_fragments"),
+                    output_field=JSONField(),
+                ),
             )
         return queryset.order_by("-updated_at")
 
@@ -1967,6 +2020,15 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return CanvasBoardSummarySerializer
         return CanvasBoardSerializer
 
+    @validated_request(
+        query_serializer=CanvasBoardReadQuerySerializer,
+        responses={200: OpenApiResponse(response=CanvasBoardSerializer)},
+    )
+    def retrieve(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        return Response(
+            CanvasBoardSerializer(self.get_object(), context={"compact": request.validated_query_data["compact"]}).data
+        )
+
     @extend_schema(request=CanvasBoardCreateSerializer, responses={201: CanvasBoardSerializer})
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         payload = CanvasBoardCreateSerializer(data=request.data)
@@ -1982,6 +2044,7 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=self._request_user(),
             snapshot={"schemaVersion": 1, "fragments": [], "state": {}},
             snapshot_seq=0,
+            records_seq=0,
             head_seq=0,
         )
         return Response(CanvasBoardSerializer(board).data, status=status.HTTP_201_CREATED)
@@ -2030,7 +2093,7 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = request.validated_query_data["limit"]
         rows = list(
             CanvasBoardOp.objects.for_team(self.team_id)
-            .filter(board=board, seq__gt=since)
+            .filter(board=board, seq__gt=since, seq__lte=board.head_seq)
             .select_related("actor_user")
             .order_by("seq")[:limit]
         )
@@ -2051,18 +2114,15 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Record ops on a board's log. Resent op_ids are skipped and reported with their existing seq."""
         board = self.get_object()
         data = request.validated_data
-        try:
-            rows = board_log.append_ops(
-                board,
-                data["ops"],
-                data["actor"]["kind"],
-                data["actor"].get("task_id"),
-                self._request_user(),
-                data["base_seq"],
-                data.get("snapshot"),
-            )
-        except board_log.InvalidBoardOpError as error:
-            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        rows = board_log.append_ops(
+            board,
+            data["ops"],
+            data["actor"]["kind"],
+            data["actor"].get("task_id"),
+            self._request_user(),
+            data["base_seq"],
+            data.get("snapshot"),
+        )
         return Response(CanvasBoardAppendResultSerializer(instance={"results": rows, "head_seq": board.head_seq}).data)
 
     @extend_schema(
@@ -2135,13 +2195,16 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         team_id = board.team_id
         board_id = str(board.id)
         last_event_id = request.headers.get("Last-Event-ID")
+        can_read = database_sync_to_async(self.get_queryset().filter(pk=board.pk).exists)
 
         # On ASGI (Granian in prod) the async generator runs as one cheap task per connection.
         # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
         return sse_streaming_response(
-            board_stream.stream_board_sse(team_id, board_id, last_event_id=last_event_id)
+            board_stream.stream_board_sse(team_id, board_id, can_read=can_read, last_event_id=last_event_id)
             if SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(lambda: board_stream.stream_board_sse(team_id, board_id, last_event_id=last_event_id)),
+            else async_to_sync(
+                lambda: board_stream.stream_board_sse(team_id, board_id, can_read=can_read, last_event_id=last_event_id)
+            ),
             endpoint="canvas_board_stream",
         )
 

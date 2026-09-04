@@ -16,6 +16,7 @@ import {
   foldOps,
   getBackoffDelay,
 } from "@posthog/shared";
+import { createStore, type StoreApi } from "zustand/vanilla";
 
 /** The board endpoints the sync client needs. Implemented over tRPC by the host. */
 export interface BoardApi {
@@ -65,7 +66,6 @@ export interface BoardSyncState {
 export interface BoardSyncOptions {
   actorUser?: { userId?: number; userName?: string };
   now?: () => number;
-  onChange: (state: BoardSyncState) => void;
   flushDebounceMs?: number;
   pollIntervalMs?: number;
   checkpointIntervalMs?: number;
@@ -75,24 +75,16 @@ const FLUSH_DEBOUNCE_MS = 150;
 const POLL_INTERVAL_MS = 1500;
 const CHECKPOINT_INTERVAL_MS = 30_000;
 const OPS_PAGE_LIMIT = 1000;
-const OPS_AFTER_SNAPSHOT_CAP = 2000;
 const RETRY_INITIAL_MS = 1000;
 const RETRY_MAX_MS = 15_000;
 const CATCH_UP_PAGE_BUDGET = 500;
 const GEOMETRY_KEYS: readonly string[] = ["x", "y", "w", "h"];
 
-/**
- * One open board: the server log, the local optimistic ops, and the folded
- * snapshot both produce. The head snapshot is always recomputed from
- * `baseSnapshot + log + pending` instead of mutated, so ops that arrive out of
- * order still converge on the same board.
- */
 export class BoardSyncClient {
   private readonly api: BoardApi;
   private readonly boardId: string;
-  private readonly onChange: (state: BoardSyncState) => void;
   private readonly now: () => number;
-  private readonly actorUser?: { userId?: number; userName?: string };
+  private actorUser?: { userId?: number; userName?: string };
   private readonly flushDebounceMs: number;
   private readonly pollIntervalMs: number;
   private readonly checkpointIntervalMs: number;
@@ -100,6 +92,9 @@ export class BoardSyncClient {
   private name = "";
   private baseSnapshot: CanvasV2Snapshot = emptyCanvasV2Snapshot();
   private baseSeq = 0;
+  private foldedBase = this.baseSnapshot;
+  private foldedSnapshot = this.baseSnapshot;
+  private foldedSeq = 0;
   private headSeq = 0;
   private log: CanvasV2LogEntry[] = [];
   private logComplete = false;
@@ -111,11 +106,11 @@ export class BoardSyncClient {
   private loading = true;
   private loadFailed = false;
   private inFlight = false;
-  private inFlightOpIds: ReadonlySet<string> = new Set();
-  private flushQueued = false;
+  private submittedOpIds: ReadonlySet<string> = new Set();
   private polling = false;
   private retryAttempt = 0;
   private lastCheckpointAt = 0;
+  private serverSnapshots = false;
   private visible = true;
   private live = false;
   private started = false;
@@ -123,23 +118,26 @@ export class BoardSyncClient {
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
-  private state: BoardSyncState;
+  readonly store: StoreApi<BoardSyncState>;
 
-  constructor(api: BoardApi, boardId: string, opts: BoardSyncOptions) {
+  constructor(api: BoardApi, boardId: string, opts: BoardSyncOptions = {}) {
     this.api = api;
     this.boardId = boardId;
-    this.onChange = opts.onChange;
     this.now = opts.now ?? (() => Date.now());
     this.actorUser = opts.actorUser;
     this.flushDebounceMs = opts.flushDebounceMs ?? FLUSH_DEBOUNCE_MS;
     this.pollIntervalMs = opts.pollIntervalMs ?? POLL_INTERVAL_MS;
     this.checkpointIntervalMs =
       opts.checkpointIntervalMs ?? CHECKPOINT_INTERVAL_MS;
-    this.state = this.buildState();
+    this.store = createStore(() => this.buildState());
   }
 
   getState(): BoardSyncState {
-    return this.state;
+    return this.store.getState();
+  }
+
+  setActorUser(actorUser: BoardSyncOptions["actorUser"]): void {
+    this.actorUser = actorUser;
   }
 
   async load(): Promise<void> {
@@ -147,16 +145,17 @@ export class BoardSyncClient {
     this.emit();
     try {
       const board = await this.api.get(this.boardId);
+      this.serverSnapshots = board.serverSnapshots === true;
       this.name = board.name;
       this.channelId = board.channelId;
-      this.baseSnapshot = board.snapshot;
-      this.baseSeq = board.snapshotSeq;
-      this.headSeq = board.headSeq;
-      this.log = sortLog(dedupeByOpId(board.opsAfterSnapshot));
-      this.refreshLogComplete();
-      if (board.opsAfterSnapshot.length >= OPS_AFTER_SNAPSHOT_CAP) {
-        await this.catchUp();
+      if (board.snapshotSeq >= this.baseSeq) {
+        this.baseSnapshot = board.snapshot;
+        this.baseSeq = board.snapshotSeq;
       }
+      this.headSeq = Math.max(this.headSeq, board.headSeq);
+      this.ingest(board.opsAfterSnapshot);
+      this.refreshLogComplete();
+      if (!this.isCurrent()) await this.catchUp();
       this.loadFailed = false;
       this.lastError = undefined;
       this.retryAttempt = 0;
@@ -242,32 +241,40 @@ export class BoardSyncClient {
 
   async flush(): Promise<void> {
     this.clearFlushTimer();
-    if (this.inFlight) {
-      this.flushQueued = true;
-      return;
-    }
+    if (this.inFlight) return;
     const batch = leadingActorRun(this.pending);
     if (batch.length === 0) return;
 
-    const sendsEverything = batch.length === this.pending.length;
     const first = batch[0];
     const input: CanvasV2AppendOpsInput = {
       ops: batch.map((entry) => ({ opId: entry.opId, op: entry.op })),
       actor: { kind: first.actor.kind, taskId: first.actor.taskId },
       baseSeq: this.headSeq,
-      snapshot: sendsEverything && this.isCurrent() ? this.snapshot : undefined,
+      snapshot:
+        !this.serverSnapshots &&
+        batch.length === this.pending.length &&
+        this.isCurrent() &&
+        batch[batch.length - 1].op.type !== "restore" &&
+        (this.baseSeq === 0 ||
+          this.now() - this.lastCheckpointAt >= this.checkpointIntervalMs ||
+          batch.some(
+            ({ op }) => op.type !== "set_state" && op.type !== "edit_field",
+          ))
+          ? this.snapshot
+          : undefined,
     };
-    const sentSnapshot = input.snapshot;
 
     this.inFlight = true;
-    this.inFlightOpIds = new Set(batch.map((entry) => entry.opId));
+    this.submittedOpIds = new Set([
+      ...this.submittedOpIds,
+      ...batch.map((entry) => entry.opId),
+    ]);
     this.emit();
     try {
       const result = await this.api.appendOps(this.boardId, input);
-      this.promote(batch, result, sentSnapshot);
+      this.promote(batch, result, input);
       this.retryAttempt = 0;
       this.lastError = undefined;
-      this.loadFailed = false;
     } catch (error) {
       this.lastError = errorMessage(error);
       if (isRefusedByServer(error)) {
@@ -279,28 +286,30 @@ export class BoardSyncClient {
       }
     } finally {
       this.inFlight = false;
-      this.inFlightOpIds = new Set();
+      this.submittedOpIds = new Set(
+        this.pending
+          .filter((entry) => this.submittedOpIds.has(entry.opId))
+          .map((entry) => entry.opId),
+      );
       this.recompute();
     }
 
-    const queued = this.flushQueued;
-    this.flushQueued = false;
-    if (this.retryAttempt === 0 && (queued || this.pending.length > 0)) {
+    if (this.retryAttempt === 0 && this.pending.length > 0) {
       this.scheduleFlush();
     }
   }
 
   async poll(): Promise<void> {
-    if (this.polling) return;
+    if (this.polling || this.loading) return;
+    if (this.loadFailed) return this.load();
     this.polling = true;
+    const previousLog = this.log;
     try {
-      const page = await this.api.opsSince(this.boardId, this.headSeq);
-      this.headSeq = Math.max(this.headSeq, page.headSeq);
-      this.ingest(page.results);
+      await this.catchUp();
       this.retryAttempt = 0;
       this.lastError = undefined;
-      this.loadFailed = false;
-      this.recompute();
+      if (this.log !== previousLog) this.recompute();
+      else this.emit();
       void this.maybeCheckpoint();
     } catch (error) {
       this.lastError = errorMessage(error);
@@ -351,8 +360,14 @@ export class BoardSyncClient {
   /** One stream op, applied exactly as a polled entry. */
   ingestStreamEntry(entry: CanvasV2LogEntry): void {
     this.headSeq = Math.max(this.headSeq, entry.seq);
+    const previousLog = this.log;
     this.ingest([entry]);
+    if (this.log === previousLog) return;
     this.recompute();
+    if (!this.loading) {
+      if (!this.isCurrent()) void this.poll();
+      else void this.maybeCheckpoint();
+    }
   }
 
   setFragmentError(id: string, message: string | null): void {
@@ -386,18 +401,35 @@ export class BoardSyncClient {
   /** Restores the board to the seq before this user's last non-restore op. */
   async undoLastOwnOp(): Promise<void> {
     if (this.pending.length > 0) await this.flush();
-    const mine = this.log.filter((entry) => this.isOwnEntry(entry));
-    const last = mine[mine.length - 1];
-    if (!last) return;
-    await this.restoreTo(last.seq - 1);
+    if (this.pending.length > 0) return;
+    if (!this.logComplete) await this.loadFullLog();
+    if (!this.logComplete) return;
+    let beforeSeq = this.headSeq + 1;
+    for (const entry of this.log.toReversed()) {
+      if (!this.isOwnEntry(entry) || entry.seq >= beforeSeq) continue;
+      if (entry.op.type === "restore") {
+        beforeSeq = entry.op.toSeq + 1;
+      } else {
+        const retained = this.log.filter(
+          (candidate) =>
+            candidate.seq < entry.seq || !this.isOwnEntry(candidate),
+        );
+        this.applyLocal([
+          {
+            type: "restore",
+            snapshot: foldOps(emptyCanvasV2Snapshot(), retained),
+            toSeq: entry.seq - 1,
+          },
+        ]);
+        return;
+      }
+    }
   }
 
   private isOwnEntry(entry: CanvasV2LogEntry): boolean {
     if (entry.actor.kind !== "user") return false;
-    if (entry.op.type === "restore") return false;
     const userId = this.actorUser?.userId;
-    if (userId === undefined) return true;
-    return entry.actor.userId === userId;
+    return userId !== undefined && entry.actor.userId === userId;
   }
 
   private rejectsStateValue(op: CanvasV2Op): boolean {
@@ -417,7 +449,7 @@ export class BoardSyncClient {
   private appendPending(entry: PendingEntry): void {
     const last = this.pending[this.pending.length - 1];
     const openLast =
-      last !== undefined && !this.inFlightOpIds.has(last.opId)
+      last !== undefined && !this.submittedOpIds.has(last.opId)
         ? last
         : undefined;
     const mergedEdits = openLast ? mergeFieldEdits(openLast, entry) : undefined;
@@ -427,7 +459,7 @@ export class BoardSyncClient {
     }
     const mergeable =
       last !== undefined &&
-      !this.inFlightOpIds.has(last.opId) &&
+      !this.submittedOpIds.has(last.opId) &&
       isGeometryUpdate(last.op) &&
       isGeometryUpdate(entry.op) &&
       last.op.type === "update_fragment" &&
@@ -457,7 +489,7 @@ export class BoardSyncClient {
   private promote(
     batch: PendingEntry[],
     result: CanvasV2AppendOpsResult,
-    sentSnapshot: CanvasV2Snapshot | undefined,
+    input: CanvasV2AppendOpsInput,
   ): void {
     const seqByOpId = new Map(result.results.map((r) => [r.opId, r.seq]));
     const sent = new Set(batch.map((entry) => entry.opId));
@@ -482,15 +514,19 @@ export class BoardSyncClient {
     this.headSeq = Math.max(this.headSeq, result.headSeq, maxSeq);
     this.refreshLogComplete();
 
-    // The server keeps the snapshot only when nobody else wrote in between,
-    // which is exactly when its head equals the last seq it gave us.
-    if (sentSnapshot && maxSeq > 0 && result.headSeq === maxSeq) {
-      this.baseSnapshot = sentSnapshot;
-      this.baseSeq = maxSeq;
+    if (
+      input.snapshot &&
+      batch.every(
+        (entry, index) =>
+          seqByOpId.get(entry.opId) === input.baseSeq + index + 1,
+      )
+    ) {
+      this.baseSnapshot = input.snapshot;
+      this.baseSeq = input.baseSeq + batch.length;
       this.lastCheckpointAt = this.now();
     }
 
-    if (result.headSeq > maxSeq) void this.poll();
+    if (!this.isCurrent()) void this.poll();
   }
 
   private ingest(entries: readonly CanvasV2LogEntry[]): void {
@@ -527,7 +563,7 @@ export class BoardSyncClient {
   private async catchUp(): Promise<void> {
     for (let page = 0; page < CATCH_UP_PAGE_BUDGET; page++) {
       const since = this.contiguousHead();
-      if (since >= this.headSeq) return;
+      if (page > 0 && since >= this.headSeq) return;
       const result = await this.api.opsSince(
         this.boardId,
         since,
@@ -536,10 +572,12 @@ export class BoardSyncClient {
       this.headSeq = Math.max(this.headSeq, result.headSeq);
       if (result.results.length === 0) return;
       this.ingest(result.results);
+      if (this.contiguousHead() <= since) return;
     }
   }
 
   private async maybeCheckpoint(): Promise<void> {
+    if (this.serverSnapshots) return;
     if (this.inFlight || this.pending.length > 0) return;
     if (!this.isCurrent() || this.headSeq <= this.baseSeq) return;
     if (this.now() - this.lastCheckpointAt < this.checkpointIntervalMs) return;
@@ -564,6 +602,7 @@ export class BoardSyncClient {
     } finally {
       this.inFlight = false;
       this.emit();
+      if (this.pending.length > 0) this.scheduleFlush();
     }
   }
 
@@ -583,12 +622,13 @@ export class BoardSyncClient {
   }
 
   private refreshLogComplete(): void {
-    const first = this.log[0];
-    this.logComplete = first ? first.seq === 1 : this.headSeq === 0;
+    this.logComplete =
+      this.log.length === this.headSeq &&
+      this.log.every((entry, index) => entry.seq === index + 1);
   }
 
   private scheduleFlush(): void {
-    if (this.stopped || this.flushTimer !== undefined) return;
+    if (this.flushTimer !== undefined) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = undefined;
       void this.flush();
@@ -609,8 +649,15 @@ export class BoardSyncClient {
   }
 
   private restartPollTimer(): void {
-    this.clearPollTimer();
-    if (!this.started || !this.visible || this.live) return;
+    if (
+      !this.started ||
+      !this.visible ||
+      (this.live && !this.loadFailed && this.isCurrent())
+    ) {
+      this.clearPollTimer();
+      return;
+    }
+    if (this.pollTimer !== undefined) return;
     this.pollTimer = setInterval(() => {
       void this.poll();
     }, this.pollIntervalMs);
@@ -635,9 +682,24 @@ export class BoardSyncClient {
   }
 
   private recompute(): void {
-    const afterBase = this.log.filter((entry) => entry.seq > this.baseSeq);
+    if (this.foldedBase !== this.baseSnapshot) {
+      this.foldedBase = this.baseSnapshot;
+      this.foldedSnapshot = this.baseSnapshot;
+      this.foldedSeq = this.baseSeq;
+    }
+    const contiguousSeq = this.contiguousHead();
+    this.foldedSnapshot = foldOps(
+      this.foldedSnapshot,
+      this.log.filter(
+        (entry) => entry.seq > this.foldedSeq && entry.seq <= contiguousSeq,
+      ),
+    );
+    this.foldedSeq = contiguousSeq;
     this.snapshot = foldOps(
-      foldOps(this.baseSnapshot, afterBase),
+      foldOps(
+        this.foldedSnapshot,
+        this.log.filter((entry) => entry.seq > contiguousSeq),
+      ),
       this.pending,
     );
     this.emit();
@@ -647,6 +709,7 @@ export class BoardSyncClient {
     if (this.loading) return "loading";
     if (this.retryAttempt > 0) return "offline";
     if (this.loadFailed) return "error";
+    if (!this.isCurrent()) return "loading";
     if (this.inFlight || this.pending.length > 0) return "saving";
     return "synced";
   }
@@ -677,8 +740,8 @@ export class BoardSyncClient {
   }
 
   private emit(): void {
-    this.state = this.buildState();
-    this.onChange(this.state);
+    this.restartPollTimer();
+    this.store.setState(this.buildState(), true);
   }
 }
 
@@ -779,29 +842,6 @@ export function groupLogEntries(
   }
 
   return groups.reverse();
-}
-
-/** How many other people wrote to the board inside the window. */
-export function activeCollaborators(
-  log: CanvasV2LogEntry[],
-  nowMs: number,
-  windowMs = 120_000,
-  excludeUserId?: number,
-): number {
-  const seen = new Set<string>();
-  for (const entry of log) {
-    const at = Date.parse(entry.createdAt);
-    if (Number.isNaN(at) || nowMs - at > windowMs) continue;
-    if (
-      excludeUserId !== undefined &&
-      entry.actor.kind === "user" &&
-      entry.actor.userId === excludeUserId
-    ) {
-      continue;
-    }
-    seen.add(actorIdentity(entry.actor));
-  }
-  return seen.size;
 }
 
 export function actorIdentity(actor: CanvasV2Actor): string {

@@ -25,7 +25,6 @@ import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pen
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { useSpaceBoardsAsCanvases } from "@posthog/ui/features/canvas-v2/hooks/useBoardsAsCanvases";
 import { useCanvasV2BoardMutations } from "@posthog/ui/features/canvas-v2/hooks/useCanvasV2BoardMutations";
-import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Grid } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
@@ -189,23 +188,18 @@ function DashboardCardMenu({
   const { removeBoard } = useCanvasV2BoardMutations();
 
   const onDelete = () => {
-    if (isBoard) {
-      removeBoard(id).catch(() => {
-        toast.error("Couldn't delete the board");
-      });
-      return;
-    }
     deleteCanvasWithUndo({
       dashboardId: id,
       channelId,
       name,
       surface: "dashboards_grid",
-      invalidate: invalidateDashboards,
+      remove: isBoard ? () => removeBoard(id) : undefined,
+      invalidate: isBoard ? undefined : invalidateDashboards,
     });
   };
 
   return (
-    <Box
+    <div
       className={cn(
         "absolute top-2 right-2 transition-opacity",
         open ? "opacity-100" : "opacity-0 group-hover:opacity-100",
@@ -243,7 +237,7 @@ function DashboardCardMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </Box>
+    </div>
   );
 }
 

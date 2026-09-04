@@ -3,7 +3,8 @@ import {
   BoardSyncClient,
   type BoardSyncState,
 } from "@posthog/core/canvas-v2/boardSync";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
+import { useStore } from "zustand";
 
 export interface BoardSyncActorUser {
   userId?: number;
@@ -18,38 +19,16 @@ export function useBoardSync(
   boardId: string,
   api: BoardApi,
   actorUser?: BoardSyncActorUser,
-): { state: BoardSyncState; client: BoardSyncClient | null } {
-  const apiRef = useRef(api);
-  apiRef.current = api;
-  const actorRef = useRef(actorUser);
-  actorRef.current = actorUser;
-  const setStateRef = useRef<(next: BoardSyncState) => void>(() => {});
-
-  // The transport is stable, so a new `api` object each render does not build a
-  // second client for the same board.
-  const stableApi = useMemo<BoardApi>(
-    () => ({
-      get: (id) => apiRef.current.get(id),
-      opsSince: (id, since, limit) => apiRef.current.opsSince(id, since, limit),
-      appendOps: (id, input) => apiRef.current.appendOps(id, input),
-    }),
-    [],
-  );
-
+): { state: BoardSyncState; client: BoardSyncClient } {
   const client = useMemo(
-    () =>
-      new BoardSyncClient(stableApi, boardId, {
-        actorUser: actorRef.current,
-        onChange: (next) => setStateRef.current(next),
-      }),
-    [stableApi, boardId],
+    () => new BoardSyncClient(api, boardId),
+    [api, boardId],
   );
+  const state = useStore(client.store);
 
-  const [state, setState] = useState<BoardSyncState>(() => client.getState());
+  useEffect(() => client.setActorUser(actorUser), [client, actorUser]);
 
   useEffect(() => {
-    setStateRef.current = setState;
-    setState(client.getState());
     let live = true;
     void client.load().then(() => {
       if (live) client.start();
@@ -76,7 +55,5 @@ export function useBoardSync(
     };
   }, [client]);
 
-  // On the render after a board change, `state` still holds the old board.
-  const current = state.boardId === boardId ? state : client.getState();
-  return { state: current, client };
+  return { state, client };
 }

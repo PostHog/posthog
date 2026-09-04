@@ -23,8 +23,9 @@ interface DeleteCanvasWithUndoOptions {
   /** Canvas name, for the toast copy. */
   name: string;
   surface: ChannelsSurface;
+  remove?: () => Promise<void>;
   /** Refresh the canvas queries once the delete actually lands. */
-  invalidate: () => void;
+  invalidate?: () => void;
 }
 
 /**
@@ -37,6 +38,7 @@ export function deleteCanvasWithUndo({
   channelId,
   name,
   surface,
+  remove = () => hostClient().dashboards.delete.mutate({ id: dashboardId }),
   invalidate,
 }: DeleteCanvasWithUndoOptions): void {
   const { markPending, clearPending } = usePendingCanvasDeleteStore.getState();
@@ -51,8 +53,9 @@ export function deleteCanvasWithUndo({
 
   const commit = async () => {
     pendingTimers.delete(dashboardId);
+    toast.dismiss(toastId);
     try {
-      await hostClient().dashboards.delete.mutate({ id: dashboardId });
+      await remove();
       track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
         action_type: "delete",
         surface,
@@ -60,7 +63,7 @@ export function deleteCanvasWithUndo({
         dashboard_id: dashboardId,
         success: true,
       });
-      invalidate();
+      invalidate?.();
     } catch (error) {
       track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
         action_type: "delete",

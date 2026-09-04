@@ -4,6 +4,7 @@ import {
   FREEFORM_ESM_HOST,
   FREEFORM_QUILL_CSS_URLS,
 } from "@posthog/core/canvas/freeformWhitelist";
+import { createFragmentCompiler } from "@posthog/core/canvas-v2/fragmentCompiler";
 import {
   CANVAS_SDK_SPECIFIER,
   CANVAS_V2_ALLOWED_IMPORTS,
@@ -1537,18 +1538,21 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
         entry.el.append(block);
       }
     };
-    const mount = async (entry, fragment) => {
-      const seq = ++entry.mountSeq;
-      const id = fragment.id;
-      try {
-        const out = Babel.transform(fragment.code, {
-          filename: id + ".tsx",
+    const compileFragment = (${createFragmentCompiler.toString()})((code) =>
+        Babel.transform(code, {
+          filename: "fragment.tsx",
           plugins: [importGuardPlugin, jsxUnicodeEscapesPlugin],
           presets: [
             ["react", { runtime: "automatic" }],
             ["typescript", { isTSX: true, allExtensions: true, onlyRemoveTypeImports: true }],
           ],
-        }).code;
+        }).code,
+    );
+    const mount = async (entry, fragment) => {
+      const seq = ++entry.mountSeq;
+      const id = fragment.id;
+      try {
+        const out = compileFragment(fragment.code);
         const url = URL.createObjectURL(new Blob([out], { type: "text/javascript" }));
         let mod;
         try {
@@ -1664,6 +1668,15 @@ export function buildBoardFrameDocument(options: BoardFrameOptions): string {
       for (const fragment of list) upsert(fragment);
     };
     let focusedId = null;
+    window.addEventListener("keydown", (event) => {
+      if (
+        event.key === "Escape" && event.isTrusted &&
+        !event.defaultPrevented && !event.isComposing && focusedId !== null
+      ) {
+        event.preventDefault();
+        post({ type: "exit-focus" });
+      }
+    });
     let framedBox = null;
     const boxHolds = (box, item) => {
       const cx = item.x + item.w / 2;

@@ -6,8 +6,11 @@ import {
   type CanvasV2OpsPage,
   canvasV2BoardSchema,
   canvasV2BoardSummarySchema,
+  canvasV2FragmentSchema,
+  canvasV2SnapshotSchema,
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
+import { z } from "zod";
 import {
   PROJECT_API_CLIENT,
   type ProjectApiClient,
@@ -47,6 +50,8 @@ interface ApiBoard {
   head_seq: number;
   snapshot: unknown;
   snapshot_seq: number;
+  server_snapshots?: boolean;
+  source_versions?: Record<string, string>;
   ops_after_snapshot: ApiLogEntry[];
 }
 
@@ -95,7 +100,27 @@ function logEntryInput(entry: ApiLogEntry): unknown {
   };
 }
 
+const compactSnapshotSchema = canvasV2SnapshotSchema.extend({
+  fragments: z.array(
+    canvasV2FragmentSchema
+      .omit({ code: true })
+      .extend({ codeRef: z.string().length(64) }),
+  ),
+});
+
 function boardInput(api: ApiBoard): unknown {
+  let snapshot = api.snapshot;
+  if (api.source_versions) {
+    const compact = compactSnapshotSchema.parse(snapshot);
+    const sources = api.source_versions;
+    snapshot = {
+      ...compact,
+      fragments: compact.fragments.map(({ codeRef, ...fragment }) => ({
+        ...fragment,
+        code: sources[codeRef],
+      })),
+    };
+  }
   return {
     id: api.id,
     name: api.name,
@@ -104,8 +129,9 @@ function boardInput(api: ApiBoard): unknown {
     updatedAt: api.updated_at,
     createdBy: api.created_by ? actorInput(api.created_by) : undefined,
     headSeq: api.head_seq,
-    snapshot: api.snapshot,
+    snapshot,
     snapshotSeq: api.snapshot_seq,
+    serverSnapshots: api.server_snapshots,
     opsAfterSnapshot: (api.ops_after_snapshot ?? []).map(logEntryInput),
   };
 }
@@ -161,7 +187,7 @@ export class CanvasV2BoardsService implements ICanvasV2BoardsService {
 
   async get(id: string): Promise<CanvasV2Board> {
     const api = await this.api.json<ApiBoard>(
-      boardPath(id),
+      `${boardPath(id)}?compact=true`,
       "load canvas board",
     );
     return canvasV2BoardSchema.parse(boardInput(api));
@@ -180,42 +206,28 @@ export class CanvasV2BoardsService implements ICanvasV2BoardsService {
     return canvasV2BoardSchema.parse(boardInput(api));
   }
 
-  async setChannel(id: string, channelId: string): Promise<CanvasV2Board> {
-    const api = await this.api.json<ApiBoard>(
-      boardPath(id),
-      "file canvas board",
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel_id: channelId }),
-      },
-    );
-    return canvasV2BoardSchema.parse(boardInput(api));
+  setChannel(id: string, channelId: string): Promise<CanvasV2Board> {
+    return this.patch(id, { channel_id: channelId }, "file canvas board");
   }
 
-  async setPinned(id: string, pinned: boolean): Promise<CanvasV2Board> {
-    const api = await this.api.json<ApiBoard>(
-      boardPath(id),
-      "pin canvas board",
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pinned }),
-      },
-    );
-    return canvasV2BoardSchema.parse(boardInput(api));
+  setPinned(id: string, pinned: boolean): Promise<CanvasV2Board> {
+    return this.patch(id, { pinned }, "pin canvas board");
   }
 
-  async rename(id: string, name: string): Promise<CanvasV2Board> {
-    const api = await this.api.json<ApiBoard>(
-      boardPath(id),
-      "rename canvas board",
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      },
-    );
+  rename(id: string, name: string): Promise<CanvasV2Board> {
+    return this.patch(id, { name }, "rename canvas board");
+  }
+
+  private async patch(
+    id: string,
+    body: Record<string, unknown>,
+    errorLabel: string,
+  ): Promise<CanvasV2Board> {
+    const api = await this.api.json<ApiBoard>(boardPath(id), errorLabel, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     return canvasV2BoardSchema.parse(boardInput(api));
   }
 

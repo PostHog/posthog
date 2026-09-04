@@ -99,7 +99,13 @@ export function foldOps(
   entries: readonly Pick<CanvasV2LogEntry, "op">[],
 ): CanvasV2Snapshot {
   let current = snapshot;
-  for (const entry of entries) current = applyOp(current, entry.op);
+  const start = Math.max(
+    0,
+    entries.findLastIndex(({ op }) => op.type === "restore"),
+  );
+  for (let index = start; index < entries.length; index++) {
+    current = applyOp(current, entries[index].op);
+  }
   return current;
 }
 
@@ -109,60 +115,11 @@ export function maxZ(snapshot: CanvasV2Snapshot): number {
   return top;
 }
 
-/** A readable id built from a library name, unique on this board. */
-export function nextFragmentId(
-  base: string,
-  fragments: readonly CanvasV2Fragment[],
-): string {
-  const taken = new Set(fragments.map((f) => f.id));
-  if (!taken.has(base)) return base;
-  for (let index = 2; index < 1000; index++) {
-    const candidate = `${base}-${index}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-  return `${base}-${Date.now()}`;
-}
-
 /** A frame goes under everything, so the fragments inside it stay clickable. */
 export function minZ(snapshot: CanvasV2Snapshot): number {
   let bottom = 0;
   for (const f of snapshot.fragments) if (f.z < bottom) bottom = f.z;
   return bottom;
-}
-
-export function diffSnapshots(
-  from: CanvasV2Snapshot,
-  to: CanvasV2Snapshot,
-): CanvasV2Op[] {
-  const ops: CanvasV2Op[] = [];
-  const fromById = new Map(from.fragments.map((f) => [f.id, f]));
-  const toIds = new Set(to.fragments.map((f) => f.id));
-  for (const fragment of to.fragments) {
-    const before = fromById.get(fragment.id);
-    if (!before) {
-      ops.push({ type: "add_fragment", fragment });
-      continue;
-    }
-    if (!fragmentsEqual(before, fragment)) {
-      ops.push({
-        type: "update_fragment",
-        id: fragment.id,
-        patch: fragmentPatch(before, fragment),
-      });
-    }
-  }
-  for (const fragment of from.fragments) {
-    if (!toIds.has(fragment.id))
-      ops.push({ type: "remove_fragment", id: fragment.id });
-  }
-  const keys = new Set([...Object.keys(from.state), ...Object.keys(to.state)]);
-  for (const key of keys) {
-    const a = JSON.stringify(from.state[key] ?? null);
-    const b = JSON.stringify(to.state[key] ?? null);
-    if (a !== b)
-      ops.push({ type: "set_state", key, value: to.state[key] ?? null });
-  }
-  return ops;
 }
 
 /** True when two fragments draw the same thing in the same place. */
@@ -182,25 +139,6 @@ export function fragmentsEqual(
     a.surface === b.surface &&
     a.hidden === b.hidden
   );
-}
-
-function fragmentPatch(
-  before: CanvasV2Fragment,
-  after: CanvasV2Fragment,
-): Partial<Omit<CanvasV2Fragment, "id">> {
-  const patch: Partial<Omit<CanvasV2Fragment, "id">> = {};
-  if (before.title !== after.title) patch.title = after.title;
-  if (before.x !== after.x) patch.x = after.x;
-  if (before.y !== after.y) patch.y = after.y;
-  if (before.w !== after.w) patch.w = after.w;
-  if (before.h !== after.h) patch.h = after.h;
-  if (before.z !== after.z) patch.z = after.z;
-  if (before.code !== after.code) patch.code = after.code;
-  if (before.codeVersion !== after.codeVersion)
-    patch.codeVersion = after.codeVersion;
-  if (before.surface !== after.surface) patch.surface = after.surface;
-  if (before.hidden !== after.hidden) patch.hidden = after.hidden;
-  return patch;
 }
 
 const GRID = 40;

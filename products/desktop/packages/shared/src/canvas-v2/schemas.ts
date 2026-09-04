@@ -150,6 +150,7 @@ export const canvasV2BoardSchema = z.object({
   headSeq: z.number().int(),
   snapshot: canvasV2SnapshotSchema,
   snapshotSeq: z.number().int(),
+  serverSnapshots: z.boolean().optional(),
   opsAfterSnapshot: z.array(canvasV2LogEntrySchema),
 });
 export type CanvasV2Board = z.infer<typeof canvasV2BoardSchema>;

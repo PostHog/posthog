@@ -9,8 +9,17 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 
-from products.canvas.backend.board_log import BOARD_OP_TYPES, MAX_BOARD_OP_BYTES, board_actor_person
+from products.canvas.backend.board_log import board_actor_person
 from products.canvas.backend.board_presence import PRESENCE_MAX_CARETS, PRESENCE_MAX_SELECTED_IDS
+from products.canvas.backend.board_records import hydrate_ops, with_board_records
+from products.canvas.backend.board_schema import (
+    MAX_BOARD_OP_BYTES,
+    OP_SCHEMA,
+    READ_SNAPSHOT_SCHEMA,
+    SNAPSHOT_SCHEMA,
+    validate_op,
+    validate_snapshot,
+)
 from products.canvas.backend.contract import (
     GRID_COLUMN_CHOICES,
     MAX_COMPONENT_HEIGHT,
@@ -1117,37 +1126,21 @@ class CanvasBoardActorKind(models.TextChoices):
     AGENT = "agent", "Agent"
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "required": ["type"],
-        "properties": {"type": {"type": "string", "enum": BOARD_OP_TYPES}},
-        "additionalProperties": True,
-    }
-)
+@extend_schema_field(OP_SCHEMA, component_name="CanvasBoardOperation")
 class CanvasBoardOpField(serializers.JSONField):
-    """A board op: a JSON object whose ``type`` names the change. The desktop validates the rest."""
+    default_validators = [validate_op]
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "required": ["schemaVersion", "fragments", "state"],
-        "properties": {
-            "schemaVersion": {"type": "integer"},
-            "fragments": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-            "state": {"type": "object", "additionalProperties": True},
-        },
-    }
-)
+@extend_schema_field(SNAPSHOT_SCHEMA, component_name="CanvasBoardSnapshot")
 class CanvasBoardSnapshotField(serializers.JSONField):
     """A folded board: every fragment plus the shared state."""
 
-    def to_internal_value(self, data: Any) -> Any:
-        value = super().to_internal_value(data)
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("A snapshot must be a JSON object.")
-        return value
+    default_validators = [validate_snapshot]
+
+
+@extend_schema_field(READ_SNAPSHOT_SCHEMA, component_name="CanvasBoardReadSnapshot")
+class CanvasBoardReadSnapshotField(serializers.JSONField):
+    pass
 
 
 class CanvasBoardCreatorSerializer(serializers.Serializer):
@@ -1166,6 +1159,13 @@ class CanvasBoardActorSerializer(CanvasBoardCreatorSerializer):
     task_id = serializers.CharField(allow_null=True, help_text="Id of the agent task that made the change, or null.")
 
 
+class CanvasBoardLogEntryListSerializer(serializers.ListSerializer):
+    def to_representation(self, data: Any) -> list[Any]:
+        rows = list(data)
+        hydrate_ops(rows)
+        return cast(list[Any], super().to_representation(rows))
+
+
 class CanvasBoardLogEntrySerializer(serializers.Serializer):
     """One recorded op on a board."""
 
@@ -1174,6 +1174,9 @@ class CanvasBoardLogEntrySerializer(serializers.Serializer):
     actor = serializers.SerializerMethodField(help_text="Who recorded the op.")
     created_at = serializers.DateTimeField(read_only=True, help_text="When the server recorded the op.")
     op = CanvasBoardOpField(read_only=True, help_text="The op itself.")
+
+    class Meta:
+        list_serializer_class = CanvasBoardLogEntryListSerializer
 
     @extend_schema_field(CanvasBoardActorSerializer)
     def get_actor(self, entry: CanvasBoardOp) -> dict[str, Any]:
@@ -1223,7 +1226,7 @@ class CanvasBoardSummarySerializer(serializers.Serializer):
     last_actor = serializers.SerializerMethodField(
         help_text="Who recorded the newest op, or the creator when the board has no ops."
     )
-    fragment_count = serializers.SerializerMethodField(help_text="Number of fragments in the stored snapshot.")
+    fragment_count = serializers.IntegerField(read_only=True, help_text="Number of fragments in the stored snapshot.")
 
     preview = serializers.SerializerMethodField(
         help_text="Boxes of the first fragments, so a list can draw the shape of the board. At most 24."
@@ -1255,27 +1258,16 @@ class CanvasBoardSummarySerializer(serializers.Serializer):
             **board_actor_person(users.get(user_id), user_id),
         }
 
-    @extend_schema_field(serializers.IntegerField())
-    def get_fragment_count(self, board: CanvasBoard) -> int:
-        return len(self._fragments(board))
-
     @extend_schema_field(CanvasBoardPreviewBoxSerializer(many=True))
     def get_preview(self, board: CanvasBoard) -> list[dict[str, float]]:
         boxes: list[dict[str, float]] = []
-        for fragment in self._fragments(board)[: self.MAX_PREVIEW_BOXES]:
+        for fragment in getattr(board, "preview_fragments", []):
             if not isinstance(fragment, dict):
                 continue
             box = self._box(fragment)
             if box is not None:
                 boxes.append(box)
         return boxes
-
-    @staticmethod
-    def _fragments(board: CanvasBoard) -> list[Any]:
-        if not isinstance(board.snapshot, dict):
-            return []
-        fragments = board.snapshot.get("fragments", [])
-        return fragments if isinstance(fragments, list) else []
 
     @staticmethod
     def _box(fragment: dict[str, Any]) -> dict[str, float] | None:
@@ -1300,11 +1292,58 @@ class CanvasBoardSerializer(serializers.Serializer):
     created_by = serializers.SerializerMethodField(help_text="Who created the board, or null.")
     pinned = serializers.SerializerMethodField(help_text="True while the board is pinned to the top of its space.")
     head_seq = serializers.IntegerField(read_only=True, help_text="Seq of the newest op in the board's log.")
-    snapshot = CanvasBoardSnapshotField(read_only=True, help_text="Newest folded board the server holds.")
+    server_snapshots = serializers.BooleanField(
+        read_only=True,
+        default=True,
+        help_text="The server applies saved operations. Clients do not need to send snapshots.",
+    )
+    snapshot = CanvasBoardReadSnapshotField(
+        read_only=True, help_text="Current board. Compact reads use source_versions to resolve fragment codeRef values."
+    )
+    source_versions = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        required=False,
+        help_text="Source text by SHA-256 hash. Present only for compact reads of migrated boards.",
+    )
     snapshot_seq = serializers.IntegerField(read_only=True, help_text="Seq the snapshot reflects.")
     ops_after_snapshot = serializers.SerializerMethodField(
         help_text="Ops with seq greater than snapshot_seq, ascending, at most 2000. Page with ops/ for the rest."
     )
+
+    def to_representation(self, instance: CanvasBoard) -> dict[str, Any]:
+        compact = self.context.get("compact", False)
+        sources = None
+        if instance.records_seq is not None and not hasattr(instance, "record_fragments"):
+            instance = (
+                with_board_records(CanvasBoard.objects.for_team(instance.team_id), instance.team_id)
+                .select_related("created_by")
+                .get(pk=instance.pk)
+            )
+        if hasattr(instance, "legacy_snapshot"):
+            instance.snapshot = instance.legacy_snapshot
+        if instance.records_seq is not None and instance.records_seq == instance.head_seq:
+            record_sources = getattr(instance, "record_sources", None)
+            record_fragments = getattr(instance, "record_fragments", None)
+            record_state = getattr(instance, "record_state", None)
+            assert record_sources is not None and record_fragments is not None and record_state is not None
+            sources = {item["key"]: item["value"] for item in record_sources}
+            fragments = []
+            for record in record_fragments:
+                fragment = dict(record)
+                if not compact:
+                    fragment["code"] = sources[fragment.pop("codeRef")]
+                fragments.append(fragment)
+            instance.snapshot = {
+                "schemaVersion": 1,
+                "fragments": fragments,
+                "state": {item["key"]: item["value"] for item in record_state},
+            }
+            instance.snapshot_seq = instance.head_seq
+        result = cast(dict[str, Any], super().to_representation(instance))
+        if compact and sources is not None:
+            result["source_versions"] = sources
+        return result
 
     @extend_schema_field(CanvasBoardCreatorSerializer(allow_null=True))
     def get_created_by(self, board: CanvasBoard) -> dict[str, Any] | None:
@@ -1321,13 +1360,21 @@ class CanvasBoardSerializer(serializers.Serializer):
 
     @extend_schema_field(CanvasBoardLogEntrySerializer(many=True))
     def get_ops_after_snapshot(self, board: CanvasBoard) -> list[dict[str, Any]]:
+        if board.snapshot_seq == board.head_seq:
+            return []
         rows = (
             CanvasBoardOp.objects.for_team(board.team_id)
-            .filter(board=board, seq__gt=board.snapshot_seq)
+            .filter(board=board, seq__gt=board.snapshot_seq, seq__lte=board.head_seq)
             .select_related("actor_user")
             .order_by("seq")[: self.MAX_OPS_AFTER_SNAPSHOT]
         )
         return cast(list[dict[str, Any]], CanvasBoardLogEntrySerializer(rows, many=True).data)
+
+
+class CanvasBoardReadQuerySerializer(serializers.Serializer):
+    compact = serializers.BooleanField(
+        required=False, default=False, help_text="Return source text once per version instead of once per fragment."
+    )
 
 
 class CanvasBoardCreateSerializer(serializers.Serializer):
@@ -1380,21 +1427,21 @@ class CanvasBoardOpDraftSerializer(serializers.Serializer):
     op_id = serializers.CharField(
         max_length=64, help_text="Client-chosen id, unique per board. Resending the same id records nothing new."
     )
-    op = CanvasBoardOpField(help_text=f"The op. Capped at {MAX_BOARD_OP_BYTES // 1024} KB serialized.")
+    op = CanvasBoardOpField(
+        help_text=f"The op. Restore uses the request size limit; other ops are capped at {MAX_BOARD_OP_BYTES // 1024} KB."
+    )
 
 
 class CanvasBoardAppendOpsSerializer(serializers.Serializer):
-    """Payload for appending ops to a board's log, with an optional checkpoint snapshot."""
-
     ops = CanvasBoardOpDraftSerializer(
-        many=True, allow_empty=True, help_text="Ops to record, in order. May be empty to send only a snapshot."
+        many=True, allow_empty=True, help_text="Ops to record, in order. An empty list makes no change."
     )
     actor = CanvasBoardActorInputSerializer(help_text="Who is making the change.")
-    base_seq = serializers.IntegerField(
-        min_value=0, help_text="head_seq the client had folded up to. The snapshot is stored only when it matches."
-    )
+    base_seq = serializers.IntegerField(min_value=0, help_text="Last operation sequence known to the client.")
     snapshot = CanvasBoardSnapshotField(
-        required=False, allow_null=True, help_text="Folded board at base_seq plus these ops, or null to send none."
+        required=False,
+        allow_null=True,
+        help_text="Legacy client checkpoint. The server derives the board from saved operations.",
     )
 
 
@@ -1462,8 +1509,8 @@ class CanvasBoardPresenceSerializer(serializers.Serializer):
         max_length=PRESENCE_MAX_SELECTED_IDS,
         help_text=f"Ids of the fragments the caller has selected, at most {PRESENCE_MAX_SELECTED_IDS}.",
     )
-    carets = CanvasBoardCaretSerializer(
-        many=True,
+    carets = serializers.ListField(
+        child=CanvasBoardCaretSerializer(),
         required=False,
         default=list,
         max_length=PRESENCE_MAX_CARETS,

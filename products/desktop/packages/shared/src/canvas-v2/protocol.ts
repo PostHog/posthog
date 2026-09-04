@@ -115,6 +115,7 @@ export type HostToBoardFrameMessage = z.infer<
 >;
 
 export const boardFrameToHostMessageSchema = z.discriminatedUnion("type", [
+  z.object({ channel, type: z.literal("exit-focus") }),
   z.object({ channel, type: z.literal("ready") }),
   z.object({ channel, type: z.literal("fragment-rendered"), id: z.string() }),
   z.object({

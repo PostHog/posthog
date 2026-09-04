@@ -1,4 +1,3 @@
-import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -7,18 +6,8 @@ from django.db import transaction
 from posthog.models.user import User
 
 from products.canvas.backend import board_stream
+from products.canvas.backend.board_records import BoardRecords, hydrate_ops
 from products.canvas.backend.models import CanvasBoard, CanvasBoardOp
-
-BOARD_OP_TYPES = [
-    "add_fragment",
-    "update_fragment",
-    "remove_fragment",
-    "bring_to_front",
-    "set_state",
-    "restore",
-    "edit_field",
-]
-MAX_BOARD_OP_BYTES = 256 * 1024
 
 
 def board_actor_name(user: User | None) -> str | None:
@@ -39,20 +28,6 @@ def board_actor_person(user: User | None, user_id: int | None = None) -> dict[st
     }
 
 
-class InvalidBoardOpError(ValueError):
-    """An op the server refuses to record."""
-
-
-def validate_op(op: Any) -> None:
-    if not isinstance(op, dict):
-        raise InvalidBoardOpError("Each op must be a JSON object.")
-    op_type = op.get("type")
-    if not isinstance(op_type, str) or op_type not in BOARD_OP_TYPES:
-        raise InvalidBoardOpError(f"op.type must be one of: {', '.join(BOARD_OP_TYPES)}.")
-    if len(json.dumps(op, separators=(",", ":")).encode()) > MAX_BOARD_OP_BYTES:
-        raise InvalidBoardOpError(f"Each op is capped at {MAX_BOARD_OP_BYTES // 1024} KB serialized.")
-
-
 def append_ops(
     board: CanvasBoard,
     ops: Sequence[Mapping[str, Any]],
@@ -62,32 +37,24 @@ def append_ops(
     base_seq: int,
     snapshot: dict[str, Any] | None,
 ) -> list[CanvasBoardOp]:
-    """Record ``ops`` on the board's log and return one row per incoming op, in order.
-
-    A row whose ``op_id`` the board already holds is returned as-is instead of
-    being appended again. ``snapshot`` is stored only when ``base_seq`` matches
-    the head before this call, so a stale client cannot overwrite a newer fold.
-
-    Newly recorded ops go to the board's live stream once the transaction
-    commits, so an op never reaches a collaborator before it is durable.
-    """
-    for entry in ops:
-        validate_op(entry["op"])
     appended: list[CanvasBoardOp] = []
     with transaction.atomic():
-        locked = CanvasBoard.objects.for_team(board.team_id).select_for_update().get(pk=board.pk)
-        head_before = locked.head_seq
+        locked = CanvasBoard.objects.for_team(board.team_id).defer("snapshot").select_for_update().get(pk=board.pk)
         scoped_ops = CanvasBoardOp.objects.for_team(board.team_id)
         existing = {
             row.op_id: row for row in scoped_ops.filter(board=locked, op_id__in=[entry["op_id"] for entry in ops])
         }
+        records = BoardRecords(locked)
+        if any(entry["op_id"] not in existing for entry in ops):
+            records.bootstrap()
+            records.prepare([entry["op"] for entry in ops])
         results: list[CanvasBoardOp] = []
         for entry in ops:
             op_id = entry["op_id"]
             if op_id in existing:
                 results.append(existing[op_id])
                 continue
-            row = scoped_ops.create(
+            row = CanvasBoardOp(
                 team_id=locked.team_id,
                 board=locked,
                 seq=locked.head_seq + 1,
@@ -95,27 +62,23 @@ def append_ops(
                 actor_kind=actor_kind,
                 actor_user=user,
                 actor_task_id=actor_task_id,
-                op=entry["op"],
+                op=records.apply(entry["op"], locked.head_seq + 1),
             )
             existing[op_id] = row
             locked.head_seq = row.seq
             appended.append(row)
             results.append(row)
-        update_fields = ["head_seq", "updated_at"]
-        if snapshot is not None and base_seq == head_before:
-            locked.snapshot = snapshot
-            locked.snapshot_seq = locked.head_seq
-            update_fields += ["snapshot", "snapshot_seq"]
-        locked.save(update_fields=update_fields)
+        scoped_ops.bulk_create(appended)
         if appended:
+            records.save()
+            locked.records_seq = locked.head_seq
+            locked.save(update_fields=["head_seq", "records_seq", "updated_at"])
+            hydrate_ops(appended)
             team_id = locked.team_id
             board_key = str(locked.pk)
             events = [_op_event(row, user) for row in appended]
             transaction.on_commit(lambda: board_stream.publish_ops(team_id, board_key, events))
     board.head_seq = locked.head_seq
-    board.snapshot = locked.snapshot
-    board.snapshot_seq = locked.snapshot_seq
-    board.updated_at = locked.updated_at
     return results
 
 

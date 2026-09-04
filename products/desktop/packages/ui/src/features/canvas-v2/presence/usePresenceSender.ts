@@ -6,7 +6,13 @@ import {
   type CanvasV2PresenceCaret,
   type CanvasV2Viewport,
 } from "@posthog/shared";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 
 export interface PresenceSenderHandle {
   /** This board view's id, so the stream can drop our own pings. */
@@ -17,11 +23,6 @@ export interface PresenceSenderHandle {
   reportCaret: (caret: CanvasV2PresenceCaret | null) => void;
 }
 
-/**
- * Sends where this person points, looks, and what they hold. At most ten
- * pings a second while the pointer moves, and one more on every discrete
- * change, which keeps the board well inside the server's rate limit.
- */
 export function usePresenceSender(boardId: string): PresenceSenderHandle {
   const client = useHostTRPCClient();
   // One id per board view: a second window is a second person on the board.
@@ -37,9 +38,16 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
   const lastSentAt = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const stopped = useRef(false);
+  const inFlight = useRef(false);
+  const dirty = useRef(false);
+  const generation = useRef<symbol | null>(null);
+  const scheduleRef = useRef<() => void>(() => {});
 
   const send = useCallback((): void => {
-    if (stopped.current) return;
+    if (stopped.current || inFlight.current) return;
+    inFlight.current = true;
+    dirty.current = false;
+    const sendingGeneration = generation.current;
     lastSentAt.current = Date.now();
     void client.canvasV2Stream.sendPresence
       .mutate({
@@ -48,25 +56,28 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
           clientId,
           cursor: cursor.current,
           viewport: viewport.current,
-          selectedIds: [...selectedIds.current].slice(
-            0,
-            CANVAS_V2_PRESENCE_MAX_SELECTED_IDS,
-          ),
+          selectedIds: [...selectedIds.current],
           carets: carets.current,
         },
       })
       // A dropped ping costs the others one frame of the cursor, nothing more.
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (sendingGeneration !== generation.current) return;
+        inFlight.current = false;
+        if (dirty.current) scheduleRef.current();
+      });
   }, [boardId, client, clientId]);
 
   // A queued ping always sends through the current board, never a closed one.
   const sendRef = useRef(send);
-  sendRef.current = send;
 
-  const schedule = useCallback((immediate: boolean): void => {
+  const schedule = useCallback((): void => {
     if (stopped.current) return;
+    dirty.current = true;
+    if (inFlight.current) return;
     const waited = Date.now() - lastSentAt.current;
-    if (immediate || waited >= CANVAS_V2_PRESENCE_INTERVAL_MS) {
+    if (waited >= CANVAS_V2_PRESENCE_INTERVAL_MS) {
       if (timer.current !== undefined) {
         clearTimeout(timer.current);
         timer.current = undefined;
@@ -81,14 +92,28 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
     }, CANVAS_V2_PRESENCE_INTERVAL_MS - waited);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    sendRef.current = send;
+    scheduleRef.current = schedule;
+  }, [send, schedule]);
+
+  useLayoutEffect(() => {
+    generation.current = Symbol(clientId);
     stopped.current = false;
+    cursor.current = null;
+    viewport.current = null;
+    selectedIds.current = [];
+    carets.current = [];
+    lastSentAt.current = 0;
     return () => {
       stopped.current = true;
+      generation.current = null;
+      inFlight.current = false;
+      dirty.current = false;
       if (timer.current !== undefined) clearTimeout(timer.current);
       timer.current = undefined;
     };
-  }, []);
+  }, [clientId]);
 
   const reportCursor = useCallback(
     (world: BoardPoint | null): void => {
@@ -100,24 +125,36 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
           Math.round(world.x) === Math.round(last.x) &&
           Math.round(world.y) === Math.round(last.y));
       if (same) return;
-      cursor.current = world;
-      schedule(world === null);
+      cursor.current =
+        world === null
+          ? null
+          : { x: Math.round(world.x), y: Math.round(world.y) };
+      schedule();
     },
     [schedule],
   );
 
   const reportSelection = useCallback(
     (ids: readonly string[]): void => {
-      selectedIds.current = ids;
-      schedule(true);
+      const next = ids.slice(0, CANVAS_V2_PRESENCE_MAX_SELECTED_IDS);
+      if (
+        next.length === selectedIds.current.length &&
+        next.every((id, index) => id === selectedIds.current[index])
+      )
+        return;
+      selectedIds.current = next;
+      schedule();
     },
     [schedule],
   );
 
   const reportViewport = useCallback(
     (next: CanvasV2Viewport): void => {
+      const last = viewport.current;
+      if (last?.x === next.x && last.y === next.y && last.zoom === next.zoom)
+        return;
       viewport.current = next;
-      schedule(false);
+      schedule();
     },
     [schedule],
   );
@@ -136,7 +173,7 @@ export function usePresenceSender(boardId: string): PresenceSenderHandle {
         );
       if (same) return;
       carets.current = next;
-      schedule(false);
+      schedule();
     },
     [schedule],
   );

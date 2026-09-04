@@ -1,5 +1,6 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import type { CanvasV2BoardSummary } from "@posthog/shared";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   SPACE_QUERY_GC_TIME_MS,
   SPACE_QUERY_REFETCH_INTERVAL_MS,
@@ -21,6 +22,7 @@ export function useCanvasV2Boards(channelId: string): CanvasV2BoardsResult {
       { channelId },
       {
         enabled: channelId.length > 0,
+        meta: AUTH_SCOPED_QUERY_META,
         gcTime: SPACE_QUERY_GC_TIME_MS,
         refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
         staleTime: SPACE_QUERY_STALE_TIME_MS,
@@ -35,6 +37,7 @@ export function useAllCanvasV2Boards(): CanvasV2BoardsResult {
   const trpc = useHostTRPC();
   const { data, isLoading, isError } = useQuery(
     trpc.canvasV2.listAll.queryOptions(undefined, {
+      meta: AUTH_SCOPED_QUERY_META,
       gcTime: SPACE_QUERY_GC_TIME_MS,
       refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
       staleTime: SPACE_QUERY_STALE_TIME_MS,
