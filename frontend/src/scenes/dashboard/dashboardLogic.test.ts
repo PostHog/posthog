@@ -3003,6 +3003,7 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.canAutoPreview).toBe(false)
             expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
+            expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]).toBeUndefined()
 
             await expectLogic(logic, () => {
                 logic.actions.previewDashboardChanges()

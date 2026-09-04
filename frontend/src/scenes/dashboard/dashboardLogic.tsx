@@ -5163,6 +5163,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ]
         },
         overrideVariableValue: ({ variableId, value, isNull }) => {
+            if (!values.canAutoPreview) {
+                return
+            }
+
             const { currentLocation } = router.values
 
             const currentVariable = values.variables.find((variable: Variable) => variable.id === variableId)
