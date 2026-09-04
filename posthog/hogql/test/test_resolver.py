@@ -39,6 +39,8 @@ from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 
+from posthog.errors import QueryErrorCategory, classify_query_error
+
 
 class TestResolver(BaseTest):
     maxDiff = None
@@ -1639,6 +1641,29 @@ class TestResolver(BaseTest):
         ):
             node: ast.SelectQuery = self._select(query)
             resolve_types(node, context, dialect="clickhouse")
+
+    # A malformed customer query must classify as a user error. If it does not, error tracking
+    # opens an issue and the query SLO counts a failure for a mistake the API answers with a 400.
+    @parameterized.expand(
+        [
+            (
+                "plain_column",
+                "SELECT event.$feature FROM events",
+                'Can not access property "$feature" on field "event" of type: StringDatabaseField',
+            ),
+            (
+                "subquery_alias_column",
+                "SELECT s.a.$feature FROM (SELECT 'x' AS a) AS s",
+                'Can not access property "$feature" on field "a".',
+            ),
+        ]
+    )
+    def test_property_access_on_non_json_field_is_a_user_error(self, _name, query, expected_message):
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+        self.assertEqual(str(ctx.exception), expected_message)
+        self.assertEqual(classify_query_error(ctx.exception), QueryErrorCategory.USER_ERROR)
 
     def test_nested_table_name(self):
         table_group = TableNode(
