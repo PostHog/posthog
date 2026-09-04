@@ -34,6 +34,9 @@ import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../Property
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
+/** Long values wrap over many lines and push the rest of the table off screen, so cut them to a few lines. */
+const MAX_SHOWN_VALUE_LENGTH = 300
+
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
 
@@ -96,6 +99,7 @@ function ValueDisplay({
     const { describeProperty } = useValues(propertyDefinitionsModel)
 
     const [editing, setEditing] = useState(false)
+    const [valueExpanded, setValueExpanded] = useState(false)
     // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
     const canEdit = rootKey && !PROPERTY_KEYS.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
 
@@ -119,6 +123,24 @@ function ValueDisplay({
         }
     }
 
+    const isLongValue = valueString.length > MAX_SHOWN_VALUE_LENGTH
+    const shownValueString =
+        isLongValue && !valueExpanded ? `${valueString.slice(0, MAX_SHOWN_VALUE_LENGTH)}…` : valueString
+
+    const showMoreToggle = isLongValue ? (
+        <Link
+            subtle
+            className="ml-1 whitespace-nowrap"
+            // The cell around the value starts inline editing on click, so keep the two apart
+            onClick={(e) => {
+                e.stopPropagation()
+                setValueExpanded(!valueExpanded)
+            }}
+        >
+            {valueExpanded ? 'Show less' : 'Show more'}
+        </Link>
+    ) : null
+
     const valueComponent = (
         <span
             className={clsx(
@@ -128,18 +150,24 @@ function ValueDisplay({
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {!externalUrl ? (
-                <span>{valueString}</span>
+                <span>
+                    {shownValueString}
+                    {showMoreToggle}
+                </span>
             ) : (
-                <Link
-                    to={externalUrl}
-                    target="_blank"
-                    className="value-link"
-                    targetBlankIcon
-                    // The cell around the value starts inline editing on click, so keep the two apart
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    {valueString}
-                </Link>
+                <span>
+                    <Link
+                        to={externalUrl}
+                        target="_blank"
+                        className="value-link"
+                        targetBlankIcon
+                        // The cell around the value starts inline editing on click, so keep the two apart
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {shownValueString}
+                    </Link>
+                    {showMoreToggle}
+                </span>
             )}
             {canEdit && <IconPencil />}
         </span>
