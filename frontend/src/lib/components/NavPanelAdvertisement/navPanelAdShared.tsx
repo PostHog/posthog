@@ -122,9 +122,9 @@ export function ProductHogHero({
                 // A surface has no hoggie: show its logo as a rotated mark tucked toward the
                 // bottom-right, bleeding slightly off the edge like the hoggies do.
                 <div className="relative -mx-2 -mt-1 h-24 overflow-hidden" aria-hidden="true">
-                    <div className="absolute -bottom-2 right-4 rotate-[14deg]">
+                    <div className="absolute bottom-1 right-4 rotate-[14deg]">
                         {hero.iconBackdrop ? (
-                            <div className="absolute inset-0 scale-[1.6] rounded-full bg-[var(--color-purple-200)] opacity-70 blur-xl" />
+                            <div className="absolute inset-0 scale-75 rounded-full bg-[var(--color-purple-200)] opacity-70 blur-lg" />
                         ) : null}
                         <div className="relative">{hero.Icon}</div>
                     </div>
