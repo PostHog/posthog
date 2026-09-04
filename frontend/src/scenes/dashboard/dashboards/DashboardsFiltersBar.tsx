@@ -28,11 +28,6 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
         }
         setFilters({ tags: Array.from(selected) })
     }
-    const selectedTags = new Set(filters.tags || [])
-    const sortedTagResults = [...tagResults].sort(
-        (firstTag, secondTag) => Number(selectedTags.has(secondTag)) - Number(selectedTags.has(firstTag))
-    )
-
     return (
         <div className="flex justify-between gap-2 flex-wrap mb-4">
             <LemonInput type="search" placeholder="Search for dashboards" onChange={setSearch} value={filters.search} />
@@ -66,7 +61,7 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                     fullWidth
                                     className="max-w-full"
                                 />
-                                {selectedTags.size > 0 && (
+                                {(filters.tags?.length || 0) > 0 && (
                                     <LemonButton
                                         data-attr="dashboard-tags-clear-selection"
                                         fullWidth
@@ -86,7 +81,7 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                     aria-label="Tags"
                                 >
                                     <ul className="deprecated-space-y-px">
-                                        {sortedTagResults.map((tag: string) => (
+                                        {tagResults.map((tag: string) => (
                                             <li key={tag}>
                                                 <LemonButton
                                                     fullWidth
