@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
-import { isExternalLink } from 'lib/utils/url'
+import { hasDangerousScheme, isExternalLink } from 'lib/utils/url'
 
 /** Search items with no real destination carry this href, so it must never be navigated to. */
 export const PLACEHOLDER_HREF = '#'
@@ -14,9 +14,15 @@ export const PLACEHOLDER_HREF = '#'
  * Safari, rate-limits repeat calls. Both raise a `SecurityError` that escapes the click handler
  * as an uncaught exception, so a page load is the fallback: the person still gets where they
  * asked to go.
+ *
+ * An href reaches this from team-writable data, so a `javascript:` target has to go nowhere.
+ * `addProjectIdIfMissing` does not make one safe: it prefixes most paths into the current
+ * project, but passes through anything whose second segment names a project-less route, so
+ * `javascript:/api/...` survives intact, fails the same-origin check in `pushState`, and would
+ * reach the page-load fallback below.
  */
 export function navigateToHref(href?: string): void {
-    if (!href || href === PLACEHOLDER_HREF) {
+    if (!href || href === PLACEHOLDER_HREF || hasDangerousScheme(href)) {
         return
     }
     if (isExternalLink(href)) {

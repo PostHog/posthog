@@ -42,6 +42,26 @@ describe('navigateToHref', () => {
         expect(window.location.href).toEqual('https://us.posthog.com/project/997/dashboard')
     })
 
+    // A search item href is team-writable, so a script target must never reach the router or a
+    // page load. `javascript:/api/...` is the reachable shape: `addProjectIdIfMissing` leaves it
+    // intact, so it fails the same-origin check in `pushState` and lands in the fallback below.
+    it.each([
+        'javascript:alert(1)',
+        'javascript:/api/,alert(document.cookie)',
+        'JaVaScRiPt:/login/,alert(1)',
+        '\t java\nscript:/me/,alert(1)',
+        'vbscript:/api/,msgbox(1)',
+    ])('refuses to navigate to %p', (href) => {
+        push.mockImplementation(() => {
+            throw new DOMException('The operation is insecure.', 'SecurityError')
+        })
+
+        navigateToHref(href)
+
+        expect(push).not.toHaveBeenCalled()
+        expect(window.location.href).toEqual('https://us.posthog.com/project/997/dashboard')
+    })
+
     it.each(['https://posthog.com/docs', 'mailto:hey@posthog.com', '/api/projects/997/exports/1'])(
         'loads %p as a page instead of routing it',
         (href) => {
