@@ -411,6 +411,10 @@ class OauthIntegration:
                 token_url="https://oauth2.googleapis.com/token",
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
+                # `adwords` grants read and write on the account. Google publishes no read-only
+                # variant, so the warehouse import cannot ask for less than the conversions
+                # destination needs. `IntegrationAccessNotice` tells the user this before they
+                # reach the consent screen — keep the two in step.
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
