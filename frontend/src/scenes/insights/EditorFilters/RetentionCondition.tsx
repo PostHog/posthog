@@ -26,6 +26,34 @@ import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 const MAX_RANGE = 1000
+const MAX_INTERVALS = 31
+
+// Clamp a typed interval count to a whole number in the allowed range. The query node
+// stores this as an integer, so a decimal like 2.5 makes the retention query fail with a
+// raw validation error, and the bad value persists on the saved insight.
+export function sanitizeRetentionInterval(rawValue: string): { value: number; exceededMax: boolean } {
+    const parsed = Math.round(Number(rawValue))
+    if (isNaN(parsed) || parsed < 1) {
+        return { value: 1, exceededMax: false }
+    }
+    if (parsed > MAX_INTERVALS) {
+        // See if just the first two numbers are under the max (when someone mashed keys)
+        const truncated = Math.round(Number(rawValue.substring(0, 2)))
+        const outOfRange = isNaN(truncated) || truncated < 1 || truncated > MAX_INTERVALS
+        return { value: outOfRange ? 10 : truncated, exceededMax: true }
+    }
+    return { value: parsed, exceededMax: false }
+}
+
+// Coerce a typed bracket count to a whole number of at least 1, or undefined to clear the row.
+// A fractional value that rounds below 1, or a non-finite value from a cleared field, would
+// otherwise be dropped by the retention listener and silently remove the bracket.
+export function sanitizeCustomBracket(rawValue: number | undefined): number | undefined {
+    if (rawValue === undefined || !Number.isFinite(rawValue)) {
+        return undefined
+    }
+    return Math.max(1, Math.round(rawValue))
+}
 
 const retentionDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
@@ -132,8 +160,9 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                             className="w-20"
                             value={typeof bracket === 'number' ? bracket : undefined}
                             min={1}
+                            step={1}
                             onChange={(value) => {
-                                updateLocalCustomBracket(index, value)
+                                updateLocalCustomBracket(index, sanitizeCustomBracket(value))
                             }}
                         />
                         <LemonButton
@@ -243,14 +272,10 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                             defaultValue={(totalIntervals ?? 7) - 1}
                             min={1}
                             max={31}
+                            step={1}
                             onBlur={({ target }) => {
-                                let newValue = Number(target.value)
-                                if (newValue > 31) {
-                                    // See if just the first two numbers are under 31 (when someone mashed keys)
-                                    newValue = Number(target.value.substring(0, 2))
-                                    if (newValue > 31) {
-                                        newValue = 10
-                                    }
+                                const { value: newValue, exceededMax } = sanitizeRetentionInterval(target.value)
+                                if (exceededMax) {
                                     toast.warn(
                                         <>
                                             The maximum number of {dateOptionPlurals[period || 'Day']} is{' '}
@@ -259,7 +284,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                                     )
                                 }
                                 target.value = newValue.toString()
-                                updateInsightFilter({ totalIntervals: (newValue || 0) + 1 })
+                                updateInsightFilter({ totalIntervals: newValue + 1 })
                                 if (!dateRange) {
                                     // if we haven't updated date range before changing interval type
                                     // set date range
