@@ -165,6 +165,28 @@ class TestFindEventsScans(TestCase):
                 [EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT],
             ),
             (
+                "a CTE nobody reads is never substituted, so it reads nothing",
+                "WITH unused AS (SELECT count() FROM events) SELECT 1",
+                [],
+            ),
+            (
+                "only the unread CTE is skipped",
+                "WITH used AS (SELECT count() AS c FROM events), unused AS (SELECT count() FROM events) "
+                "SELECT c FROM used",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "a CTE read by another UNION branch still counts as read",
+                "WITH a AS (SELECT count() AS c FROM events) SELECT 1 AS c UNION ALL SELECT c FROM a",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
+                "a CTE read from inside another CTE body still counts as read",
+                "WITH a AS (SELECT count() AS c FROM events) "
+                "SELECT x FROM (WITH b AS (SELECT c FROM a) SELECT c AS x FROM b)",
+                [EventsScanReason.NO_EVENT_FILTER, EventsScanReason.NO_TIME_BOUND],
+            ),
+            (
                 "a nested CTE named events reads the CTE around it, not the table",
                 "WITH events AS (SELECT 1 AS x) "
                 "SELECT c FROM (WITH events AS (SELECT count() AS c FROM events) SELECT c FROM events)",

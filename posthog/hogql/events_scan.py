@@ -113,7 +113,7 @@ class EventsScanFinding:
 
 def find_events_scans(query: ast.SelectQuery | ast.SelectSetQuery, database: "Database") -> list[EventsScanFinding]:
     """`database` resolves table names, so `posthog.events` and the persons-on-events subtables count too."""
-    visitor = _EventsScanVisitor(database)
+    visitor = _EventsScanVisitor(database, _referenced_names(query))
     visitor.visit(query)
     return visitor.findings
 
@@ -319,10 +319,30 @@ def events_seen_with_properties(team: "Team", property_names: Iterable[str]) -> 
     return events_by_property
 
 
+class _ReferencedNames(TraversingVisitor):
+    """Every bare name the query reads, wherever it reads it."""
+
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) == 1:
+            self.names.add(str(node.chain[0]))
+
+
+def _referenced_names(query: ast.SelectQuery | ast.SelectSetQuery) -> set[str]:
+    visitor = _ReferencedNames()
+    visitor.visit(query)
+    return visitor.names
+
+
 class _EventsScanVisitor(TraversingVisitor):
-    def __init__(self, database: "Database") -> None:
+    def __init__(self, database: "Database", referenced_names: set[str]) -> None:
         self.database = database
         self.findings: list[EventsScanFinding] = []
+        # A CTE nobody names is never substituted, so its body reads nothing. Collected for the
+        # whole query, so a name that only one branch or one subquery reads still counts.
+        self.referenced_names = referenced_names
         self._cte_scopes: list[set[str]] = []
         self._branch_with_pushed_ctes: ast.SelectQuery | ast.SelectSetQuery | None = None
 
@@ -351,6 +371,8 @@ class _EventsScanVisitor(TraversingVisitor):
             self._cte_scopes.pop()
 
     def visit_cte(self, node: ast.CTE) -> None:
+        if node.name not in self.referenced_names:
+            return
         # Inside its own body a CTE name still means the table
         scope = next((scope for scope in reversed(self._cte_scopes) if node.name in scope), None)
         if scope is None:
