@@ -399,6 +399,22 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         return {"number": issue["number"], "repository": repository}
 
+    def close_issue(self, repository: str, number: int) -> None:
+        """Close an issue as not planned. Raises on failure."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self.api_request(
+            "PATCH",
+            f"/repos/{repo_path}/issues/{number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+            json_body={"state": "closed", "state_reason": "not_planned"},
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to close issue {repo_path}#{number}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+
     def search_issues(self, repository: str, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing GitHub issues in a repository for the link-existing flow."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"

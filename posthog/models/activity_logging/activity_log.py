@@ -372,6 +372,8 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
         "autostart_base_branches": "base branch overrides",
+        "issue_tracking_integration": "issue tracker",
+        "issue_tracking_config": "issue tracker target",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",

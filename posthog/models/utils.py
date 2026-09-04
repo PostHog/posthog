@@ -533,6 +533,16 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "short_id": obj.short_id,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Integration":
+            # Identity only: an integration's config and sensitive_config hold credentials, and the
+            # Integration scope already masks both. `integration_id` rather than `display_name`,
+            # because that property reaches into per-provider OAuth config and raises when the
+            # provider's app is not set up on this instance.
+            return {
+                "id": obj.id,
+                "kind": obj.kind,
+                "integration_id": obj.integration_id,
+            }
         if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
             return {
                 "id": obj.id,

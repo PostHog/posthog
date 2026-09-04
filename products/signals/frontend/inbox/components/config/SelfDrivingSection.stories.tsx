@@ -17,7 +17,14 @@ interface CardState {
     myThreshold?: string | null
     dailyLimit?: number | null
     reportsToday?: number
+    /** Connected integrations the issue tracker picker can choose from. */
+    integrations?: Record<string, unknown>[]
+    /** Integration id the project already tracks issues in, and where inside it they land. */
+    issueTrackingIntegration?: number | null
+    issueTrackingConfig?: Record<string, string>
 }
+
+const GITHUB_INTEGRATION = { id: 1, kind: 'github', display_name: 'PostHog', config: {}, created_at: '2024-03-01' }
 
 function Card({
     enabled = true,
@@ -25,6 +32,9 @@ function Card({
     myThreshold = null,
     dailyLimit = null,
     reportsToday = 0,
+    integrations = [],
+    issueTrackingIntegration = null,
+    issueTrackingConfig = {},
 }: CardState): JSX.Element {
     useStorybookMocks({
         get: {
@@ -33,6 +43,8 @@ function Card({
                 autostart_enabled: enabled,
                 default_autostart_priority: projectThreshold,
                 autostart_base_branches: {},
+                issue_tracking_integration: issueTrackingIntegration,
+                issue_tracking_config: issueTrackingConfig,
                 max_reports_per_day: dailyLimit,
                 reports_generated_today: reportsToday,
                 daily_report_limit_reached: dailyLimit != null && reportsToday >= dailyLimit,
@@ -43,7 +55,7 @@ function Card({
                 slack_notification_channel: null,
                 slack_notification_min_priority: null,
             },
-            '/api/environments/:team_id/integrations/': { results: [] },
+            '/api/environments/:team_id/integrations/': { results: integrations },
         },
     })
     // Mimic the agents rail (`w-80` aside + the column's `px-4 py-3`) so the card lays out as in the scene.
@@ -92,4 +104,20 @@ export const PersonalDefault: Story = {
 // Master switch off: both thresholds are hidden and only the reassurance copy shows.
 export const Disabled: Story = {
     render: () => <Card enabled={false} />,
+}
+
+// No tracker connected: the issue tracker row points at the integrations settings instead.
+export const IssueTrackerUnavailable: Story = {
+    render: () => <Card />,
+}
+
+// A project under a change-management control: every PR gets a GitHub issue in `PostHog/posthog`.
+export const IssueTrackerConfigured: Story = {
+    render: () => (
+        <Card
+            integrations={[GITHUB_INTEGRATION]}
+            issueTrackingIntegration={1}
+            issueTrackingConfig={{ repository: 'posthog' }}
+        />
+    ),
 }

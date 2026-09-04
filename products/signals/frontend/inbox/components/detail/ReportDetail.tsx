@@ -51,6 +51,7 @@ import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
+import { TrackerIssueNote } from './TrackerIssueNote'
 
 /**
  * Status / priority / actionability badges for a report's detail header. Mirrors desktop `InboxDetailFrame`.
@@ -565,6 +566,9 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
+    // A tracker-issue failure has to show even on a report whose run never reached a pull request:
+    // that is exactly the case an audit has to find.
+    const hasTrackerNote = !!(report.tracker_issue_url || report.tracker_issue_error)
 
     // The branch to diff comes from the latest "Commit pushed" artefact; the diff needs the repo + branch
     // it carries. A PR-bearing report gets the tab bar right away off `hasPr` (immediate) rather than the
@@ -604,6 +608,11 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                             </span>
                         </span>
                         <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} />
+                        <TrackerIssueNote report={report} />
+                    </div>
+                ) : hasTrackerNote ? (
+                    <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
+                        <TrackerIssueNote report={report} />
                     </div>
                 ) : undefined
             }

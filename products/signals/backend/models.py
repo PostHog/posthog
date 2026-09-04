@@ -167,6 +167,18 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
     max_reports_per_day = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # Tracker issue per self-driving PR (see tracker_issues.py). The integration is the switch:
+    # null means the team does not want tracker issues, so there is no separate boolean that can
+    # disagree with the target. `issue_tracking_config` holds the provider target, for example
+    # {"team_id": ...} for Linear or {"repository": ...} for GitHub.
+    issue_tracking_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    issue_tracking_config = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -862,6 +874,58 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
         if self.actor_kind:
             return SignalReportWorkState.WORKING
         return SignalReportWorkState.UNCLAIMED
+
+
+class SignalReportTrackerIssue(TeamScopedRootMixin, UUIDModel):
+    """The tracker issue opened for a report's self-driving pull request.
+
+    Teams under a change-management audit cannot merge a pull request unless a tracked work item
+    points at it. One row per report records that work item, or records why we could not open one,
+    so the team can find the gaps without reading logs.
+    """
+
+    class Status(models.TextChoices):
+        # Claimed by one auto-start evaluation, which is calling the provider now. Auto-start is
+        # re-evaluated from several paths at once, and this row is what keeps two of them from each
+        # opening an issue for the same report.
+        PENDING = "pending", "Pending"
+        CREATED = "created", "Created"
+        FAILED = "failed", "Failed"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="tracker_issue")
+
+    # SET_NULL rather than CASCADE: disconnecting the integration must not erase the audit trail of
+    # which issues self-driving already opened.
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # The integration kind at creation time, kept so the row still reads correctly once the
+    # integration row is gone.
+    provider = models.CharField(max_length=50, null=True, blank=True)
+
+    status = models.CharField(max_length=10, choices=Status)
+    # Provider identifier, in the same shape the integration clients return: {"id": "ENG-123"} for
+    # Linear, {"repository": ..., "number": ...} for GitHub, {"issue_id": ...} for GitLab,
+    # {"key": ...} for Jira.
+    external_context = models.JSONField(null=True, blank=True)
+    issue_url = models.TextField(null=True, blank=True)
+    # Short, user-facing reason the issue could not be opened. Set only when status is FAILED.
+    failure_reason = models.TextField(null=True, blank=True)
+    # When the pull request and the issue were cross-referenced. Null while the run has no PR yet.
+    pr_linked_at = models.DateTimeField(null=True, blank=True)
+    # When we closed the issue in the provider, after the report was dismissed.
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        verbose_name = "Signal report tracker issue"
+        verbose_name_plural = "Signal report tracker issues"
 
 
 class SignalEmissionRecord(UUIDModel):

@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconRocket, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    Link,
+} from '@posthog/lemon-ui'
 import {
     Button,
     ButtonGroup,
@@ -21,6 +29,11 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { JiraProjectPicker } from 'lib/integrations/JiraIntegrationHelpers'
+import { LinearTeamPicker } from 'lib/integrations/LinearIntegrationHelpers'
+import { urls } from 'scenes/urls'
+
+import { IntegrationType } from '~/types'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
@@ -226,6 +239,130 @@ function BaseBranchOverrides(): JSX.Element {
     )
 }
 
+/** Providers that can hold a tracker issue, with the label the picker shows for each. */
+const ISSUE_TRACKER_LABELS: Partial<Record<IntegrationType['kind'], string>> = {
+    github: 'GitHub issues',
+    linear: 'Linear',
+    jira: 'Jira',
+    gitlab: 'GitLab issues',
+}
+
+/** LemonSelect has no null option value, so "off" needs a sentinel that no integration id can take. */
+const ISSUE_TRACKER_OFF = -1
+
+/**
+ * Per-project switch for the change-management control some teams work under: a pull request can
+ * only merge when a tracked work item points at it. Off unless a tracker is picked, so one field is
+ * both the switch and the target and the two can never disagree.
+ *
+ * The target lives inside the provider, so the second picker changes shape with the first. GitLab
+ * needs no second pick: its integration is already bound to one project.
+ */
+function IssueTracker(): JSX.Element {
+    const { issueTrackerConfig, issueTrackerIntegrationId, selectedIssueTrackerIntegrationId, teamConfigUpdating } =
+        useValues(signalTeamConfigLogic)
+    const { patchTeamConfig, setDraftIssueTrackerIntegrationId } = useActions(signalTeamConfigLogic)
+    const { integrations } = useValues(integrationsLogic)
+
+    const trackers = (integrations ?? []).filter((integration) => integration.kind in ISSUE_TRACKER_LABELS)
+    const selected = trackers.find((integration) => integration.id === selectedIssueTrackerIntegrationId) ?? null
+    // A freshly picked provider has no target yet, so the stored one belongs to the old provider.
+    const target = selectedIssueTrackerIntegrationId === issueTrackerIntegrationId ? issueTrackerConfig : {}
+    const saved = trackers.find((integration) => integration.id === issueTrackerIntegrationId) ?? null
+    const summary = saved ? (ISSUE_TRACKER_LABELS[saved.kind] ?? saved.kind) : 'Off'
+
+    const saveTarget = (config: Record<string, string>): void => {
+        if (selected) {
+            patchTeamConfig({ issue_tracking_integration: selected.id, issue_tracking_config: config })
+        }
+    }
+
+    const chooseTracker = (next: number): void => {
+        if (next === ISSUE_TRACKER_OFF) {
+            setDraftIssueTrackerIntegrationId(null)
+            patchTeamConfig({ issue_tracking_integration: null, issue_tracking_config: {} })
+            return
+        }
+
+        setDraftIssueTrackerIntegrationId(next)
+        if (trackers.find((integration) => integration.id === next)?.kind === 'gitlab') {
+            patchTeamConfig({ issue_tracking_integration: next, issue_tracking_config: {} })
+        }
+    }
+
+    return (
+        <Collapsible className="bg-transparent hover:bg-transparent">
+            <CollapsibleTrigger className="w-full h-auto px-2.5 py-1.5 text-xs text-secondary font-normal bg-transparent hover:bg-[var(--fill-hover)]">
+                <span className="flex-1 text-left">Issue tracker</span>
+                <span className="text-tertiary">{summary}</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="flex flex-col gap-1.5 px-2.5 pb-1.5">
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    Open an issue for every PR agents make, and link the two. Use this when a PR can only merge with a
+                    tracked work item behind it.
+                </p>
+                {trackers.length > 0 ? (
+                    <>
+                        <LemonSelect
+                            size="xsmall"
+                            fullWidth
+                            className="max-w-xs"
+                            value={selectedIssueTrackerIntegrationId ?? ISSUE_TRACKER_OFF}
+                            options={[
+                                { value: ISSUE_TRACKER_OFF, label: 'Off' },
+                                ...trackers.map((integration) => ({
+                                    value: integration.id,
+                                    label: `${ISSUE_TRACKER_LABELS[integration.kind]} · ${integration.display_name}`,
+                                })),
+                            ]}
+                            disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                            onChange={chooseTracker}
+                        />
+                        {selected?.kind === 'github' && (
+                            <GitHubRepositoryCombobox
+                                integrationId={selected.id}
+                                // Stored bare so the issue link can re-prefix the account that owns it,
+                                // while the picker works in the `owner/repo` form it shows.
+                                value={target.repository ? `${selected.display_name}/${target.repository}` : ''}
+                                disabled={teamConfigUpdating}
+                                placeholder="Repository"
+                                onChange={(repo) => repo && saveTarget({ repository: repo.split('/')[1] })}
+                            />
+                        )}
+                        {selected?.kind === 'linear' && (
+                            <LinearTeamPicker
+                                integration={selected}
+                                value={target.team_id}
+                                onChange={(teamId) => teamId && saveTarget({ team_id: teamId })}
+                            />
+                        )}
+                        {selected?.kind === 'jira' && (
+                            <JiraProjectPicker
+                                integrationId={selected.id}
+                                value={target.project_key ?? ''}
+                                onChange={(projectKey) => projectKey && saveTarget({ project_key: projectKey })}
+                            />
+                        )}
+                        {selected?.kind === 'gitlab' && (
+                            <p className="text-[11px] text-tertiary leading-snug mb-0">
+                                Issues go to {selected.display_name}.
+                            </p>
+                        )}
+                        <p className="text-[11px] text-tertiary leading-snug mb-0">
+                            If the tracker fails, the PR still opens and the report shows that the issue is missing.
+                        </p>
+                    </>
+                ) : (
+                    <p className="text-[11px] text-tertiary leading-snug mb-0">
+                        <Link to={urls.settings('project-integrations')}>Connect GitHub, GitLab, Linear, or Jira</Link>{' '}
+                        to track issues.
+                    </p>
+                )}
+            </CollapsibleContent>
+        </Collapsible>
+    )
+}
+
 /**
  * A self-imposed cap on reports per day, deliberately housed with the autonomy throttles rather
  * than the billing usage card: it is "how much should the agents do", not "what does the plan
@@ -395,6 +532,9 @@ export function SelfDrivingSection(): JSX.Element {
                         </div>
                         <div className="border-t border-primary">
                             <BaseBranchOverrides />
+                        </div>
+                        <div className="border-t border-primary">
+                            <IssueTracker />
                         </div>
                     </>
                 ) : (

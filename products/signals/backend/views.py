@@ -927,7 +927,7 @@ class SignalReportViewSet(
         # The serializer renders the reverse OneToOne rows inline.
         return (
             queryset.filter(team=self.team)
-            .select_related("refund", "assignment", "assignment__actor_user")
+            .select_related("refund", "assignment", "assignment__actor_user", "tracker_issue")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
                 channel_id=channel_id_subquery,

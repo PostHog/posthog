@@ -45,6 +45,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     slack_api_error_code,
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
+from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -84,6 +85,25 @@ _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
 @with_team_scope()
 def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReason = "suppressed") -> None:
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
+    # A dismissed report will not produce a pull request, so its tracker issue is finished too.
+    close_tracker_issue_for_report(team_id=team_id, report_id=report_id)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.link_report_tracker_issues",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def link_report_tracker_issues(team_id: int, task_id: str, pr_url: str) -> None:
+    """Cross-reference a task's new pull request with the tracker issue of every report it answers."""
+    report_ids = (
+        SignalReport.objects.filter(team_id=team_id)
+        .filter(SignalReport.reports_for_task_filter(task_id))
+        .values_list("id", flat=True)
+    )
+    for report_id in report_ids:
+        link_pull_request_to_tracker_issue(team_id=team_id, report_id=str(report_id), pr_url=pr_url)
 
 
 def _slack_retry_after_seconds(exc: Exception) -> int | None:
