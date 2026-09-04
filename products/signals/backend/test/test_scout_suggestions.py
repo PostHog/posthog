@@ -355,6 +355,36 @@ class TestPlanSuggestionRuns(BaseTest):
         # spend rather than parking the project forever.
         self.assertIn(failing.id, [run.team_id for run in plan_suggestion_runs(settings, self.now + timedelta(days=7))])
 
+    def test_a_stale_batch_is_replanned_before_the_full_refresh_window(self):
+        # Turning one scout on flips a batch to stale, so most projects sit stale for most of the
+        # week. They are re-picked on the shorter window; a failing project still backs off.
+        fresh = self._team("fresh-batch")
+        self._enable_scout(fresh, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=fresh,
+            status=SignalScoutSuggestionSet.Status.FRESH,
+            last_requested_at=self.now - timedelta(days=2),
+        )
+        stale = self._team("stale-batch")
+        self._enable_scout(stale, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=stale,
+            status=SignalScoutSuggestionSet.Status.STALE,
+            last_requested_at=self.now - timedelta(days=2),
+        )
+        stale_failing = self._team("stale-failing")
+        self._enable_scout(stale_failing, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=stale_failing,
+            status=SignalScoutSuggestionSet.Status.STALE,
+            last_requested_at=self.now - timedelta(days=2),
+            consecutive_failures=3,
+            last_completed_at=self.now - timedelta(days=2),
+        )
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True), self.now)
+        self.assertEqual([run.team_id for run in planned], [stale.id])
+
     def test_root_source_config_does_not_hide_wider_tiers(self):
         SignalSourceConfig.objects.create(team=self.team, source_product="error_tracking", source_type="issue_created")
         plain = self._team("plain")
@@ -576,6 +606,48 @@ class TestScoutSuggestionsAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/nope/dismiss/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_creating_a_scout_from_a_suggestion_stops_it_being_offered(self):
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "custom")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-checkout-drop",
+                "description": "Watches the checkout funnel.",
+                "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
+                "suggestion_id": suggestion_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        row.refresh_from_db()
+        created = next(item for item in row.items if item["id"] == suggestion_id)
+        config = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-checkout-drop")
+        self.assertEqual(created["created_config_id"], str(config.id))
+
+    def test_an_unknown_suggestion_id_still_creates_the_scout(self):
+        # The batch can compact a record away between the strip reading it and the create landing;
+        # losing the scout over a bookkeeping id would be the worse failure.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-checkout-drop",
+                "description": "Watches the checkout funnel.",
+                "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
+                "suggestion_id": "no-such-suggestion",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(
+            SignalScoutConfig.all_teams.filter(team=self.team, skill_name="signals-scout-checkout-drop").exists()
+        )
 
     @patch("products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run")
     def test_refresh_requires_ai_consent(self, mock_start):

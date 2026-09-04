@@ -550,6 +550,8 @@ export const signalsScoutCreateBodyConfigOneTagsMax = 10
 
 export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
 
+export const signalsScoutCreateBodySuggestionIdMax = 64
+
 export const SignalsScoutCreateBody = () => zod
     .object({
         name: zod
@@ -724,6 +726,13 @@ export const SignalsScoutCreateBody = () => zod
             .optional()
             .describe(
                 'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
+            ),
+        suggestion_id: zod
+            .string()
+            .max(signalsScoutCreateBodySuggestionIdMax)
+            .optional()
+            .describe(
+                "Optional id of the suggestion this scout was created from. The suggestion then stops being offered on this project. An id this project's batch does not hold is ignored."
             ),
     })
     .describe('Create a runnable custom scout and its config in one atomic request.')

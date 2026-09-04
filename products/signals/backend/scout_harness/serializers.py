@@ -3025,6 +3025,14 @@ class SignalScoutCreateSerializer(serializers.Serializer):
             "emitting scout on the daily interval with no external destination."
         ),
     )
+    suggestion_id = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text=(
+            "Optional id of the suggestion this scout was created from. The suggestion then stops "
+            "being offered on this project. An id this project's batch does not hold is ignored."
+        ),
+    )
 
     def validate_name(self, value: str) -> str:
         value = validate_skill_name_value(value)

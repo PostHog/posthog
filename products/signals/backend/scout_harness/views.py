@@ -123,6 +123,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
     load_skill_for_run,
 )
+from products.signals.backend.scout_harness.suggestions import mark_suggestion_created
 from products.signals.backend.scout_harness.team_limits import resolve_team_metadata, withheld_skills_for_team
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.notes import (
@@ -2034,6 +2035,10 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request=request,
             serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
         )
+        # Hides the suggestion the moment its scout exists, rather than waiting for the read to
+        # notice the name is taken — which it only does for enabled scouts and custom drafts.
+        if suggestion_id := validated.get("suggestion_id"):
+            mark_suggestion_created(canonical_team.id, suggestion_id, config_id=str(outcome.config.id))
         response = SignalScoutCreateResponseSerializer(
             {"created": outcome.created, "skill": outcome.skill, "config": outcome.config},
             context=scout_config_context(canonical_team, [validated["name"]], request),

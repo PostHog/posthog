@@ -1,0 +1,193 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
+import { IconChevronDown, IconRefresh, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
+import { cn } from 'lib/utils/css-classes'
+
+import type { ScoutSuggestionSurface } from '../../../inboxAnalytics'
+import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
+import { ScoutSuggestionCard } from './ScoutSuggestionCard'
+import { ScoutSuggestionCreateHost } from './ScoutSuggestionCreateHost'
+
+/** Titles named on the collapsed line before it gives up and counts the rest. */
+const COLLAPSED_TITLE_PREVIEW = 2
+
+/**
+ * The "Suggested for this project" strip above the roster: a pre-computed batch of scouts worth
+ * running here, each ready to turn on or create without waiting for a scan.
+ *
+ * Nothing renders until a batch exists, so a project that has never been scanned sees the roster
+ * exactly as it was. `stale` is a footer note rather than an error: any fleet change flips it and
+ * the picks stay valid.
+ */
+export function ScoutSuggestionsStrip(): JSX.Element | null {
+    const { suggestions, hasBatch, collapsed, batchStatus, isRefreshing, suggestionSet, suggestionSetLoading } =
+        useValues(scoutSuggestionsLogic)
+    const { setCollapsed, requestRefresh } = useActions(scoutSuggestionsLogic)
+    useReportSuggestionsShown('strip')
+
+    if (!hasBatch) {
+        return null
+    }
+
+    const generatedAt = suggestionSet?.generated_at
+
+    return (
+        <section className="flex flex-col gap-3 rounded border border-primary bg-surface-secondary p-3">
+            <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5">
+                        <IconSparkles className="text-secondary" />
+                        <h3 className="m-0 text-sm font-semibold">Suggested for this project</h3>
+                        {suggestions.length > 0 && (
+                            <span className="text-xs tabular-nums text-muted">{suggestions.length}</span>
+                        )}
+                    </div>
+                    <span className="text-xs text-muted">
+                        Picked by scanning this project's data against the scouts you already run.
+                        {generatedAt ? ` Refreshed ${dayjs(generatedAt).fromNow()}.` : ''}
+                    </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        loading={isRefreshing}
+                        disabledReason={isRefreshing ? 'Scanning the project…' : undefined}
+                        onClick={() => requestRefresh()}
+                        data-attr="scout-suggestions-refresh"
+                    >
+                        Refresh
+                    </LemonButton>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconChevronDown className={cn('transition-transform', collapsed && '-rotate-90')} />}
+                        onClick={() => setCollapsed(!collapsed)}
+                        aria-label={collapsed ? 'Show suggested scouts' : 'Hide suggested scouts'}
+                        data-attr="scout-suggestions-collapse"
+                    />
+                </div>
+            </div>
+
+            {collapsed ? (
+                <CollapsedLine titles={suggestions.map((item) => item.title)} />
+            ) : isRefreshing || (suggestionSetLoading && suggestions.length === 0) ? (
+                <SuggestionsSkeleton />
+            ) : suggestions.length === 0 ? (
+                <p className="m-0 text-xs text-secondary">
+                    Nothing left to suggest right now. Refresh to scan the project again, or <SuggestWithAiLink />.
+                </p>
+            ) : (
+                <>
+                    <SuggestionGrid surface="strip" />
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                        {batchStatus === 'stale' && (
+                            <span>Your scouts changed since these were picked, so some may already be covered.</span>
+                        )}
+                        {batchStatus === 'failed' && (
+                            <span>The last scan didn't finish, so these are the picks from before it.</span>
+                        )}
+                        <span>
+                            Want something else? <SuggestWithAiLink />.
+                        </span>
+                    </div>
+                </>
+            )}
+            <ScoutSuggestionCreateHost surface="strip" />
+        </section>
+    )
+}
+
+/** The suggestion cards on their own, for the empty state's body. */
+export function ScoutSuggestionsEmptyStateCards(): JSX.Element | null {
+    const { suggestions, hasBatch } = useValues(scoutSuggestionsLogic)
+    useReportSuggestionsShown('empty_state')
+
+    if (!hasBatch || suggestions.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex w-full flex-col gap-3">
+            <SuggestionGrid surface="empty_state" columns={2} />
+            <ScoutSuggestionCreateHost surface="empty_state" />
+        </div>
+    )
+}
+
+function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurface; columns?: 2 | 3 }): JSX.Element {
+    const { suggestions } = useValues(scoutSuggestionsLogic)
+    return (
+        <div
+            className={cn(
+                'grid grid-cols-1 gap-2 @2xl:grid-cols-2',
+                columns === 3 && '@3xl:grid-cols-3',
+                // One card in a three-across grid stretches to a third of the row and reads as a
+                // gap where the other two should be, so a short batch keeps its cards narrow.
+                suggestions.length === 1 && 'max-w-md'
+            )}
+        >
+            {suggestions.map((item) => (
+                <ScoutSuggestionCard key={item.id} item={item} surface={surface} />
+            ))}
+        </div>
+    )
+}
+
+function CollapsedLine({ titles }: { titles: string[] }): JSX.Element {
+    if (titles.length === 0) {
+        return <span className="text-xs text-muted">Nothing left to suggest right now.</span>
+    }
+    const named = titles.slice(0, COLLAPSED_TITLE_PREVIEW).join(', ')
+    const rest = titles.length - COLLAPSED_TITLE_PREVIEW
+    return (
+        <span className="truncate text-xs text-secondary">
+            {named}
+            {rest > 0 ? ` and ${rest} more` : ''}
+        </span>
+    )
+}
+
+function SuggestionsSkeleton(): JSX.Element {
+    return (
+        <div className="grid grid-cols-1 gap-2 @2xl:grid-cols-2 @3xl:grid-cols-3">
+            {[0, 1, 2].map((index) => (
+                <div key={index} className="flex flex-col gap-2 rounded border border-primary bg-surface-primary p-3">
+                    <LemonSkeleton className="h-3.5 w-16" />
+                    <LemonSkeleton className="h-3.5 w-4/5" />
+                    <LemonSkeleton className="h-3 w-full" />
+                    <LemonSkeleton className="h-6 w-24 rounded" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function SuggestWithAiLink(): JSX.Element {
+    const { aiConsentDisabledReason } = useValues(scoutSuggestionsLogic)
+    const { startScoutChatTask } = useActions(scoutSuggestionsLogic)
+    if (aiConsentDisabledReason) {
+        return <span>suggest a scout with AI once AI data processing is on</span>
+    }
+    return (
+        <Link onClick={() => startScoutChatTask('author_scout', 'scout authoring task')}>suggest a scout with AI</Link>
+    )
+}
+
+/** Fires the impression once per mount, the first time a batch has actually resolved. */
+function useReportSuggestionsShown(surface: ScoutSuggestionSurface): void {
+    const { hasBatch } = useValues(scoutSuggestionsLogic)
+    const { reportSuggestionsShown } = useActions(scoutSuggestionsLogic)
+    const reportedRef = useRef(false)
+    useEffect(() => {
+        if (!hasBatch || reportedRef.current) {
+            return
+        }
+        reportedRef.current = true
+        reportSuggestionsShown(surface)
+    }, [hasBatch, surface, reportSuggestionsShown])
+}

@@ -56,6 +56,12 @@ export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'descrip
 
 export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'>> & {
     config?: Partial<ScoutCreateConfigFormValues>
+    /**
+     * The scout suggestion this form was opened from. Sent with the create so the suggestion stops
+     * being offered. Kept off the form values: it identifies the opening, not anything editable, and
+     * the form is persisted as a draft.
+     */
+    suggestionId?: string
 }
 
 export interface ScoutCreateModalLogicProps {
@@ -94,9 +100,12 @@ export function getScoutCreateFormValues(
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES.config,
         ...initialValues?.config,
     }
+    // `suggestionId` rides on the props, not the form: it is sent with the create but is nothing
+    // the person edits, and the form values are persisted as a draft.
+    const { suggestionId: _suggestionId, ...editableInitialValues } = initialValues ?? {}
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
-        ...initialValues,
+        ...editableInitialValues,
         name: redesign
             ? stripScoutPrefix((initialValues?.name ?? '').trim())
             : (initialValues?.name ?? SIGNALS_SCOUT_SKILL_PREFIX),
@@ -362,6 +371,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                         description: formValues.description.trim(),
                         body: formValues.body.trim(),
                         config: formValues.config,
+                        suggestion_id: logicProps.initialValues?.suggestionId,
                     })
 
                     actions.resetScoutCreateForm()

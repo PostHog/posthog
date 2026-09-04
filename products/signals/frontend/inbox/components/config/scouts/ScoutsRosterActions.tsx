@@ -6,7 +6,6 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import type { ScoutChatType } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { ScoutCreateButton } from './ScoutCreateButton'
-import { ScoutSuggestButton } from './ScoutSuggestButton'
 
 /** Actions for the roster, lifted into the scene header so they sit in one predictable place. */
 export function ScoutsRosterActions(): JSX.Element {
@@ -14,7 +13,6 @@ export function ScoutsRosterActions(): JSX.Element {
     return (
         <>
             <AskAboutScoutsMenu />
-            <ScoutSuggestButton type="secondary" size="small" />
             <ScoutCreateButton size="small" onCreated={() => loadScoutConfigs()} />
         </>
     )
@@ -23,11 +21,13 @@ export function ScoutsRosterActions(): JSX.Element {
 /**
  * The templated chat kickoffs, behind one button. As peers of "Create scout" they read as primary
  * actions, which they aren't — each one navigates away to a task rather than changing anything here.
+ * "Suggest a scout" joins them now the suggestions strip offers picks with nothing to wait for.
  */
 function AskAboutScoutsMenu(): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const prompts: { label: string; chatType: ScoutChatType }[] = [
+        { label: 'Suggest a scout', chatType: 'author_scout' },
         { label: 'How is my scout troop performing?', chatType: 'fleet_overview' },
         { label: 'What signals were emitted recently?', chatType: 'recent_signals' },
     ]
