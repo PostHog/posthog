@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import DatabaseError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -641,6 +642,34 @@ class TestScoutSuggestionsAPI(APIBaseTest):
                 "description": "Watches the checkout funnel.",
                 "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
                 "suggestion_id": "no-such-suggestion",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(
+            SignalScoutConfig.all_teams.filter(team=self.team, skill_name="signals-scout-checkout-drop").exists()
+        )
+
+    @patch(
+        "products.signals.backend.scout_harness.views.mark_suggestion_created",
+        side_effect=DatabaseError("lock timeout"),
+    )
+    def test_a_failed_suggestion_marker_still_creates_the_scout(self, _mock_mark):
+        # The scout and its config commit before the marker runs, so a database error on the second
+        # write must not report a create that already happened as a failure.
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "custom")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-checkout-drop",
+                "description": "Watches the checkout funnel.",
+                "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
+                "suggestion_id": suggestion_id,
             },
             format="json",
         )
