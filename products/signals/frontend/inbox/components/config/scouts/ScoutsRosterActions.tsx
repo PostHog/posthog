@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { ScoutChatType } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutSuggestButton } from './ScoutSuggestButton'
 
@@ -21,9 +22,29 @@ export function ScoutsRosterActions(): JSX.Element {
             <AskAboutScoutsMenu />
             {/* Without the suggestions strip this button is the only way to ask for a pick, so it
                 keeps its place in the header until the strip reaches everyone. */}
-            {!suggestionsEnabled && <ScoutSuggestButton type="secondary" size="small" />}
+            {suggestionsEnabled ? <ShowSuggestionsButton /> : <ScoutSuggestButton type="secondary" size="small" />}
             <ScoutCreateButton size="small" onCreated={() => loadScoutConfigs()} />
         </>
+    )
+}
+
+/** Takes the "Suggest a scout" spot while the strip is closed, and reopens it in place of a chat. */
+function ShowSuggestionsButton(): JSX.Element | null {
+    const { hasBatch, stripHidden } = useValues(scoutSuggestionsLogic)
+    const { showStrip } = useActions(scoutSuggestionsLogic)
+    if (!hasBatch || !stripHidden) {
+        return null
+    }
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconSparkles />}
+            onClick={() => showStrip()}
+            data-attr="scout-suggestions-show"
+        >
+            Suggest a scout
+        </LemonButton>
     )
 }
 

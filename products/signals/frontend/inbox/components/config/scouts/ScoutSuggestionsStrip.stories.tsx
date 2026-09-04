@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useMountedLogic } from 'kea'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -10,12 +12,23 @@ import {
     mockScoutSuggestions,
     mockScoutSuggestionSet,
 } from '../../../__mocks__/scoutConfigs'
+import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { ScoutsRoster } from './ScoutsRoster'
 
 // The "Suggested for this project" strip above the roster. Use these to check how the batch reads
 // when it has aged, when it shrank to one pick, and when the last scan failed.
 
 const SUGGESTIONS_URL = '/api/projects/:id/signals/scout/suggestions/'
+
+/** The strip opens collapsed, so the stories open it unless one asks for the collapsed line. */
+function StripState({ collapsed, children }: { collapsed: boolean; children: React.ReactNode }): JSX.Element {
+    const logic = useMountedLogic(scoutSuggestionsLogic)
+    useEffect(() => {
+        logic.actions.showStrip()
+        logic.actions.setCollapsed(collapsed)
+    }, [logic, collapsed])
+    return <>{children}</>
+}
 
 const meta: Meta<typeof ScoutsRoster> = {
     title: 'Scenes-App/Inbox/ScoutSuggestionsStrip',
@@ -32,6 +45,11 @@ const meta: Meta<typeof ScoutsRoster> = {
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [
+        (Story, { parameters }) => (
+            <StripState collapsed={parameters.stripCollapsed === true}>
+                <Story />
+            </StripState>
+        ),
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/scout/configs/': () => [200, mockScoutConfigs],
@@ -48,6 +66,12 @@ export default meta
 type Story = StoryObj<typeof ScoutsRoster>
 
 export const Fresh: Story = {
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
+// How the strip opens on a first visit: one line naming the picks, until the chevron opens it.
+export const Collapsed: Story = {
+    parameters: { stripCollapsed: true },
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
 }
 

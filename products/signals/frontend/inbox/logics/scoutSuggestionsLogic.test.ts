@@ -25,7 +25,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { scoutFleetLogic } from './scoutFleetLogic'
-import { scoutSuggestionsLogic, SUGGESTIONS_COLLAPSE_THRESHOLD } from './scoutSuggestionsLogic'
+import { scoutSuggestionsLogic } from './scoutSuggestionsLogic'
 
 jest.mock('posthog-js')
 jest.mock('products/signals/frontend/generated/api', () => ({
@@ -250,23 +250,21 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.isRefreshing).toBe(false)
     })
 
-    it('opens collapsed only once the project runs a real fleet', async () => {
+    it('opens collapsed, closes with the cross, and comes back open', async () => {
         await mountWithBatch()
-        const enabledConfigs = Array.from({ length: SUGGESTIONS_COLLAPSE_THRESHOLD }, (_, index) => ({
-            ...CONFIG,
-            id: `config-${index}`,
-            skill_name: `signals-scout-${index}`,
-            enabled: true,
-        }))
+        expect(logic.values.collapsed).toBe(true)
+        expect(logic.values.stripHidden).toBe(false)
 
-        scoutFleetLogic.actions.loadScoutConfigsSuccess(enabledConfigs.slice(0, SUGGESTIONS_COLLAPSE_THRESHOLD - 1))
+        logic.actions.setCollapsed(false)
         expect(logic.values.collapsed).toBe(false)
 
-        scoutFleetLogic.actions.loadScoutConfigsSuccess(enabledConfigs)
-        expect(logic.values.collapsed).toBe(true)
+        logic.actions.setCollapsed(true)
+        logic.actions.hideStrip()
+        expect(logic.values.stripHidden).toBe(true)
 
-        // Once someone uses the chevron, their choice outranks the fleet size.
-        logic.actions.setCollapsed(false)
+        // Asking for the picks back means reading them, so the strip returns open.
+        logic.actions.showStrip()
+        expect(logic.values.stripHidden).toBe(false)
         expect(logic.values.collapsed).toBe(false)
     })
 })

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconChevronDown, IconRefresh, IconSparkles } from '@posthog/icons'
+import { IconChevronDown, IconRefresh, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -22,13 +22,17 @@ const COLLAPSED_TITLE_PREVIEW = 2
  * Nothing renders until a batch exists, so a project that has never been scanned sees the roster
  * exactly as it was. `stale` is a footer note rather than an error: any fleet change flips it and
  * the picks stay valid.
+ *
+ * The strip opens collapsed and can be closed outright. A closed strip comes back through the
+ * "Suggest a scout" header button, so the picks are never more than one click away.
  */
 export function ScoutSuggestionsStrip(): JSX.Element | null {
-    const { suggestions, hasBatch, collapsed, isRefreshing, suggestionSet } = useValues(scoutSuggestionsLogic)
-    const { setCollapsed, requestRefresh } = useActions(scoutSuggestionsLogic)
+    const { suggestions, hasBatch, collapsed, stripHidden, isRefreshing, suggestionSet } =
+        useValues(scoutSuggestionsLogic)
+    const { setCollapsed, hideStrip, requestRefresh } = useActions(scoutSuggestionsLogic)
     useReportSuggestionsShown('strip')
 
-    if (!hasBatch) {
+    if (!hasBatch || stripHidden) {
         return null
     }
 
@@ -68,6 +72,14 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
                         onClick={() => setCollapsed(!collapsed)}
                         aria-label={collapsed ? 'Show suggested scouts' : 'Hide suggested scouts'}
                         data-attr="scout-suggestions-collapse"
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        tooltip="Close. Bring the suggestions back with the Suggest a scout button."
+                        onClick={() => hideStrip()}
+                        aria-label="Close suggested scouts"
+                        data-attr="scout-suggestions-hide"
                     />
                 </div>
             </div>
@@ -188,16 +200,18 @@ function SuggestWithAiLink(): JSX.Element {
     )
 }
 
-/** Fires the impression once per mount, the first time a batch has actually resolved. */
+/** Fires the impression once per mount, the first time a batch has actually resolved on screen. */
 function useReportSuggestionsShown(surface: ScoutSuggestionSurface): void {
-    const { hasBatch } = useValues(scoutSuggestionsLogic)
+    const { hasBatch, stripHidden } = useValues(scoutSuggestionsLogic)
     const { reportSuggestionsShown } = useActions(scoutSuggestionsLogic)
     const reportedRef = useRef(false)
+    // The empty state has no close control, so only the strip can be hidden.
+    const onScreen = hasBatch && (surface !== 'strip' || !stripHidden)
     useEffect(() => {
-        if (!hasBatch || reportedRef.current) {
+        if (!onScreen || reportedRef.current) {
             return
         }
         reportedRef.current = true
         reportSuggestionsShown(surface)
-    }, [hasBatch, surface, reportSuggestionsShown])
+    }, [onScreen, surface, reportSuggestionsShown])
 }

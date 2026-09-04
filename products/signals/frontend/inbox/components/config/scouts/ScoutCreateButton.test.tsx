@@ -7,6 +7,8 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { mockScoutSuggestionSet } from '../../../__mocks__/scoutConfigs'
+import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutsRosterActions } from './ScoutsRosterActions'
 import { ScoutSuggestButton } from './ScoutSuggestButton'
@@ -38,6 +40,7 @@ describe('scout creation buttons', () => {
         useMocks({
             get: {
                 '/api/projects/:team/signals/scout/configs/': [],
+                '/api/projects/:team/signals/scout/suggestions/': mockScoutSuggestionSet(),
                 '/api/projects/:team/signals/scout/metadata/current/': {
                     enrolled: true,
                     banner_message: null,
@@ -88,6 +91,24 @@ describe('scout creation buttons', () => {
 
         await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
         expect(queryByText('Manual scout form')).toBeNull()
+    })
+
+    // Closing the strip must not strand the picks: the header button reopens it in place of a chat.
+    it('reopens the closed strip from the header without starting a task', async () => {
+        setSuggestionsFlag(true)
+        const logic = scoutSuggestionsLogic()
+        logic.mount()
+        await waitFor(() => expect(logic.values.hasBatch).toBe(true))
+        const { findByText, queryByText } = render(<ScoutsRosterActions />)
+        expect(queryByText('Suggest a scout')).toBeNull()
+
+        logic.actions.hideStrip()
+        fireEvent.click(await findByText('Suggest a scout'))
+
+        expect(logic.values.stripHidden).toBe(false)
+        expect(logic.values.collapsed).toBe(false)
+        expect(startedChatTypes).toEqual([])
+        logic.unmount()
     })
 
     // "Suggest a scout" only moves into the Ask menu for people on the suggestions strip. Off the
