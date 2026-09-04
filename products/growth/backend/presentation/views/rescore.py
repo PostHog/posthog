@@ -1,0 +1,73 @@
+"""Webhook for the wizard-stamp ICP re-score, called by a PostHog realtime destination the instant the setup wizard's AI-SDK stamp lands on an org.
+
+Authenticated by a shared secret header instead of session or personal-API-key auth, since the caller is our own destination, not a user.
+"""
+
+import hmac
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.utils import ErrorResponseSerializer
+from posthog.models.instance_setting import get_instance_setting
+from posthog.rate_limit import IPThrottle
+
+from products.growth.backend.facade.api import request_wizard_stamp_rescore
+
+WEBHOOK_SECRET_HEADER = "X-PostHog-Webhook-Secret"
+
+
+class GrowthRescoreWebhookThrottle(IPThrottle):
+    """Bounds a misconfigured or runaway destination, on top of the shared-secret gate."""
+
+    scope = "growth_rescore_webhook"
+    rate = "300/minute"
+
+
+class RescoreRequestSerializer(serializers.Serializer):
+    organization_id = serializers.UUIDField(
+        help_text="Organization to re-score, from the $group_key of the wizard's $groupidentify event."
+    )
+
+
+class RescoreResponseSerializer(serializers.Serializer):
+    queued = serializers.BooleanField(help_text="Whether the re-score workflow was dispatched.")
+    reason = serializers.ChoiceField(
+        choices=["disabled", "no_enrichment_record"],
+        allow_null=True,
+        help_text="Why nothing was dispatched. Null when queued.",
+    )
+
+
+class GrowthEnrichmentViewSet(viewsets.ViewSet):
+    authentication_classes = []
+    permission_classes = []
+    scope_object = "INTERNAL"
+
+    @extend_schema(
+        request=RescoreRequestSerializer,
+        responses={
+            202: OpenApiResponse(response=RescoreResponseSerializer),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Missing or invalid organization_id."),
+            401: OpenApiResponse(description="Missing or incorrect webhook secret."),
+            503: OpenApiResponse(description="No webhook secret is configured on this instance."),
+        },
+        summary="Re-score an organization's ICP fit after its wizard AI-SDK stamp lands.",
+        description="Called by a PostHog realtime destination, not by API clients. Requires the "
+        f"{WEBHOOK_SECRET_HEADER} header to match the GROWTH_RESCORE_WEBHOOK_SECRET instance setting.",
+    )
+    @action(methods=["POST"], detail=False, throttle_classes=[GrowthRescoreWebhookThrottle])
+    def rescore(self, request: Request, **kwargs) -> Response:
+        secret = get_instance_setting("GROWTH_RESCORE_WEBHOOK_SECRET")
+        if not secret:
+            return Response(status=503)
+        if not hmac.compare_digest(secret, request.headers.get(WEBHOOK_SECRET_HEADER, "")):
+            return Response(status=401)
+
+        serializer = RescoreRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        outcome = request_wizard_stamp_rescore(str(serializer.validated_data["organization_id"]))
+        return Response(RescoreResponseSerializer(instance=outcome).data, status=202)
