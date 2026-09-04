@@ -25,6 +25,12 @@ HAVING countIf(event = '$pageview') > 0
    AND countIf(event = '$pageleave') = 0
 """
 
+# The ratio tracks how much navigation leaves the page, so it is not a fixed multiple of $pageview.
+PAGELEAVE_VOLUME_NOTE = (
+    "Volume: on a site with full page loads, $pageleave adds about 1 extra event per pageview. "
+    "On a single-page app it adds well under 0.1, because most navigation never leaves the page."
+)
+
 
 class NoPageleaveEventsCheck(HealthCheck):
     name = "no_pageleave_events"
@@ -35,19 +41,21 @@ class NoPageleaveEventsCheck(HealthCheck):
     schedule = "30 3 * * *"
     active_since_days = 30
     remediation = Remediation(
-        human="""
+        human=f"""
             Open the Web analytics health page. The fix is almost always on the SDK side — make sure you're
             on a recent posthog-js with pageview autocapture enabled, which emits $pageleave automatically
-            when the user navigates away.
+            when the user navigates away. {PAGELEAVE_VOLUME_NOTE} In return you get scroll depth, which
+            rides on $pageleave, and accurate bounce rate.
         """,
-        agent="""
+        agent=f"""
             Use `execute-sql` to confirm the gap (`SELECT event, count() FROM events WHERE event IN
             ('$pageview', '$pageleave') AND timestamp > now() - INTERVAL 7 DAY GROUP BY event`). Then fix it
             in the user's codebase: locate the `posthog.init` call and ensure pageview autocapture is
             enabled; if pageviews are captured manually (`capture_pageview: false`), add a matching
             `posthog.capture` of `$pageleave` on route changes / unload. Use `docs-search` for the
-            pageview/pageleave capture docs. Once $pageleave events arrive, the issue resolves on the next
-            check run.
+            pageview/pageleave capture docs. Tell the user what the change costs before they make it.
+            {PAGELEAVE_VOLUME_NOTE} Say what they get for it — scroll depth, which rides on $pageleave, and
+            accurate bounce rate. Once $pageleave events arrive, the issue resolves on the next check run.
         """,
     )
 
@@ -55,7 +63,10 @@ class NoPageleaveEventsCheck(HealthCheck):
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         return AlertContent(
             title="No $pageleave events",
-            summary=issue.payload.get("reason", "$pageview events present but no $pageleave events"),
+            summary=(
+                f"{issue.payload.get('reason', '$pageview events present but no $pageleave events')}. "
+                f"{PAGELEAVE_VOLUME_NOTE}"
+            ),
             link="/web/health",
         )
 
@@ -68,7 +79,8 @@ class NoPageleaveEventsCheck(HealthCheck):
                 f"This project is sending `$pageview` events but no `$pageleave` events over the last "
                 f"{NO_PAGELEAVE_LOOKBACK_DAYS} days. Missing `$pageleave` breaks bounce rate, session "
                 "duration, and scroll-depth metrics in web analytics — it usually means "
-                "`capture_pageleave` is disabled in the SDK config. Recommend enabling pageleave capture."
+                "`capture_pageleave` is disabled in the SDK config. Recommend enabling pageleave capture. "
+                + PAGELEAVE_VOLUME_NOTE
             ),
             weight=_SEVERITY_WEIGHT[issue.severity],
             extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
