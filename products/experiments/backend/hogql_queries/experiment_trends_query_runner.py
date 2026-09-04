@@ -33,7 +33,6 @@ from posthog.hogql import ast
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 
@@ -50,6 +49,7 @@ from products.experiments.backend.hogql_queries.trends_statistics_v2_count impor
 )
 from products.experiments.backend.hogql_queries.types import ExperimentMetricType
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 
 class ExperimentTrendsQueryRunner(QueryRunner):

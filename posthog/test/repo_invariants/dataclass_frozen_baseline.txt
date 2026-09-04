@@ -1508,7 +1508,7 @@
 3 posthog/cdp/internal_events.py
 3 posthog/dags/backups.py
 3 posthog/hogql/compiler/bytecode.py
-3 posthog/hogql_queries/insights/trends/test/test_trends_query_runner.py
+3 products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py
 3 posthog/hogql_queries/utils/test/test_time_sliced_query.py
 3 posthog/local_bootstrap/importer.py
 3 posthog/models/kafka_debug/sql.py

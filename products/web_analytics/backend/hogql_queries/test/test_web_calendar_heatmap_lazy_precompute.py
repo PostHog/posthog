@@ -20,12 +20,14 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.hogql_queries.insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import EventDefinition
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_trends_query_runner import (
+    CalendarHeatmapTrendsQueryRunner,
+)
 from products.web_analytics.backend.hogql_queries.web_calendar_heatmap import WebCalendarHeatmapTrendsQueryRunner
 
 

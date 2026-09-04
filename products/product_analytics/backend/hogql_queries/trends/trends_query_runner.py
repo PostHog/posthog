@@ -55,15 +55,6 @@ from posthog.caching.insights_api import (
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.insights.trends.trend_validation_rules import (
-    DisallowDaysOfWeekWithSmoothing,
-    DisallowUnsupportedPropertyMathForHistogramBreakdown,
-    ValidateDataWarehouseBreakdown,
-)
-from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -91,6 +82,15 @@ from posthog.utils import multisort
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
+from products.product_analytics.backend.hogql_queries.trends.series_with_extras import SeriesWithExtras
+from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
+    DisallowDaysOfWeekWithSmoothing,
+    DisallowUnsupportedPropertyMathForHistogramBreakdown,
+    ValidateDataWarehouseBreakdown,
+)
+from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 

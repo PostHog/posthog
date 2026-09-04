@@ -24,9 +24,8 @@ from posthog.hogql.database.schema.test.base import RevenueAnalyticsManagedViews
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 

@@ -14,10 +14,12 @@ from posthog.schema import (
     EventsNode,
 )
 
-from posthog.hogql_queries.insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_query_runner import (
+    CalendarHeatmapQueryRunner,
+)
 
 
 class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):

@@ -37,8 +37,7 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 

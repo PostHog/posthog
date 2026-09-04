@@ -27,19 +27,19 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.insights.trends.aggregation_operations import (
-    AggregationOperations,
-    FirstTimeForUserEventsQueryAlternator,
-)
-from posthog.hogql_queries.insights.trends.breakdown import Breakdown
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_groups_math
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
 
 from products.actions.backend.models.action import Action
+from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import (
+    AggregationOperations,
+    FirstTimeForUserEventsQueryAlternator,
+)
+from products.product_analytics.backend.hogql_queries.trends.breakdown import Breakdown
+from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
+from products.product_analytics.backend.hogql_queries.trends.utils import group_node_to_expr, is_groups_math
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
     first_pageview_aware_properties_to_expr,
 )

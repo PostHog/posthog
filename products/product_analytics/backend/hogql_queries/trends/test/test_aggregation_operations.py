@@ -16,9 +16,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
+
+from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import AggregationOperations
 
 
 @pytest.mark.parametrize(

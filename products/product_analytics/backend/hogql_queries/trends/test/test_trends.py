@@ -30,8 +30,6 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import TrendsQuery
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_LINEAR, TRENDS_TABLE
-from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Entity, Filter, Organization, Person
 from posthog.models.group.util import create_group
@@ -46,6 +44,8 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.hogql_queries.trends.test.test_trends_persons import get_actors
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
@@ -7604,7 +7604,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValidationError):
             self._run(Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team)
 
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
+    @patch("products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):
         self._create_events()
         patch_sync_execute.side_effect = Exception()

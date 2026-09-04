@@ -320,7 +320,7 @@ def validate_actors_query_for_cohort(query_dict: dict[str, Any]) -> None:
     if not isinstance(insight, dict) or insight.get("kind") != "TrendsQuery":
         return
 
-    from posthog.hogql_queries.insights.trends.display import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
+    from products.product_analytics.backend.hogql_queries.trends.display import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
         TrendsDisplay,
     )
 

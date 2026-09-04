@@ -9,7 +9,7 @@ from posthog.schema import (
     PropertyMathType,
 )
 
-from posthog.hogql_queries.insights.trends.utils import get_properties_chain, is_groups_math
+from products.product_analytics.backend.hogql_queries.trends.utils import get_properties_chain, is_groups_math
 
 
 def test_properties_chain_person():

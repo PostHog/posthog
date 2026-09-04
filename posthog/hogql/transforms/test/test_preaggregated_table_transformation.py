@@ -20,9 +20,9 @@ from posthog.hogql.transforms.preaggregated_table_transformation import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
