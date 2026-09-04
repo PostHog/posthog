@@ -341,7 +341,12 @@ def cohort_saved(sender, instance, **kwargs):
     ):
         from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
-        refresh_affected_hog_functions.delay(cohort_id=instance.id)
+        # A broker error must not escape Cohort.save(). The cohort recalculation path saves the
+        # cohort after it sets is_calculating, so a raise here strands the cohort in flight.
+        try:
+            refresh_affected_hog_functions.delay(cohort_id=instance.id)
+        except Exception:
+            logger.exception("failed_to_enqueue_hog_function_refresh_for_cohort", cohort_id=instance.id)
 
 
 @mutable_receiver([post_save, post_delete], sender=HogFunction)

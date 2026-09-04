@@ -27,6 +27,7 @@ from posthog.tasks.calculate_cohort import (
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
+    _prepare_cohort_for_calculation,
     calculate_cohort_ch,
     calculate_cohort_from_list,
     enqueue_cohorts_to_calculate,
@@ -1610,6 +1611,50 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort_b.refresh_from_db()
         self.assertFalse(cohort_a.is_calculating)
         self.assertFalse(cohort_b.is_calculating)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    @patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay")
+    def test_increment_version_and_enqueue_survives_broker_error_in_a_post_save_receiver(
+        self, mock_refresh_hog_functions: MagicMock, mock_calculate_cohort_ch_delay: MagicMock
+    ) -> None:
+        # The hog function refresh runs in a cohort post_save receiver, so it fires inside the save
+        # that sets is_calculating. A broker error there must not escape and strand the cohort.
+        cohort = Cohort.objects.create(team=self.team, name="Referenced Cohort", is_static=False)
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+        # The team save fires its own receiver through the same task.
+        mock_refresh_hog_functions.reset_mock()
+        mock_refresh_hog_functions.side_effect = Exception("broker unavailable")
+
+        increment_version_and_enqueue_calculate_cohort(Cohort.objects.get(pk=cohort.pk), initiating_user=None)
+
+        mock_refresh_hog_functions.assert_called_once()
+        mock_calculate_cohort_ch_delay.assert_called_once()
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_increment_version_and_enqueue_resets_is_calculating_when_the_prepare_step_fails(
+        self, mock_calculate_cohort_ch_delay: MagicMock
+    ) -> None:
+        # A raise from anything the prepare step triggers lands after is_calculating is committed,
+        # so the guard has to cover the prepare step itself, not only the enqueue call.
+        cohort = Cohort.objects.create(team=self.team, name="Standalone Cohort", is_static=False)
+
+        def prepare_then_fail(prepared_cohort: Cohort) -> None:
+            _prepare_cohort_for_calculation(prepared_cohort)
+            raise Exception("broker unavailable")
+
+        with (
+            patch("posthog.tasks.calculate_cohort._prepare_cohort_for_calculation", prepare_then_fail),
+            self.assertRaises(Exception),
+        ):
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+
+        mock_calculate_cohort_ch_delay.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
 
 
 class TestCalculateCohortFromListRetries(APIBaseTest):
