@@ -428,7 +428,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (
-                                        <col style={{ width: '1%' }} />
+                                        <col className="LemonTable__toggle" />
                                     ) /* Expand/collapse column */
                                 }
                                 {columns
