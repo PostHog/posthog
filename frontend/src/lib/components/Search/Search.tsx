@@ -361,6 +361,88 @@ function useReRankedGroupedItems(
     return result
 }
 
+// A browser fires `click` only when the press and the release land on the same element.
+// The result list re-renders while the server search categories resolve, so the item under
+// the cursor can move or unmount between the two, and no click reaches it — the selection
+// then disappears with no navigation and no telemetry. Drive activation from the pointer
+// sequence instead: remember the item the user pressed, and activate that item on release.
+const MAX_POINTER_DRIFT_PX = 8
+
+interface ItemPointerPress {
+    pointerId: number
+    item: SearchItem
+    element: HTMLElement
+    x: number
+    y: number
+}
+
+interface PointerActivation {
+    onItemPointerDown: (event: React.PointerEvent<HTMLElement>, item: SearchItem) => void
+    /** True when the pointer sequence already activated this item, so the click must not repeat it. */
+    consumePointerActivation: (item: SearchItem) => boolean
+}
+
+function usePointerActivation(activate: (item: SearchItem, openInNewTab: boolean) => void): PointerActivation {
+    const pressRef = useRef<ItemPointerPress | null>(null)
+    const activatedIdRef = useRef<string | null>(null)
+
+    useEffect(() => {
+        const release = (event: PointerEvent): void => {
+            const press = pressRef.current
+            if (!press || press.pointerId !== event.pointerId) {
+                return
+            }
+            pressRef.current = null
+            const target = event.target instanceof Node ? event.target : null
+            const releasedOnItem = target !== null && press.element.contains(target)
+            const drift = Math.hypot(event.clientX - press.x, event.clientY - press.y)
+            // A pointer that stayed still means the list moved, not that the user dragged
+            // off the item to cancel the press.
+            if (!releasedOnItem && drift > MAX_POINTER_DRIFT_PX) {
+                return
+            }
+            activatedIdRef.current = press.item.id
+            activate(press.item, event.metaKey || event.ctrlKey)
+        }
+        // A native link drag suppresses the pointer stream, so the press must not survive it.
+        const cancel = (): void => {
+            pressRef.current = null
+        }
+        window.addEventListener('pointerup', release, true)
+        window.addEventListener('pointercancel', cancel, true)
+        window.addEventListener('dragstart', cancel, true)
+        return () => {
+            window.removeEventListener('pointerup', release, true)
+            window.removeEventListener('pointercancel', cancel, true)
+            window.removeEventListener('dragstart', cancel, true)
+        }
+    }, [activate])
+
+    const onItemPointerDown = useCallback((event: React.PointerEvent<HTMLElement>, item: SearchItem): void => {
+        activatedIdRef.current = null
+        if (event.button !== 0) {
+            return
+        }
+        pressRef.current = {
+            pointerId: event.pointerId,
+            item,
+            element: event.currentTarget,
+            x: event.clientX,
+            y: event.clientY,
+        }
+    }, [])
+
+    const consumePointerActivation = useCallback((item: SearchItem): boolean => {
+        if (activatedIdRef.current !== item.id) {
+            return false
+        }
+        activatedIdRef.current = null
+        return true
+    }, [])
+
+    return { onItemPointerDown, consumePointerActivation }
+}
+
 // ============================================================================
 // Search.Root
 // ============================================================================
@@ -853,6 +935,7 @@ function SearchResults({
     groupLabelClassName?: string
 }): JSX.Element {
     const { groupedItems, handleItemClick, highlightedItemRef, isSearching, searchValue } = useSearchContext()
+    const { onItemPointerDown, consumePointerActivation } = usePointerActivation(handleItemClick)
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -922,8 +1005,11 @@ function SearchResults({
                                                                 // Plain clicks only. LinkPrimitive returns early on
                                                                 // metaKey/ctrlKey, so modifier clicks never get here and
                                                                 // are handled in the capture phase below instead.
+                                                                // Keyboard Enter also arrives here, without a press.
                                                                 e.preventDefault()
-                                                                handleItemClick(item)
+                                                                if (!consumePointerActivation(item)) {
+                                                                    handleItemClick(item)
+                                                                }
                                                             }}
                                                             render={(props) => {
                                                                 const isHighlighted =
@@ -936,6 +1022,9 @@ function SearchResults({
                                                                 return (
                                                                     <div
                                                                         className="px-2"
+                                                                        onPointerDown={(e) =>
+                                                                            onItemPointerDown(e, item)
+                                                                        }
                                                                         onClickCapture={(e) => {
                                                                             // LinkPrimitive swallows modifier clicks
                                                                             // (stopPropagation, then return) before its
@@ -948,7 +1037,9 @@ function SearchResults({
                                                                             // action items stay inert.
                                                                             if (e.metaKey || e.ctrlKey) {
                                                                                 e.preventDefault()
-                                                                                handleItemClick(item, true)
+                                                                                if (!consumePointerActivation(item)) {
+                                                                                    handleItemClick(item, true)
+                                                                                }
                                                                             }
                                                                         }}
                                                                     >
