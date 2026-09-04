@@ -139,10 +139,10 @@
   const queryCell = q => el('span', { class: 'q', title: q || '' }, q || el('span', { class: 'muted' }, '(text not captured)'));
 
   // ---------- simple SVG line chart ----------
-  // series: [{name, color, points: [[Date, number]]}]
+  // series: [{name, color, points: [[Date, number | null]]}]; a null y breaks the line.
   function chart(series, { yfmt = v => fmt.dec(v, 1) } = {}) {
     const W = 800, H = 140, P = { l: 48, r: 8, t: 8, b: 20 };
-    const all = series.flatMap(s => s.points);
+    const all = series.flatMap(s => s.points).filter(p => p[1] != null);
     if (!all.length) return el('div', { class: 'empty' }, 'no data points');
     const xs = all.map(p => +p[0]), ys = all.map(p => p[1]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1, y1 = Math.max(...ys, 0) || 1;
@@ -154,7 +154,9 @@
     for (const [i, x] of [x0, (x0 + x1) / 2, x1].entries()) { const t = n('text', { x: X(x), y: H - 4, 'text-anchor': i === 0 ? 'start' : i === 1 ? 'middle' : 'end', fill: '#8b93a1', 'font-size': 10 }); t.textContent = fmt.time(new Date(x)); svg.append(t); }
     for (const s of series) {
       const pts = [...s.points].sort((a, b) => a[0] - b[0]);
-      svg.append(n('path', { d: pts.map((p, i) => (i ? 'L' : 'M') + X(+p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' '), fill: 'none', stroke: s.color, 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }));
+      let d = '', pen = false;
+      for (const p of pts) { if (p[1] == null) { pen = false; continue; } d += (pen ? 'L' : 'M') + X(+p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1); pen = true; }
+      svg.append(n('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }));
     }
     return el('div', {}, svg, el('div', { class: 'legend' }, series.map(s => el('span', {}, el('i', { style: `background:${s.color}` }), s.name))));
   }
@@ -229,11 +231,13 @@
     const lat = d.latency_from_logs;
     const per = BUCKET_LABEL[bucket] || bucket;
     // A quantile needs roughly 1/(1-q) samples before it is more than the bucket's max, so each line skips buckets below its own floor.
+    // Buckets below a line's floor become null points, which chart() draws as gaps rather than bridging.
     const QUANTILES = [['p50', COLORS[0], 5], ['p90', COLORS[4], 20], ['p99', COLORS[3], 100]];
-    const qseries = lat ? QUANTILES.map(([k, color, min]) => ({ name: k, color, points: (d.latency_series || []).filter(r => r.samples >= min).map(r => [new Date(r.bucket), r[k]]) })).filter(s => s.points.length) : [];
+    const qseries = lat ? QUANTILES.map(([k, color, min]) => ({ name: k, color, points: (d.latency_series || []).map(r => [new Date(r.bucket), r.sampled >= min ? r[k] : null]) })).filter(s => s.points.some(p => p[1] != null)) : [];
     const samp = d.log_sampling || {};
     const latencyNote = lat
       ? `${fmt.num(lat.samples)} sampled statements in range (${fmt.dec(samp.rate * 100, 1)}% sample${samp.sample_floor_ms > 0 ? ` of statements over ${fmt.ms(samp.sample_floor_ms)}` : ''}) · range p50 ${fmt.ms(lat.p50)} · p90 ${fmt.ms(lat.p90)} · p99 ${fmt.ms(lat.p99)} · max ${fmt.ms(lat.max_ms)}`
+      : samp.enabled === false ? 'mean only: statement sampling is off on this server (log_min_duration_sample / log_statement_sample_rate)'
       : 'mean only: no sampled durations in this range (needs log_min_duration_sample and the logs collector)';
     return [
       el('h1', {}, 'Query ', el('span', { class: 'mono' }, qid), el('span', { class: 'sub' }, t.datname || '')),
