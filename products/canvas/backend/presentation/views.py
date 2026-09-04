@@ -34,6 +34,7 @@ from products.canvas.backend.capabilities import declared_actions, declared_stat
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
+    canvas_is_shareable,
     default_layout,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
@@ -84,7 +85,6 @@ from products.canvas.backend.presentation.serializers import (
     CanvasVersionSerializer,
     canvas_url,
 )
-from products.canvas.backend.sharing import canvas_is_shareable
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -1293,7 +1293,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             return source
         channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, user.id)
         try:
-            fork, version, _build = build_service.fork_canvas(
+            fork = build_service.fork_canvas(
                 source,
                 team_id=self.team_id,
                 channel_id=channel_id,
@@ -1314,13 +1314,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             )
         self._report_canvas_action(
             "canvas forked",
-            fork,
+            fork.canvas,
             source_canvas_id=str(source.id),
-            source_version_id=str(version.id),
+            source_version_id=str(fork.version.id),
             cross_team=source.team_id != self.team_id,
             via_share_token="share_token" in payload.validated_data,
         )
-        return Response(CanvasSerializer(fork).data, status=status.HTTP_201_CREATED)
+        return Response(CanvasSerializer(fork.canvas).data, status=status.HTTP_201_CREATED)
 
     def _fork_source(self, data: dict[str, Any]) -> Canvas | Response:
         """The canvas a fork request names, or the refusal to send back."""

@@ -49,16 +49,18 @@ class SharingConfiguration(models.Model):
         null=True,
         blank=True,
     )
+    # Sealed reverse accessors: a canvas and a run artifact are owned by their product, so
+    # nothing outside it reaches its shares by traversing back from the model.
     canvas = models.ForeignKey(
         "canvas.Canvas",
-        related_name="sharing_configurations",
+        related_name="+",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
     )
     task_artifact = models.ForeignKey(
         "tasks.SharedTaskArtifact",
-        related_name="sharing_configurations",
+        related_name="+",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

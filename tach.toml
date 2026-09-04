@@ -910,6 +910,8 @@ depends_on = [
     "products.tasks",
     # The annotations.create action verb (via the annotations facade).
     "products.annotations",
+    # Per-object access control on the canvas viewset.
+    "products.access_control",
 ]
 layer = "modules"
 

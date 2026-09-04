@@ -269,6 +269,11 @@
         "params": [],
         "scope": "global"
     },
+    "codeCanvasFork": {
+        "template": "/code/canvas-fork/{shareToken}",
+        "params": ["shareToken"],
+        "scope": "project"
+    },
     "codeCanvasLink": {
         "template": "/code/canvas/{channelId}/{dashboardId}",
         "params": ["channelId", "dashboardId"],

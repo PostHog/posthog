@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
                 blank=True,
                 null=True,
                 on_delete=django.db.models.deletion.CASCADE,
-                related_name="sharing_configurations",
+                related_name="+",
                 to="canvas.canvas",
             ),
         ),

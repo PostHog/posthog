@@ -1398,6 +1398,15 @@ class CanvasNotPublished(Exception):
     """The source canvas has no ready published build to copy from."""
 
 
+@frozen
+class CanvasFork:
+    """A copy of a canvas: the new canvas, the version its source landed as, and its first build."""
+
+    canvas: Canvas
+    version: CanvasSourceVersion
+    build: CanvasBuild
+
+
 def fork_canvas(
     source: Canvas,
     *,
@@ -1405,7 +1414,7 @@ def fork_canvas(
     channel_id: str | UUID,
     created_by: User | None,
     was_impersonated: bool = False,
-) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild]:
+) -> CanvasFork:
     """Copy the source canvas's published version into a new canvas the caller owns.
 
     The copy gets the bytes of the version the published build was compiled
@@ -1462,4 +1471,4 @@ def fork_canvas(
             changes=[Change(type="Canvas", action="created", field="forked_from", after=str(source.id))],
         ),
     )
-    return fork, fork_version, build
+    return CanvasFork(canvas=fork, version=fork_version, build=build)
