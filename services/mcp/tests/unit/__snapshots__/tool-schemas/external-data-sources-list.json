@@ -12,6 +12,10 @@
         "search": {
             "description": "A search term.",
             "type": "string"
+        },
+        "summary": {
+            "description": "Return source-level schema counts, row totals, status, and latest errors without embedding schemas. Use this for source index pages; omit it when the caller needs schema details.",
+            "type": "boolean"
         }
     },
     "type": "object"
