@@ -47,6 +47,8 @@ export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goa
 
 export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 
+export type BroadcastSummaryTab = 'overview' | 'content' | 'sent' | 'recipients'
+
 // The value stored in the email action's `inputs.email.value`, mirroring the
 // `template-email` hog function template's default input shape.
 export interface BroadcastEmailValue {
@@ -117,6 +119,8 @@ export interface broadcastWizardLogicValues {
     firstInvalidStep: BroadcastWizardStep | null
     goalEnabled: boolean
     hasHydrated: boolean
+    hasOpenedFullEditor: boolean
+    summaryTab: BroadcastSummaryTab
     isReadOnly: boolean
     launching: boolean
     name: string
@@ -136,6 +140,12 @@ export interface broadcastWizardLogicValues {
 export interface broadcastWizardLogicActions {
     continueStep: () => {
         value: true
+    }
+    openFullEditor: () => {
+        value: true
+    }
+    setSummaryTab: (tab: BroadcastSummaryTab) => {
+        tab: BroadcastSummaryTab
     }
     hydrateFromBroadcast: (broadcast: HogFlowApi) => {
         broadcast: HogFlowApi
@@ -195,6 +205,9 @@ export interface broadcastWizardLogicActions {
         value: true
     }
     prevStep: () => {
+        value: true
+    }
+    refreshFromAgentEdit: () => {
         value: true
     }
     saveBroadcastFinished: (broadcast: HogFlowApi | null) => {
@@ -309,6 +322,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
     actions({
         setStep: (step: BroadcastWizardStep) => ({ step }),
+        openFullEditor: true,
+        setSummaryTab: (tab: BroadcastSummaryTab) => ({ tab }),
         nextStep: true,
         prevStep: true,
         continueStep: true,
@@ -333,6 +348,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         saveBroadcastFinished: (broadcast: HogFlowApi | null) => ({ broadcast }),
         launchBroadcast: true,
         launchBroadcastFinished: true,
+        refreshFromAgentEdit: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -521,6 +537,20 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         ],
         // Set once the initial load of an existing draft has hydrated the reducers, so the wizard can
         // resume at the first incomplete step exactly once.
+        // A new broadcast opens on the AI start screen; this flips once the sender asks for the
+        // step-by-step wizard instead. An existing broadcast always opens straight into the wizard.
+        hasOpenedFullEditor: [
+            false,
+            {
+                openFullEditor: () => true,
+            },
+        ],
+        summaryTab: [
+            'overview' as BroadcastSummaryTab,
+            {
+                setSummaryTab: (_, { tab }) => tab,
+            },
+        ],
         hasHydrated: [
             props.id !== 'new' ? false : true,
             {
@@ -670,7 +700,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setAudienceProperties: async (_, breakpoint) => {
             // Debounce so each filter keystroke doesn't fire a preview query.
             await breakpoint(500)
@@ -811,6 +841,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (!broadcast || values.hasHydrated) {
                 return
             }
+            // The mirror of the redirect in workflowLogic: an ordinary workflow has steps this wizard
+            // cannot show, so hand it to the editor that can rather than rendering a partial view of it.
+            if (broadcast.kind !== 'broadcast' && props.id && props.id !== 'new') {
+                router.actions.replace(urls.workflow(props.id, 'workflow'))
+                return
+            }
             actions.hydrateFromBroadcast(broadcast)
             if (broadcast.status !== 'draft') {
                 actions.loadBatchJobs()
@@ -824,6 +860,26 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         loadBroadcastFailure: () => {
             lemonToast.error("Couldn't load the broadcast. Refresh the page to try again.")
+        },
+        refreshFromAgentEdit: async (_, breakpoint) => {
+            if (!values.broadcastId || !values.currentProjectId) {
+                return
+            }
+            // Coalesce bursts of agent patches into one refetch.
+            await breakpoint(300)
+            try {
+                const refreshed = await hogFlowsRetrieve(String(values.currentProjectId), values.broadcastId)
+                breakpoint()
+                actions.saveBroadcastFinished(refreshed)
+                // Only the email is re-hydrated: the agent edits the email step, and pulling the other
+                // wizard fields from the server would clobber edits the user hasn't saved yet.
+                const value = findAction(refreshed, 'function_email')?.config?.inputs?.email?.value
+                if (value) {
+                    actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, ...value })
+                }
+            } catch {
+                // The editor keeps its current state; the next patch or a reload will resync.
+            }
         },
     })),
 

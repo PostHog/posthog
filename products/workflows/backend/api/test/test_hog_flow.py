@@ -273,12 +273,31 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
         assert response.status_code == 400
 
+    def _broadcast_payload(self, extra_actions: list[dict] | None = None, trigger_type: str = "batch") -> dict:
+        sync_template_to_db(_email_function_template())
+        return {
+            "name": "September update",
+            "kind": "broadcast",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "Audience",
+                    "type": "trigger",
+                    "config": {"type": trigger_type, "filters": {"properties": []}},
+                },
+                {
+                    "id": "email_node",
+                    "name": "Send email",
+                    "type": "function_email",
+                    "config": {"template_id": "template-email", "inputs": _valid_email_inputs()},
+                },
+                {"id": "exit_node", "name": "Exit", "type": "exit", "config": {"reason": "Broadcast sent"}},
+                *(extra_actions or []),
+            ],
+        }
+
     def test_kind_is_writable_and_filterable(self):
-        hog_flow, _ = self._create_hog_flow_with_action(
-            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
-        )
-        hog_flow["kind"] = "broadcast"
-        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._broadcast_payload())
         assert create_response.status_code == 201, create_response.json()
         assert create_response.json()["kind"] == "broadcast"
         HogFlow.objects.create(team=self.team, name="Ordinary", created_by=self.user)
@@ -286,6 +305,79 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?kind=broadcast")
         assert response.status_code == 200, response.json()
         assert [flow["kind"] for flow in response.json()["results"]] == ["broadcast"]
+
+    @parameterized.expand(
+        [
+            (
+                "a_second_step",
+                [{"id": "wait", "name": "Wait", "type": "delay", "config": {"delay_duration": "1d"}}],
+                "batch",
+                "takes no other steps",
+            ),
+            (
+                "a_second_email",
+                [
+                    {
+                        "id": "email_2",
+                        "name": "Second email",
+                        "type": "function_email",
+                        "config": {"template_id": "template-email", "inputs": _valid_email_inputs()},
+                    }
+                ],
+                "batch",
+                "exactly one email step",
+            ),
+            ("an_event_trigger", None, "event", "must be 'batch'"),
+        ]
+    )
+    def test_broadcast_rejects(self, _name, extra_actions, trigger_type, expected_message):
+        # The broadcasts UI shows one email, one audience and that send's metrics. A broadcast holding
+        # anything else runs with no way to see or control the extra steps, so every write path refuses it.
+        payload = self._broadcast_payload(extra_actions=extra_actions, trigger_type=trigger_type)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload)
+
+        assert response.status_code == 400, response.json()
+        assert expected_message in response.json()["detail"]
+
+    def test_graph_endpoint_cannot_add_a_step_to_a_broadcast(self):
+        # The surgical endpoint MCP drives. Without this the agent could grow a broadcast into a
+        # workflow one op at a time, bypassing the full-save shape check.
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._broadcast_payload())
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "add_action",
+                        "action": {
+                            "id": "wait",
+                            "name": "Wait",
+                            "type": "delay",
+                            "config": {"delay_duration": "1d"},
+                        },
+                    }
+                ]
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "takes no other steps" in response.json()["detail"]
+
+    @parameterized.expand([("broadcast_to_workflow", "broadcast", None), ("workflow_to_broadcast", None, "broadcast")])
+    def test_kind_cannot_change_after_create(self, _name, initial_kind, new_kind):
+        # A converted flow would strand its runs behind the wrong editor and the wrong metrics.
+        stored = HogFlow.objects.create(team=self.team, name="Flow", created_by=self.user, kind=initial_kind)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"kind": new_kind})
+
+        assert response.status_code == 400, response.json()
+        assert "kind is fixed when it is created" in response.json()["detail"]
+        stored.refresh_from_db()
+        assert stored.kind == initial_kind
 
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value
