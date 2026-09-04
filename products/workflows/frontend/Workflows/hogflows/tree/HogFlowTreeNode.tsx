@@ -44,12 +44,14 @@ export function HogFlowTreeNode({
 }): JSX.Element {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
+    const [branchesOpen, setBranchesOpen] = useState(true)
     const [showAllBranches, setShowAllBranches] = useState(false)
     const nodeRef = useRef<HTMLDivElement>(null)
     const visibleBranches = showAllBranches ? node.branches : node.branches.slice(0, BRANCH_LIMIT)
     const hiddenBranchCount = node.branches.length - visibleBranches.length
     const joinEdge = node.branches.find((branch) => branch.sequence.trailingEdge)?.sequence.trailingEdge
     const joinAction = node.joinAction
+    const branchNoun = node.action.type === 'random_cohort_branch' ? 'paths' : 'conditions'
 
     useEffect(() => {
         if (selectedBranch?.actionId === node.action.id) {
@@ -65,7 +67,6 @@ export function HogFlowTreeNode({
             dragged={draggedActionId === node.action.id}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
-            showCollapseOffset={node.branches.length > 0}
             canDrag={
                 node.action.type !== 'trigger' &&
                 node.action.type !== 'exit' &&
@@ -88,13 +89,13 @@ export function HogFlowTreeNode({
             {node.branches.length === 0 ? (
                 step
             ) : (
-                <Collapsible variant="folder" defaultOpen>
-                    <CollapsibleHeader>
-                        <CollapsibleTrigger iconOnly className="ms-2 z-20">
-                            Expand or collapse branches
+                <Collapsible variant="folder" open={branchesOpen} onOpenChange={setBranchesOpen}>
+                    <CollapsibleHeader>{step}</CollapsibleHeader>
+                    <div className="flex">
+                        <CollapsibleTrigger className="ms-10 -mt-px h-6 w-auto rounded-t-none border border-border bg-card px-2 text-xxs">
+                            {`${branchesOpen ? 'Hide' : 'Show'} ${branchNoun}`}
                         </CollapsibleTrigger>
-                        {step}
-                    </CollapsibleHeader>
+                    </div>
                     <CollapsibleContent className="flex flex-col gap-3 pt-2">
                         {visibleBranches.map((branch, index) => {
                             const branchIndex = branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
