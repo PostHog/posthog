@@ -10,4 +10,3 @@ workspace = true
 [dependencies]
 metrics = { workspace = true }
 rdkafka = { workspace = true }
-tracing = { workspace = true }
