@@ -11,6 +11,8 @@ resource access rules the API applies, before anything changes.
 from typing import Literal
 from uuid import UUID
 
+from django.db import transaction
+
 import structlog
 
 from posthog.models.integration import Integration
@@ -34,19 +36,19 @@ SlackActionOutcome = Literal["ok", "already", "not_found", "no_access"]
 def _find_issue(issue_id: UUID, fingerprint: str | None, team_id: int | None) -> ErrorTrackingIssue | None:
     # Slack webhook: no team in the request; the issue row is the source of the team, and
     # _authorized_issue decides whether this workspace and user may touch it.
-    issue = (
+    if fingerprint and team_id is not None:
+        # The root's View issue link follows the fingerprint, so the buttons act on the same
+        # issue it opens: the survivor after a merge, the new issue after a split.
+        owner = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
+            .select_related("issue__team")
+            .first()
+        )
+        if owner is not None:
+            return owner.issue
+    return (
         ErrorTrackingIssue.objects.filter(id=issue_id).select_related("team").first()
     )  # nosemgrep: idor-lookup-without-team
-    if issue is not None or not fingerprint or team_id is None:
-        return issue
-    # A merge deletes the source issue but its Slack root stays. The fingerprint now belongs
-    # to the surviving issue in the same environment, so the buttons keep working on that one.
-    owner = (
-        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
-        .select_related("issue__team")
-        .first()
-    )
-    return owner.issue if owner is not None else None
 
 
 def _authorized_issue(
@@ -88,16 +90,19 @@ def resolve_issue_from_slack(
     authorized = _authorized_issue(issue_id, fingerprint, team_id, integration, user)
     if not isinstance(authorized, ErrorTrackingIssue):
         return authorized
-    issue = authorized
-    if issue.status == ErrorTrackingIssue.Status.RESOLVED:
-        return "already"
-    issue_mutations.update_issue(
-        issue.team_id,
-        issue.id,
-        fields={"status": ErrorTrackingIssue.Status.RESOLVED},
-        user=user,
-        was_impersonated=False,
-    )
+    # Two quick clicks land on different workers; the row lock makes check-and-change one step
+    # so only the first produces a lifecycle reply.
+    with transaction.atomic():
+        issue = _lock(authorized)
+        if issue.status == ErrorTrackingIssue.Status.RESOLVED:
+            return "already"
+        issue_mutations.update_issue(
+            issue.team_id,
+            issue.id,
+            fields={"status": ErrorTrackingIssue.Status.RESOLVED},
+            user=user,
+            was_impersonated=False,
+        )
     return "ok"
 
 
@@ -112,10 +117,15 @@ def assign_issue_to_user_from_slack(
     authorized = _authorized_issue(issue_id, fingerprint, team_id, integration, user)
     if not isinstance(authorized, ErrorTrackingIssue):
         return authorized
-    issue = authorized
-    if ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id, user_id=user.id).exists():
-        return "already"
-    issue_mutations.assign_issue(
-        issue.team_id, issue.id, {"type": "user", "id": user.id}, user=user, was_impersonated=False
-    )
+    with transaction.atomic():
+        issue = _lock(authorized)
+        if ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id, user_id=user.id).exists():
+            return "already"
+        issue_mutations.assign_issue(
+            issue.team_id, issue.id, {"type": "user", "id": user.id}, user=user, was_impersonated=False
+        )
     return "ok"
+
+
+def _lock(issue: ErrorTrackingIssue) -> ErrorTrackingIssue:
+    return ErrorTrackingIssue.objects.select_for_update().select_related("team").get(id=issue.id, team_id=issue.team_id)

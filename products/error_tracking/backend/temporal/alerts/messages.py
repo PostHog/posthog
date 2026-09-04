@@ -29,6 +29,7 @@ MAX_DESCRIPTION_LENGTH = 500
 
 # Button action ids the Slack interactivity handler (products.slack_app) dispatches on.
 RESOLVE_ACTION_ID = "error_tracking_issue_resolve"
+MAX_FINGERPRINT_VALUE_LENGTH = 1000
 ASSIGN_ME_ACTION_ID = "error_tracking_issue_assign_me"
 
 
@@ -53,7 +54,9 @@ class SlackActions:
             "issue_id": self.issue_id,
             "team_id": self.team_id,
         }
-        if self.fingerprint:
+        # Slack caps a button value at 2000 characters and fingerprints are unbounded text;
+        # a long one is left out rather than sinking the whole message.
+        if self.fingerprint and len(json.dumps(self.fingerprint)) <= MAX_FINGERPRINT_VALUE_LENGTH:
             payload["fingerprint"] = self.fingerprint
         return json.dumps(payload)
 
