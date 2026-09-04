@@ -106,7 +106,6 @@ class TestExperimentBreakdownAttributionQueryBuilder:
             ("last_touch", BreakdownAttributionType.LAST_TOUCH, None, "argMaxIf", {"step_1", "step_2"}),
             ("step_series_0", BreakdownAttributionType.STEP, 0, "argMinIf", {"step_1"}),
             ("step_series_1", BreakdownAttributionType.STEP, 1, "argMinIf", {"step_2"}),
-            ("all_events", BreakdownAttributionType.ALL_EVENTS, None, "argMinIf", {"step_1", "step_2"}),
             ("default_none", None, None, "argMinIf", {"step_1", "step_2"}),
         ]
     )
@@ -260,4 +259,18 @@ class TestExperimentBreakdownAttributionQueryBuilder:
             builder.inject_funnel_breakdown_columns_optimized(query)
             raise AssertionError("expected ValueError")
         except ValueError:
+            pass
+
+    def test_all_events_attribution_is_rejected(self):
+        # all-events buckets a unit under every distinct breakdown value it emitted, so it needs a
+        # group-array fan-out this resolver cannot express. Mapping it to first-touch would silently
+        # collapse those buckets and report wrong conversion counts, so it must raise until supported.
+        metric = _funnel_metric(attribution=BreakdownAttributionType.ALL_EVENTS, num_steps=2)
+        builder = _builder(metric)
+        query = _optimized_query()
+
+        try:
+            builder.inject_funnel_breakdown_columns_optimized(query)
+            raise AssertionError("expected NotImplementedError")
+        except NotImplementedError:
             pass

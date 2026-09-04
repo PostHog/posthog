@@ -64,20 +64,26 @@ class ExperimentBreakdownAttributionContext:
         events are ``step_1 .. step_N`` (N = len(series)). The breakdown is read off
         the metric events, so attribution targets those steps, never the exposure step.
 
-        - first_touch / all_events: argMinIf across all metric steps (step_1..step_N), so the
-          value comes from the user's earliest metric event, whichever step it matched.
+        - first_touch: argMinIf across all metric steps (step_1..step_N), so the value comes
+          from the user's earliest metric event, whichever step it matched.
         - last_touch: argMaxIf across all metric steps, so a user who drops off before the last
           step still gets the value from their latest metric event.
         - step (ordered): argMinIf from ``breakdownAttributionValue`` (0-indexed into the
           series, mapped to the corresponding step column step_{value + 1}).
         - step (unordered, "Any step"): argMinIf across all metric step columns, since an
           unordered funnel has no fixed step position and any matching step attributes.
+
+        all_events is not a single-value attribution: it buckets a unit under every distinct
+        breakdown value it emitted, so it needs a group-array fan-out this resolver cannot
+        express. It is rejected until the builder supports that fan-out.
         """
         attribution = self.metric.breakdownAttributionType or BreakdownAttributionType.FIRST_TOUCH
         num_metric_steps = len(self.metric.series)
         is_unordered = self.metric.funnel_order_type == StepOrderValue.UNORDERED
         all_metric_steps = list(range(1, num_metric_steps + 1))
 
+        if attribution == BreakdownAttributionType.ALL_EVENTS:
+            raise NotImplementedError("all-events breakdown attribution is not yet supported for experiment funnels")
         if attribution == BreakdownAttributionType.LAST_TOUCH:
             return AttributionResolution(aggregation_fn="argMaxIf", step_indexes=all_metric_steps)
         if attribution == BreakdownAttributionType.STEP:
