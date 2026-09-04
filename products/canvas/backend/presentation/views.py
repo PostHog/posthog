@@ -1327,7 +1327,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         source_canvas_id = data.get("source_canvas_id")
         if source_canvas_id is not None:
             source = self.get_queryset().filter(pk=source_canvas_id).first()
-            if source is None:
+            # The queryset carries the space rule only. Per-object access control is applied to
+            # list responses and, for detail routes, by the object permission DRF runs inside
+            # get_object() — neither reaches a detail-less action, so check it here. A copy reads
+            # the source rather than changing it, so viewer is the level it needs.
+            if source is None or not self.user_access_control.check_access_level_for_object(source, "viewer"):
                 return Response({"detail": "Canvas not found in this project."}, status=status.HTTP_404_NOT_FOUND)
             return source
         share = (

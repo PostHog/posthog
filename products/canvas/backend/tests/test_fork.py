@@ -4,10 +4,13 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, SharingConfiguration, Team
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend import build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.tests.test_sharing import CanvasSharingTestBase
@@ -60,6 +63,30 @@ class TestCanvasFork(CanvasSharingTestBase):
             private = Canvas.objects.create(team=self.team, channel=personal, name="Private", created_by=owner)
 
         response = self._fork({"source_canvas_id": str(private.id)})
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_fork_refuses_a_canvas_the_caller_is_denied_access_to(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
+        with team_scope(self.team.id):
+            restricted = Canvas.objects.create(
+                team=self.team, channel=self.channel, name="Restricted", created_by=owner
+            )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=str(restricted.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+
+        response = self._fork({"source_canvas_id": str(restricted.id)})
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 

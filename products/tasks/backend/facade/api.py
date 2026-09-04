@@ -9390,6 +9390,15 @@ def user_can_access_task(task_id: str | UUID, team_id: int, user_id: int | None)
         return False
 
 
+def user_can_control_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+    """Whether the task is live and the user may drive it, which is narrower than reading it:
+    a channeled task is controlled by its owner alone, not by everyone who can see the space."""
+    try:
+        return _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).exists()
+    except DjangoValidationError:
+        return False
+
+
 def _output_artifact_entry(task: Task, artifact_id: str) -> dict | None:
     for run in task.runs.only("id", "artifacts"):
         for entry in run.artifacts or []:

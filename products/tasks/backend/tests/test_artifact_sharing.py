@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models import SharingConfiguration
@@ -183,4 +184,17 @@ class TestTaskArtifactSharing(APIBaseTest):
         response = self.client.patch(self._sharing_url("secret", task), {"enabled": True})
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not SharedTaskArtifact.objects.for_team(self.team.id).exists()
+
+    def test_a_teammate_can_read_the_sharing_state_but_not_publish_the_file(self):
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        client = APIClient()
+        client.force_login(teammate)
+
+        read = client.get(self._sharing_url("art-1"))
+        write = client.patch(self._sharing_url("art-1"), {"enabled": True}, format="json")
+
+        assert read.status_code == status.HTTP_200_OK, read.json()
+        assert read.json()["enabled"] is False
+        assert write.status_code == status.HTTP_403_FORBIDDEN, write.json()
         assert not SharedTaskArtifact.objects.for_team(self.team.id).exists()

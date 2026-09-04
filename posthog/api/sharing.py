@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable
 from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
+from uuid import UUID
 
 from django.core.exceptions import (
     ImproperlyConfigured,
@@ -326,18 +327,33 @@ def _require_canvas_access(
         raise PermissionDenied(_denied_message("canvas", required_level))
 
 
+def _assert_task_artifact_access(
+    view: "SharingConfigurationViewSet",
+    task_id: str | UUID,
+    required_level: AccessControlLevel,
+) -> None:
+    # A run artifact follows its task's space rule, like canvases: everyone in the project for a
+    # shared space, only the owner otherwise. Reading who a file is already shared with needs no
+    # more than that visibility. Changing it mints a link that anyone can open, so it needs the
+    # narrower control rule the tasks product applies to every other mutation on a task.
+    user = view.request.user
+    user_id = user.id if user.is_authenticated else None
+    allowed = (
+        tasks_facade.user_can_control_task(task_id, view.team.pk, user_id)
+        if required_level == "editor"
+        else tasks_facade.user_can_access_task(task_id, view.team.pk, user_id)
+    )
+    if not allowed:
+        raise PermissionDenied(_denied_message("file", required_level))
+
+
 def _require_task_artifact_access(
     view: "SharingConfigurationViewSet",
     _user_access_control: UserAccessControl,
     anchor: Model,
     required_level: AccessControlLevel,
 ) -> None:
-    # A run artifact is shareable by whoever can see its task, which follows the task's space
-    # exactly like canvases: everyone in the project for a shared space, only the owner otherwise.
-    user = view.request.user
-    user_id = user.id if user.is_authenticated else None
-    if not tasks_facade.user_can_access_task(cast(Any, anchor).task_id, view.team.pk, user_id):
-        raise PermissionDenied(_denied_message("file", required_level))
+    _assert_task_artifact_access(view, cast(Any, anchor).task_id, required_level)
 
 
 # Maps every shareable FK on SharingConfiguration to the permission check that gates access to it.
@@ -376,7 +392,10 @@ _assert_every_shareable_resource_is_gated()
 
 # NOTE: We can't use a standard permission system as we are using Detail view on a non-detail route
 def check_can_access_sharing_configuration(
-    view: "SharingConfigurationViewSet", request: Request, sharing: SharingConfiguration
+    view: "SharingConfigurationViewSet",
+    request: Request,
+    sharing: SharingConfiguration,
+    context: dict[str, Any] | None = None,
 ) -> bool:
     """A share token grants anonymous access to the resource, so reading one needs at least the access
     the token hands out, and changing one needs edit access."""
@@ -400,6 +419,13 @@ def check_can_access_sharing_configuration(
         if access_check is None:
             raise PermissionDenied("This resource cannot be shared through this endpoint.")
         access_check(view, user_access_control, target, required_level)
+
+    # A file's anchor row only exists once it has been shared, so the very first write has no
+    # ``task_artifact`` FK for the loop above to gate. Gate the identity the request resolved
+    # instead, so that write is held to the same rule as every later one.
+    pending_artifact = (context or {}).get("task_artifact_identity")
+    if pending_artifact is not None and sharing.task_artifact_id is None:
+        _assert_task_artifact_access(view, pending_artifact.task_id, required_level)
 
     return True
 
@@ -702,7 +728,7 @@ class SharingConfigurationViewSet(
         instance = self._get_sharing_configuration(context)
 
         # The parent resource is resolved from the URL, so DRF never runs object permissions here.
-        check_can_access_sharing_configuration(self, request, instance)
+        check_can_access_sharing_configuration(self, request, instance, context)
 
         serializer = self.get_serializer(instance, context)
         serializer.is_valid(raise_exception=True)
@@ -713,7 +739,7 @@ class SharingConfigurationViewSet(
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
 
-        check_can_access_sharing_configuration(self, request, instance)
+        check_can_access_sharing_configuration(self, request, instance, context)
 
         # Now that the caller is authorized to edit, collapse any duplicate active rows.
         instance = self._get_sharing_configuration(context, dedupe=True)
@@ -872,7 +898,7 @@ class SharingConfigurationViewSet(
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
 
-        check_can_access_sharing_configuration(self, request, instance)
+        check_can_access_sharing_configuration(self, request, instance, context)
         self._ensure_task_artifact_anchor(context, instance)
 
         # Create new sharing configuration and expire the old one
@@ -942,7 +968,7 @@ class SharingConfigurationViewSet(
         context = self.get_serializer_context()
         sharing_config = self._get_sharing_configuration(context)
 
-        check_can_access_sharing_configuration(self, request, sharing_config)
+        check_can_access_sharing_configuration(self, request, sharing_config, context)
 
         sharing_config = self._get_sharing_configuration(context, dedupe=True)
 
@@ -990,7 +1016,7 @@ class SharingConfigurationViewSet(
         context = self.get_serializer_context()
         sharing_config = self._get_sharing_configuration(context)
 
-        check_can_access_sharing_configuration(self, request, sharing_config)
+        check_can_access_sharing_configuration(self, request, sharing_config, context)
 
         sharing_config = self._get_sharing_configuration(context, dedupe=True)
 
