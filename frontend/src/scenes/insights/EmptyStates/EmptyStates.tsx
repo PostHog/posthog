@@ -557,8 +557,25 @@ export function InsightLoadingState({
     )
 }
 
-export function InsightTimeoutState({ queryId }: { queryId?: string | null }): JSX.Element {
+export function InsightTimeoutState({
+    query,
+    queryId,
+    placement,
+}: {
+    query?: Record<string, any> | null
+    queryId?: string | null
+    placement?: DashboardPlacement | 'SavedInsightGrid'
+}): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
+
+    // query_id lets staff look the slow query up server-side, which is what the bug report link asks for
+    useOnMountEffect(() => {
+        posthog.capture('insight error message shown', {
+            error_type: 'timeout',
+            query_kind: queryKindForReporting(query),
+            query_id: queryId ?? null,
+        })
+    })
 
     return (
         <div data-attr="insight-empty-state" className="rounded px-4 py-6 h-full w-full">
@@ -580,7 +597,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                 .
             </div>
 
-            <QueryIdDisplay queryId={queryId} />
+            {placement !== DashboardPlacement.Export && <QueryIdDisplay queryId={queryId} />}
         </div>
     )
 }
