@@ -314,6 +314,7 @@ export interface dashboardLogicValues {
     externalFilters: DashboardFilter
     filterChanges: DashboardFilterChange[]
     filterEditModeActive: boolean
+    variablesDirty: boolean
     filtersDirty: boolean
     filtersOverrideForLoad: DashboardFilter
     hasIntermittentFilters: boolean
@@ -1026,6 +1027,10 @@ export interface dashboardLogicMeta {
             hasIntermittentFilters: boolean,
             filterEditModeActive: boolean,
             urlVariables: Record<string, HogQLVariable>
+        ) => boolean
+        variablesDirty: (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            effectiveDashboardVariableOverrides: Record<string, HogQLVariable>
         ) => boolean
         showApplyFiltersBanner: (canAutoPreview: boolean, hasIntermittentFilters: boolean) => boolean
         urlFilters: (searchParams: Record<string, any>) => DashboardFilter
@@ -2229,7 +2234,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 setDashboardMode: (state, { mode, source }) => {
-                    if (source !== DashboardEventSource.DashboardFilters) {
+                    if (
+                        source !== DashboardEventSource.DashboardFilters &&
+                        source !== DashboardEventSource.DashboardVariableOverride
+                    ) {
                         return state
                     }
                     return mode === DashboardMode.Edit
@@ -2628,6 +2636,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard, s.persistableDashboardFilters],
             (dashboard: DashboardType<QueryBasedInsightModel> | null, persistableDashboardFilters: DashboardFilter) =>
                 !equal(dashboard?.persisted_filters || {}, persistableDashboardFilters),
+        ],
+        variablesDirty: [
+            (s) => [s.dashboard, s.effectiveDashboardVariableOverrides],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                effectiveDashboardVariableOverrides: Record<string, HogQLVariable>
+            ): boolean => !equal(dashboard?.persisted_variables || {}, effectiveDashboardVariableOverrides),
         ],
         filterChanges: [
             (s) => [s.dashboard, s.persistableDashboardFilters],

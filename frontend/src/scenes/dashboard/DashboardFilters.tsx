@@ -10,7 +10,7 @@ import { DashboardMode, DashboardPlacement } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
 import { DashboardFilterChangesTooltip } from './DashboardFilterChangesTooltip'
-import { dashboardLogic } from './dashboardLogic'
+import { dashboardLogic, RefreshDashboardItemsAction } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
 import { DashboardTemporaryFiltersNotice } from './DashboardTemporaryFiltersNotice'
 
@@ -25,21 +25,38 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
         changedFilterCount,
         filterChanges,
         filtersDirty,
+        variablesDirty,
         dashboardFiltersSaving,
         showApplyFiltersBanner,
         loadingPreview,
     } = useValues(dashboardLogic)
-    const { applyFilters, discardDashboardFilters, saveDashboardFilters } = useActions(dashboardLogic)
+    const {
+        applyFilters,
+        discardDashboardFilters,
+        refreshDashboardItems,
+        resetUrlVariables,
+        saveDashboardFilters,
+        saveEditModeChanges,
+    } = useActions(dashboardLogic)
+    const hasUnsavedChanges = filtersDirty || variablesDirty
     if (
         !canEditDashboard ||
-        !filtersDirty ||
+        !hasUnsavedChanges ||
         (!filterEditModeActive && dashboardMode !== DashboardMode.Edit && !hasIntermittentFilters) ||
         isTemporaryFilterView
     ) {
         return null
     }
 
-    const discardAction = discardDashboardFilters
+    const discardAction =
+        variablesDirty && !filtersDirty
+            ? () => {
+                  resetUrlVariables()
+                  refreshDashboardItems({ action: RefreshDashboardItemsAction.Preview, forceRefresh: false })
+              }
+            : discardDashboardFilters
+    const saveAction = variablesDirty && !filtersDirty ? saveEditModeChanges : saveDashboardFilters
+    const changeLabel = variablesDirty && !filtersDirty ? 'unsaved variables' : 'unsaved filters'
     const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
 
     return (
@@ -55,10 +72,10 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                 >
                     <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
                     <span className="@max-lg/dashboard-filters:hidden whitespace-nowrap">
-                        {changedFilterCount} unsaved {changedFilterCount === 1 ? 'filter' : 'filters'}
+                        {variablesDirty && !filtersDirty ? `1 ${changeLabel}` : `${changedFilterCount} ${changeLabel}`}
                     </span>
                     <span className="@min-lg/dashboard-filters:hidden whitespace-nowrap">
-                        {changedFilterCount} unsaved
+                        {variablesDirty && !filtersDirty ? '1 unsaved' : `${changedFilterCount} unsaved`}
                     </span>
                     <IconInfo className="cursor-pointer text-sm" />
                 </button>
@@ -97,9 +114,9 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                         size="small"
                         loading={dashboardFiltersSaving}
                         tooltip="Save these filters as the dashboard default."
-                        onClick={saveDashboardFilters}
+                        onClick={saveAction}
                     >
-                        Save filters
+                        {variablesDirty && !filtersDirty ? 'Save changes' : 'Save filters'}
                     </LemonButton>
                 </span>
             </span>
@@ -119,7 +136,7 @@ function UnsavedFiltersIndicator(): JSX.Element | null {
                         : []),
                     {
                         label: 'Save filters',
-                        onClick: saveDashboardFilters,
+                        onClick: saveAction,
                     },
                 ]}
                 placement="bottom-end"
