@@ -67,6 +67,7 @@ from products.signals.backend.scout_harness.config_registry import enabled_scout
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
     ScoutRunRejectionKind,
@@ -102,6 +103,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutNoteSerializer,
     ScoutNotesQuerySerializer,
     ScoutRunIdsBatchRequestSerializer,
+    ScoutRunTokenCostsSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -788,6 +790,47 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
 
     @validated_request(
+        request_serializer=ScoutRunIdsBatchRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutRunTokenCostsSerializer,
+                description="Model spend for each requested run that exists on this project.",
+            ),
+            403: OpenApiResponse(description="Caller is not PostHog staff."),
+        },
+        summary="Get the model spend of many runs at once",
+        description=(
+            "Return what each requested `SignalScoutRun` spent on model calls, summed from the "
+            "`$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: "
+            "a settled run's total is final, a run still in progress reports what it has spent so far. "
+            "`available` is false where the internal AI observability project holding those events can't "
+            "be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal "
+            "operating number, and the events sit outside the project in the path. Strictly team-scoped — "
+            "run ids belonging to another project contribute no rows."
+        ),
+        operation_id="signals_scout_runs_token_costs",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="token-costs",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def token_costs(self, request: Request, **kwargs) -> Response:
+        if not cast(User, request.user).is_staff:
+            raise exceptions.PermissionDenied("Only PostHog staff can read scout run costs.")
+        costs = scout_run_token_costs(team_id=_canonical_team_id(self), run_ids=request.validated_data["run_ids"])
+        return Response(
+            ScoutRunTokenCostsSerializer(
+                {
+                    "costs": [dataclasses.asdict(cost) for cost in costs.costs],
+                    "available": costs.available,
+                }
+            ).data
+        )
+
+    @validated_request(
         request_serializer=EmitFindingRequestSerializer,
         parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
@@ -1404,11 +1447,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 if _may_read_reports(request, self.team.parent_team or self.team)
                 # Every derived origin quotes report content (id, title, and the reviewer's / user's
                 # text), so a caller without report read access must not see any of them.
-                else (
-                    SignalScoutNote.Origin.REPORT_DISMISSAL,
-                    SignalScoutNote.Origin.REPORT_DISCUSSION,
-                    SignalScoutNote.Origin.REPORT_FEEDBACK,
-                )
+                else SignalScoutNote.derived_origins()
             ),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
