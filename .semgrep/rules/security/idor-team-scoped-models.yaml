@@ -322,6 +322,7 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -707,6 +708,7 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
