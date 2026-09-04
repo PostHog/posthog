@@ -480,7 +480,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
                 mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -597,7 +597,7 @@ class TestRunEvaluationWorkflow:
             return_value=team.api_token,
         ):
             with patch(
-                "posthog.temporal.ai_observability.team_capture.capture_internal",
+                "posthog.temporal.ai_observability.team_capture.capture_ai_internal",
                 return_value=capture_result,
             ):
                 if should_raise:
@@ -638,7 +638,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
                 mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -694,7 +694,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
                 mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -739,7 +739,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
                 mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -1486,7 +1486,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
                 mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -1529,7 +1529,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
                 mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
