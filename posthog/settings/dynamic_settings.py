@@ -267,6 +267,12 @@ CONSTANCE_CONFIG = {
         "Max organizations the daily ICP re-enrichment sweep re-fetches from Harmonic per run. The provider spend bound.",
         int,
     ),
+    "GROWTH_RESCORE_WEBHOOK_SECRET": (
+        get_from_env("GROWTH_RESCORE_WEBHOOK_SECRET", default=""),
+        "Shared secret the wizard-stamp ICP re-score webhook (products/growth/backend/api/rescore.py) "
+        "checks against the X-PostHog-Webhook-Secret header. Set by the realtime destination that calls it.",
+        str,
+    ),
     "CLICKHOUSE_KILL_SWITCH": (
         get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
@@ -357,6 +363,7 @@ CONSTANCE_CONFIG = {
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
+    "GROWTH_RESCORE_WEBHOOK_SECRET",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
@@ -429,4 +436,5 @@ SECRET_SETTINGS = [
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",
+    "GROWTH_RESCORE_WEBHOOK_SECRET",
 ]

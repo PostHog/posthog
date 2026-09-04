@@ -27,6 +27,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import GenericEmails, get_instance_region
 
 from products.growth.backend.enrichment.writer import record_signup_work_email
+from products.growth.backend.temporal.signup_enrichment.rescore import WizardStampRescoreInputs
 from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 
 logger = structlog.get_logger(__name__)
@@ -94,6 +95,62 @@ def start_signup_enrichment_workflow(
     # so dispatch goes to the bounded pool: building the Temporal client must not add latency to
     # the signup response, and the pool caps how much a Temporal outage can pile up.
     transaction.on_commit(lambda: _submit_dispatch(inputs))
+
+
+def dispatch_wizard_stamp_rescore(organization_id: str) -> None:
+    """Fire-and-forget dispatch of the wizard-stamp re-score workflow, called from the webhook
+    in products/growth/backend/api/rescore.py once it has already applied its own gates.
+
+    Shares the bounded dispatch pool above with signup dispatch: the webhook's own DRF throttle
+    already bounds how often a destination can call in, so the pool here exists purely to keep
+    an unreachable Temporal from piling up threads on the web pod, same as it does for signups.
+    """
+    _submit_rescore_dispatch(organization_id)
+
+
+def _submit_rescore_dispatch(organization_id: str) -> None:
+    if not _dispatch_slots.acquire(blocking=False):
+        logger.warning(
+            "wizard_stamp_rescore_dispatch_dropped", organization_id=organization_id, reason="dispatch_backlog_full"
+        )
+        return
+    try:
+        _dispatch_executor.submit(_rescore_dispatch_and_release, organization_id)
+    except Exception as e:
+        _dispatch_slots.release()
+        capture_exception(e)
+
+
+def _rescore_dispatch_and_release(organization_id: str) -> None:
+    try:
+        _rescore_dispatch(organization_id)
+    finally:
+        _dispatch_slots.release()
+
+
+def _rescore_dispatch(organization_id: str) -> None:
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "wizard-stamp-rescore",
+                WizardStampRescoreInputs(organization_id=organization_id),
+                id=f"wizard-stamp-rescore-{organization_id}",
+                task_queue=settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        # A stamp landing while the previous run for this org is still in flight hits the
+        # still-running workflow id and is dropped, collapsing near-simultaneous stamps into
+        # one run rather than queueing a retry.
+        logger.info("wizard_stamp_rescore_dispatch_skipped", organization_id=organization_id)
+    except RPCError as e:
+        logger.info("wizard_stamp_rescore_dispatch_skipped", organization_id=organization_id, error=str(e))
+    except Exception as e:
+        capture_exception(e)
+    else:
+        logger.info("wizard_stamp_rescore_dispatch_started", organization_id=organization_id)
 
 
 def dispatch_signup_enrichment(inputs: SignupEnrichmentInputs) -> None:
