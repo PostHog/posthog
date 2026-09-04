@@ -301,6 +301,11 @@ register_policy(
 )
 
 
+def github_installation_cache_identity(installation_id: str | int) -> str:
+    """``cache_identity`` for data read through an installation token, shared by every row on it."""
+    return f"installation:{installation_id}"
+
+
 def github_installation_key(
     installation_id: str | int, *, resource: GitHubRateResource = GitHubRateResource.CORE
 ) -> str:
@@ -361,8 +366,6 @@ def peek_github_installation_sync(
     source: str = "unknown",
     resource: GitHubRateResource = GitHubRateResource.CORE,
 ) -> bool:
-    """Admit without spending; pair with :func:`charge_github_installation_sync` once the response shows
-    whether GitHub charged the call. See ``OutboundRateLimiter.peek_sync``."""
     _note_demand_if_interactive(installation_id, priority, resource)
     return get_outbound_rate_limiter().peek_sync(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source

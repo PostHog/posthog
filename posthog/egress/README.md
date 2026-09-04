@@ -143,16 +143,14 @@ GitHub does not charge a matched conditional request against the installation's 
 
 Caching is opt-in because the credential, not the URL, decides what the response contains.
 `cache_identity` names whose view is being stored; `GitHubIntegrationBase.api_request` passes `_installation_cache_scope()`, and a caller holding a narrower token (a user access token, say) passes nothing and is never cached.
-The key is that identity plus the full URL and the request headers that change the representation, `Accept` and `X-GitHub-Api-Version` — the same `/compare/{basehead}` is read both as a diff and as JSON under one installation.
-Entries are held in Django's `default` cache, so bodies are compressed and reads can go to a replica.
+The key is that identity plus the full URL, `Accept` and `X-GitHub-Api-Version`.
 
 Nothing is stored for a non-GET, a streamed response, a request the caller already made conditional, a response with no `ETag` or with `no-store`, a `Vary` of `*`, or a body over `GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES`.
-That ceiling counts the uncompressed body, so the stored entry is several times smaller than the limit suggests.
 `GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS = 0` turns the whole thing off.
 Watch `github_egress_conditional_cache_total`: stores without matching hits mean the URL is not stable between calls.
 
-The limiter follows GitHub's accounting: the GitHub transport admits a call with `peek_sync` before sending and spends with `charge_sync` after, skipping the spend on a `304`.
-The two halves are not atomic, so calls in flight at the same time can all be admitted against the same headroom; the overrun is bounded by that concurrency and GitHub's own limit backstops it.
+The limiter follows GitHub's accounting: the GitHub transport admits with `peek_sync` before sending and spends with `charge_sync` after, skipping the spend on a `304`.
+The two halves are not atomic, so calls in flight together can all be admitted against the same headroom; GitHub's own limit backstops the overrun.
 
 Firecrawl callers go through `firecrawl/client.py` rather than `firecrawl_request` directly: `scrape(url, source=...)` returns a typed `FirecrawlScrape` (markdown, summary, plus the page title, description, status code and credits used) and raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including the 200 responses that carry `success: false`.
 Only `POST /v2/scrape` is wired up, and the client reads `FIRECRAWL_API_KEY` from settings so the transport stays token-agnostic like the others.

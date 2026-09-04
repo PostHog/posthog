@@ -64,8 +64,6 @@ def test_consume_sync_enforces_budget():
 
 
 def test_peek_admits_without_spending_and_charge_spends():
-    # A peek that spent would charge every 304 twice over; a charge that did not spend would let a
-    # conditional caller run unmetered.
     register_policy("test-peek", RatePolicy(limits=((2, 3600.0),)))
     limiter = _fresh_limiter()
     key = _unique_key("test-peek")

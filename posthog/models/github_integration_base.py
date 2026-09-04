@@ -26,7 +26,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.limiter import remember_observed_core_limit
+from posthog.egress.github.limiter import github_installation_cache_identity, remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
@@ -197,7 +197,7 @@ class GitHubIntegrationBase:
         """
         installation_id = self.github_installation_id
         if installation_id:
-            return f"installation:{installation_id}"
+            return github_installation_cache_identity(installation_id)
         # Integration and UserIntegration are separate tables with independent primary keys, so the
         # row id alone names two different rows.
         return f"{type(self.integration).__name__}:{self.integration.id}"

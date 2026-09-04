@@ -92,9 +92,6 @@ def _hit(limiter: SlidingWindowCounterRateLimiter, items: list[RateLimitItemPerS
     return all(limiter.hit(item, key, cost=n) for item in items)
 
 
-_Op = Callable[[SlidingWindowCounterRateLimiter, list[RateLimitItemPerSecond], list[int]], bool]
-
-
 def _window_wait(
     limiter: SlidingWindowCounterRateLimiter,
     item: RateLimitItemPerSecond,
@@ -140,30 +137,34 @@ class LimitsBackend:
 
     def consume_sync(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
         return self._run(
-            key, policy, priority, lambda limiter, items, reserves: _check(limiter, items, key, n, reserves)
+            key,
+            policy,
+            lambda limiter, limits: _check(limiter, _items(limits), key, n, _reserves(policy, priority, limits)),
         )
 
     def peek_sync(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
-        """The admission half of ``consume_sync`` alone: True if ``n`` would be granted now, nothing spent."""
         return self._run(
-            key, policy, priority, lambda limiter, items, reserves: _test(limiter, items, key, n, reserves)
+            key,
+            policy,
+            lambda limiter, limits: _test(limiter, _items(limits), key, n, _reserves(policy, priority, limits)),
         )
 
     def charge_sync(self, key: str, policy: RatePolicy, n: int) -> None:
-        """The spending half of ``consume_sync`` alone, for a caller that peeked earlier. Bounded by the
-        window like ``hit`` is, so a charge past the limit is dropped rather than overdrawing."""
-        self._run(key, policy, Priority.CRITICAL, lambda limiter, items, _reserves: _hit(limiter, items, key, n))
+        """A charge past the window is dropped, not overdrawn, like ``hit``."""
+        self._run(key, policy, lambda limiter, limits: _hit(limiter, _items(limits), key, n))
 
-    def _run(self, key: str, policy: RatePolicy, priority: Priority, op: _Op) -> bool:
+    def _run(
+        self,
+        key: str,
+        policy: RatePolicy,
+        op: Callable[[SlidingWindowCounterRateLimiter, tuple[RateLimit, ...]], bool],
+    ) -> bool:
+        # The fallback runs op on the shrunk limits, so reserves scale with the per-process budget.
         try:
-            limits = policy.limits
-            return op(self._redis_limiter(), _items(limits), _reserves(policy, priority, limits))
+            return op(self._redis_limiter(), policy.limits)
         except _REDIS_ERRORS:
             logger.warning("outbound_rate_limit_redis_unavailable", key=key, fallback="in_memory")
-            # Reserve off the shrunk fallback budget so the floor scales with the smaller per-process
-            # limit rather than the full one.
-            shrunk = self._shrunk(policy)
-            return op(self._memory_limiter(), _items(shrunk), _reserves(policy, priority, shrunk))
+            return op(self._memory_limiter(), self._shrunk(policy))
 
     def pace_seconds(self, key: str, policy: RatePolicy, priority: Priority) -> float:
         limits = policy.limits

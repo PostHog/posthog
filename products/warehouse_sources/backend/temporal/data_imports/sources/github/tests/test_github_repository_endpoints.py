@@ -180,11 +180,7 @@ class TestListParams:
         )
 
         floor = datetime.fromisoformat(params["since"].replace("Z", "+00:00"))
-        # Floored to the UTC day so the URL is identical between polls: a repository that never sets a
-        # watermark re-enters this branch every sync, and a live timestamp would hand it a fresh
-        # conditional-request cache key every time.
         assert (floor.hour, floor.minute, floor.second, floor.microsecond) == (0, 0, 0, 0)
-        # Still the right day, and never later than the unfloored value, so the window only widens.
         expected = datetime.now(UTC) - timedelta(days=lookback)
         assert floor <= expected
         assert (expected - floor) < timedelta(days=1)

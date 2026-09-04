@@ -39,27 +39,13 @@ from posthog.utils import get_safe_cache, safe_cache_set
 # layer stays free of any posthog.models import; integration.py imports it back from here.
 GITHUB_API_VERSION = "2022-11-28"
 
-# Bump the version when _CachedResponse changes shape: @frozen pickles positionally, so an entry
-# written by the previous shape would load with its fields shifted.
+# Bump v1 when _CachedResponse changes shape: pickled entries load positionally.
 _CONDITIONAL_CACHE_PREFIX = "github_egress:conditional:v1"
 
-# Headers that describe the stored body rather than the exchange that revalidated it. A 304 need not
-# repeat them, and a caller that reads .text or branches on the media type would otherwise sniff a
-# body we already know the type of. Everything else on the replay comes from the live 304, so a
-# header a consumer reads (x-ratelimit-resource, say) cannot be dropped by an allowlist going stale.
-_STORED_HEADERS = frozenset({"content-type", "content-language", "content-disposition", "link", "last-modified"})
-
-# Dropped from the replay: they describe the 304's empty body, and requests serves the replay from
-# the stored bytes rather than from a length or an encoding.
+# Describe the wire body, which the replay does not use.
 _ENTITY_LENGTH_HEADERS = frozenset({"content-length", "content-encoding"})
 
-# A request the caller already made conditional is theirs to interpret; we stand down entirely.
-_CALLER_CONDITIONAL_HEADERS = frozenset(
-    {"if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range"}
-)
-
-# Request headers we send whose value changes the representation, so the key has to carry them.
-# Authorization is the other one, and the caller-declared identity stands in for it.
+# Request headers that change the representation; cache_identity stands in for Authorization.
 _KEYED_REQUEST_HEADERS = ("Accept", "X-GitHub-Api-Version")
 
 
@@ -70,10 +56,15 @@ class _CachedResponse:
     headers: dict[str, str]
 
 
-def _conditional_cache_key(identity: str, headers: CaseInsensitiveDict, method: str, url: str, params: object) -> str:
-    prepared = requests.Request(method=method, url=url, params=params).prepare().url or url
+def _without_entity_length(headers: CaseInsensitiveDict) -> dict[str, str]:
+    return {name: value for name, value in headers.items() if name.lower() not in _ENTITY_LENGTH_HEADERS}
+
+
+def _conditional_cache_key(identity: str, headers: CaseInsensitiveDict, url: str, params: object) -> str:
+    prepared = requests.PreparedRequest()
+    prepared.prepare_url(url, params)
     keyed = "\n".join(headers.get(name, "") for name in _KEYED_REQUEST_HEADERS)
-    digest = hashlib.sha256(f"{keyed}\n{prepared}".encode()).hexdigest()
+    digest = hashlib.sha256(f"{keyed}\n{prepared.url}".encode()).hexdigest()
     return f"{_CONDITIONAL_CACHE_PREFIX}:{identity}:{digest}"
 
 
@@ -88,23 +79,18 @@ def _storable(response: requests.Response) -> bool:
 
 
 def _replayed(response: requests.Response, cached: _CachedResponse) -> requests.Response:
-    """A 200 carrying the cached body, so callers never have to know the request was conditional."""
     replay = requests.models.Response()
     replay.status_code = 200
     replay.reason = "OK"
-    # The live 304 is the base so its rate-limit headers reach the limiter, with the stored
-    # body-describing headers laid over the ones a 304 omits.
-    replay.headers = CaseInsensitiveDict(
-        {name: value for name, value in response.headers.items() if name.lower() not in _ENTITY_LENGTH_HEADERS}
-    )
-    replay.headers.update(cached.headers)
+    # RFC 9111 section 4.3.4: the 304's headers update the stored ones.
+    replay.headers = CaseInsensitiveDict(cached.headers)
+    replay.headers.update(_without_entity_length(response.headers))
     replay.encoding = get_encoding_from_headers(replay.headers)
     replay.url = response.url
     replay.request = response.request
     replay.elapsed = response.elapsed
     replay._content = cached.body
-    # Same two attributes requests settles in Response.__setstate__ when it restores a deserialized
-    # response. Without the flag, iter_content takes the streaming branch and reads the None raw.
+    # Without _content_consumed, iter_content takes the streaming branch and reads the None raw.
     replay._content_consumed = True  # type: ignore[attr-defined]
     replay.raw = None
     return replay
@@ -183,46 +169,45 @@ class GitHubClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
 
-    def conditional_request(
+    def request(
         self,
         method: str,
         url: str,
         *,
-        cache_identity: str,
         source: str,
         headers: dict[str, str] | None = None,
+        cache_identity: str | None = None,
         **kwargs: Any,
     ) -> requests.Response:
-        """``request`` with GitHub's conditional-request support: an unchanged resource comes back as a
-        304, which GitHub does not charge against the installation's primary rate limit, and the caller
-        gets the stored body as a 200 either way.
+        """A GET with ``cache_identity`` is sent conditionally, and a 304 is replayed as a 200 from the
+        cache. ``cache_identity`` names whose view this is, because the credential decides the response;
+        see ``GitHubIntegrationBase._installation_cache_scope``."""
+        if not cache_identity:
+            return super().request(method, url, source=source, headers=headers, **kwargs)
 
-        ``cache_identity`` names whose view of the resource this is. It is the caller's to declare
-        because the credential decides what the response contains, and installation tokens rotate too
-        often to key on directly — see ``GitHubIntegrationBase._installation_cache_scope``.
-        """
         merged = CaseInsensitiveDict({**self._standard_headers(), **(headers or {})})
-        declined = (
+        if (
             method.upper() != "GET"
             or kwargs.get("stream")
             or not settings.GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS
-            or any(name.lower() in _CALLER_CONDITIONAL_HEADERS for name in merged)
-        )
-        if declined:
+            or any(name.lower().startswith("if-") for name in merged)
+        ):
             record_github_conditional_cache("skip", source=source)
-            return self.request(method, url, source=source, headers=headers, **kwargs)
+            return super().request(method, url, source=source, headers=headers, **kwargs)
 
-        key = _conditional_cache_key(cache_identity, merged, method, url, kwargs.get("params"))
+        key = _conditional_cache_key(cache_identity, merged, url, kwargs.get("params"))
         cached = get_safe_cache(key)
-        if isinstance(cached, _CachedResponse):
+        if not isinstance(cached, _CachedResponse):
+            cached = None
+        if cached:
             headers = {**(headers or {}), "If-None-Match": cached.etag}
 
-        response = self.request(method, url, source=source, headers=headers, **kwargs)
+        response = super().request(method, url, source=source, headers=headers, **kwargs)
 
-        if response.status_code == 304 and isinstance(cached, _CachedResponse):
+        if cached and response.status_code == 304:
             record_github_conditional_cache("hit", source=source)
             return _replayed(response, cached)
-        record_github_conditional_cache("miss" if cached is not None else "cold", source=source)
+        record_github_conditional_cache("miss" if cached else "cold", source=source)
         if _storable(response):
             record_github_conditional_cache("store", source=source)
             safe_cache_set(
@@ -230,16 +215,13 @@ class GitHubClient(EgressClient):
                 _CachedResponse(
                     etag=response.headers["etag"],
                     body=response.content,
-                    headers={
-                        name: value for name, value in response.headers.items() if name.lower() in _STORED_HEADERS
-                    },
+                    headers=_without_entity_length(response.headers),
                 ),
                 settings.GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS,
             )
         return response
 
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        # Admission only. GitHub charges by response, so the spend waits for _settle.
         return peek_github_installation_sync(
             scope, resource=classify_github_resource(url), priority=priority, source=source
         )
@@ -284,11 +266,14 @@ def github_request(
     it when known so the call is gated (at ``priority``) and the rate-limit gauges are set; leave it
     ``None`` for identity-blind callers (raw PATs, PostHog's public token), which record volume only.
     ``source`` attributes the call to a subsystem. ``headers`` must carry the caller's ``Authorization``.
-
-    ``cache_identity`` opts a GET into conditional requests, naming whose view of the resource this is;
-    without it every call goes to GitHub in full. Pass it only when the response depends on nothing
-    beyond that identity and the URL — a token narrower than the identity would read another's entry."""
-    common: dict[str, Any] = dict(
+    ``cache_identity`` opts a GET into conditional requests; pass it only when the token sees exactly what
+    that identity sees."""
+    return _github_client.request(
+        method,
+        url,
+        source=source,
+        headers=headers,
+        cache_identity=cache_identity,
         scope=installation_id,
         priority=priority,
         endpoint=endpoint,
@@ -296,8 +281,3 @@ def github_request(
         session=session,
         **kwargs,
     )
-    if cache_identity:
-        return _github_client.conditional_request(
-            method, url, cache_identity=cache_identity, source=source, headers=headers, **common
-        )
-    return _github_client.request(method, url, source=source, headers=headers, **common)

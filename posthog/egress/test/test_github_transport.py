@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 import requests
 from parameterized import parameterized
@@ -14,8 +14,7 @@ _JSON = "application/vnd.github+json"
 _DIFF = "application/vnd.github.diff"
 
 
-# The Vary header GitHub sends on every REST response. Baked into the fixture because a storability
-# rule that rejects it silently disables the whole cache.
+# GitHub sends this Vary on every response; a storability rule that rejects it silently disables the cache.
 _GITHUB_VARY = "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
 
 
@@ -38,13 +37,18 @@ class TestGitHubTransport(SimpleTestCase):
             ("core", "https://api.github.com/repos/o/r/pulls/1", GitHubRateResource.CORE),
         ]
     )
-    def test_consume_routes_resource_by_url(self, _name: str, url: str, expected: GitHubRateResource) -> None:
+    def test_gate_routes_resource_by_url(self, _name: str, url: str, expected: GitHubRateResource) -> None:
         # The gate must charge each URL to the meter GitHub bills it against — the whole point of the
         # per-resource split. A regression here reverts /search/code to the core envelope.
         client = GitHubClient()
-        with patch("posthog.egress.github.transport.peek_github_installation_sync", return_value=True) as peek:
+        with (
+            patch("posthog.egress.github.transport.peek_github_installation_sync", return_value=True) as peek,
+            patch("posthog.egress.github.transport.charge_github_installation_sync") as charge,
+        ):
             client._consume("42", MagicMock(), "test", url)
+            client._settle(_response(), scope="42", url=url)
         assert peek.call_args.kwargs["resource"] == expected
+        assert charge.call_args.kwargs["resource"] == expected
 
     def test_identity_blind_call_never_touches_the_limiter(self) -> None:
         # A None installation_id (public token / raw PAT) records volume only and must skip the gate,
@@ -61,7 +65,6 @@ class TestGitHubTransport(SimpleTestCase):
 
 
 class TestGitHubConditionalRequests(SimpleTestCase):
-    # The TEST cache backend is process-local LocMem, so each case clears it.
     url = "https://api.github.com/repos/o/r/branches"
 
     def setUp(self) -> None:
@@ -76,7 +79,7 @@ class TestGitHubConditionalRequests(SimpleTestCase):
     def _get(self, sender: MagicMock, **kwargs) -> requests.Response:
         with patch("requests.request", sender):
             return github_request(
-                "GET",
+                kwargs.pop("method", "GET"),
                 self.url,
                 source="test",
                 headers={"Authorization": "Bearer t", **(kwargs.pop("headers", None) or {})},
@@ -100,18 +103,15 @@ class TestGitHubConditionalRequests(SimpleTestCase):
             self._get(sender)
             replayed = self._get(sender)
 
-        # The weak validator goes back verbatim; If-None-Match uses weak comparison.
         assert sender.call_args.kwargs["headers"]["If-None-Match"] == 'W/"v1"'
         assert replayed.status_code == 200
         assert replayed.json() == {"items": [1]}
         # The recorder must still see the real 304, or the rate-limit telemetry starts lying.
         assert statuses == [200, 304]
-        # GitHub does not charge the 304, so only the first call spends our budget.
         assert self.charge.call_count == 1
 
     def test_replay_carries_the_stored_content_type(self) -> None:
-        # A 304 need not repeat Content-Type. Replaying its headers would leave encoding unset and send
-        # .text through charset sniffing, and the diff path reads .text.
+        # A 304 need not repeat Content-Type; without it .text goes through charset sniffing.
         sender = MagicMock(
             side_effect=[
                 _response(
@@ -129,9 +129,8 @@ class TestGitHubConditionalRequests(SimpleTestCase):
         assert replayed.headers["Link"] == "<next>; rel=next"
 
     def test_replay_carries_the_live_rate_limit_headers(self) -> None:
-        # remember_observed_core_limit reads these off whatever api_request returns, and drops the
-        # observation unless x-ratelimit-resource says core. An installation whose reads all hit the
-        # cache would stop re-learning its tier and fall back to the much larger default budget.
+        # remember_observed_core_limit reads these off the replay; a cache-only installation would stop
+        # re-learning its tier.
         sender = MagicMock(
             side_effect=[
                 _response(headers={"ETag": '"v1"', "Content-Type": "application/json"}),
@@ -152,7 +151,6 @@ class TestGitHubConditionalRequests(SimpleTestCase):
         assert replayed.headers["X-RateLimit-Resource"] == "core"
         assert replayed.headers["X-RateLimit-Limit"] == "5000"
         assert replayed.headers["X-RateLimit-Remaining"] == "4998"
-        # The 304 describes an empty body; the replay carries the stored one.
         assert "Content-Length" not in replayed.headers
 
     @parameterized.expand(
@@ -164,8 +162,8 @@ class TestGitHubConditionalRequests(SimpleTestCase):
         ]
     )
     def test_key_separates(self, _name: str, second: dict) -> None:
-        # /repos/{o}/{r}/compare/{basehead} is fetched as a diff and as JSON under one installation, so
-        # an Accept-blind key makes those two callers overwrite each other and neither ever hits.
+        # /compare/{basehead} is read as diff and as JSON under one installation; an Accept-blind key
+        # makes them overwrite each other.
         sender = MagicMock(
             side_effect=[
                 _response(headers={"ETag": '"v1"', "Content-Type": "application/json"}),
@@ -180,64 +178,44 @@ class TestGitHubConditionalRequests(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_etag", {"Content-Type": "application/json"}),
-            ("no_store", {"ETag": '"v1"', "Cache-Control": "private, no-store"}),
-            ("vary_star", {"ETag": '"v1"', "Vary": "*"}),
+            ("no_etag", {"Content-Type": "application/json"}, b"{}", {}),
+            ("no_store", {"ETag": '"v1"', "Cache-Control": "private, no-store"}, b"{}", {}),
+            ("vary_star", {"ETag": '"v1"', "Vary": "*"}, b"{}", {}),
+            ("oversized", {"ETag": '"v1"'}, b"x" * 9, {"GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES": 8}),
+            ("zero_ttl", {"ETag": '"v1"'}, b"{}", {"GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS": 0}),
         ]
     )
-    def test_unstorable_response_is_not_reused(self, _name: str, headers: dict) -> None:
-        sender = MagicMock(return_value=_response(headers=headers))
-        self._get(sender)
-        self._get(sender)
-        assert "If-None-Match" not in sender.call_args.kwargs["headers"]
-
-    @override_settings(GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES=8)
-    def test_oversized_body_is_not_stored(self) -> None:
-        sender = MagicMock(return_value=_response(headers={"ETag": '"v1"'}, body=b"x" * 9))
-        self._get(sender)
-        self._get(sender)
-        assert "If-None-Match" not in sender.call_args.kwargs["headers"]
-
-    @override_settings(GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS=0)
-    def test_zero_ttl_disables_the_cache(self) -> None:
-        sender = MagicMock(return_value=_response(headers={"ETag": '"v1"'}))
-        self._get(sender)
-        self._get(sender)
+    def test_unstorable_response_is_not_reused(self, _name: str, headers: dict, body: bytes, overrides: dict) -> None:
+        sender = MagicMock(return_value=_response(headers=headers, body=body))
+        with self.settings(**overrides):
+            self._get(sender)
+            self._get(sender)
         assert "If-None-Match" not in sender.call_args.kwargs["headers"]
 
     def test_caller_supplied_validator_is_left_alone(self) -> None:
-        # The caller owns the exchange: we must not overwrite their validator, and their 304 is theirs
-        # to read rather than ours to mistake for a cache hit.
+        # The caller owns the exchange; their 304 is not our cache hit.
         sender = MagicMock(return_value=_response(status=304, headers={"ETag": '"theirs"'}))
         response = self._get(sender, headers={"If-None-Match": '"theirs"'})
 
         assert sender.call_args.kwargs["headers"]["If-None-Match"] == '"theirs"'
         assert response.status_code == 304
 
-    @parameterized.expand([("no_identity", {"cache_identity": None}), ("streamed", {"stream": True})])
+    @parameterized.expand(
+        [
+            ("no_identity", {"cache_identity": None}),
+            ("streamed", {"stream": True}),
+            ("post", {"method": "POST"}),
+        ]
+    )
     def test_opted_out_request_is_never_cached(self, _name: str, kwargs: dict) -> None:
         sender = MagicMock(return_value=_response(headers={"ETag": '"v1"'}))
         self._get(sender, **kwargs)
         self._get(sender, **kwargs)
         assert "If-None-Match" not in sender.call_args.kwargs["headers"]
 
-    def test_non_get_is_never_cached(self) -> None:
-        sender = MagicMock(return_value=_response(headers={"ETag": '"v1"'}))
-        with patch("requests.request", sender):
-            for _ in range(2):
-                github_request(
-                    "POST",
-                    self.url,
-                    source="test",
-                    headers={"Authorization": "Bearer t"},
-                    installation_id="42",
-                    cache_identity="installation:42",
-                )
-        assert "If-None-Match" not in sender.call_args.kwargs["headers"]
-
     def test_the_transport_default_accept_keys_the_same_as_an_explicit_one(self) -> None:
-        # The key reads the merged headers, so omitting Accept must not key on the absence of a header
-        # the transport is in fact sending.
+        # The key reads merged headers, so an omitted Accept must key the same as the default the
+        # transport sends.
         sender = MagicMock(
             side_effect=[
                 _response(headers={"ETag": '"v1"', "Content-Type": "application/json"}),

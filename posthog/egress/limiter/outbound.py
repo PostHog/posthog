@@ -60,13 +60,9 @@ class OutboundRateLimiter:
         return granted
 
     def peek_sync(self, key: str, n: int = 1, *, priority: Priority = Priority.NORMAL, source: str = "unknown") -> bool:
-        """``consume_sync`` split in two: this admits without spending, and ``charge_sync`` spends later.
-
-        For a call whose real cost is only known from its response, such as a conditional GET that
-        GitHub does not charge when it answers 304. The gap between the two is not atomic, so concurrent
-        callers can be admitted against headroom that is then charged by all of them. That over-admits
-        by at most the number of calls in flight, which the API's own limit backstops.
-        """
+        """Admit without spending; ``charge_sync`` spends once the response shows the cost. The pair is
+        not atomic, so in-flight callers can all be admitted against the same headroom; the API's own
+        limit backstops the overrun."""
         policy = resolve_policy(key)
         _validate(n, policy, priority)
         granted = self._backend.peek_sync(key, policy, n, priority)
@@ -74,7 +70,6 @@ class OutboundRateLimiter:
         return granted
 
     def charge_sync(self, key: str, n: int = 1) -> None:
-        """Spend ``n`` units against ``key``'s budget after a ``peek_sync`` admitted the call."""
         self._backend.charge_sync(key, resolve_policy(key), n)
 
     def pace_seconds(self, key: str, *, priority: Priority = Priority.NORMAL) -> float:

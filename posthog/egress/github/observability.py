@@ -62,8 +62,7 @@ _conditional_cache_counter = Counter(
 
 
 def record_github_conditional_cache(outcome: str, *, source: str) -> None:
-    """``cold`` no entry, ``hit`` 304 replayed, ``miss`` entry present but GitHub sent a new body,
-    ``store`` written, ``skip`` not eligible. Stores without matching hits mean unstable URLs."""
+    """cold: no entry. hit: 304 replayed. miss: entry present, new body. store: written. skip: not eligible."""
     _conditional_cache_counter.labels(outcome=outcome, source=source).inc()
 
 

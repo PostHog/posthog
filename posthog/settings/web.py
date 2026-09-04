@@ -858,14 +858,11 @@ FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 
 
 ####
 # GitHub conditional requests (see posthog/egress/github/transport.py)
-# TTL 0 disables the cache. It must outlast the slowest caller's poll interval, or every poll misses:
-# warehouse GitHub schemas default to 6 hours.
+# 0 disables the cache. Must outlast the slowest caller's poll interval, or every poll misses.
 GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS = get_from_env(
     "GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS", 24 * 3600, type_cast=int
 )
-# Measured on the uncompressed body, while entries are stored zstd-compressed, so the Redis footprint
-# is far smaller: a 2.3 MB /pulls page at per_page=100 compresses to about 60 KB. The ceiling is high
-# enough to admit the warehouse list pages this exists for, which run from 50 KB to a few MB.
+# Counts the uncompressed body; entries are stored compressed, so the Redis footprint is far smaller.
 GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES = get_from_env(
     "GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES", 4 * 1024 * 1024, type_cast=int
 )

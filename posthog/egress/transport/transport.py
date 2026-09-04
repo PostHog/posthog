@@ -82,13 +82,11 @@ class EgressClient(ABC):
 
     @abstractmethod
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        """Draw ``1`` from the domain's shared budget for ``scope`` at ``priority``; True if granted.
+        """Admit (and by default spend) ``1`` from the domain's shared budget for ``scope`` at ``priority``.
         ``url`` lets a domain route the draw to the resource-specific meter GitHub bills the URL to."""
 
     def _settle(self, response: requests.Response, *, scope: str, url: str) -> None:
-        """Called with the response of a gated call. A no-op by default, because ``_consume`` already
-        spent the budget. A domain whose API charges by response, not by request, admits in ``_consume``
-        and spends here instead."""
+        """Hook for APIs that charge by response; ``_consume`` already spent for the rest."""
         return None
 
     @abstractmethod
