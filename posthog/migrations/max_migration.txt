@@ -1,1 +1,1 @@
-1340_drop_userproductlist_reason_columns
+1341_drop_activitylog_detail_jsonb_ops_gin

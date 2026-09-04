@@ -185,13 +185,11 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
-            # Used for searching on the detail field, e.g. containing a specific value
-            GinIndex(
-                name="activitylog_detail_gin",
-                fields=["detail"],
-                opclasses=["jsonb_ops"],
-            ),
-            # Used primarily for available_filters queries
+            # Serves whole-column containment (`detail @> ...`), the only detail lookup an index
+            # can answer. Key-path lookups and the `detail::text` search are not GIN-servable
+            # under any opclass. `jsonb_path_ops` stores one hash per root-to-leaf path, so it is
+            # smaller and cheaper to maintain than `jsonb_ops`, whose only extra operators are the
+            # key-existence family (`?`, `?|`, `?&`) that no query path uses.
             GinIndex(
                 name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
