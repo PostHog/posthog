@@ -1263,6 +1263,7 @@ export interface eventUsageLogicActions {
             metric_index: number
             metric_kind: string
             refresh_id: string
+            revalidation_failed: boolean
         }
     ) => {
         context:
@@ -1275,6 +1276,7 @@ export interface eventUsageLogicActions {
                   metric_index: number
                   metric_kind: string
                   refresh_id: string
+                  revalidation_failed: boolean
               }
             | undefined
         experimentId: ExperimentIdType
@@ -1415,6 +1417,7 @@ export interface eventUsageLogicActions {
             force_refresh: boolean
             primary_metrics_count: number
             refresh_id: string
+            revalidation_failed_count: number
             secondary_metrics_count: number
             successful_count: number
             total_duration_ms: number
@@ -1431,6 +1434,7 @@ export interface eventUsageLogicActions {
             force_refresh: boolean
             primary_metrics_count: number
             refresh_id: string
+            revalidation_failed_count: number
             secondary_metrics_count: number
             successful_count: number
             total_duration_ms: number
@@ -2764,6 +2768,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             context?: {
                 duration_ms: number
                 is_cached: boolean
+                revalidation_failed: boolean
                 metric_index: number
                 is_primary: boolean
                 is_retry: boolean
@@ -2788,6 +2793,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 successful_count: number
                 errored_count: number
                 cached_count: number
+                revalidation_failed_count: number
                 triggered_by:
                     | 'page_load'
                     | 'manual'
