@@ -63,6 +63,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]: true,
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: true,
         })
         router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
     })
@@ -226,7 +227,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(logic.values.activeTab).toBe('notes')
         })
 
-        it.each(['users', 'usage', 'feature_requests'] as const)('selects the %s tab from the URL', (tab) => {
+        it.each(['users', 'usage', 'feature_requests', 'tasks'] as const)('selects the %s tab from the URL', (tab) => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, tab))
 
             expect(logic.values.activeTab).toBe(tab)
@@ -243,6 +244,10 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                 [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
             })
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'feature_requests'))
+
+            expect(logic.values.activeTab).toBe('notes')
+
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'tasks'))
 
             expect(logic.values.activeTab).toBe('notes')
         })

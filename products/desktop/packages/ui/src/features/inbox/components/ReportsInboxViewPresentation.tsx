@@ -2,6 +2,7 @@ import {
   EnvelopeSimpleIcon,
   FunnelIcon,
   ListChecksIcon,
+  SparkleIcon,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -156,21 +157,27 @@ export function ReportsInboxViewPresentation({
             <Empty className="mx-auto max-w-md flex-none border-0 py-12">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
-                  {hasActiveFilters ? (
+                  {showConfigureAgentsEmptyState ? (
+                    <SparkleIcon size={24} />
+                  ) : hasActiveFilters ? (
                     <FunnelIcon size={24} />
                   ) : (
                     <EnvelopeSimpleIcon size={24} />
                   )}
                 </EmptyMedia>
                 <EmptyTitle>
-                  {hasActiveFilters
-                    ? "No reports match your filters"
-                    : "Nothing to review"}
+                  {showConfigureAgentsEmptyState
+                    ? "Ship fixes while you sleep"
+                    : hasActiveFilters
+                      ? "No reports match your filters"
+                      : "Nothing to review"}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {hasActiveFilters
-                    ? "Clear the filters to check for hidden reports."
-                    : "Reports show up here as your agents find things worth acting on."}
+                  {showConfigureAgentsEmptyState
+                    ? "PostHog watches your session replays, errors, and Slack, then opens a pull request when it finds something worth fixing. Connect a source to get started."
+                    : hasActiveFilters
+                      ? "Clear the filters to check for hidden reports."
+                      : "Reports show up here as your agents find things worth acting on."}
                 </EmptyDescription>
               </EmptyHeader>
               {(hasActiveFilters || showConfigureAgentsEmptyState) && (

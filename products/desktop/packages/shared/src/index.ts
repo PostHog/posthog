@@ -275,6 +275,7 @@ export {
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
+  CLOUD_REGIONS,
   type CloudRegion,
   REGION_LABELS,
 } from "./regions";

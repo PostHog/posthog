@@ -151,9 +151,14 @@ message MergePersonsRequest {
   // merge-mode policy to handle. Required, at least 1; unlimited is not a
   // supported mode.
   optional int64 move_limit = 8;
-  // Merge event created_at, epoch millis. Used as the survivor's
-  // created_at when it predates the current value.
+  // Merge event created_at, epoch millis. Consulted only when the establish
+  // path births a fresh person; a resolved survivor keeps the min of the
+  // target's and the sealed sources' own values.
   int64 created_at = 9;
+  // The uuid of the event that asked for this merge; op_id derives from it
+  // one-way, so it is not recoverable. Recorded as $creator_event_uuid on
+  // a person the establish path births. Send the same value on every retry.
+  string creator_event_uuid = 10;
 }
 
 enum MergeSourceOutcome {
@@ -173,17 +178,29 @@ enum MergeSourceOutcome {
   // allow_identified_sources.
   MERGE_SOURCE_OUTCOME_SKIPPED_ALREADY_IDENTIFIED = 5;
   // Another live lifecycle operation holds this person (or the source
-  // resolved differently between classification and claim). Retryable.
+  // resolved differently between classification and claim). Retryable
+  // only while unsettled; settled means this op's answer is frozen.
   MERGE_SOURCE_OUTCOME_SKIPPED_CONFLICT = 6;
   // The source person has more distinct ids than the request's move_limit.
   MERGE_SOURCE_OUTCOME_SKIPPED_MOVE_LIMIT = 7;
   // The pair could not be handled; details in server logs.
   MERGE_SOURCE_OUTCOME_ERROR = 8;
+  // Definitively refused before anything was destroyed; every retry meets
+  // the same refusal, so the caller settles the pair as lost. ERROR is a
+  // completed operation whose source ended indeterminate.
+  MERGE_SOURCE_OUTCOME_SKIPPED_REFUSED = 9;
 }
 
 message MergeSourceResult {
   string source_distinct_id = 1;
   MergeSourceOutcome outcome = 2;
+  // The destroyed source person; set only on MERGED, where the person is
+  // permanently gone and safe to reconcile against without re-reading.
+  optional int64 source_person_id = 3;
+  // Whether any retry can change this source's outcome. True acks the
+  // event, false lets redelivery try again. Outcome names are warning
+  // labels, never durability inputs, so unknown values stay handled.
+  bool settled = 4;
 }
 
 message MergePersonsResponse {
@@ -232,7 +249,8 @@ service PersonHogIdentity {
   // of the router RPC of the same name (which reads the replica).
   rpc GetDistinctIdsForPersons(GetDistinctIdsForPersonsRequest) returns (GetDistinctIdsForPersonsResponse);
   // Merge source persons into the target distinct id's person. The
-  // service resolves and classifies every pair: same-person pairs settle
+  // service resolves and classifies every pair: unresolved sources attach
+  // to the target with plain mapping inserts, same-person pairs settle
   // inline, distinct-person pairs run the durable merge saga (fence the
   // sources, fold their sealed documents into the target, repoint distinct
   // ids, tombstone the sources, produce death documents). An unresolved
