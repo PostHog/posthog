@@ -89,12 +89,18 @@ class DiagnosticCounts:
         return sorted({error["type"] for error in self.query_errors if error["type"]})
 
 
-def _query_error_details(error_type: object, error_code: object, error_message: object) -> QueryErrorDetails:
+def _query_error_details(
+    error_type: str | None, error_code: str | None, error_message: str | None
+) -> QueryErrorDetails:
     return {
-        "type": error_type if isinstance(error_type, str) else None,
-        "code": error_code if isinstance(error_code, str) else None,
-        "message": error_message if isinstance(error_message, str) else None,
+        "type": error_type,
+        "code": error_code,
+        "message": error_message,
     }
+
+
+def _string_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _tally_diagnostics(steps: list[QueryErrorDetails | None]) -> DiagnosticCounts:
@@ -119,7 +125,11 @@ def _snapshot_diagnostic_counts(snapshot: dict | None) -> DiagnosticCounts:
         [
             None
             if d.get("ok") is not False
-            else _query_error_details(d.get("error_type"), d.get("error_code"), d.get("human_readable_error"))
+            else _query_error_details(
+                _string_or_none(d.get("error_type")),
+                _string_or_none(d.get("error_code")),
+                _string_or_none(d.get("human_readable_error")),
+            )
             for d in diagnostics
             if isinstance(d, dict)
         ]
