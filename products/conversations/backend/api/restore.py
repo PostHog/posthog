@@ -30,7 +30,12 @@ from products.conversations.backend.api.serializers import (
     validate_url_domain,
     validate_url_matches_request_origin,
 )
-from products.conversations.backend.cache import invalidate_tickets_cache
+from products.conversations.backend.api.widget import (
+    IdentityVerificationFailed,
+    identity_widget_session_id,
+    verify_identity_fields,
+)
+from products.conversations.backend.cache import invalidate_identity_tickets_cache, invalidate_tickets_cache
 from products.conversations.backend.services.restore import RestoreService
 
 logger = logging.getLogger(__name__)
@@ -59,6 +64,10 @@ class RestoreRequestSerializer(serializers.Serializer):
 class RestoreRedeemSerializer(serializers.Serializer):
     restore_token = serializers.CharField(min_length=40, max_length=50)  # 43 chars expected
     widget_session_id = serializers.UUIDField()
+    identity_distinct_id = serializers.CharField(required=False, max_length=400)
+    # Hex charset enforced here for the same reason as the widget endpoints: a non-ASCII
+    # value reaching hmac.compare_digest raises TypeError and surfaces as a 500.
+    identity_hash = serializers.RegexField(r"^[0-9a-f]{64}$", required=False)
 
 
 class WidgetRestoreRequestView(APIView):
@@ -156,8 +165,18 @@ class WidgetRestoreRedeemView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        try:
+            verified_distinct_id = verify_identity_fields(serializer.validated_data, team)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
+
         raw_token = serializer.validated_data["restore_token"]
         widget_session_id = str(serializer.validated_data["widget_session_id"])
+        if verified_distinct_id is not None:
+            # A verified viewer's ticket list is keyed on the session id derived from the
+            # identity hash, so bind the tickets to the person rather than to this browser.
+            # They then survive a cleared localStorage and follow the person to a new device.
+            widget_session_id = identity_widget_session_id(serializer.validated_data["identity_hash"])
 
         # Redeem token
         result = RestoreService.redeem_token(
@@ -169,6 +188,8 @@ class WidgetRestoreRedeemView(APIView):
         # Invalidate tickets cache if migration succeeded
         if result.status == "success" and result.migrated_ticket_ids:
             invalidate_tickets_cache(team.id, widget_session_id)
+            if verified_distinct_id is not None:
+                invalidate_identity_tickets_cache(team.id)
 
         # Build response
         response_data: dict = {"status": result.status}
