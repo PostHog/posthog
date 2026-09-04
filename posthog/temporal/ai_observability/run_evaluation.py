@@ -33,12 +33,14 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitEvaluationEventInputs,
     EmitInternalTelemetryInputs,
+    FetchGenerationEventInputs,
     RunEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
+    fetch_generation_event_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
 )
@@ -62,6 +64,7 @@ __all__ = [
     "EmitInternalTelemetryInputs",
     "ExecuteLLMJudgeInputs",
     "EvaluationActivityResult",
+    "FetchGenerationEventInputs",
     "RunEvaluationInputs",
     "RunEvaluationWorkflow",
     "SendEvaluationDisabledEmailInputs",
@@ -76,6 +79,7 @@ __all__ = [
     "extract_event_io",
     "extract_event_tools",
     "fetch_evaluation_activity",
+    "fetch_generation_event_activity",
     "get_output_type_config",
     "handle_llm_judge_activity_error",
     "handle_terminal_user_error_result",
@@ -245,6 +249,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         return RunEvaluationInputs(
             evaluation_id=inputs[0],
             event_data=json.loads(inputs[1]),
+            backfill_id=inputs[2] if len(inputs) > 2 else None,
         )
 
     @temporalio.workflow.run
@@ -254,6 +259,24 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
+
+        # A backfill dispatcher ships only a reference, because event bodies would blow the
+        # Temporal payload limit at backfill fan-out. Live starts always carry the properties,
+        # so old histories never take this branch and it needs no patch marker.
+        event_data = inputs.event_data
+        if "properties" not in event_data:
+            event_data = await temporalio.workflow.execute_activity(
+                fetch_generation_event_activity,
+                FetchGenerationEventInputs(
+                    team_id=int(event_data["team_id"]),
+                    event_uuid=str(event_data["uuid"]),
+                    timestamp=event_data.get("timestamp"),
+                    trace_id=event_data.get("trace_id"),
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
         evaluation = await temporalio.workflow.execute_activity(
             fetch_evaluation_activity,
             inputs,
@@ -266,14 +289,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         if evaluation_type == "hog":
             result = await temporalio.workflow.execute_activity(
                 execute_hog_eval_activity,
-                args=[evaluation, inputs.event_data],
+                args=[evaluation, event_data],
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         elif evaluation_type == "sentiment":
             result = await temporalio.workflow.execute_activity(
                 execute_sentiment_eval_activity,
-                args=[evaluation, inputs.event_data],
+                args=[evaluation, event_data],
                 schedule_to_close_timeout=timedelta(seconds=120),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
@@ -281,7 +304,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             try:
                 result = await temporalio.workflow.execute_activity(
                     execute_llm_judge_activity,
-                    ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=inputs.event_data),
+                    ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data),
                     schedule_to_close_timeout=timedelta(minutes=6),
                     retry_policy=LLM_JUDGE_RETRY_POLICY,
                 )
@@ -308,9 +331,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 emit_evaluation_event_activity,
                 EmitEvaluationEventInputs(
                     evaluation=evaluation,
-                    event_data=inputs.event_data,
+                    event_data=event_data,
                     result=result,
                     start_time=start_time,
+                    backfill_id=inputs.backfill_id,
                 ),
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -338,8 +362,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             and result.get("verdict") is True
             and result.get("reasoning")
         ):
-            event_uuid = inputs.event_data.get("uuid", "")
-            properties = inputs.event_data.get("properties", {})
+            event_uuid = event_data.get("uuid", "")
+            properties = event_data.get("properties", {})
             if isinstance(properties, str):
                 properties = json.loads(properties)
 
@@ -349,7 +373,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 evaluation_name=evaluation.get("name", "Unknown evaluation"),
                 evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
                 event_uuid=event_uuid,
-                event_type=inputs.event_data.get("event", ""),
+                event_type=event_data.get("event", ""),
                 trace_id=properties.get("$ai_trace_id", ""),
                 reasoning=result.get("reasoning", ""),
                 model=result.get("model", ""),

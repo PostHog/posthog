@@ -56,6 +56,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
+    as_utc_datetime,
     build_evaluation_event_properties,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
@@ -144,6 +145,14 @@ class ExecuteTraceEvaluationInputs:
     team_id: int
     trace_id: str
     window_start: str
+    # Upper bound of the fetch, ISO. A live run leaves it unset and reads up to now; a backfilled
+    # run sets it so an old unit is graded over the same span the live path would have covered,
+    # instead of everything that arrived between the anchor and today.
+    window_end: str | None = None
+
+    @property
+    def window_end_datetime(self) -> datetime | None:
+        return datetime.fromisoformat(self.window_end) if self.window_end else None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -238,11 +247,13 @@ def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: dateti
     return TraceFetchOutcome(trace=response.results[0], skip_reason=None, event_count=event_count)
 
 
-def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: datetime) -> TraceFetchOutcome:
+def fetch_trace_for_evaluation(
+    team_id: int, trace_id: str, window_start: datetime, window_end: datetime | None = None
+) -> TraceFetchOutcome:
     """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
     team = Team.objects.get(id=team_id)
     date_from = window_start - TRACE_EVENTS_LOOKBACK
-    date_to = datetime.now(UTC)
+    date_to = window_end or datetime.now(UTC)
     return _fetch_trace(team, trace_id, date_from, date_to)
 
 
@@ -543,7 +554,9 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
 
     allows_na = evaluation.get("output_config", {}).get("allows_na", False)
 
-    outcome = fetch_trace_for_evaluation(inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start))
+    outcome = fetch_trace_for_evaluation(
+        inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
+    )
     if outcome.skip_reason or outcome.trace is None:
         return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found")
 
@@ -574,7 +587,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
         outcome = fetch_trace_for_evaluation(
-            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start)
+            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
         )
         if outcome.skip_reason or outcome.trace is None:
             return None, outcome.skip_reason or "trace_not_found"
@@ -600,6 +613,8 @@ class EmitTraceEvaluationEventInputs:
     start_time: datetime
     target: str = "trace"
     ai_session_id: str | None = None
+    backfill_id: str | None = None
+    event_timestamp: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -618,7 +633,9 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     def _emit():
         # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
         # linkage copied in the generation path) intentionally does not apply here.
-        properties = build_evaluation_event_properties(inputs.evaluation, inputs.result, inputs.start_time)
+        properties = build_evaluation_event_properties(
+            inputs.evaluation, inputs.result, inputs.start_time, inputs.backfill_id
+        )
         if inputs.target == "session" and inputs.ai_session_id:
             properties.update(
                 {
@@ -647,7 +664,9 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=inputs.distinct_id,
-            timestamp=datetime.now(UTC),
+            # A backfilled verdict sits at its unit's own time so time-bucketed views line it up
+            # with the trace it grades instead of with the day the backfill ran.
+            timestamp=as_utc_datetime(inputs.event_timestamp) if inputs.event_timestamp else datetime.now(UTC),
             properties=properties,
         )
 

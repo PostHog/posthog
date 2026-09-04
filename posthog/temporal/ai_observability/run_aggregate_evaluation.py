@@ -37,6 +37,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import LLM_JUDGE_RET
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
+    as_utc_datetime,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
@@ -336,6 +337,8 @@ class RunAggregateEvaluationInputs:
     ai_session_id: str | None = None
     target: str = "trace"
     settle: dict[str, Any] | None = None
+    anchor_timestamp: str | None = None
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -386,6 +389,14 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         window_start = temporalio.workflow.now()
 
+        # A historical unit is settled by definition, so waiting for it to go quiet would only
+        # delay the run. The anchor is the first matching generation, which is where the
+        # aggregation window has to start. Live starts carry no anchor, so old histories never
+        # take this branch and it needs no patch marker.
+        is_backfill = inputs.anchor_timestamp is not None
+        if inputs.anchor_timestamp is not None:
+            window_start = as_utc_datetime(inputs.anchor_timestamp)
+
         # Fail loudly rather than falling through to the trace path, which would grade `trace_id`
         # and emit a trace-shaped verdict under a session evaluation's name. Unreachable from the
         # scheduler, which drops these as `no_ai_session_id`; this is the backstop for a malformed
@@ -397,61 +408,75 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
         plan = resolve_settle_plan(inputs.settle, inputs.target)
         is_session = inputs.target == "session" and inputs.ai_session_id is not None
-        if plan.strategy == "inactivity":
-            # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
-            # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
-            initial_sleep_seconds = min(plan.primary_seconds + INGESTION_LAG_MARGIN_SECONDS, plan.max_age_seconds)
-            await asyncio.sleep(initial_sleep_seconds)
-            poll_budget_seconds = plan.max_age_seconds - initial_sleep_seconds
-            if poll_budget_seconds > 0:
-                poll_interval = resolve_poll_interval(plan.primary_seconds, poll_budget_seconds)
-                retry_policy = RetryPolicy(
-                    initial_interval=timedelta(seconds=poll_interval),
-                    backoff_coefficient=1.0,
-                    maximum_attempts=0,
-                )
-                try:
-                    if is_session and inputs.ai_session_id is not None:
-                        await temporalio.workflow.execute_activity(
-                            check_session_settled_activity,
-                            CheckSessionSettledInputs(
-                                team_id=inputs.team_id,
-                                session_id=inputs.ai_session_id,
-                                quiet_period_seconds=plan.primary_seconds,
-                                lookback_seconds=int(session_fetch_lookback(plan.max_age_seconds).total_seconds()),
-                            ),
-                            start_to_close_timeout=timedelta(seconds=30),
-                            schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
-                            retry_policy=retry_policy,
-                        )
-                    else:
-                        await temporalio.workflow.execute_activity(
-                            check_trace_settled_activity,
-                            CheckTraceSettledInputs(
-                                team_id=inputs.team_id,
-                                trace_id=inputs.trace_id,
-                                quiet_period_seconds=plan.primary_seconds,
-                            ),
-                            start_to_close_timeout=timedelta(seconds=30),
-                            schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
-                            retry_policy=retry_policy,
-                        )
-                except temporalio.exceptions.ActivityError as e:
-                    if _is_session_runaway(e):
-                        # Stop waiting; the fetch's own preflight decides the outcome and reports
-                        # the real reason, so no skip result has to be synthesized here.
-                        pass
-                    elif _is_schedule_to_close_timeout(e) or _is_still_not_settled(e):
-                        # Temporal stops polling once the next retry would overrun schedule-to-close, so it
-                        # can give up as much as one poll_interval before max_age. Wait out the remainder so
-                        # we always honor the full max-age window before grading a still-active unit.
-                        remaining = plan.max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
-                        if remaining > 0:
-                            await asyncio.sleep(remaining)
-                    else:
-                        raise
-        elif plan.primary_seconds:
-            await asyncio.sleep(plan.primary_seconds)
+
+        # A backfilled unit is graded over the span the live path would have covered from its
+        # anchor, so events that arrived after that span stay out of the verdict. A live run
+        # leaves this unset and reads up to now.
+        window_end: str | None = None
+        if is_backfill:
+            settle_span = plan.primary_seconds if plan.strategy == "fixed_window" else plan.max_age_seconds
+            window_end = (
+                window_start + timedelta(seconds=settle_span) + timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+            ).isoformat()
+
+        if not is_backfill:
+            if plan.strategy == "inactivity":
+                # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
+                # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
+                initial_sleep_seconds = min(plan.primary_seconds + INGESTION_LAG_MARGIN_SECONDS, plan.max_age_seconds)
+                await asyncio.sleep(initial_sleep_seconds)
+                poll_budget_seconds = plan.max_age_seconds - initial_sleep_seconds
+                if poll_budget_seconds > 0:
+                    poll_interval = resolve_poll_interval(plan.primary_seconds, poll_budget_seconds)
+                    retry_policy = RetryPolicy(
+                        initial_interval=timedelta(seconds=poll_interval),
+                        backoff_coefficient=1.0,
+                        maximum_attempts=0,
+                    )
+                    try:
+                        if is_session and inputs.ai_session_id is not None:
+                            await temporalio.workflow.execute_activity(
+                                check_session_settled_activity,
+                                CheckSessionSettledInputs(
+                                    team_id=inputs.team_id,
+                                    session_id=inputs.ai_session_id,
+                                    quiet_period_seconds=plan.primary_seconds,
+                                    lookback_seconds=int(session_fetch_lookback(plan.max_age_seconds).total_seconds()),
+                                ),
+                                start_to_close_timeout=timedelta(seconds=30),
+                                schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
+                                retry_policy=retry_policy,
+                            )
+                        else:
+                            await temporalio.workflow.execute_activity(
+                                check_trace_settled_activity,
+                                CheckTraceSettledInputs(
+                                    team_id=inputs.team_id,
+                                    trace_id=inputs.trace_id,
+                                    quiet_period_seconds=plan.primary_seconds,
+                                ),
+                                start_to_close_timeout=timedelta(seconds=30),
+                                schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
+                                retry_policy=retry_policy,
+                            )
+                    except temporalio.exceptions.ActivityError as e:
+                        if _is_session_runaway(e):
+                            # Stop waiting; the fetch's own preflight decides the outcome and reports
+                            # the real reason, so no skip result has to be synthesized here.
+                            pass
+                        elif _is_schedule_to_close_timeout(e) or _is_still_not_settled(e):
+                            # Temporal stops polling once the next retry would overrun schedule-to-close, so it
+                            # can give up as much as one poll_interval before max_age. Wait out the remainder so
+                            # we always honor the full max-age window before grading a still-active unit.
+                            remaining = (
+                                plan.max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
+                            )
+                            if remaining > 0:
+                                await asyncio.sleep(remaining)
+                        else:
+                            raise
+            elif plan.primary_seconds:
+                await asyncio.sleep(plan.primary_seconds)
 
         eval_start = temporalio.workflow.now()
 
@@ -481,6 +506,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 session_id=inputs.ai_session_id,
                 window_start=window_start.isoformat(),
+                window_end=window_end,
             )
             if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
@@ -509,6 +535,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 trace_id=inputs.trace_id,
                 window_start=window_start.isoformat(),
+                window_end=window_end,
             )
 
             if evaluation_type == "hog":
@@ -555,6 +582,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     start_time=eval_start,
                     target=inputs.target,
                     ai_session_id=inputs.ai_session_id,
+                    backfill_id=inputs.backfill_id,
+                    event_timestamp=inputs.anchor_timestamp,
                 ),
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),

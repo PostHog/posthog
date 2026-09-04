@@ -18,6 +18,13 @@ from posthog.temporal.ai_observability.eval_reports.workflow import (
     GenerateAndDeliverEvalReportWorkflow,
     ScheduleAllEvalReportsWorkflow,
 )
+from posthog.temporal.ai_observability.evaluation_backfill import (
+    EvaluationBackfillWorkflow,
+    advance_evaluation_backfill_cursor_activity,
+    fail_evaluation_backfill_activity,
+    find_evaluation_backfill_candidates_activity,
+    prepare_evaluation_backfill_tick_activity,
+)
 from posthog.temporal.ai_observability.evaluation_clustering import (
     AIObservabilityEvaluationClusteringCoordinatorWorkflow,
     AIObservabilityEvaluationClusteringWorkflow,
@@ -38,6 +45,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
+    fetch_generation_event_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
 )
@@ -97,6 +105,7 @@ EVAL_WORKFLOWS = [
 
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
+    fetch_generation_event_activity,
     disable_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
@@ -142,6 +151,8 @@ WORKFLOWS = [
     AIObservabilityEvaluationSamplerWorkflow,
     AIObservabilityEvaluationClusteringCoordinatorWorkflow,
     AIObservabilityEvaluationClusteringWorkflow,
+    # Evaluation backfills
+    EvaluationBackfillWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     RunEvaluationWorkflow,
 ]
@@ -179,8 +190,14 @@ ACTIVITIES = [
     generate_evaluation_cluster_labels_activity,
     compute_evaluation_cluster_aggregates_activity,
     emit_evaluation_cluster_events_activity,
+    # Evaluation backfill activities
+    prepare_evaluation_backfill_tick_activity,
+    find_evaluation_backfill_candidates_activity,
+    advance_evaluation_backfill_cursor_activity,
+    fail_evaluation_backfill_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
+    fetch_generation_event_activity,
     disable_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,

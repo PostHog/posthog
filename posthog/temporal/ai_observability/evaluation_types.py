@@ -1,5 +1,14 @@
 from typing import Any, Literal, NotRequired, Required, TypedDict
 
+# Workflow id prefix per evaluation type. The Node scheduler builds the live path's ids from
+# the same prefixes (nodejs/src/ai-observability/services/temporal.service.ts), so a backfill
+# child collides with a live run of the same unit instead of evaluating it twice.
+EVALUATION_WORKFLOW_PREFIXES = {
+    "hog": "llma-hog-eval",
+    "llm_judge": "llma-llm-eval",
+    "sentiment": "llma-sentiment-eval",
+}
+
 
 class EvaluationActivityResult(TypedDict, total=False):
     """Result produced by evaluation execution activities.

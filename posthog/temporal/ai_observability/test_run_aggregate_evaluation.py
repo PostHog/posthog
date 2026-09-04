@@ -15,6 +15,7 @@ from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    INGESTION_LAG_MARGIN_SECONDS,
     MAX_SETTLE_POLLS_PER_RUN,
     CheckSessionSettledInputs,
     CheckTraceSettledInputs,
@@ -297,6 +298,57 @@ class TestRunAggregateEvaluationWorkflow:
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert result["verdict"] is True
         assert elapsed >= timedelta(seconds=600)
+        assert elapsed < timedelta(seconds=900)
+
+    @pytest.mark.asyncio
+    async def test_anchor_timestamp_skips_the_settle_window(self):
+        calls: list[str] = []
+        anchor = "2026-08-01T12:00:00+00:00"
+        window_starts: list[str] = []
+        window_ends: list[str | None] = []
+
+        @activity.defn(name="execute_trace_hog_eval_activity")
+        async def mock_execute_trace_hog(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+            calls.append("execute")
+            window_starts.append(inputs.window_start)
+            window_ends.append(inputs.window_end)
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunAggregateEvaluationWorkflow],
+                activities=[
+                    *_mock_activities(calls, exclude={"execute_trace_hog_eval_activity"}),
+                    mock_execute_trace_hog,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                start = await env.get_current_time()
+                result = await env.client.execute_workflow(
+                    RunAggregateEvaluationWorkflow.run,
+                    _workflow_inputs(
+                        {"strategy": "fixed_window", "window_seconds": 1800},
+                        anchor_timestamp=anchor,
+                        backfill_id="bf-1",
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                elapsed = (await env.get_current_time()) - start
+
+        assert calls == ["fetch", "execute", "emit", "telemetry"]
+        assert result["verdict"] is True
+        assert window_starts == [datetime.fromisoformat(anchor).isoformat()]
+        # Bounded to the span the live path would have covered from the anchor, so the grade does
+        # not sweep in everything that arrived between the anchor and now.
+        assert window_ends == [
+            (datetime.fromisoformat(anchor) + timedelta(seconds=1800 + INGESTION_LAG_MARGIN_SECONDS)).isoformat()
+        ]
+        # Far below the 1800s window, so the settle sleep cannot have run. The slack absorbs the
+        # test environment skipping an idle activity timeout.
         assert elapsed < timedelta(seconds=900)
 
     @pytest.mark.asyncio

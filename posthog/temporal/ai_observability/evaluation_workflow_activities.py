@@ -11,6 +11,7 @@ import temporalio
 from structlog.contextvars import bind_contextvars
 
 from posthog.api.capture import CaptureInternalError
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
@@ -18,6 +19,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 
+from products.ai_observability.backend.ai_event_lookup import fetch_generation_event
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -26,10 +28,18 @@ logger = structlog.get_logger(__name__)
 SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
 
 
+def as_utc_datetime(value: str | datetime) -> datetime:
+    """Read a ClickHouse event timestamp, which reaches us as a naive datetime on a direct call
+    and as an ISO string once Temporal has serialized it through a payload."""
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
 @dataclass
 class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -37,6 +47,39 @@ class RunEvaluationInputs:
             "evaluation_id": self.evaluation_id,
             "team_id": self.event_data.get("team_id"),
         }
+
+
+@frozen
+class FetchGenerationEventInputs:
+    team_id: int
+    event_uuid: str
+    timestamp: str | None = None
+    trace_id: str | None = None
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "event_uuid": self.event_uuid}
+
+
+@temporalio.activity.defn
+async def fetch_generation_event_activity(inputs: FetchGenerationEventInputs) -> dict[str, Any]:
+    """Load the full generation for a caller that only holds its uuid.
+
+    A backfill dispatcher can start thousands of these, so it ships uuids and lets each run
+    fetch its own event rather than pushing event bodies through Temporal payloads. It also sends
+    the trace id and timestamp it already has, which bound what the lookup reads.
+    """
+    event = await database_sync_to_async(fetch_generation_event, thread_sensitive=False)(
+        inputs.team_id,
+        inputs.event_uuid,
+        as_utc_datetime(inputs.timestamp) if inputs.timestamp else None,
+        inputs.trace_id,
+    )
+    if event is None:
+        raise temporalio.exceptions.ApplicationError(
+            "Generation not found", type="generation_not_found", non_retryable=True
+        )
+    return event
 
 
 @temporalio.activity.defn
@@ -209,6 +252,7 @@ class EmitEvaluationEventInputs:
     event_data: dict[str, Any]
     result: EvaluationActivityResult
     start_time: datetime
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -219,7 +263,10 @@ class EmitEvaluationEventInputs:
 
 
 def build_evaluation_event_properties(
-    evaluation: dict[str, Any], result: EvaluationActivityResult, start_time: datetime
+    evaluation: dict[str, Any],
+    result: EvaluationActivityResult,
+    start_time: datetime,
+    backfill_id: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the target-independent `$ai_evaluation` properties shared by all emit paths.
 
@@ -237,7 +284,11 @@ def build_evaluation_event_properties(
         "$ai_evaluation_result_type": result["result_type"],
         "$ai_evaluation_start_time": start_time.isoformat(),
         "$ai_evaluation_reasoning": result["reasoning"],
+        "$ai_evaluation_trigger": "backfill" if backfill_id else "live",
     }
+
+    if backfill_id:
+        properties["$ai_evaluation_backfill_id"] = backfill_id
 
     if result.get("skipped"):
         properties["$ai_evaluation_skipped"] = True
@@ -288,7 +339,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             else event_data["properties"]
         )
 
-        properties = build_evaluation_event_properties(evaluation, result, start_time)
+        properties = build_evaluation_event_properties(evaluation, result, start_time, inputs.backfill_id)
         properties.update(
             {
                 "$ai_target_event_id": event_data["uuid"],
@@ -309,7 +360,9 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=datetime.now(UTC),
+            # A backfilled verdict sits at its generation's time so time-bucketed views line it
+            # up with the trace it grades instead of with the day the backfill ran.
+            timestamp=as_utc_datetime(event_data["timestamp"]) if inputs.backfill_id else datetime.now(UTC),
             properties=properties,
         )
 

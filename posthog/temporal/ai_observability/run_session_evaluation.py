@@ -217,7 +217,9 @@ def _count_session_events(team: Team, session_id: str, date_from: datetime, date
     return _SessionEventCount(event_count=int(event_count), first_seen=first_seen)
 
 
-def fetch_session_for_evaluation(team_id: int, session_id: str, window_start: datetime) -> SessionFetchOutcome:
+def fetch_session_for_evaluation(
+    team_id: int, session_id: str, window_start: datetime, window_end: datetime | None = None
+) -> SessionFetchOutcome:
     """Fetch every trace of a session for an online evaluation, bounded by retention.
 
     Deliberately not bounded by `max_age_seconds`: that's a forward budget (how long the workflow
@@ -231,7 +233,7 @@ def fetch_session_for_evaluation(team_id: int, session_id: str, window_start: da
     """
     team = Team.objects.get(id=team_id)
     retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
-    date_to = datetime.now(UTC)
+    date_to = window_end or datetime.now(UTC)
 
     preflight = _count_session_events(team, session_id, retention_floor, date_to)
     if preflight.event_count == 0:
@@ -389,6 +391,14 @@ class ExecuteSessionEvaluationInputs:
     team_id: int
     session_id: str
     window_start: str
+    # Upper bound of the fetch, ISO. A live run leaves it unset and reads up to now; a backfilled
+    # run sets it so an old unit is graded over the same span the live path would have covered,
+    # instead of everything that arrived between the anchor and today.
+    window_end: str | None = None
+
+    @property
+    def window_end_datetime(self) -> datetime | None:
+        return datetime.fromisoformat(self.window_end) if self.window_end else None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -432,6 +442,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         inputs.team_id,
         inputs.session_id,
         datetime.fromisoformat(inputs.window_start),
+        inputs.window_end_datetime,
     )
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found")
@@ -470,6 +481,7 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
             inputs.team_id,
             inputs.session_id,
             datetime.fromisoformat(inputs.window_start),
+            inputs.window_end_datetime,
         )
         if outcome.skip_reason or outcome.traces is None:
             return None, outcome.skip_reason or "session_not_found"

@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -16,6 +16,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
@@ -48,6 +49,7 @@ from .run_evaluation import (
     EmitInternalTelemetryInputs,
     EvaluationActivityResult,
     ExecuteLLMJudgeInputs,
+    FetchGenerationEventInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
@@ -59,6 +61,7 @@ from .run_evaluation import (
     execute_sentiment_eval_activity,
     extract_event_tools,
     fetch_evaluation_activity,
+    fetch_generation_event_activity,
     run_hog_eval,
     send_evaluation_disabled_email_activity,
 )
@@ -471,6 +474,53 @@ class TestRunEvaluationWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
+        "expected_trigger,backfill_id",
+        [
+            pytest.param("live", None, id="live"),
+            pytest.param("backfill", "bf-1", id="backfill"),
+        ],
+    )
+    async def test_emit_evaluation_event_activity_stamps_trigger_and_timestamp(
+        self, setup_data, expected_trigger: str, backfill_id: str | None
+    ):
+        team = setup_data["team"]
+        event_data = create_mock_event_data(team.id, timestamp="2026-08-01T12:00:00+00:00")
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
+            "verdict": True,
+            "reasoning": "Test passed",
+            "allows_na": False,
+        }
+
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
+
+                await emit_evaluation_event_activity(
+                    EmitEvaluationEventInputs(
+                        evaluation={"id": str(setup_data["evaluation"].id), "name": "Test Evaluation"},
+                        event_data=event_data,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                        backfill_id=backfill_id,
+                    )
+                )
+
+        call_kwargs = mock_capture.call_args[1]
+        props = call_kwargs["properties"]
+        assert props["$ai_evaluation_trigger"] == expected_trigger
+        if backfill_id:
+            assert props["$ai_evaluation_backfill_id"] == backfill_id
+        else:
+            assert "$ai_evaluation_backfill_id" not in props
+        if backfill_id:
+            assert call_kwargs["timestamp"] == datetime.fromisoformat(event_data["timestamp"])
+        else:
+            assert call_kwargs["timestamp"] > datetime.now(UTC) - timedelta(minutes=1)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
         "status_code,should_raise",
         [
             pytest.param(402, False, id="billing_limit_is_swallowed"),
@@ -672,6 +722,137 @@ class TestRunEvaluationWorkflow:
         assert "$ai_sentiment_message_count" not in props
         assert "$ai_evaluation_result" not in props
         assert "$ai_evaluation_allows_na" not in props
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "pass_timestamp,trace_id,found",
+        [
+            pytest.param(True, None, True, id="bounded_by_timestamp"),
+            pytest.param(False, None, True, id="uuid_and_team_only"),
+            pytest.param(True, "trace-1", True, id="bounded_by_trace_id"),
+            pytest.param(True, "other-trace", False, id="wrong_trace_id_finds_nothing"),
+        ],
+    )
+    async def test_fetch_generation_event_activity_applies_its_narrowing_filters(
+        self, setup_data, pass_timestamp: bool, trace_id: str | None, found: bool
+    ):
+        team = setup_data["team"]
+        event_uuid = str(uuid.uuid4())
+        timestamp = datetime.now(UTC) - timedelta(hours=1)
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team_id": team.id,
+                    "distinct_id": "test-user",
+                    "event_uuid": event_uuid,
+                    "timestamp": timestamp,
+                    "properties": {"$ai_input": "q", "$ai_output": "a", "$ai_trace_id": "trace-1"},
+                }
+            ]
+        )
+
+        inputs = FetchGenerationEventInputs(
+            team_id=team.id,
+            event_uuid=event_uuid,
+            timestamp=timestamp.isoformat() if pass_timestamp else None,
+            trace_id=trace_id,
+        )
+        if not found:
+            with pytest.raises(ApplicationError) as exc:
+                await fetch_generation_event_activity(inputs)
+            assert exc.value.type == "generation_not_found"
+            return
+
+        event = await fetch_generation_event_activity(inputs)
+
+        assert str(event["uuid"]) == event_uuid
+        assert event["event"] == "$ai_generation"
+
+    @pytest.mark.asyncio
+    async def test_fetch_generation_event_activity_raises_non_retryable_on_a_miss(self):
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.fetch_generation_event",
+            return_value=None,
+        ):
+            with pytest.raises(ApplicationError) as exc:
+                await fetch_generation_event_activity(FetchGenerationEventInputs(team_id=1, event_uuid="missing"))
+
+        assert exc.value.type == "generation_not_found"
+        assert exc.value.non_retryable is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "event_data,expected_calls",
+        [
+            pytest.param(
+                {"uuid": "g1", "team_id": 1},
+                ["fetch_event", "fetch", "execute", "emit"],
+                id="thin_reference_is_hydrated_first",
+            ),
+            pytest.param(
+                create_mock_event_data(team_id=1, uuid="g1"),
+                ["fetch", "execute", "emit"],
+                id="full_event_is_used_as_is",
+            ),
+        ],
+    )
+    async def test_thin_event_reference_is_fetched_before_evaluating(
+        self, event_data: dict[str, Any], expected_calls: list[str]
+    ):
+        calls: list[str] = []
+        seen_event_data: list[dict[str, Any]] = []
+
+        @activity.defn(name="fetch_generation_event_activity")
+        async def mock_fetch_generation_event(inputs: FetchGenerationEventInputs) -> dict[str, Any]:
+            calls.append("fetch_event")
+            return create_mock_event_data(team_id=inputs.team_id, uuid=inputs.event_uuid)
+
+        @activity.defn(name="fetch_evaluation_activity")
+        async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
+            calls.append("fetch")
+            return {
+                "id": inputs.evaluation_id,
+                "name": "Hog eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {},
+                "output_type": "boolean",
+                "output_config": {},
+                "team_id": 1,
+            }
+
+        @activity.defn(name="execute_hog_eval_activity")
+        async def mock_execute_hog(
+            evaluation: dict[str, Any], hog_event_data: dict[str, Any]
+        ) -> EvaluationActivityResult:
+            calls.append("execute")
+            seen_event_data.append(hog_event_data)
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit(inputs: EmitEvaluationEventInputs) -> None:
+            calls.append("emit")
+            seen_event_data.append(inputs.event_data)
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_fetch_generation_event, mock_fetch_evaluation, mock_execute_hog, mock_emit],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(evaluation_id="eval-1", event_data=event_data, backfill_id="bf-1"),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert calls == expected_calls
+        assert all("properties" in seen for seen in seen_event_data)
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""

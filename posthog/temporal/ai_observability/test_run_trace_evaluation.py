@@ -285,6 +285,23 @@ class TestFetchTraceForEvaluation:
         mock_runner.assert_not_called()
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("window_end", [None, FROZEN_NOW + timedelta(minutes=30)])
+    def test_upper_bound_is_the_given_window_end_or_now(self, setup_data, window_end):
+        team = setup_data["team"]
+        trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "q", "$ai_output": "a"})])
+
+        with (
+            freeze_time(FROZEN_NOW),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=1),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
+        ):
+            mock_runner.return_value.calculate.return_value = MagicMock(results=[trace])
+            fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW, window_end)
+
+        date_range = mock_runner.call_args.kwargs["query"].dateRange
+        assert date_range.date_to == (window_end or FROZEN_NOW).isoformat()
+
+    @pytest.mark.django_db(transaction=True)
     def test_returns_trace_when_found(self, setup_data):
         team = setup_data["team"]
         trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "q", "$ai_output": "a"})])
@@ -590,6 +607,60 @@ class TestEmitTraceEvaluationEventActivity:
                 assert props["$ai_model"] == "gpt-5-mini"
                 assert "$ai_target_event_id" not in props
                 assert "$ai_target_event_type" not in props
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "expected_trigger,backfill_id,event_timestamp",
+        [
+            pytest.param("live", None, None, id="live"),
+            pytest.param("backfill", "bf-1", "2026-08-01T12:00:00+00:00", id="backfill"),
+        ],
+    )
+    async def test_stamps_trigger_and_timestamp(
+        self,
+        setup_data,
+        expected_trigger: str,
+        backfill_id: str | None,
+        event_timestamp: str | None,
+    ):
+        team = setup_data["team"]
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
+            "verdict": True,
+            "reasoning": "Looks good",
+            "allows_na": False,
+        }
+
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
+
+                await emit_trace_evaluation_event_activity(
+                    EmitTraceEvaluationEventInputs(
+                        evaluation=evaluation_dict(setup_data),
+                        team_id=team.id,
+                        trace_id="trace-123",
+                        distinct_id="test-user",
+                        session_id=None,
+                        result=result,
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
+                        backfill_id=backfill_id,
+                        event_timestamp=event_timestamp,
+                    )
+                )
+
+        call_kwargs = mock_capture.call_args[1]
+        props = call_kwargs["properties"]
+        assert props["$ai_evaluation_trigger"] == expected_trigger
+        if backfill_id:
+            assert props["$ai_evaluation_backfill_id"] == backfill_id
+        else:
+            assert "$ai_evaluation_backfill_id" not in props
+        if event_timestamp:
+            assert call_kwargs["timestamp"] == datetime.fromisoformat(event_timestamp)
+        else:
+            assert call_kwargs["timestamp"] > datetime.now(UTC) - timedelta(minutes=1)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
