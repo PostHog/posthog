@@ -345,6 +345,38 @@ class TestResumePoint:
         context.log.warning.assert_called_once()
 
 
+class TestPollutionProgressRecords:
+    def cursor_for(self, max_team_id: int, chunks: list[list[int]]) -> MagicMock:
+        """A fake cursor serving one team per chunk, each project holding one page of events."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [(max_team_id,)] + [(True,) for c in chunks for _ in c]
+        fetchall: list[Any] = []
+        for teams in chunks:
+            fetchall.append([(t,) for t in teams])
+            for t in teams:
+                fetchall.append([(t, t, None)])
+                fetchall.append([(f"evt_{t}",)])
+                fetchall.append([])
+        cursor.fetchall.side_effect = fetchall
+        return cursor
+
+    def test_a_mid_project_record_keeps_the_ranges_already_finished(self):
+        # The mid-project record must carry the watermark this run reached, not the one it started
+        # from. Carrying the starting value reverts it, so a resumed run re-walks finished ranges.
+        cursor = self.cursor_for(10, [[3], [8]])
+        config = EventPropertyCleanupConfig(discovery_team_chunk=5, discovery_sleep_seconds=0, pollution_event_batch=1)
+        recorded: list[ResumePoint] = []
+
+        for _unit in discover_pollution_units(cursor, config, sleep=lambda _: None, on_progress=recorded.append):
+            pass
+
+        # Project 8 sits in the second range, so its mid-project record must sit at 5, not 0.
+        mid_for_8 = [p for p in recorded if p.in_progress_project_id == 8]
+        assert mid_for_8
+        assert all(p.last_completed_team_id == 5 for p in mid_for_8)
+        assert [p.last_completed_team_id for p in recorded if not p.in_progress_project_id] == [5, 10]
+
+
 class TestDeleteStatement:
     @parameterized.expand(
         [
@@ -530,6 +562,19 @@ class TestPredicatesAgainstPostgres:
         assert "properties" not in params
         assert set(params) == {"project_id", "events", "batch"}
         assert self.run_units(units) == 30
+
+    def test_an_explicit_team_ids_run_records_nothing(self):
+        # Its ranges are meaningless, so recording one would reset the campaign's resume point.
+        self.add_propdef("$initial_os", PropertyDefinition.Type.PERSON)
+        self.add_row("$pageview", "$initial_os")
+        recorded: list[ResumePoint] = []
+
+        with connection.cursor() as cursor:
+            for _unit in discover_pollution_units(cursor, self.config, on_progress=recorded.append):
+                pass
+
+        assert self.config.team_ids is not None
+        assert recorded == []
 
     def test_pollution_events_are_paged_and_every_page_is_covered(self):
         # A project can hold more events than one page, and prod's largest holds so many that

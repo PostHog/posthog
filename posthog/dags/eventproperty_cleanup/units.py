@@ -129,6 +129,13 @@ def discover_pollution_units(
     keyset step over the unique index, so a project with millions of event names costs one bounded
     statement at a time and is never counted.
     """
+    # A run over explicit team_ids is not the campaign walk -- its ranges mean nothing -- so it
+    # must not touch the recorded point. Otherwise a targeted run would reset the campaign.
+    record = on_progress if config.team_ids is None else None
+    # Advances as ranges finish. Never read the starting point for this: a mid-project record built
+    # from it would revert the watermark to wherever the run began.
+    watermark = resume.last_completed_team_id
+
     for team_ids, chunk_hi in iter_team_chunks(
         cursor,
         config,
@@ -164,18 +171,19 @@ def discover_pollution_units(
                 )
                 after = events[-1]
                 # Reached only after the unit above was deleted, so this page really is finished.
-                if on_progress is not None:
-                    on_progress(
+                if record is not None:
+                    record(
                         ResumePoint(
-                            last_completed_team_id=resume.last_completed_team_id,
+                            last_completed_team_id=watermark,
                             in_progress_project_id=scope.project_id,
                             in_progress_after_event=after,
                         )
                     )
                 if len(events) < config.pollution_event_batch:
                     break
-        if on_progress is not None:
-            on_progress(ResumePoint(last_completed_team_id=chunk_hi))
+        watermark = chunk_hi
+        if record is not None:
+            record(ResumePoint(last_completed_team_id=watermark))
 
 
 def discover_retention_units(
