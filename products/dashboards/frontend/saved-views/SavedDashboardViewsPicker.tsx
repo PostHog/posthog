@@ -255,7 +255,7 @@ export function SavedDashboardViewsPicker({
                     <span>{activeSavedView?.name || 'Saved views'}</span>
                     {!activeSavedView && (
                         <LemonTag type="highlight" size="small">
-                            NEW
+                            New
                         </LemonTag>
                     )}
                     {canEdit && activeSavedViewHasUnsavedChanges && <span className="text-warning">Unsaved</span>}
