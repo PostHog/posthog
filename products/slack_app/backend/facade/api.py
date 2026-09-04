@@ -18,6 +18,7 @@ from posthog.models.integration import Integration
 
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
+from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
 
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
 
@@ -27,9 +28,22 @@ def invalidate_slack_integration_auth_state(integration_id: int) -> None:
 
     Call from core's OAuth completion path so a freshly-reconnected Slack
     install doesn't get pinned to the stale ``ok=false`` state we wrote when
-    its previous token was revoked.
+    its previous token was revoked. The workspace-level bot id mirror goes with
+    it: a reinstall can mint a new bot user, and the reaction router's author
+    gate must not keep judging the new bot's replies against the old id.
     """
     invalidate_auth_state(integration_id)
+    # Cache invalidation on the caller's own row, id straight from core's OAuth completion
+    # path rather than user input; only the Slack workspace id is read off it.
+    slack_team_id = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id, kind="slack"
+        )
+        .values_list("integration_id", flat=True)
+        .first()
+    )
+    if slack_team_id:
+        invalidate_workspace_bot_user_id(slack_team_id)
 
 
 def slack_channel_is_approved(slack_workspace_id: str, slack_channel_id: str) -> bool:

@@ -67,6 +67,11 @@ MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
+
+# Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
+# gateway product. Keyed by origin value.
+INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
+
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
@@ -737,6 +742,14 @@ class Task(DeletedMetaFields, models.Model):
             task._apply_ai_run_defaults(state, acting_user_id)
             if task.ownership_version is not None:
                 state[TASK_OWNERSHIP_VERSION_STATE_KEY] = task.ownership_version
+
+            # Both conditions withhold the stamp, so a caller can only cost itself the mint.
+            # `internal` marks a pipeline-created task, whose reruns and resumes carry no stage
+            # and would otherwise land on the wider interactive cap.
+            interactive_stage = INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
+            if interactive_stage and not state.get("ai_stage") and not task.internal:
+                if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
+                    state["ai_stage"] = interactive_stage
 
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:

@@ -1637,6 +1637,70 @@ describe('exec tool', () => {
                 )
             })
 
+            describe('a required parameter missing while undeclared keys were sent', () => {
+                const SOME_UUID = '00000000-0000-4000-8000-000000000000'
+
+                const formatFor = (toolName: string, input: unknown): string => {
+                    const tool = GENERATED_TOOL_MAP[toolName]!()
+                    const result = tool.schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return formatInputValidationError(toolName, result.error!, input, tool.schema)
+                }
+
+                it.each([
+                    ['vision-scanners-get', 'scanner_id', 'replay scanner'],
+                    ['vision-observations-retrieve', 'observation_id', 'replay observation'],
+                ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey, entity) => {
+                    expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
+                        `Invalid input for "${toolName}": missing required parameter: id (A UUID string identifying this ${entity}.); this tool ignored these keys it does not accept: "${sentKey}"`
+                    )
+                })
+
+                it('does not tell the caller to resend a scanner id as an observation id', () => {
+                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `id` has no format constraint. Matching the two by name suffix would
+                    // advise reusing a value that identifies a different entity.
+                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+
+                    expect(message).toContain('"scanner_id"')
+                    expect(message).not.toContain('resend')
+                    expect(message).not.toContain('as "id"')
+                })
+
+                it('does not name a value the caller sent', () => {
+                    expect(formatFor('vision-scanners-get', { scanner_id: SOME_UUID })).not.toContain(SOME_UUID)
+                })
+
+                it('stays quiet when every key the caller sent is a real field of the tool', () => {
+                    // `vision-scanners-observations-get` declares `scanner_id`, so nothing
+                    // was dropped: the caller omitted the observation id rather than
+                    // having a key silently discarded.
+                    expect(formatFor('vision-scanners-observations-get', { scanner_id: SOME_UUID })).toBe(
+                        'Invalid input for "vision-scanners-observations-get": missing required parameter: id (A UUID string identifying this replay observation.)'
+                    )
+                })
+
+                it('names no ignored keys for a caller that sent nothing at all', () => {
+                    expect(formatFor('vision-scanners-get', {})).toBe(
+                        'Invalid input for "vision-scanners-get": missing required parameter: id (A UUID string identifying this replay scanner.)'
+                    )
+                })
+
+                it('says nothing was ignored when the schema rejected the keys instead', () => {
+                    // This tool's schema is strict, so `hash` was refused rather than dropped.
+                    expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash'
+                    )
+                })
+
+                it('caps how many keys it names so the analytics message stays bounded', () => {
+                    const input = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`junk_${i}`, i]))
+                    const message = formatFor('vision-scanners-get', input)
+
+                    expect(message.match(/junk_/g)).toHaveLength(5)
+                })
+            })
+
             it('fires for the real generated query-logs tool, not just a stand-in schema', () => {
                 // Guards the assumption behind this whole branch: that the shipped
                 // tool really does wrap its payload in one required `query` object.
@@ -1647,6 +1711,63 @@ describe('exec tool', () => {
 
                 expect(formatInputValidationError('query-logs', result.error!, input, tool.schema)).toContain(
                     'resend them as {"query": {...}}'
+                )
+            })
+        })
+
+        // A caller that omits an identifier usually never held one, so a rejection
+        // naming only the field sends it back to retry the same empty call. These
+        // lock in that the field's own description rides along with the rejection.
+        describe('a missing parameter whose schema documents where the value comes from', () => {
+            const formatFor = (schema: ZodObjectAny, input: unknown): string => {
+                const result = schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('some-tool', result.error!, input, schema)
+            }
+
+            it('tells the caller which tool returns the identifier it omitted', () => {
+                const schema = z.object({ short_id: z.string().describe('Get it from `notebooks-list`.') })
+
+                expect(formatFor(schema, {})).toBe(
+                    'Invalid input for "some-tool": missing required parameter: short_id (Get it from `notebooks-list`.)'
+                )
+            })
+
+            it('names the field alone when its schema documents nothing', () => {
+                const schema = z.object({ short_id: z.string() })
+
+                expect(formatFor(schema, {})).toBe(
+                    'Invalid input for "some-tool": missing required parameter: short_id'
+                )
+            })
+
+            it('caps a long description so the analytics error message stays bounded', () => {
+                const schema = z.object({ short_id: z.string().describe('word '.repeat(100)) })
+                const message = formatFor(schema, {})
+
+                expect(message.length).toBeLessThan(300)
+                expect(message).toContain('...)')
+            })
+
+            it('leaves a nested miss alone, since that field is not the one to fill next', () => {
+                const schema = z.object({
+                    query: z.object({ limit: z.number().describe('How many rows to return.') }),
+                })
+
+                expect(formatFor(schema, { query: {} })).toBe(
+                    'Invalid input for "some-tool": missing required parameter: query.limit'
+                )
+            })
+
+            it('fires for the real generated notebooks-retrieve tool, not just a stand-in schema', () => {
+                // The failure this whole branch exists for: agents call the shipped
+                // tool with no short_id, so its rejection has to name notebooks-list.
+                const tool = GENERATED_TOOL_MAP['notebooks-retrieve']!()
+                const result = tool.schema.safeParse({}, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('notebooks-retrieve', result.error!, {}, tool.schema)).toContain(
+                    '`notebooks-list`'
                 )
             })
         })

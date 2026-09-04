@@ -335,6 +335,8 @@ async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let router = v1_router(V1RouterConfig {
         concurrency_limit: None,
         max_compressed_body_bytes: 10 * 1024 * 1024,
+        serves_analytics: true,
+        serves_ai_events: false,
     })
     .with_state(ts.state.clone());
 

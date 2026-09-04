@@ -3049,3 +3049,75 @@ async fn nacking_worker_fences_worker_stream_and_reroutes_in_order() {
 
     harness.stop().await;
 }
+
+/// One routing key arriving on two partitions: a partition-count change
+/// leaves a key's backlog on its old partition while new messages land on the
+/// new one. The dispatcher merges such a key into one sub-batch (the pin
+/// table is partition-blind), so the batcher must split the completion back
+/// per partition — mis-attributed coverage would leave the poll uncommitted
+/// and wedge the consumer. Two waves prove commits keep flowing: with
+/// max_in_flight = 1, the second wave can only deliver after the first wave's
+/// polls completed.
+#[tokio::test]
+async fn same_key_across_partitions_completes_and_commits() {
+    let topic = format!("e2e-cross-partition-key-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        2,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    for seq in 0..3usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    for seq in 3..6usize {
+        produce(&producer, &topic, 1, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(6, Duration::from_secs(15)).await;
+
+    for seq in 6..9usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    for seq in 9..12usize {
+        produce(&producer, &topic, 1, "tok", "user-1", seq).await;
+    }
+    harness.wait_for(12, Duration::from_secs(15)).await;
+
+    // Everything delivered exactly once; cross-partition interleaving is
+    // free, but each partition's own sequence must arrive in order.
+    let seqs = harness.workers[0].seqs_for("user-1");
+    let mut sorted = seqs.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        (0..12).collect::<Vec<_>>(),
+        "every message must land exactly once; got {seqs:?}"
+    );
+    let partition_0: Vec<usize> = seqs
+        .iter()
+        .copied()
+        .filter(|s| *s < 3 || (6..9).contains(s))
+        .collect();
+    let partition_1: Vec<usize> = seqs
+        .iter()
+        .copied()
+        .filter(|s| (3..6).contains(s) || *s >= 9)
+        .collect();
+    assert_eq!(
+        partition_0,
+        vec![0, 1, 2, 6, 7, 8],
+        "partition 0 must keep offset order"
+    );
+    assert_eq!(
+        partition_1,
+        vec![3, 4, 5, 9, 10, 11],
+        "partition 1 must keep offset order"
+    );
+
+    harness.stop().await;
+}

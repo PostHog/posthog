@@ -14,6 +14,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import MAX_SELECT_RETENTION_LIMIT
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
@@ -401,3 +402,27 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         response = self._run()
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    def _printed_sql(self, **kwargs) -> str:
+        runner = MarketingAnalyticsRetentionQueryRunner(query=self._query(**kwargs), team=self.team)
+        context = runner._shared_hogql_context
+        # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
+        context.enable_select_queries = True
+        printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
+
+    # `test_query_shape` snapshots the HogQL, which cannot show what the printer does with it. These
+    # snapshot the ClickHouse the database actually runs, one case per query shape rather than one per
+    # option: campaign reads a stored property, source normalizes aliases, channel runs the classifier
+    # over raw_sessions, and dropping the new-user restriction changes which cohort the arms share.
+    @parameterized.expand(
+        [
+            ("campaign", {"breakdown": MarketingAnalyticsAttributionBreakdown.CAMPAIGN}),
+            ("source", {"breakdown": MarketingAnalyticsAttributionBreakdown.SOURCE}),
+            ("channel", {"breakdown": MarketingAnalyticsAttributionBreakdown.CHANNEL}),
+            ("all_users", {"only_new_users": False}),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_retention_sql(self, _name: str, kwargs: dict):
+        assert self._printed_sql(**kwargs) == self.snapshot
