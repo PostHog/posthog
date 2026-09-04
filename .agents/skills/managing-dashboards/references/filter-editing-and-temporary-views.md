@@ -73,6 +73,16 @@ Do not call normal saved filters temporary. All filters change the displayed dat
 - Save layout with unsaved filters. Confirm that the layout saves and filter edits remain unsaved.
 - Check wide and narrow filter-bar containers. Confirm that direct actions switch to an actions dropdown only at the defined container breakpoint.
 
+## Manual reproduction
+
+Use one local dashboard with at least two working insight tiles. Text, button, and widget tiles do not affect the preview threshold.
+
+1. To test automatic preview, remove the `dashboard-auto-preview-limit` feature flag payload or set it above the dashboard insight-tile count. Change filters. The URL updates immediately.
+2. To test manual preview, set the local `dashboard-auto-preview-limit` feature flag payload to a number at or below the dashboard insight-tile count. Reload the dashboard. Change filters. The URL stays unchanged until you select Preview.
+3. To test a temporary URL-filter view, append `query_filters` with encoded dashboard filters to a normal dashboard URL. Reload. Clear returns to the dashboard defaults.
+4. To test saved filters, change filters, select Save filters, then reload the normal dashboard URL without `query_filters`.
+5. To test filter and layout independence, create unsaved filters, enter layout editing, then cancel or save layout. The filter state remains. Save or discard filters while layout edits exist. The layout state remains.
+
 ## Storybook coverage
 
 - Keep a Storybook state for saved filters, unsaved filters, a combined temporary URL-filter view, and temporary URL filters without edit access.
