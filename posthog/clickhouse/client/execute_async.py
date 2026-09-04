@@ -121,9 +121,6 @@ class QueryStatusManager:
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
         self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
 
-    def has_results(self) -> bool:
-        return self.redis_client.exists(self.results_key) == 1
-
     def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
         try:
             clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
@@ -357,9 +354,18 @@ def enqueue_process_query_task(
     if force:
         cancel_query(team.id, query_id)
 
-    if manager.has_results() and not refresh_requested:
-        # If we've seen this query before return and don't resubmit it.
-        return manager.get_query_status()
+    if not refresh_requested:
+        try:
+            # Join a run that is still going, and only that. Reaching here means the cache already
+            # decided this query has to run, so a record from a run that has finished answers a
+            # question nobody asked: returning it replays that run's result or error and dispatches
+            # nothing, which holds the recompute back until the record expires. Whether a failed
+            # query may run again is the failure breaker's call in the query runner.
+            in_flight = manager.get_query_status()
+            if not in_flight.complete:
+                return in_flight
+        except QueryNotFoundError:
+            pass
 
     try:
         if cache_key:

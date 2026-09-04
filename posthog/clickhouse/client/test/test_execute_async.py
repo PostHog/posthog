@@ -410,26 +410,38 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         except Exception as e:
             self.assertEqual(str(e), f"Query {query_id} not found for team {wrong_team}")
 
+    @parameterized.expand(
+        [
+            ("still_running", None, 1),
+            ("finished", False, 2),
+            ("failed", True, 2),
+        ]
+    )
     @patch("posthog.clickhouse.client.execute_process_query")
-    def test_async_query_client_is_lazy(self, execute_process_query_mock):
+    def test_async_query_client_joins_only_a_run_still_going(
+        self, _name, finished_with_error, expected_runs, execute_process_query_mock
+    ):
         query = build_query("SELECT 4 + 4")
         query_id = uuid.uuid4().hex
+        manager = QueryStatusManager(query_id, self.team.id)
+        client.enqueue_process_query_task(
+            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
+        if finished_with_error is not None:
+            status = manager.get_query_status()
+            status.complete = True
+            status.error = finished_with_error
+            manager.store_query_status(status)
+
+        # The same query ID twice more: joined while the run is going, rerun once it has finished.
+        client.enqueue_process_query_task(
+            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
         client.enqueue_process_query_task(
             self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
         )
 
-        # Try the same query again
-        client.enqueue_process_query_task(
-            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
-
-        # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(
-            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
-
-        # Assert that we only called clickhouse once
-        execute_process_query_mock.assert_called_once()
+        self.assertEqual(execute_process_query_mock.call_count, expected_runs)
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_process_query_mock):
