@@ -721,9 +721,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             info={
                                                                 <>
                                                                     Keeps the flag value the same before and after
-                                                                    login. It needs anonymous person profiles, it adds a
-                                                                    database lookup to every evaluation, and flags that
-                                                                    use it cannot be evaluated locally or bootstrapped.{' '}
+                                                                    login. It needs anonymous person profiles, it can
+                                                                    add a database lookup to each evaluation request,
+                                                                    and flags that use it cannot be evaluated locally or
+                                                                    bootstrapped.{' '}
                                                                     <Link
                                                                         to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                                         target="_blank"
