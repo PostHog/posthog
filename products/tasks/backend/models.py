@@ -306,6 +306,9 @@ class Task(DeletedMetaFields, models.Model):
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
         SLACK = "slack", "Slack"
+        # A session started from a Canvases v2 board. Boards list their own
+        # sessions, so the space session list leaves them out by default.
+        CANVAS = "canvas", "Canvas"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         POSTHOG_AI = "posthog_ai", "PostHog AI"

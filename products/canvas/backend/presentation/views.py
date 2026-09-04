@@ -60,6 +60,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasAgentRequestSerializer,
     CanvasBoardAppendOpsSerializer,
     CanvasBoardAppendResultSerializer,
+    CanvasBoardCreateSerializer,
     CanvasBoardOpsPageSerializer,
     CanvasBoardOpsQuerySerializer,
     CanvasBoardPresenceSerializer,
@@ -1931,7 +1932,21 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object_write_actions = ["create", "partial_update", "destroy", "append_ops", "presence"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id, deleted=False).order_by("-updated_at")
+        user = self._request_user()
+        # Boards are filed in a space, and a space decides who sees them. The
+        # facade's rule keeps a board in someone else's personal space private.
+        queryset = queryset.filter(team_id=self.team_id, deleted=False).filter(
+            tasks_facade.visible_channels_q(user.id if user else None, relation="channel")
+        )
+        if self.action == "list":
+            channel_id = self.request.query_params.get("channel")
+            if channel_id:
+                try:
+                    channel_id = str(UUID(channel_id))
+                except ValueError:
+                    return queryset.none()
+                queryset = queryset.filter(channel_id=channel_id)
+        return queryset.order_by("-updated_at")
 
     def get_throttles(self) -> list[BaseThrottle]:
         # On top of the defaults, not instead of them: the per-board key must not
@@ -1947,12 +1962,17 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return CanvasBoardSummarySerializer
         return CanvasBoardSerializer
 
-    @extend_schema(request=CanvasBoardWriteSerializer, responses={201: CanvasBoardSerializer})
+    @extend_schema(request=CanvasBoardCreateSerializer, responses={201: CanvasBoardSerializer})
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        payload = CanvasBoardWriteSerializer(data=request.data)
+        payload = CanvasBoardCreateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        channel_id = payload.validated_data["channel_id"]
+        user = self._request_user()
+        if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
+            return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         board = CanvasBoard.objects.create(
             team_id=self.team_id,
+            channel_id=channel_id,
             name=payload.validated_data["name"],
             created_by=self._request_user(),
             snapshot={"schemaVersion": 1, "fragments": [], "state": {}},
@@ -1966,8 +1986,20 @@ class CanvasBoardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         board = self.get_object()
         payload = CanvasBoardWriteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        board.name = payload.validated_data["name"]
-        board.save(update_fields=["name", "updated_at"])
+        data = payload.validated_data
+        update_fields: list[str] = []
+        if "name" in data:
+            board.name = data["name"]
+            update_fields.append("name")
+        if "channel_id" in data:
+            channel_id = data["channel_id"]
+            user = self._request_user()
+            if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
+                return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+            board.channel_id = channel_id
+            update_fields.append("channel_id")
+        if update_fields:
+            board.save(update_fields=[*update_fields, "updated_at"])
         return Response(CanvasBoardSerializer(board).data)
 
     def perform_destroy(self, instance: CanvasBoard) -> None:

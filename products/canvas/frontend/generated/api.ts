@@ -18,9 +18,9 @@ import type {
     CanvasBoardApi,
     CanvasBoardAppendOpsApi,
     CanvasBoardAppendResultApi,
+    CanvasBoardCreateApi,
     CanvasBoardOpsPageApi,
     CanvasBoardPresenceApi,
-    CanvasBoardWriteApi,
     CanvasBoardsListParams,
     CanvasBoardsOpsRetrieveParams,
     CanvasBuildActionApi,
@@ -103,14 +103,14 @@ export const getCanvasBoardsCreateUrl = (projectId: string) => {
  */
 export const canvasBoardsCreate = async (
     projectId: string,
-    canvasBoardWriteApi: CanvasBoardWriteApi,
+    canvasBoardCreateApi: CanvasBoardCreateApi,
     options?: RequestInit
 ): Promise<CanvasBoardApi> => {
     return apiMutator<CanvasBoardApi>(getCanvasBoardsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(canvasBoardWriteApi),
+        body: JSON.stringify(canvasBoardCreateApi),
     })
 }
 

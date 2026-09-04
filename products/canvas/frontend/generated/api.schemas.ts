@@ -8,6 +8,20 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * One fragment as a plain box, so a list can draw the shape of a board.
+ */
+export interface CanvasBoardPreviewBoxApi {
+    /** Left edge of the fragment, in world units. */
+    readonly x: number
+    /** Top edge of the fragment, in world units. */
+    readonly y: number
+    /** Width of the fragment, in world units. */
+    readonly w: number
+    /** Height of the fragment, in world units. */
+    readonly h: number
+}
+
+/**
  * A board as listed, without its contents.
  */
 export interface CanvasBoardSummaryApi {
@@ -15,6 +29,8 @@ export interface CanvasBoardSummaryApi {
     readonly id: string
     /** Display name of the board. */
     readonly name: string
+    /** Id of the space the board is filed in. */
+    readonly channel: string
     /** When the board was created. */
     readonly created_at: string
     /** When the board or its log last changed. */
@@ -23,6 +39,8 @@ export interface CanvasBoardSummaryApi {
     readonly head_seq: number
     /** Number of fragments in the stored snapshot. */
     readonly fragment_count: number
+    /** Boxes of the first fragments, so a list can draw the shape of the board. At most 24. */
+    readonly preview: readonly CanvasBoardPreviewBoxApi[]
 }
 
 export interface PaginatedCanvasBoardSummaryListApi {
@@ -35,14 +53,16 @@ export interface PaginatedCanvasBoardSummaryListApi {
 }
 
 /**
- * Payload for creating or renaming a board.
+ * Payload for creating a board in a space.
  */
-export interface CanvasBoardWriteApi {
+export interface CanvasBoardCreateApi {
     /**
      * Display name of the board.
      * @maxLength 120
      */
     name: string
+    /** Id of the space the board belongs to. */
+    channel_id: string
 }
 
 export type CanvasBoardApiSnapshotFragmentsItem = { [key: string]: unknown }
@@ -126,6 +146,7 @@ export const CanvasBoardLogEntryApiOpType = {
     BringToFront: 'bring_to_front',
     SetState: 'set_state',
     Restore: 'restore',
+    EditField: 'edit_field',
 } as const
 
 /**
@@ -160,6 +181,8 @@ export interface CanvasBoardApi {
     readonly id: string
     /** Display name of the board. */
     readonly name: string
+    /** Id of the space the board is filed in. */
+    readonly channel: string
     /** When the board was created. */
     readonly created_at: string
     /** When the board or its log last changed. */
@@ -177,7 +200,7 @@ export interface CanvasBoardApi {
 }
 
 /**
- * Payload for creating or renaming a board.
+ * Payload for renaming a board or filing it in another space.
  */
 export interface PatchedCanvasBoardWriteApi {
     /**
@@ -185,6 +208,8 @@ export interface PatchedCanvasBoardWriteApi {
      * @maxLength 120
      */
     name?: string
+    /** Id of the space the board belongs to. */
+    channel_id?: string
 }
 
 /**
@@ -216,6 +241,7 @@ export const CanvasBoardOpDraftApiOpType = {
     BringToFront: 'bring_to_front',
     SetState: 'set_state',
     Restore: 'restore',
+    EditField: 'edit_field',
 } as const
 
 /**
@@ -323,6 +349,29 @@ export interface CanvasBoardViewportApi {
 }
 
 /**
+ * One text caret of the caller, as the ids of the characters it sits between.
+ */
+export interface CanvasBoardCaretApi {
+    /**
+     * The shared state key the caller writes in.
+     * @maxLength 128
+     */
+    key: string
+    /**
+     * Entry id where the selection starts, or null.
+     * @maxLength 64
+     * @nullable
+     */
+    anchor?: string | null
+    /**
+     * Entry id where the caret sits, or null.
+     * @maxLength 64
+     * @nullable
+     */
+    focus?: string | null
+}
+
+/**
  * One presence ping: where the caller points, looks, and what they have selected.
  */
 export interface CanvasBoardPresenceApi {
@@ -341,6 +390,8 @@ export interface CanvasBoardPresenceApi {
      * @items.maxLength 64
      */
     selected_ids?: string[]
+    /** Where the caller writes, at most 4 fields at a time. */
+    carets?: CanvasBoardCaretApi[]
 }
 
 /**

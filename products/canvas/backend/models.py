@@ -281,6 +281,9 @@ class CanvasBoard(TeamScopedRootMixin, UUIDModel):
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    channel = models.ForeignKey(
+        "tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="canvas_boards"
+    )
     name = models.CharField(max_length=120)
     created_by = models.ForeignKey(
         "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
@@ -294,6 +297,7 @@ class CanvasBoard(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_canvas_board"
+        indexes = [models.Index(fields=["channel", "-created_at"], name="canvas_board_channel_recency")]
 
 
 class CanvasBoardOp(TeamScopedRootMixin, UUIDModel):

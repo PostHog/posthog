@@ -10,6 +10,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("canvas", "0016_canvas_source_policy"),
+        ("tasks", "0073_task_activity"),
         ("posthog", "1339_validate_taggeditem_project_fk"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
@@ -35,6 +36,15 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
+                    "channel",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="canvas_boards",
+                        to="tasks.channel",
+                    ),
+                ),
+                (
                     "created_by",
                     models.ForeignKey(
                         blank=True,
@@ -56,6 +66,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_canvas_board",
+                "indexes": [models.Index(fields=["channel", "-created_at"], name="canvas_board_channel_recency")],
             },
         ),
         migrations.CreateModel(

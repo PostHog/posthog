@@ -1182,20 +1182,62 @@ class CanvasBoardLogEntrySerializer(serializers.Serializer):
         }
 
 
+class CanvasBoardPreviewBoxSerializer(serializers.Serializer):
+    """One fragment as a plain box, so a list can draw the shape of a board."""
+
+    x = serializers.FloatField(read_only=True, help_text="Left edge of the fragment, in world units.")
+    y = serializers.FloatField(read_only=True, help_text="Top edge of the fragment, in world units.")
+    w = serializers.FloatField(read_only=True, help_text="Width of the fragment, in world units.")
+    h = serializers.FloatField(read_only=True, help_text="Height of the fragment, in world units.")
+
+
 class CanvasBoardSummarySerializer(serializers.Serializer):
     """A board as listed, without its contents."""
 
     id = serializers.UUIDField(read_only=True, help_text="Id of the board.")
     name = serializers.CharField(read_only=True, help_text="Display name of the board.")
+    channel = serializers.UUIDField(
+        source="channel_id", read_only=True, help_text="Id of the space the board is filed in."
+    )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the board was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the board or its log last changed.")
     head_seq = serializers.IntegerField(read_only=True, help_text="Seq of the newest op in the board's log.")
     fragment_count = serializers.SerializerMethodField(help_text="Number of fragments in the stored snapshot.")
 
+    preview = serializers.SerializerMethodField(
+        help_text="Boxes of the first fragments, so a list can draw the shape of the board. At most 24."
+    )
+
+    MAX_PREVIEW_BOXES = 24
+
     @extend_schema_field(serializers.IntegerField())
     def get_fragment_count(self, board: CanvasBoard) -> int:
-        fragments = board.snapshot.get("fragments", []) if isinstance(board.snapshot, dict) else []
-        return len(fragments)
+        return len(self._fragments(board))
+
+    @extend_schema_field(CanvasBoardPreviewBoxSerializer(many=True))
+    def get_preview(self, board: CanvasBoard) -> list[dict[str, float]]:
+        boxes: list[dict[str, float]] = []
+        for fragment in self._fragments(board)[: self.MAX_PREVIEW_BOXES]:
+            if not isinstance(fragment, dict):
+                continue
+            box = self._box(fragment)
+            if box is not None:
+                boxes.append(box)
+        return boxes
+
+    @staticmethod
+    def _fragments(board: CanvasBoard) -> list[Any]:
+        if not isinstance(board.snapshot, dict):
+            return []
+        fragments = board.snapshot.get("fragments", [])
+        return fragments if isinstance(fragments, list) else []
+
+    @staticmethod
+    def _box(fragment: dict[str, Any]) -> dict[str, float] | None:
+        try:
+            return {key: float(fragment[key]) for key in ("x", "y", "w", "h")}
+        except (KeyError, TypeError, ValueError):
+            return None
 
 
 class CanvasBoardSerializer(serializers.Serializer):
@@ -1205,6 +1247,9 @@ class CanvasBoardSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True, help_text="Id of the board.")
     name = serializers.CharField(read_only=True, help_text="Display name of the board.")
+    channel = serializers.UUIDField(
+        source="channel_id", read_only=True, help_text="Id of the space the board is filed in."
+    )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the board was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the board or its log last changed.")
     created_by = serializers.SerializerMethodField(help_text="Who created the board, or null.")
@@ -1236,10 +1281,18 @@ class CanvasBoardSerializer(serializers.Serializer):
         return cast(list[dict[str, Any]], CanvasBoardLogEntrySerializer(rows, many=True).data)
 
 
-class CanvasBoardWriteSerializer(serializers.Serializer):
-    """Payload for creating or renaming a board."""
+class CanvasBoardCreateSerializer(serializers.Serializer):
+    """Payload for creating a board in a space."""
 
     name = serializers.CharField(max_length=120, help_text="Display name of the board.")
+    channel_id = serializers.UUIDField(help_text="Id of the space the board belongs to.")
+
+
+class CanvasBoardWriteSerializer(serializers.Serializer):
+    """Payload for renaming a board or filing it in another space."""
+
+    name = serializers.CharField(max_length=120, required=False, help_text="Display name of the board.")
+    channel_id = serializers.UUIDField(required=False, help_text="Id of the space the board belongs to.")
 
 
 class CanvasBoardOpsQuerySerializer(serializers.Serializer):

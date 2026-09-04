@@ -15787,6 +15787,7 @@ export namespace Schemas {
       BringToFront: 'bring_to_front',
       SetState: 'set_state',
       Restore: 'restore',
+      EditField: 'edit_field',
     } as const;
 
     /**
@@ -15821,6 +15822,8 @@ export namespace Schemas {
       readonly id: string;
       /** Display name of the board. */
       readonly name: string;
+      /** Id of the space the board is filed in. */
+      readonly channel: string;
       /** When the board was created. */
       readonly created_at: string;
       /** When the board or its log last changed. */
@@ -15874,6 +15877,7 @@ export namespace Schemas {
       BringToFront: 'bring_to_front',
       SetState: 'set_state',
       Restore: 'restore',
+      EditField: 'edit_field',
     } as const;
 
     /**
@@ -15938,6 +15942,42 @@ export namespace Schemas {
     }
 
     /**
+     * One text caret of the caller, as the ids of the characters it sits between.
+     */
+    export interface CanvasBoardCaret {
+      /**
+         * The shared state key the caller writes in.
+         * @maxLength 128
+         */
+      key: string;
+      /**
+         * Entry id where the selection starts, or null.
+         * @maxLength 64
+         * @nullable
+         */
+      anchor?: string | null;
+      /**
+         * Entry id where the caret sits, or null.
+         * @maxLength 64
+         * @nullable
+         */
+      focus?: string | null;
+    }
+
+    /**
+     * Payload for creating a board in a space.
+     */
+    export interface CanvasBoardCreate {
+      /**
+         * Display name of the board.
+         * @maxLength 120
+         */
+      name: string;
+      /** Id of the space the board belongs to. */
+      channel_id: string;
+    }
+
+    /**
      * A pointer position on a board, in world units.
      */
     export interface CanvasBoardCursor {
@@ -15992,6 +16032,22 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       selected_ids?: string[];
+      /** Where the caller writes, at most 4 fields at a time. */
+      carets?: CanvasBoardCaret[];
+    }
+
+    /**
+     * One fragment as a plain box, so a list can draw the shape of a board.
+     */
+    export interface CanvasBoardPreviewBox {
+      /** Left edge of the fragment, in world units. */
+      readonly x: number;
+      /** Top edge of the fragment, in world units. */
+      readonly y: number;
+      /** Width of the fragment, in world units. */
+      readonly w: number;
+      /** Height of the fragment, in world units. */
+      readonly h: number;
     }
 
     /**
@@ -16002,6 +16058,8 @@ export namespace Schemas {
       readonly id: string;
       /** Display name of the board. */
       readonly name: string;
+      /** Id of the space the board is filed in. */
+      readonly channel: string;
       /** When the board was created. */
       readonly created_at: string;
       /** When the board or its log last changed. */
@@ -16010,17 +16068,8 @@ export namespace Schemas {
       readonly head_seq: number;
       /** Number of fragments in the stored snapshot. */
       readonly fragment_count: number;
-    }
-
-    /**
-     * Payload for creating or renaming a board.
-     */
-    export interface CanvasBoardWrite {
-      /**
-         * Display name of the board.
-         * @maxLength 120
-         */
-      name: string;
+      /** Boxes of the first fragments, so a list can draw the shape of the board. At most 24. */
+      readonly preview: readonly CanvasBoardPreviewBox[];
     }
 
     /**
@@ -61564,7 +61613,7 @@ export namespace Schemas {
     }
 
     /**
-     * Payload for creating or renaming a board.
+     * Payload for renaming a board or filing it in another space.
      */
     export interface PatchedCanvasBoardWrite {
       /**
@@ -61572,6 +61621,8 @@ export namespace Schemas {
          * @maxLength 120
          */
       name?: string;
+      /** Id of the space the board belongs to. */
+      channel_id?: string;
     }
 
     /**

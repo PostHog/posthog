@@ -17,8 +17,9 @@ export const canvasBoardsCreateBodyNameMax = 120
 export const CanvasBoardsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasBoardsCreateBodyNameMax).describe('Display name of the board.'),
+        channel_id: zod.uuid().describe('Id of the space the board belongs to.'),
     })
-    .describe('Payload for creating or renaming a board.')
+    .describe('Payload for creating a board in a space.')
 
 /**
  * Canvases v2 boards: shared infinite boards recorded as an append-only op log.
@@ -28,8 +29,9 @@ export const canvasBoardsPartialUpdateBodyNameMax = 120
 export const CanvasBoardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasBoardsPartialUpdateBodyNameMax).optional().describe('Display name of the board.'),
+        channel_id: zod.uuid().optional().describe('Id of the space the board belongs to.'),
     })
-    .describe('Payload for creating or renaming a board.')
+    .describe('Payload for renaming a board or filing it in another space.')
 
 /**
  * Record ops on a board's log. Resent op_ids are skipped and reported with their existing seq.
@@ -59,6 +61,7 @@ export const CanvasBoardsOpsAppendBody = /* @__PURE__ */ zod
                                     'bring_to_front',
                                     'set_state',
                                     'restore',
+                                    'edit_field',
                                 ]),
                             })
                             .describe('The op. Capped at 256 KB serialized.'),
@@ -112,6 +115,12 @@ export const canvasBoardsPresenceCreateBodySelectedIdsItemMax = 64
 
 export const canvasBoardsPresenceCreateBodySelectedIdsMax = 50
 
+export const canvasBoardsPresenceCreateBodyCaretsItemKeyMax = 128
+
+export const canvasBoardsPresenceCreateBodyCaretsItemAnchorMax = 64
+
+export const canvasBoardsPresenceCreateBodyCaretsItemFocusMax = 64
+
 export const CanvasBoardsPresenceCreateBody = /* @__PURE__ */ zod
     .object({
         client_id: zod
@@ -152,6 +161,29 @@ export const CanvasBoardsPresenceCreateBody = /* @__PURE__ */ zod
             .max(canvasBoardsPresenceCreateBodySelectedIdsMax)
             .optional()
             .describe('Ids of the fragments the caller has selected, at most 50.'),
+        carets: zod
+            .array(
+                zod
+                    .object({
+                        key: zod
+                            .string()
+                            .max(canvasBoardsPresenceCreateBodyCaretsItemKeyMax)
+                            .describe('The shared state key the caller writes in.'),
+                        anchor: zod
+                            .string()
+                            .max(canvasBoardsPresenceCreateBodyCaretsItemAnchorMax)
+                            .nullish()
+                            .describe('Entry id where the selection starts, or null.'),
+                        focus: zod
+                            .string()
+                            .max(canvasBoardsPresenceCreateBodyCaretsItemFocusMax)
+                            .nullish()
+                            .describe('Entry id where the caret sits, or null.'),
+                    })
+                    .describe('One text caret of the caller, as the ids of the characters it sits between.')
+            )
+            .optional()
+            .describe('Where the caller writes, at most 4 fields at a time.'),
     })
     .describe('One presence ping: where the caller points, looks, and what they have selected.')
 
