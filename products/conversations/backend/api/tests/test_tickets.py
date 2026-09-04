@@ -2273,10 +2273,9 @@ class TestTicketMessagesAPI(APIBaseTest):
             "version",
         }
 
-    def test_messages_expose_internal_note_key_of_agent_notes(self, mock_on_commit):
-        """A client reading the thread has to tell an agent's note from an unsent AI draft:
-        both are private and both are authored by "AI", and only the key says which."""
-        Comment.objects.create(
+    def test_messages_expose_internal_note_key_of_automation_notes(self, mock_on_commit):
+        base = timezone.now()
+        automation_note = Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
@@ -2287,18 +2286,21 @@ class TestTicketMessagesAPI(APIBaseTest):
                 "internal_note_key": "signals_report:report-id",
             },
         )
-        Comment.objects.create(
+        draft_note = Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="Suggested reply the pipeline did not send",
             item_context={"author_type": "AI", "is_private": True},
         )
+        # Stamp explicit, strictly-increasing created_at so ordering can't tie on fast DBs.
+        Comment.objects.filter(id=automation_note.id).update(created_at=base)
+        Comment.objects.filter(id=draft_note.id).update(created_at=base + timedelta(seconds=1))
 
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_200_OK
-        agent_note, draft = response.json()["results"]
-        assert agent_note["internal_note_key"] == "signals_report:report-id"
+        automation, draft = response.json()["results"]
+        assert automation["internal_note_key"] == "signals_report:report-id"
         assert draft["internal_note_key"] is None
 
     def test_messages_lookup_by_ticket_number(self, mock_on_commit):

@@ -88,11 +88,19 @@ def _require_ticket_editor_access(
 # A reservation with no posted root older than this is a crashed send — safe to retry.
 STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
 
-# item_context keys the Slack mirror sync stamps server-side. Stripped from client input so a
-# caller can't forge sync state (suppress mirroring of a reply, block ingestion of a real Slack
-# message by squatting on its ts, or spoof a Slack author identity in the discussion UI).
+# item_context keys the server stamps itself. Stripped from client input so a caller can't forge
+# them: Slack mirror sync state (suppress mirroring of a reply, block ingestion of a real Slack
+# message by squatting on its ts, or spoof a Slack author identity in the discussion UI), and
+# internal_note_key, which clients read to tell an automation's ticket note from an AI draft.
 RESERVED_ITEM_CONTEXT_KEYS = frozenset(
-    {"from_slack", "slack_synced_ts", "slack_message_ts", "slack_author_name", "slack_author_avatar"}
+    {
+        "from_slack",
+        "slack_synced_ts",
+        "slack_message_ts",
+        "slack_author_name",
+        "slack_author_avatar",
+        "internal_note_key",
+    }
 )
 
 
