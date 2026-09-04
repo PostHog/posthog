@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_invalid_pattern_returns_false_for_both_regex_and_not_regex() {
-        use crate::properties::property_matching::match_property;
+        use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 
         let props = HashMap::from([("email".to_string(), serde_json::json!("user@example.com"))]);
 
@@ -285,7 +285,12 @@ mod tests {
             Some(CompiledRegex::InvalidPattern)
         ));
         assert_eq!(
-            match_property(&regex_filter, &props, false, chrono_tz::Tz::UTC),
+            match_property(
+                &regex_filter,
+                &props,
+                false,
+                PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
+            ),
             Ok(false)
         );
 
@@ -308,7 +313,12 @@ mod tests {
         // on-the-fly behavior where a failed compilation returns Ok(false)
         // regardless of operator.
         assert_eq!(
-            match_property(&not_regex_filter, &props, false, chrono_tz::Tz::UTC),
+            match_property(
+                &not_regex_filter,
+                &props,
+                false,
+                PropertyMatchingContext::new(chrono_tz::Tz::UTC, false),
+            ),
             Ok(false)
         );
     }
@@ -372,7 +382,7 @@ mod tests {
         property_value: &str,
         expected: Result<bool, crate::properties::property_matching::FlagMatchingError>,
     ) {
-        use crate::properties::property_matching::match_property;
+        use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 
         let props = HashMap::from([("key".to_string(), serde_json::json!(property_value))]);
 
@@ -386,11 +396,12 @@ mod tests {
             compiled_regex: None,
             extra: Default::default(),
         };
-        let result_raw = match_property(&filter_raw, &props, false, chrono_tz::Tz::UTC);
+        let context = PropertyMatchingContext::new(chrono_tz::Tz::UTC, false);
+        let result_raw = match_property(&filter_raw, &props, false, context);
 
         let mut filter_compiled = filter_raw.clone();
         filter_compiled.prepare_regex();
-        let result_compiled = match_property(&filter_compiled, &props, false, chrono_tz::Tz::UTC);
+        let result_compiled = match_property(&filter_compiled, &props, false, context);
 
         assert_eq!(result_raw, result_compiled);
         assert_eq!(result_compiled, expected);

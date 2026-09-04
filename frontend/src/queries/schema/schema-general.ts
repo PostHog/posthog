@@ -4469,6 +4469,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     excludeAttributes?: boolean
     /** Show logs for a given person */
     personId?: string
+    /** Show logs for a given session ID */
+    sessionId?: string
     /**
      * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
      * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
@@ -10071,6 +10073,7 @@ export enum ProductKey {
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
+    BUSINESS_KNOWLEDGE = 'business_knowledge',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',

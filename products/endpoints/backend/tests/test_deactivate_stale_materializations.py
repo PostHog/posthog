@@ -6,6 +6,8 @@ from unittest import mock
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks.tasks import (
@@ -249,15 +251,17 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         mock_deactivate.assert_called_once()
         assert mock_deactivate.call_args[0][0].id == version.id
 
+    @parameterized.expand([("executed_long_ago", timedelta(days=45)), ("never_executed", None)])
     @mock.patch("products.endpoints.backend.tasks.tasks._deactivate_version_materialization")
-    def test_deactivates_superseded_version_of_an_active_endpoint(self, mock_deactivate):
+    def test_deactivates_superseded_version_of_an_active_endpoint(self, _name, old_version_age, mock_deactivate):
         now = timezone.now()
         endpoint, old_version = self._create_materialized_endpoint(
             name="active_endpoint",
             last_executed_at=now - timedelta(days=5),
             materialization_created_at=now - timedelta(days=45),
         )
-        EndpointVersion.objects.filter(id=old_version.id).update(last_executed_at=now - timedelta(days=45))
+        old_stamp = now - old_version_age if old_version_age else None
+        EndpointVersion.objects.filter(id=old_version.id).update(last_executed_at=old_stamp)
 
         current_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
