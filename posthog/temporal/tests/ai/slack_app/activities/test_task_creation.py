@@ -21,7 +21,7 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     _build_posthog_code_task_description,
     _format_author_token,
     _indent_body,
-    build_thread_context_update_block,
+    build_thread_context_update,
     derive_mention_workflow_id,
 )
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
@@ -138,6 +138,28 @@ def test_build_description_indents_multi_line_bodies_under_author():
         "  the deploy pipeline keeps timing out on the staging step,\n"
         "  but only on Tuesdays for some reason."
     ) in out
+
+
+def test_build_description_attributes_an_attachment_posted_without_a_word():
+    # The reported failure: an image opens the thread, the ask lands in a reply. The
+    # message carrying the image has no text, and dropping it left the agent holding a
+    # file no line in the context accounted for.
+    out = _build_posthog_code_task_description(
+        "what is this telling us?",
+        [
+            {
+                "user": "georgiy",
+                "user_id": "U_GEORGIY",
+                "text": "",
+                "ts": "1.000",
+                "files": [{"name": "costs.png"}],
+            },
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "what is this telling us?", "ts": "2.000"},
+        ],
+        "2.000",
+        mentioner_slack_user_id="U_GEORGIY",
+    )
+    assert "<@U_GEORGIY|georgiy>:\n  [Attached file(s): costs.png]" in out
 
 
 def test_build_description_for_a_fork_keeps_every_message_and_claims_none_as_the_request():
@@ -365,7 +387,8 @@ class TestBuildThreadContextUpdateBlock:
 
     def test_returns_none_when_no_messages_in_window(self):
         msgs = self._msgs(("mira", "U_MIRA", "1.000"), ("theo", "U_THEO", "2.000"))
-        block, new_watermark = build_thread_context_update_block(msgs, last_forwarded_ts="2.000", event_ts="2.000")
+        update = build_thread_context_update(msgs, last_forwarded_ts="2.000", event_ts="2.000")
+        block, new_watermark = update.block, update.watermark
         assert block is None
         # Watermark still advances past the just-arrived event so a future follow-up
         # doesn't re-evaluate the same already-empty window.
@@ -381,7 +404,8 @@ class TestBuildThreadContextUpdateBlock:
             ("nadia", "U_NADIA", "1.700"),  # in window
             ("mira", "U_MIRA", "2.000"),  # the just-arrived event — excluded
         )
-        block, new_watermark = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts="2.000")
+        update = build_thread_context_update(msgs, last_forwarded_ts="1.000", event_ts="2.000")
+        block, new_watermark = update.block, update.watermark
         assert block is not None
         assert "<@U_THEO|theo>:" in block
         assert "<@U_NADIA|nadia>:" in block
@@ -390,7 +414,7 @@ class TestBuildThreadContextUpdateBlock:
 
     def test_wraps_diff_in_dedicated_tag(self):
         msgs = self._msgs(("mira", "U_MIRA", "1.000"), ("theo", "U_THEO", "1.500"))
-        block, _ = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts="2.000")
+        block = build_thread_context_update(msgs, last_forwarded_ts="1.000", event_ts="2.000").block
         assert block is not None
         # Dedicated tag (not the original `<slack_thread_context>`) so the agent can
         # tell a catch-up apart from the foundational history.
@@ -408,7 +432,8 @@ class TestBuildThreadContextUpdateBlock:
         # row is seeded. Treat it as ``-inf`` so we still surface anything before the
         # arriving event.
         msgs = self._msgs(("mira", "U_MIRA", "1.000"), ("theo", "U_THEO", "1.500"))
-        block, new_watermark = build_thread_context_update_block(msgs, last_forwarded_ts=None, event_ts="2.000")
+        update = build_thread_context_update(msgs, last_forwarded_ts=None, event_ts="2.000")
+        block, new_watermark = update.block, update.watermark
         assert block is not None
         assert "<@U_MIRA|mira>:" in block
         assert "<@U_THEO|theo>:" in block
@@ -418,7 +443,7 @@ class TestBuildThreadContextUpdateBlock:
         msgs = [
             {"user": f"user{i}", "user_id": f"U_{i}", "text": f"line {i}", "ts": f"1.{i:03d}"} for i in range(1, 60)
         ]
-        block, _ = build_thread_context_update_block(msgs, last_forwarded_ts="0", event_ts="2.000", max_messages=10)
+        block = build_thread_context_update(msgs, last_forwarded_ts="0", event_ts="2.000", max_messages=10).block
         assert block is not None
         # Truncation notice is part of the header so the agent isn't misled into
         # thinking the slice is the full history.
@@ -430,7 +455,8 @@ class TestBuildThreadContextUpdateBlock:
     def test_advances_watermark_even_when_window_empty(self):
         # No intervening messages, but the just-arrived event still advances the
         # watermark — without that, every follow-up would re-evaluate the same gap.
-        block, new_watermark = build_thread_context_update_block([], last_forwarded_ts="1.000", event_ts="2.000")
+        update = build_thread_context_update([], last_forwarded_ts="1.000", event_ts="2.000")
+        block, new_watermark = update.block, update.watermark
         assert block is None
         assert new_watermark == "2.000"
 
@@ -446,7 +472,7 @@ class TestBuildThreadContextUpdateBlock:
                 "ts": "1.500",
             },
         ]
-        block, _ = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts="2.000")
+        block = build_thread_context_update(msgs, last_forwarded_ts="1.000", event_ts="2.000").block
         assert block is not None
         assert block.count(f"<{_THREAD_CONTEXT_UPDATE_TAG}>") == 1
         assert block.count(f"</{_THREAD_CONTEXT_UPDATE_TAG}>") == 1
@@ -457,7 +483,8 @@ class TestBuildThreadContextUpdateBlock:
         # both in the diff and the user_text. Bail and leave the watermark alone so
         # the next follow-up retries the same window from a fresh fetch.
         msgs = [{"user": "mira", "user_id": "U_MIRA", "text": "x", "ts": "1.500"}]
-        block, new_watermark = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts=None)
+        update = build_thread_context_update(msgs, last_forwarded_ts="1.000", event_ts=None)
+        block, new_watermark = update.block, update.watermark
         assert block is None
         assert new_watermark == "1.000"
 
@@ -466,10 +493,22 @@ class TestBuildThreadContextUpdateBlock:
             {"user": "mira", "user_id": "U_MIRA", "text": "", "ts": "1.500"},
             {"user": "theo", "user_id": "U_THEO", "text": "actual content", "ts": "1.700"},
         ]
-        block, _ = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts="2.000")
+        block = build_thread_context_update(msgs, last_forwarded_ts="1.000", event_ts="2.000").block
         assert block is not None
         assert "<@U_THEO|theo>:" in block
         assert "<@U_MIRA|mira>:" not in block
+
+    def test_keeps_a_message_that_is_only_an_attachment(self):
+        # An image dropped in the thread while the agent was quiet is why the follow-up
+        # was sent. Its message must reach the block, and the file must reach the caller
+        # that fetches it.
+        msgs = [
+            {"user": "mira", "user_id": "U_MIRA", "text": "", "ts": "1.500", "files": [{"name": "trace.png"}]},
+        ]
+        update = build_thread_context_update(msgs, last_forwarded_ts="1.000", event_ts="2.000")
+        assert update.block is not None
+        assert "<@U_MIRA|mira>:\n  [Attached file(s): trace.png]" in update.block
+        assert update.messages == msgs
 
     def test_snapshot_matches(self, snapshot):
         """Pin the full rendered update block for a representative intervening-messages case.
@@ -507,7 +546,7 @@ class TestBuildThreadContextUpdateBlock:
                 "ts": "2.000",
             },
         ]
-        block, _ = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts="2.000")
+        block = build_thread_context_update(msgs, last_forwarded_ts="1.000", event_ts="2.000").block
         assert block == snapshot
 
 

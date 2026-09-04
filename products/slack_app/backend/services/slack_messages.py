@@ -226,6 +226,33 @@ def resolve_bot_author_label(msg: dict) -> str:
     return bot_profile.get("name") or msg.get("username") or "Bot"
 
 
+# What the attachment preparer reads off a Slack file. A raw file object carries some
+# forty fields — thumbnails, sharing history, edit state — and the thread snapshot it
+# would ride in is a Temporal activity result, so only the fields that decide whether a
+# file is fetched, and from where, are kept.
+_SLACK_FILE_FIELDS = (
+    "id",
+    "name",
+    "title",
+    "mimetype",
+    "filetype",
+    "size",
+    "url_private",
+    "url_private_download",
+)
+
+
+def extract_message_files(msg: dict) -> list[dict[str, Any]]:
+    """The message's attachments, reduced to the fields an attachment is fetched by.
+
+    Empty for a message that carries none, which is most of them.
+    """
+    files = msg.get("files")
+    if not isinstance(files, list):
+        return []
+    return [{key: file[key] for key in _SLACK_FILE_FIELDS if key in file} for file in files if isinstance(file, dict)]
+
+
 def _thread_replies_cache_key(integration_id: int, channel: str, thread_ts: str) -> str:
     return f"slack_thread_replies:{integration_id}:{channel}:{thread_ts}"
 
@@ -341,7 +368,7 @@ def post_slack_ephemeral(
 _MISSING_THREAD_ERRORS = frozenset({"thread_not_found", "message_not_found"})
 
 
-def messages_at_or_before(messages: list[dict[str, str]], bound_ts: str) -> list[dict[str, str]]:
+def messages_at_or_before(messages: list[dict[str, Any]], bound_ts: str) -> list[dict[str, Any]]:
     """Messages posted at or before ``bound_ts``.
 
     Slack `ts` values are decimal strings, compared as Decimals rather than floats so
@@ -366,7 +393,7 @@ def collect_thread_messages(
     thread_ts: str,
     our_bot_id: str | None,
     until_ts: str | None = None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Fetch thread messages, strip bot mentions, and resolve user display names.
 
     ``until_ts`` clips the thread at a message, for a reader who forked the discussion
@@ -429,7 +456,20 @@ def collect_thread_messages(
         # raw `U…` Slack id so downstream prompt builders can render the labeled `<@U…|name>`
         # mention form for each message author — the same wire-format token the agent can echo
         # back to ping that user.
-        messages.append({"user": username, "user_id": user_id or "", "text": text, "ts": msg.get("ts") or ""})
+        entry: dict[str, Any] = {
+            "user": username,
+            "user_id": user_id or "",
+            "text": text,
+            "ts": msg.get("ts") or "",
+        }
+        # A file the agent can be given is worth more than a mention of one, so the metadata
+        # travels with the message that carries it: the agent's copy is fetched with the bot's
+        # token and uploaded as a run artifact, and the Slack url it came from is reachable to
+        # nobody else.
+        files = extract_message_files(msg)
+        if files:
+            entry["files"] = files
+        messages.append(entry)
 
     return messages
 
@@ -442,7 +482,7 @@ def cached_collect_thread_messages(
     our_bot_id: str | None,
     *,
     ttl: int = THREAD_REPLIES_CACHE_TTL_SECONDS,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Cached version of ``collect_thread_messages`` keyed by (integration, channel, thread_ts).
 
     A bursty thread — fast classifier-then-forwarder pipeline, many follow-ups within

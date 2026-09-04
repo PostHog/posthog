@@ -425,6 +425,49 @@ class TestCollectThreadMessages:
         assert result[1]["user"] == "andy"
         assert "was that really an anomaly?" in result[1]["text"]
 
+    def test_carries_attachment_metadata_needed_to_fetch_the_file(self):
+        # The screenshot a thread opens with is usually the one the request is about, so
+        # what it takes to fetch it has to survive the snapshot the agent is built from.
+        self._set_thread(
+            [
+                {
+                    "user": "U_ANDY",
+                    "text": "",
+                    "ts": "1.000",
+                    "files": [
+                        {
+                            "id": "F_CHART",
+                            "name": "costs.png",
+                            "mimetype": "image/png",
+                            "filetype": "png",
+                            "size": 165100,
+                            "url_private": "https://files.slack.com/files-pri/T1-F_CHART/costs.png",
+                            "url_private_download": "https://files.slack.com/files-pri/T1-F_CHART/download/costs.png",
+                            "thumb_360": "https://files.slack.com/files-tmb/T1-F_CHART/costs_360.png",
+                            "shares": {"public": {"C001": []}},
+                        }
+                    ],
+                },
+                {"user": "U_ANDY", "text": "<@UBOT> what is this telling us?", "ts": "2.000"},
+            ]
+        )
+        self.mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
+
+        result = collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id="B_OUR_CODE_BOT")
+
+        assert result[0]["files"] == [
+            {
+                "id": "F_CHART",
+                "name": "costs.png",
+                "mimetype": "image/png",
+                "filetype": "png",
+                "size": 165100,
+                "url_private": "https://files.slack.com/files-pri/T1-F_CHART/costs.png",
+                "url_private_download": "https://files.slack.com/files-pri/T1-F_CHART/download/costs.png",
+            }
+        ]
+        assert "files" not in result[1]
+
     def test_skips_our_own_bot_reply_messages(self):
         # Our own bot replies (e.g. "Working on it...") must be filtered so the agent
         # doesn't ingest its own status updates as context on a re-mention.
