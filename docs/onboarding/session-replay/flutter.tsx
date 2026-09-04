@@ -1,5 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
+import { DEFAULT_SNIPPET_METHODS, snippetFunctions } from '../product-analytics/_snippets/js-snippet-builder'
+import { SDK_DEFAULTS_DATE } from '../product-analytics/_snippets/sdkDefaults'
 import { StepDefinition } from '../steps'
 
 export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -12,14 +14,14 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Add the PostHog Flutter SDK to your `pubspec.yaml`:</Markdown>
+                    <Markdown>Add the PostHog Flutter SDK to your project:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
-                                language: 'yaml',
-                                file: 'pubspec.yaml',
+                                language: 'bash',
+                                file: 'Terminal',
                                 code: dedent`
-                                    posthog_flutter: ^5.24.0
+                                    flutter pub add posthog_flutter
                                 `,
                             },
                         ]}
@@ -66,7 +68,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'android/app/build.gradle',
                                 code: dedent`
                                     defaultConfig {
-                                        minSdkVersion 23
+                                        minSdkVersion 21
                                         // rest of your config
                                     }
                                 `,
@@ -120,13 +122,52 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        Go to your PostHog [Project Settings](https://us.posthog.com/settings/project-replay) and enable
+                        Go to your PostHog [Project Settings](https://app.posthog.com/settings/project-replay) and enable
                         **Record user sessions**. Session recordings will not work without this setting enabled.
                     </Markdown>
                     <Markdown>
                         If you're using Flutter Web, also enable the **Canvas capture** setting. This is required as
                         Flutter renders your app using a browser canvas element.
                     </Markdown>
+                </>
+            ),
+        },
+        {
+            title: 'Set up Flutter Web',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        On the web, `Posthog().setup()` is a no-op, so a web build captures nothing without the snippet
+                        below. If your project has a `web/` directory, add the PostHog web snippet to the `<head>` of
+                        your `web/index.html`:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'html',
+                                file: 'web/index.html',
+                                code: dedent`
+                                    <!DOCTYPE html>
+                                    <html>
+                                      <head>
+                                        ...
+                                        <script>
+                                          ${snippetFunctions(DEFAULT_SNIPPET_METHODS)}
+                                          posthog.init('<ph_project_token>', {
+                                              api_host: '<ph_client_api_host>',
+                                              defaults: '${SDK_DEFAULTS_DATE}',
+                                          })
+                                        </script>
+                                      </head>
+                                      <body>
+                                        ...
+                                      </body>
+                                    </html>
+                                `,
+                            },
+                        ]}
+                    />
                 </>
             ),
         },
