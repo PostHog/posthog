@@ -1419,7 +1419,6 @@ def fork_canvas(
     channel_id: str | UUID,
     created_by: User | None,
     was_impersonated: bool = False,
-    copy_context: bool = True,
 ) -> CanvasFork:
     """Copy the version behind ``build`` into a new canvas the caller owns.
 
@@ -1429,9 +1428,7 @@ def fork_canvas(
     content-addressed key so nothing is shared with the source (which may live
     in another team). Lineage is recorded as plain ids that survive the
     source's deletion. The copy's first build is queued like any publish, under
-    the same capacity cap. ``copy_context`` carries the source's author-written
-    context over; a copy made through a public link leaves it behind, since the
-    shared page never showed it and it keeps changing after the capture.
+    the same capacity cap.
     """
     published = build
     if published is None or published.status != CanvasBuild.STATUS_READY:
@@ -1452,7 +1449,7 @@ def fork_canvas(
         kind=source.kind,
         description=source.description,
         template_id=source.template_id,
-        context=source.context if copy_context else "",
+        context=source.context,
         created_by=created_by,
         forked_from_canvas_id=source.id,
         forked_from_version_id=version.id,

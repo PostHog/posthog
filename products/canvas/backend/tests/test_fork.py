@@ -166,21 +166,6 @@ class TestCanvasFork(CanvasSharingTestBase):
             fork_version = cast(CanvasSourceVersion, fork.current_source_version)
             assert fork_version.source_object_key.startswith(f"canvas_source/team_{team.id}/")
 
-    def test_share_token_fork_leaves_the_authors_context_behind(self):
-        access_token = self._shared_canvas(allow_forking=True)
-        with team_scope(self.team.id):
-            shared = SharingConfiguration.objects.select_related("canvas").get(access_token=access_token)
-            source = cast(Canvas, shared.canvas)
-            source.context = "Notes the shared page never shows"
-            source.save(update_fields=["context"])
-        client, team = self._other_project_client()
-
-        response = client.post(f"/api/projects/{team.id}/canvases/fork/", {"share_token": access_token}, format="json")
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        with team_scope(team.id):
-            assert Canvas.objects.get(id=response.json()["id"]).context == ""
-
     @parameterized.expand(
         [
             ("copies not allowed", {"allow_forking": False}, status.HTTP_403_FORBIDDEN),
