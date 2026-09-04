@@ -23,7 +23,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import APIScopeObject
 
-from products.access_control.backend.facade.object_names import display_model, resolve_object_names
+from products.access_control.backend.facade.object_names import (
+    display_model,
+    model_has_field,
+    resolve_object_names,
+    resources_with_object_access_controls,
+)
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
@@ -217,32 +222,52 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
     return _Subjects(subjects=subjects, role_names=role_names, member_names=member_names)
 
 
+def object_models(resource: str) -> list[type[Model]]:
+    """The model classes whose rows an object rule on `resource` can point at.
+
+    The display model when the settings UI can name the resource's objects. Otherwise every
+    team-scoped model behind the resource's routes, so rules the UI cannot name still resolve.
+    Empty when nothing backs the resource, for example a resource whose ids are not rows.
+    """
+    display = display_model(resource)
+    if display is not None:
+        return [display.model]
+    models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
+    return sorted((model for model in models if model_has_field(model, "team")), key=lambda model: model.__name__)
+
+
+def can_load_objects(resource: str) -> bool:
+    """Whether the preview can evaluate object rules on `resource`. When it cannot, the rows are
+    dropped from the comparison and an empty preview does not prove the organization is unaffected."""
+    return resource == "project" or bool(object_models(resource))
+
+
 def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str, _LoadedObject]:
-    """Map {object_id -> loaded object} for one resource. Empty when the resource has no
-    display model, which also means resolution has no model class to work with."""
+    """Map {object_id -> loaded object} for one resource. Empty when nothing backs the resource."""
     if resource == "project":
         # Project rules point at the team itself
         if str(team.pk) not in object_ids:
             return {}
         return {str(team.pk): _LoadedObject(instance=team, name=team.name, short_id=None)}
 
-    display = display_model(resource)
-    if display is None:
-        return {}
     names = resolve_object_names(resource, object_ids, team.pk)
-    try:
-        instances = display.model._base_manager.filter(team_id=team.pk, pk__in=object_ids)
-    except Exception as e:
-        capture_exception(e, {"resource": resource})
-        return {}
     result: dict[str, _LoadedObject] = {}
-    for obj in instances:
-        object_id = str(obj.pk)
-        name = names.get(object_id)
-        short_id = getattr(obj, "short_id", None)
-        result[object_id] = _LoadedObject(
-            instance=obj, name=name.name if name else None, short_id=str(short_id) if short_id else None
-        )
+    for model in object_models(resource):
+        try:
+            instances = list(model._base_manager.filter(team_id=team.pk, pk__in=object_ids))
+        except Exception as e:
+            capture_exception(e, {"resource": resource, "model": model.__name__})
+            continue
+        for obj in instances:
+            object_id = str(obj.pk)
+            name = names.get(object_id)
+            short_id = getattr(obj, "short_id", None)
+            result.setdefault(
+                object_id,
+                _LoadedObject(
+                    instance=obj, name=name.name if name else None, short_id=str(short_id) if short_id else None
+                ),
+            )
     return result
 
 

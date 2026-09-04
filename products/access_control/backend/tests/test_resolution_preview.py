@@ -120,6 +120,22 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
         assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
         assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("editor", "none")
 
+    def test_object_rules_on_a_resource_without_a_display_model_are_compared(self):
+        # Exports have no display model, so the settings UI cannot name them, but the route
+        # model still backs the resource and the rule resolves like any other object rule
+        from products.exports.backend.models.exported_asset import ExportedAsset
+
+        asset = ExportedAsset.objects.create(team=self.team, created_by=self.other_user, export_format="text/csv")
+        self._create_access_control(resource="export", resource_id=str(asset.id), access_level="viewer")
+        self._create_access_control(resource="export", access_level="editor")
+
+        changes = self._changes()
+
+        assert [(change.scope, change.object_id, change.object_name) for change in changes] == [
+            ("object", str(asset.id), None)
+        ]
+        assert (changes[0].current.access_level, changes[0].proposed.access_level) == ("editor", "viewer")
+
     def test_creator_pairs_are_skipped(self):
         # Creators keep the highest level under both ladders, so their override never applies
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
