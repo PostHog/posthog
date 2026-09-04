@@ -82,13 +82,15 @@ describe('scout creation buttons', () => {
     })
 
     it('spins only the button that started the task', async () => {
-        const { getByText } = render(<ScoutsRosterActions />)
+        const { findByText, getByText } = render(<ScoutsRosterActions />)
 
-        fireEvent.click(getByText('Suggest a scout'))
+        // "Suggest a scout" lives in the Ask menu on this surface, so the Ask button is what spins.
+        fireEvent.click(getByText('Ask'))
+        fireEvent.click(await findByText('Suggest a scout'))
 
         // Both assertions read the same render, before the task resolves and clears the state.
-        expect(getByText('Suggest a scout').closest('button')?.querySelector('.Spinner')).toBeTruthy()
-        expect(getByText('Ask').closest('button')?.querySelector('.Spinner')).toBeNull()
+        expect(getByText('Ask').closest('button')?.querySelector('.Spinner')).toBeTruthy()
+        expect(getByText('Create scout').closest('button')?.querySelector('.Spinner')).toBeNull()
         await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
     })
 
