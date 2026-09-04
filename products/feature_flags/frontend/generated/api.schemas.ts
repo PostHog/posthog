@@ -1851,13 +1851,6 @@ export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     context_name: string
 }
 
-export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
-    /**
-     * Name of the evaluation context to restore to suggestions.
-     */
-    context_name: string
-}
-
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
