@@ -2725,6 +2725,7 @@ def get_teams_with_apm_tracing_usage_in_period(
 def get_teams_with_metrics_usage_in_period(
     begin: datetime,
     end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict, like the logs and traces functions above.
 ) -> dict[str, list[tuple[int, int]]]:
     """
     Returns Metrics (OTel) ingested bytes and record counts per team for the period,

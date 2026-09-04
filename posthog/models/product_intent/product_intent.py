@@ -235,11 +235,8 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         #    possible once metrics have reached the team (a metric name has to exist to pick),
         #    so an engagement signal is itself proof of ingestion.
         #
-        # 2. Ingestion: the team has metric data flowing. While the viewer sat behind a
-        #    private-alpha allowlist, engagement-only activation was circular — only
-        #    allowlisted teams could ever fire the UI events — so a team sending data with
-        #    no UI access could never activate. Data flowing is the outcome the product
-        #    intent describes, whether or not anyone has opened the viewer yet.
+        # 2. Ingestion: the team has metric data flowing. Sending data does not require the
+        #    viewer, so a team can reach the product outcome without ever firing a UI event.
         #
         # We deliberately do NOT gate on `metrics_first_ingested`: that context fires only
         # when the frontend observes a no-metrics -> has-metrics flip in-session, so a team
@@ -258,10 +255,17 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             return True
 
         # Local import: this module loads during django.setup() (via posthog.models), and the
-        # metrics query runner pulls in HogQL execution (circular).
-        from products.metrics.backend.has_metrics_query_runner import team_has_metrics  # noqa: PLC0415
+        # metrics facade pulls in HogQL execution (circular).
+        from products.metrics.backend.facade.api import team_has_metrics  # noqa: PLC0415
 
-        return team_has_metrics(self.team)
+        # Activation checks run on the request path (intent registration), so a ClickHouse
+        # failure must not fail the caller — treat it as "no data yet" and let the periodic
+        # recheck pick the team up later.
+        try:
+            return team_has_metrics(self.team)
+        except Exception:
+            logger.exception("has_activated_metrics: data lookup failed", team_id=self.team_id)
+            return False
 
     def has_activated_workflows(self) -> bool:
         # At least one workflow needs to be active (not just drafted)
