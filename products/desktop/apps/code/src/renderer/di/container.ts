@@ -91,6 +91,10 @@ import { TrpcCloudTaskClient } from "@posthog/host-router/cloud-task-client";
 import { TrpcPiRunner } from "@posthog/host-router/pi-runner";
 import { TrpcPiSessionFactory } from "@posthog/host-router/pi-session-factory";
 import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
+import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
@@ -180,6 +184,12 @@ container.bind(HOST_LOGGER).toConstantValue(hostLog);
 container.bind<TRPCClient<TrpcRouter>>(TRPC_CLIENT).toConstantValue(trpcClient);
 
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
+
+container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
+  captureScreenshot: () =>
+    hostTrpcClient.feedbackContext.captureScreenshot.query(),
+  readRecentLogs: () => hostTrpcClient.feedbackContext.readRecentLogs.query(),
+} satisfies IFeedbackContext);
 
 container.bind(UPDATES_CLIENT).toConstantValue(updatesClient);
 

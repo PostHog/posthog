@@ -123,6 +123,10 @@ import type { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import type { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import type { DIALOG_SERVICE } from "@posthog/platform/dialog";
 import type { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
+import type {
+  FEEDBACK_CONTEXT_SERVICE,
+  IFeedbackContext,
+} from "@posthog/platform/feedback-context";
 import type { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -332,6 +336,7 @@ export interface MainBindings {
   [CRYPTO_SERVICE]: ElectronCrypto;
   [ANALYTICS_SERVICE]: IAnalytics;
   [FILE_ICON_SERVICE]: ElectronFileIcon;
+  [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
   [SECURE_STORAGE_SERVICE]: ElectronSecureStorage;
   [MAIN_WINDOW_SERVICE]: ElectronMainWindow;
   [APP_LIFECYCLE_SERVICE]: ElectronAppLifecycle;

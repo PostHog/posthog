@@ -19,6 +19,7 @@ import { diskCacheRouter } from "@posthog/host-router/routers/disk-cache.router"
 import { enrichmentRouter } from "@posthog/host-router/routers/enrichment.router";
 import { environmentRouter } from "@posthog/host-router/routers/environment.router";
 import { externalAppsRouter } from "@posthog/host-router/routers/external-apps.router";
+import { feedbackContextRouter } from "@posthog/host-router/routers/feedback-context.router";
 import { fileWatcherRouter } from "@posthog/host-router/routers/file-watcher.router";
 import { focusRouter } from "@posthog/host-router/routers/focus.router";
 import { foldersRouter } from "@posthog/host-router/routers/folders.router";
@@ -81,6 +82,7 @@ export const trpcRouter = router({
   environment: environmentRouter,
   encryption: encryptionRouter,
   externalApps: externalAppsRouter,
+  feedbackContext: feedbackContextRouter,
   fileWatcher: fileWatcherRouter,
   focus: focusRouter,
   folders: foldersRouter,

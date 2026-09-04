@@ -181,6 +181,10 @@ import {
   type IAnalytics,
 } from "@posthog/platform/analytics";
 import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
+import {
   HOST_CAPABILITIES,
   type HostCapabilities,
 } from "@posthog/platform/host-capabilities";
@@ -334,6 +338,7 @@ import { hostTrpcClient } from "./web-trpc";
 
 interface WebBindings {
   [HOST_TRPC_CLIENT]: HostTrpcClient;
+  [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
   [PI_SESSION_PROVIDER]: PiSessionProvider;
   [LOCAL_PI_SESSION_FACTORY]: PiSessionFactory;
   [CLOUD_TASK_CLIENT]: CloudTaskClient;
@@ -419,6 +424,10 @@ export const container = new TypedContainer<WebBindings>({
 // Keystone: the same typed host client the renderer binds — served in-process
 // here (web-trpc.ts) instead of over Electron IPC.
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
+container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
+  captureScreenshot: () => Promise.resolve(null),
+  readRecentLogs: () => Promise.resolve(null),
+});
 container.bind(LOCAL_PI_SESSION_FACTORY).to(TrpcPiSessionFactory);
 container.bind(CLOUD_TASK_CLIENT).to(TrpcCloudTaskClient);
 container.bind(PI_RUNNER).to(TrpcPiRunner);

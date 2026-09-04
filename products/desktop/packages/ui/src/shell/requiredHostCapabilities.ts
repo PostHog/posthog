@@ -4,6 +4,7 @@ import {
   SPEECH_USER_NAME_PROVIDER,
 } from "@posthog/core/speech/identifiers";
 import type { HostCapabilityRequirement } from "@posthog/di/hostCapabilities";
+import { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import { HOST_CAPABILITIES } from "@posthog/platform/host-capabilities";
 import { SPEECH_SERVICE } from "@posthog/platform/speech";
 import { AUTH_SIDE_EFFECTS } from "@posthog/ui/features/auth/identifiers";
@@ -42,6 +43,10 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
     {
       token: HOST_CAPABILITIES,
       description: "coarse host capability flags the shared UI branches on",
+    },
+    {
+      token: FEEDBACK_CONTEXT_SERVICE,
+      description: "reviewable screenshot and log context for feedback",
     },
     {
       token: FEATURE_FLAGS,

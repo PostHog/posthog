@@ -18,6 +18,7 @@ import { diskCacheRouter } from "./routers/disk-cache.router";
 import { enrichmentRouter } from "./routers/enrichment.router";
 import { environmentRouter } from "./routers/environment.router";
 import { externalAppsRouter } from "./routers/external-apps.router";
+import { feedbackContextRouter } from "./routers/feedback-context.router";
 import { fileWatcherRouter } from "./routers/file-watcher.router";
 import { focusRouter } from "./routers/focus.router";
 import { foldersRouter } from "./routers/folders.router";
@@ -71,6 +72,7 @@ export const hostRouter = router({
   enrichment: enrichmentRouter,
   environment: environmentRouter,
   externalApps: externalAppsRouter,
+  feedbackContext: feedbackContextRouter,
   fileWatcher: fileWatcherRouter,
   focus: focusRouter,
   folders: foldersRouter,

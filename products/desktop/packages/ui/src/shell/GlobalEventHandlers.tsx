@@ -16,6 +16,7 @@ import { useReviewNavigationStore } from "@posthog/ui/features/code-review/revie
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
+import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
@@ -61,6 +62,7 @@ export function GlobalEventHandlers({
     PI_SESSION_CONTROLLER,
   );
   const commandMenuOpen = useCommandMenuStore((s) => s.isOpen);
+  const openFeedback = useFeedbackStore((s) => s.open);
   const openSettingsDialog = openSettings;
   const view = useAppView();
   const goBack = goBackInHistory;
@@ -187,6 +189,7 @@ export function GlobalEventHandlers({
   });
   useHotkeys(SHORTCUTS.NEW_TASK, handleFocusTaskMode, globalOptions);
   useHotkeys(SHORTCUTS.SETTINGS, handleOpenSettings, globalOptions);
+  useHotkeys(SHORTCUTS.SEND_FEEDBACK, () => openFeedback(), globalOptions);
   useHotkeys(SHORTCUTS.GO_BACK, goBack, globalOptions);
   useHotkeys(SHORTCUTS.GO_FORWARD, goForward, globalOptions);
   // mod+left/right means jump to line start/end inside inputs and editors, so

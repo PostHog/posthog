@@ -13,6 +13,11 @@ import {
   ShieldCheck,
   SignOut,
 } from "@phosphor-icons/react";
+import { useService } from "@posthog/di/react";
+import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
 import {
   Button,
   DropdownMenu,
@@ -77,6 +82,9 @@ export function ProjectSwitcher({
 }: ProjectSwitcherProps = {}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const feedbackContext = useService<IFeedbackContext>(
+    FEEDBACK_CONTEXT_SERVICE,
+  );
 
   const holdPeek = useHoldSidebarPeek();
   const handleOpenChange = (next: boolean): void => {
@@ -421,6 +429,7 @@ export function ProjectSwitcher({
       <FeedbackModal
         mode={feedbackOpen ? "feedback" : null}
         onFinished={() => setFeedbackOpen(false)}
+        contextClient={feedbackContext}
       />
     </DropdownMenu>
   );

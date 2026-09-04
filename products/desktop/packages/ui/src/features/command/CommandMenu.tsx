@@ -3,6 +3,7 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   ChartLine,
+  ChatCircleDots,
   CubeIcon,
   EnvelopeSimple,
   Gauge,
@@ -75,6 +76,7 @@ import {
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
+import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import {
@@ -237,6 +239,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
+  const openFeedback = useFeedbackStore((state) => state.open);
   const view = useAppView();
   const setReviewMode = useReviewNavigationStore(
     (state) => state.setReviewMode,
@@ -515,6 +518,15 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
         onRun: toggleLeftSidebar,
       },
+      {
+        id: "send-feedback",
+        label: "Send feedback",
+        keywords: "report issue bug screenshot logs",
+        icon: <ChatCircleDots size={12} className="text-gray-11" />,
+        action: "send-feedback",
+        shortcut: SHORTCUTS.SEND_FEEDBACK,
+        onRun: () => openFeedback(),
+      },
       ...(reviewTaskId
         ? [
             {
@@ -645,6 +657,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     openSettingsDialog,
     closeSettingsDialog,
     toggleLeftSidebar,
+    openFeedback,
     openReviewPanel,
     reviewTaskId,
     openedTask,
