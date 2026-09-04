@@ -158,6 +158,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorCorruptedParquetMetadata(
             CORRUPTED_PARQUET_METADATA_MESSAGE, code=err.code, code_name="corrupted_parquet_metadata"
         )
+    elif name == "ALL_CONNECTION_TRIES_FAILED":
+        # Transient: a shard host refused every connection attempt. The next attempt can land on a
+        # healthy replica, so this gets a stable class the retry paths can name.
+        return CHQueryErrorAllConnectionTriesFailed(err.message, code=err.code, code_name="all_connection_tries_failed")
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
@@ -254,6 +258,10 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorAllConnectionTriesFailed(InternalCHQueryError):
     pass
 
 
@@ -1042,10 +1050,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
+# A host that refuses every connection (code 279) is cluster trouble too, not a problem with the query.
 # CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
 # and an operator or user deliberately killing one are indistinguishable at this layer, so callers
 # that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).
 CH_TRANSIENT_ERRORS = (
+    CHQueryErrorAllConnectionTriesFailed,
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
