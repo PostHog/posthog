@@ -119,8 +119,16 @@ async fn run_pipeline(
         return Ok(events);
     }
 
-    if state.capture_mode == CaptureMode::Ai {
-        drop_misrouted_events(state, context, &mut events, true);
+    // Each lane's endpoint refuses the other's traffic. v1 requires correct
+    // routing: unlike v0, it has a per-event response, so it can say which event
+    // was wrong instead of guessing on the caller's behalf. v0 keeps its
+    // divert-to-the-AI-topic shim -- this gate is v1-only and does not touch it.
+    // Import backfills historical data of either kind, and Recordings registers
+    // no v1 analytics route, so neither is gated.
+    match state.capture_mode {
+        CaptureMode::Ai => drop_misrouted_events(state, context, &mut events, true),
+        CaptureMode::Events => drop_misrouted_events(state, context, &mut events, false),
+        _ => {}
     }
 
     // Nothing left to process — return 200 with per-event drops.
@@ -3879,6 +3887,7 @@ mod tests {
         let distinct_id = "user-1";
         let now = Utc::now();
         let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
             .with_ai_gateway_signing_secret(GW_SECRET)
             .build();
         let signed_at = now.to_rfc3339();
@@ -3919,6 +3928,7 @@ mod tests {
         let token = "phc_test_token";
         let now = Utc::now();
         let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
             .with_ai_gateway_signing_secret(GW_SECRET)
             .build();
         let mut ctx = gateway_context(token, now, None);
@@ -3950,7 +3960,11 @@ mod tests {
     /// process_batch wiring: an allowlisted AI event lands on the AI topic.
     #[tokio::test]
     async fn process_batch_routes_ai_events_to_ai_topic() {
-        let ts = TestStateBuilder::new().build();
+        // AI-lane behaviour, so it belongs on the AI deployment: on v1 the
+        // analytics lane refuses AI events outright (see the misrouting gate).
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
         let mut ctx = gateway_context("phc_test_token", Utc::now(), None);
         let batch = valid_batch(vec![Event {
             event: "$ai_generation".to_string(),
@@ -3974,11 +3988,12 @@ mod tests {
     #[tokio::test]
     async fn process_batch_routes_ai_overflow_with_only_ai_limiter_armed() {
         let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
             .with_ai_events_overflow_limiter(1, 1)
             .build();
         let mut ctx = test_utils::test_analytics_context();
-        // All three events share the token:distinct_id overflow key; burst=1
-        // lets the first AI event through and overflows the second.
+        // Both events share the token:distinct_id overflow key; burst=1 lets the
+        // first AI event through and overflows the second.
         let batch = valid_batch(vec![
             Event {
                 event: "$ai_generation".to_string(),
@@ -3988,7 +4003,6 @@ mod tests {
                 event: "$ai_generation".to_string(),
                 ..valid_event()
             },
-            valid_event(),
         ]);
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
@@ -3996,10 +4010,7 @@ mod tests {
         ts.mock_producer.with_records(|records| {
             let mut topics: Vec<&str> = records.iter().map(|r| r.topic.as_str()).collect();
             topics.sort_unstable();
-            assert_eq!(
-                topics,
-                vec!["ai_events", "ai_events_overflow", "events_main"]
-            );
+            assert_eq!(topics, vec!["ai_events", "ai_events_overflow"]);
         });
     }
 
@@ -4011,6 +4022,7 @@ mod tests {
         // The flat envelope allowance alone puts two events past an 800-byte
         // budget, so the first AI event fits and the second does not.
         let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
             .with_ai_byte_rate_limiter(Arc::new(GlobalRateLimiter::mock_budget(800)))
             .build();
         let mut ctx = test_utils::test_analytics_context();
@@ -4023,18 +4035,16 @@ mod tests {
                 event: "$ai_generation".to_string(),
                 ..valid_event()
             },
-            valid_event(),
         ]);
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
         ts.mock_producer.with_records(|records| {
-            let mut topics: Vec<&str> = records.iter().map(|r| r.topic.as_str()).collect();
-            topics.sort_unstable();
+            let topics: Vec<&str> = records.iter().map(|r| r.topic.as_str()).collect();
             assert_eq!(
                 topics,
-                vec!["ai_events", "events_main"],
-                "the over-budget AI event must not reach the sink, and the analytics event must be untouched"
+                vec!["ai_events"],
+                "the first AI event fits the budget; the over-budget one must not reach the sink"
             );
         });
     }
@@ -4506,26 +4516,54 @@ mod tests {
         }
     }
 
-    /// The control proving the gate is mode-scoped, not a change to how the
-    /// shared pipeline treats these names.
+    /// The analytics deployment's half of the gate, end to end through
+    /// `process_batch`: an AI-lane name is refused, everything else publishes,
+    /// and the refusal does not take the rest of the batch with it.
+    ///
+    /// `$ai_cache_usage` is the case that keeps this honest. It is `$ai_`
+    /// prefixed but off the allowlist, so it is an ordinary analytics event and
+    /// must publish -- roughly 309K events/day across production carry names
+    /// like it. A gate keyed on the prefix rather than the allowlist would drop
+    /// them all.
     #[tokio::test]
-    async fn events_mode_leaves_non_ai_events_alone() {
+    async fn events_mode_refuses_ai_lane_events_and_publishes_the_rest() {
         let ts = TestStateBuilder::new().build();
         let mut ctx = test_utils::test_analytics_context();
+        let ai_event = named_event("$ai_generation");
+        let ai_uuid = ai_event.uuid.clone();
         let batch = valid_batch(vec![
-            named_event("$ai_generation"),
+            ai_event,
             named_event("$pageview"),
             named_event("$exception"),
+            named_event("$ai_cache_usage"),
         ]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-        for (_, entry) in resp.entries() {
-            assert_eq!(entry.result, EventResult::Ok);
-            assert_eq!(entry.details, None);
+        for (uuid, entry) in resp.entries() {
+            if uuid.to_string() == ai_uuid {
+                assert_eq!(
+                    entry.result,
+                    EventResult::Drop,
+                    "an AI-lane name does not belong on the analytics endpoint"
+                );
+                assert_eq!(entry.details, Some(DETAIL_MISROUTED_EVENT));
+            } else {
+                assert_eq!(
+                    entry.result,
+                    EventResult::Ok,
+                    "the rest of the batch is unaffected"
+                );
+                assert_eq!(entry.details, None);
+            }
         }
-        ts.mock_producer
-            .with_records(|records| assert_eq!(records.len(), 3));
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(records.len(), 3, "only the AI-lane event is withheld");
+            assert!(
+                records.iter().all(|r| r.topic != "ai_events"),
+                "the analytics deployment publishes nothing to the AI topic on v1"
+            );
+        });
     }
 
     /// A batch with nothing but non-AI events leaves no event publishable, so
@@ -4687,17 +4725,17 @@ mod tests {
 
     /// An oversized AI event must stay visible to the project owner. v0 maps
     /// `CaptureError::AiEventTooBig` to `MessageSizeTooLarge`; v1 reaches the
-    /// same warning through the drop tag. The ceiling applies on every
-    /// deployment that carries AI events, so the warning does too: SDKs send
-    /// `$ai_*` events through the analytics endpoint as well.
-    #[rstest::rstest]
-    #[case::ai_deployment(CaptureMode::Ai)]
-    #[case::analytics_deployment(CaptureMode::Events)]
+    /// same warning through the drop tag.
+    ///
+    /// AI-deployment only. On v1 the analytics lane refuses AI events at the
+    /// misrouting gate, which runs before the size limiter, so an oversized AI
+    /// event never reaches the ceiling there -- it is reported as
+    /// `misrouted_event`, not `ai_event_too_big`.
     #[tokio::test]
-    async fn oversize_ai_event_emits_the_message_size_warning(#[case] capture_mode: CaptureMode) {
+    async fn oversize_ai_event_emits_the_message_size_warning() {
         let collector = Arc::new(CollectingEmitter::new());
         let ts = TestStateBuilder::new()
-            .with_capture_mode(capture_mode)
+            .with_capture_mode(CaptureMode::Ai)
             .with_ai_max_event_bytes(700)
             .with_ingestion_warning_emitter(collector.clone())
             .build();

@@ -102,6 +102,65 @@ async fn v1_http_single_event_to_kafka() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Lane gate: the analytics endpoint refuses AI-lane events, HTTP -> Kafka
+// ---------------------------------------------------------------------------
+
+/// The v1 analytics endpoint refuses an AI-lane event name and says so
+/// per-event, while the rest of the batch still publishes.
+///
+/// `$ai_cache_usage` is deliberately in the batch: `$ai_`-prefixed but off the
+/// allowlist, so it is an ordinary analytics event and must survive. Production
+/// carries roughly 309K events/day under names like it, so a gate keyed on the
+/// prefix rather than the allowlist would be a mass drop.
+#[tokio::test]
+async fn v1_http_analytics_endpoint_refuses_ai_lane_events() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_v1_topic(&topic).await;
+
+    let ai = named("lane-user", "$ai_generation");
+    let ai_uuid = ai.uuid.clone();
+    let prefixed = named("lane-user", "$ai_cache_usage");
+    let prefixed_uuid = prefixed.uuid.clone();
+    let analytics = pageview("lane-user");
+    let analytics_uuid = analytics.uuid.clone();
+    let payload = batch_payload(&[ai, prefixed, analytics]);
+
+    let res = server.capture_v1(TOKEN, payload).await;
+    assert_eq!(
+        res.status(),
+        reqwest::StatusCode::OK,
+        "a misrouted event is a per-event verdict, never a request-level error"
+    );
+
+    let body = parse_body(res).await;
+    assert_eq!(
+        body["results"][ai_uuid.as_str()]["result"],
+        "drop",
+        "an AI-lane name does not belong on the analytics endpoint: {body}"
+    );
+    assert_eq!(
+        body["results"][ai_uuid.as_str()]["details"],
+        "misrouted_event",
+        "the drop must name the reason so the caller can fix the routing: {body}"
+    );
+    for uuid in [prefixed_uuid.as_str(), analytics_uuid.as_str()] {
+        assert_eq!(
+            body["results"][uuid]["result"], "ok",
+            "the rest of the batch is unaffected: {body}"
+        );
+    }
+
+    // Only the two accepted events reach Kafka, in submission order.
+    let first: CapturedEvent = serde_json::from_value(topic.next_event()?)?;
+    assert_eq!(first.event, "$ai_cache_usage");
+    let second: CapturedEvent = serde_json::from_value(topic.next_event()?)?;
+    assert_eq!(second.event, "$pageview");
+    topic.assert_empty();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Small batch: HTTP -> real Kafka round trip
 // ---------------------------------------------------------------------------
 
@@ -209,7 +268,7 @@ async fn v1_http_forged_gateway_marker_is_stripped_in_kafka() -> Result<()> {
     ev.properties = raw_obj(r#"{"$ai_model":"claude","$ai_gateway_verified":true}"#);
     let payload = batch_payload(std::slice::from_ref(&ev));
 
-    let res = server.capture_v1(TOKEN, payload).await;
+    let res = server.capture_v1_ai(TOKEN, payload).await;
     assert_eq!(res.status(), reqwest::StatusCode::OK);
 
     let captured: CapturedEvent = serde_json::from_value(topic.next_event()?)?;
