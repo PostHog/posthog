@@ -72,7 +72,7 @@ interface MetricAction {
 const DRIFT_APPROVE_DISABLED = 'This metric has drifted from its source insight. Refresh it first.'
 
 export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps): JSX.Element {
-    const { metric, metricLoading, mutating, runResult, runResultLoading, editingDefinition, draftMarkdown } =
+    const { metric, metricLoading, mutating, runResult, runError, runResultLoading, editingDefinition, draftMarkdown } =
         useValues(dataCatalogMetricSceneLogic)
     const {
         approveMetric,
@@ -347,6 +347,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     draftMarkdown={draftMarkdown}
                     saving={mutating}
                     runResult={runResult}
+                    runError={runError}
                     runResultLoading={runResultLoading}
                     onDraftMarkdown={setDraftMarkdown}
                     onEdit={setEditingDefinition}

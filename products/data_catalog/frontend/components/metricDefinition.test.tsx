@@ -24,7 +24,7 @@ function buildMetric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalog
     } as DataCatalogMetricApi
 }
 
-function renderDefinition(metric: DataCatalogMetricApi): void {
+function renderDefinition(metric: DataCatalogMetricApi, runError: string | null = null): void {
     render(
         <MetricDefinition
             metric={metric}
@@ -32,6 +32,7 @@ function renderDefinition(metric: DataCatalogMetricApi): void {
             draftMarkdown=""
             saving={false}
             runResult={null}
+            runError={runError}
             runResultLoading={false}
             onDraftMarkdown={jest.fn()}
             onEdit={jest.fn()}
@@ -69,5 +70,14 @@ describe('MetricDefinition', () => {
         expect(screen.queryByText(/derived from an insight/)).not.toBeInTheDocument()
         expect(screen.queryByText(SOURCE_INSIGHT_ACTION)).not.toBeInTheDocument()
         expect(screen.getByText('View definition')).toBeInTheDocument()
+    })
+
+    it('shows a failed run inline instead of a blank panel', () => {
+        renderDefinition(
+            buildMetric({ definition_kind: 'HogQLQuery' }),
+            'This metric could not run: Illegal type Int8 of last argument.'
+        )
+
+        expect(screen.getByText('This metric could not run: Illegal type Int8 of last argument.')).toBeInTheDocument()
     })
 })

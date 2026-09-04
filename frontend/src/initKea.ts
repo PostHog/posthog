@@ -74,6 +74,14 @@ generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlag
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
+/*
+Load actions whose 400 is an expected user-definition error, not a system fault. The owning UI
+renders the backend detail inline, so the generic toast would duplicate it and the error tracking
+capture would file a crash for a condition the backend already classifies as the user's own error.
+Other statuses (a real 500) still toast and report.
+*/
+const DEFINITION_ERROR_SELF_HANDLED = new Set(['loadRunResult'])
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -144,7 +152,10 @@ export function initKea({
                 // uses the distinct `impersonation_read_only` code and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                const isSelfHandledDefinitionError =
+                    DEFINITION_ERROR_SELF_HANDLED.has(actionKey) && error?.status === 400
                 if (
+                    !isSelfHandledDefinitionError &&
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
@@ -201,7 +212,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (shouldReportApiFailure(error)) {
+                if (shouldReportApiFailure(error) && !isSelfHandledDefinitionError) {
                     posthog.captureException(error)
                 }
             },
