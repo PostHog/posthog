@@ -46,6 +46,7 @@
 **Autonomy:** Human-driven (agent-assisted) - or - Fully autonomous
 
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
+     - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, keeping drafts, since most agent PRs start as drafts. Say which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
      - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->
