@@ -1,4 +1,3 @@
-import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
@@ -14,8 +13,7 @@ import { isScheduleTrigger } from '../steps/types'
 export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
     const { selectedNode, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { setWorkflowAction, setSelectedNodeId } = useActions(hogFlowEditorLogic)
-    const { deleteElements } = useReactFlow()
+    const { onNodesDelete, setWorkflowAction, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const Step = useHogFlowStep(selectedNode?.data)
 
     if (!selectedNode) {
@@ -80,7 +78,7 @@ export function HogFlowEditorPanelSelectedStep(): JSX.Element | null {
                     status="danger"
                     icon={<IconTrash />}
                     onClick={() => {
-                        void deleteElements({ nodes: [selectedNode] })
+                        onNodesDelete([selectedNode])
                         setSelectedNodeId(null)
                     }}
                     disabledReason={selectedNodeCanBeDeleted ? undefined : 'Clean up branching steps first'}
