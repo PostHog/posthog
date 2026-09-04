@@ -6,28 +6,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import { makeSpan } from './__mocks__/span'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingViewerLogic } from './tracingViewerLogic'
-import type { Span } from './types'
-
-const createMockSpan = (uuid: string, traceId: string): Span => ({
-    uuid,
-    trace_id: traceId,
-    span_id: uuid,
-    parent_span_id: '',
-    name: 'op',
-    kind: 1,
-    service_name: 'svc',
-    status_code: 1,
-    timestamp: '2024-01-01T00:00:00Z',
-    end_time: '2024-01-01T00:00:00Z',
-    duration_nano: 1000,
-    is_root_span: true,
-    matched_filter: true,
-    attributes: {},
-    resource_attributes: {},
-})
 
 describe('tracingViewerLogic', () => {
     let logic: ReturnType<typeof tracingViewerLogic.build>
@@ -56,7 +38,9 @@ describe('tracingViewerLogic', () => {
         ['a partial prefetch batch', 2, false],
         ['a possibly-truncated full batch', PREFETCH_SPANS, true],
     ])('openTrace with %s %s', (_name, spanCount, shouldFetch) => {
-        const spans = Array.from({ length: spanCount }, (_, i) => createMockSpan(`span-${i}`, 'trace-x'))
+        const spans = Array.from({ length: spanCount }, (_, i) =>
+            makeSpan({ uuid: `span-${i}`, span_id: `span-${i}`, trace_id: 'trace-x' })
+        )
         tracingDataLogic().actions.fetchSpansSuccess(spans)
 
         logic.actions.openTrace('trace-x', { ts: '2024-01-01T00:00:00Z' })
@@ -83,8 +67,8 @@ describe('tracingViewerLogic', () => {
         // identity resolves from it.
         function openCompleteTrace(attributes: Record<string, string>): void {
             tracingDataLogic().actions.fetchSpansSuccess([
-                { ...createMockSpan('span-0', 'trace-x'), attributes },
-                createMockSpan('span-1', 'trace-x'),
+                makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-x', attributes }),
+                makeSpan({ uuid: 'span-1', span_id: 'span-1', trace_id: 'trace-x' }),
             ])
             logic.actions.openTrace('trace-x', { ts: '2024-01-01T00:00:00Z' })
         }
@@ -108,7 +92,14 @@ describe('tracingViewerLogic', () => {
         it('resolves nothing while more spans can still load', async () => {
             enableCorrelationLinks()
             getTraceSpy.mockResolvedValue({
-                results: [{ ...createMockSpan('span-0', 'trace-x'), attributes: { posthogDistinctId: 'user-1' } }],
+                results: [
+                    makeSpan({
+                        uuid: 'span-0',
+                        span_id: 'span-0',
+                        trace_id: 'trace-x',
+                        attributes: { posthogDistinctId: 'user-1' },
+                    }),
+                ],
                 hasMore: true,
                 nextOffset: 1,
             })

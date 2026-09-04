@@ -20,22 +20,28 @@ jest.mock('lib/components/ViewRecordingButton/ViewRecordingButton', () => ({
 }))
 
 describe('TraceIdentityChips', () => {
-    // A trace can carry a person, a session, both, or neither, and each chip is independent.
-    // Rendering an empty chip row for a server-only trace is the case worth guarding.
-    test.each<[name: string, identity: TraceIdentity, person: string | null, recording: string | null]>([
-        ['both', { distinctId: 'user-1', sessionId: 'session-1' }, 'user-1', 'session-1'],
-        ['a session but no person', { distinctId: null, sessionId: 'session-1' }, null, 'session-1'],
-        ['a person but no session', { distinctId: 'user-1', sessionId: null }, 'user-1', null],
-        ['neither', { distinctId: null, sessionId: null }, null, null],
-    ])('renders %s', (_name, identity, person, recording) => {
+    function renderChips(identity: TraceIdentity): HTMLElement {
         const { container } = render(<TraceIdentityChips identity={identity} timestamp="2026-09-03T10:00:00Z" />)
+        return container
+    }
 
-        const personChip = container.querySelector('[data-attr="mock-person-display"]')
-        const recordingChip = container.querySelector('[data-attr="mock-view-recording"]')
-        expect(personChip?.textContent ?? null).toBe(person)
-        expect(recordingChip?.textContent ?? null).toBe(recording)
-        if (!person && !recording) {
-            expect(container).toBeEmptyDOMElement()
-        }
+    // Each chip is independent, so a trace with only one half still shows that half.
+    test.each<TraceIdentity>([
+        { distinctId: 'user-1', sessionId: 'session-1' },
+        { distinctId: null, sessionId: 'session-1' },
+        { distinctId: 'user-1', sessionId: null },
+    ])('renders the chips for %j', (identity) => {
+        const container = renderChips(identity)
+
+        expect(container.querySelector('[data-attr="mock-person-display"]')?.textContent ?? null).toBe(
+            identity.distinctId
+        )
+        expect(container.querySelector('[data-attr="mock-view-recording"]')?.textContent ?? null).toBe(
+            identity.sessionId
+        )
+    })
+
+    it('renders nothing for a trace with no identity', () => {
+        expect(renderChips({ distinctId: null, sessionId: null })).toBeEmptyDOMElement()
     })
 })

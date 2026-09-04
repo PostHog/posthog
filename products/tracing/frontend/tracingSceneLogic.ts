@@ -96,10 +96,10 @@ export interface tracingSceneLogicValues {
     isLoadingFullTrace: boolean // tracingViewerLogic
     isTraceOpen: boolean // tracingViewerLogic
     openTraceSpans: Span[] // tracingViewerLogic
-    traceIdentity: TraceIdentity // tracingViewerLogic
     selectedSpanId: string | null // tracingViewerLogic
     selectedTraceId: string | null // tracingViewerLogic
     selectedTraceTs: string | null // tracingViewerLogic
+    traceIdentity: TraceIdentity // tracingViewerLogic
     activeTracingTab: 'operations' | 'traces'
     breadcrumbs: Breadcrumb[]
     displayMode: TracingDisplayMode

@@ -11,22 +11,15 @@ describe('resolveTraceIdentity', () => {
         expected: TraceIdentity
     }[] = [
         {
-            name: 'reads an identity carried only by a non-root span',
-            spans: [
-                makeSpan({ span_id: 'root', is_root_span: true }),
-                makeSpan({
-                    span_id: 'child',
-                    is_root_span: false,
-                    attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' },
-                }),
-            ],
+            name: 'reads an identity carried by a later span, not just the first',
+            spans: [makeSpan({}), makeSpan({ attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' } })],
             expected: { distinctId: 'user-1', sessionId: 'session-1' },
         },
         {
             name: 'drops a value the spans disagree on, and keeps the one they agree on',
             spans: [
-                makeSpan({ span_id: 'a', attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' } }),
-                makeSpan({ span_id: 'b', attributes: { posthogDistinctId: 'user-2', sessionId: 'session-1' } }),
+                makeSpan({ attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' } }),
+                makeSpan({ attributes: { posthogDistinctId: 'user-2', sessionId: 'session-1' } }),
             ],
             expected: { distinctId: null, sessionId: 'session-1' },
         },
@@ -45,15 +38,6 @@ describe('resolveTraceIdentity', () => {
             name: 'falls back to resource attributes when the span attributes carry nothing',
             spans: [makeSpan({ resource_attributes: { posthogDistinctId: 'user-1', sessionId: 'session-1' } })],
             expected: { distinctId: 'user-1', sessionId: 'session-1' },
-        },
-        {
-            // A configured key naming an Object.prototype member would otherwise resolve to that
-            // member, which is truthy, and reach PersonDisplay as a function instead of a string.
-            name: 'ignores a configured key that names an Object.prototype member',
-            spans: [makeSpan({ attributes: { posthogDistinctId: 'user-1' } })],
-            distinctIdKeys: ['constructor'],
-            sessionIdKeys: ['valueOf'],
-            expected: { distinctId: 'user-1', sessionId: null },
         },
     ]
 

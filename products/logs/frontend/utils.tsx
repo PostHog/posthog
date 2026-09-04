@@ -146,20 +146,15 @@ const SESSION_ID_KEYS = [
     'posthog.session_id',
 ]
 
-// Suffix forms are built once at module scope. This runs per attribute key of every log row and
-// every span of an open trace, so building them per call allocated a string per candidate per key.
+// Built once at module scope: this runs per attribute key of every log row, and per attribute
+// of every span of an open trace.
 const DISTINCT_ID_EXACT_KEYS = new Set(DISTINCT_ID_KEYS)
 const DISTINCT_ID_SUFFIXES = DISTINCT_ID_KEYS.map((candidate) => `.${candidate}`)
 const SESSION_ID_EXACT_KEYS = new Set(SESSION_ID_KEYS)
 const SESSION_ID_SUFFIXES = SESSION_ID_KEYS.map((candidate) => `.${candidate}`)
 
 function matchesKey(key: string, exactKeys: Set<string>, suffixes: string[]): boolean {
-    if (exactKeys.has(key)) {
-        return true
-    }
-    // A key with no dot cannot end with `.<candidate>`, so skip every suffix test for the flat
-    // keys that make up most attribute maps.
-    return key.includes('.') && suffixes.some((suffix) => key.endsWith(suffix))
+    return exactKeys.has(key) || suffixes.some((suffix) => key.endsWith(suffix))
 }
 
 // Configured keys (the team's `logs_distinct_id_attribute_keys` setting) match exactly;
@@ -207,13 +202,15 @@ function getIdentityMatch(
     }
     // Built-in convention fallback only — the configured-key pass already ran above, so
     // isConventionKey is deliberately called without the configured keys here.
-    for (const [key, value] of Object.entries(attributes || {})) {
-        if (isConventionKey(key) && value) {
+    for (const key of Object.keys(attributes || {})) {
+        const value = attributes?.[key]
+        if (value && isConventionKey(key)) {
             return { key, value: String(value), source: 'attribute' }
         }
     }
-    for (const [key, value] of Object.entries(resourceAttributes || {})) {
-        if (isConventionKey(key) && value) {
+    for (const key of Object.keys(resourceAttributes || {})) {
+        const value = resourceAttributes?.[key]
+        if (value && isConventionKey(key)) {
             return { key, value: String(value), source: 'resource_attribute' }
         }
     }

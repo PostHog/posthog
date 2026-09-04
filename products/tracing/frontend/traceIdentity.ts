@@ -3,32 +3,36 @@
 
 // The per-span precedence and the convention key lists are shared with Logs, because both
 // products resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
-import { getDistinctIdWithKey, getSessionIdWithKey, type LogIdentityMatch } from 'products/logs/frontend/utils'
+import { getDistinctIdWithKey, getSessionIdWithKey } from 'products/logs/frontend/utils'
 
 import type { Span } from './types'
 
 export interface TraceIdentity {
-    /** Each is null when no span carries the key, or when the spans disagree on its value. */
     readonly distinctId: string | null
     readonly sessionId: string | null
 }
 
-// Shared by every caller that resolves nothing, so it must stay immutable.
-export const EMPTY_TRACE_IDENTITY: TraceIdentity = Object.freeze({ distinctId: null, sessionId: null })
+// One shared instance, so a caller that resolves nothing does not invalidate its consumers.
+export const EMPTY_TRACE_IDENTITY: TraceIdentity = { distinctId: null, sessionId: null }
 
-function singleValueAcrossSpans(spans: Span[], resolve: (span: Span) => LogIdentityMatch | null): string | null {
+type IdentityResolver = typeof getDistinctIdWithKey
+
+function singleValueAcrossSpans(
+    spans: Span[],
+    resolve: IdentityResolver,
+    configuredKeys: string[] | undefined
+): string | null {
     let resolved: string | null = null
 
     for (const span of spans) {
-        const value = resolve(span)?.value
+        const value = resolve(span.attributes, span.resource_attributes, configuredKeys)?.value
         if (!value) {
             continue
         }
         if (resolved !== null && resolved !== value) {
-            // The trace touches more than one identity, which a batch consumer working through
-            // several users' items does. Promoting either value to the header would state a fact
-            // the trace does not support, so the header shows nothing and the span attribute
-            // table stays the only place the values appear.
+            // A trace that touches more than one identity, which a batch consumer working
+            // through several users' items does. Promoting either value would state a fact the
+            // trace does not support, so the span attribute table stays the only place it appears.
             return null
         }
         resolved = value
@@ -41,12 +45,11 @@ export function resolveTraceIdentity(
     configuredDistinctIdKeys: string[] | undefined,
     configuredSessionIdKeys: string[] | undefined
 ): TraceIdentity {
+    if (spans.length === 0) {
+        return EMPTY_TRACE_IDENTITY
+    }
     return {
-        distinctId: singleValueAcrossSpans(spans, (span) =>
-            getDistinctIdWithKey(span.attributes, span.resource_attributes, configuredDistinctIdKeys)
-        ),
-        sessionId: singleValueAcrossSpans(spans, (span) =>
-            getSessionIdWithKey(span.attributes, span.resource_attributes, configuredSessionIdKeys)
-        ),
+        distinctId: singleValueAcrossSpans(spans, getDistinctIdWithKey, configuredDistinctIdKeys),
+        sessionId: singleValueAcrossSpans(spans, getSessionIdWithKey, configuredSessionIdKeys),
     }
 }
