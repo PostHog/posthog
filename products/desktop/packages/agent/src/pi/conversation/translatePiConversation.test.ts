@@ -41,6 +41,22 @@ describe("createPiConversationTranslator", () => {
     });
   });
 
+  it("marks aborted history turns as cancelled", () => {
+    const translator = createPiConversationTranslator();
+
+    translator.translateHistoryMessage({
+      role: "user",
+      content: "Stop this task",
+      timestamp: 5,
+    });
+
+    expect(
+      translator.translateHistoryMessage(assistant([], "aborted", 10)),
+    ).toEqual([
+      { type: "turn_completed", timestamp: 10, stopReason: "cancelled" },
+    ]);
+  });
+
   it("uses message_update deltas without repeating cumulative text at message_end", () => {
     const translator = createPiConversationTranslator();
     const message = assistant([{ type: "text", text: "complete" }]);
@@ -344,9 +360,12 @@ describe("createPiConversationTranslator", () => {
     ).toEqual([]);
   });
 
-  it.each(["stop", "aborted"] as const)(
-    "completes a %s turn using the settlement time and final stop reason",
-    (stopReason) => {
+  it.each([
+    ["stop", "stop"],
+    ["aborted", "cancelled"],
+  ] as const)(
+    "completes a %s turn using the settlement time and normalized stop reason",
+    (stopReason, expectedStopReason) => {
       vi.useFakeTimers();
       vi.setSystemTime(30);
       const translator = createPiConversationTranslator();
@@ -368,7 +387,11 @@ describe("createPiConversationTranslator", () => {
       translator.translateEvent({ type: "message_end", message: laterMessage });
 
       expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
-        { type: "turn_completed", timestamp: 30, stopReason },
+        {
+          type: "turn_completed",
+          timestamp: 30,
+          stopReason: expectedStopReason,
+        },
       ]);
       vi.useRealTimers();
     },

@@ -275,6 +275,7 @@ describe("createPiMessageTranslator", () => {
         "read",
         { content },
         false,
+        false,
         2,
       ),
     ).toEqual([
