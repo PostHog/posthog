@@ -11,5 +11,3 @@ export default meta
 type Story = StoryObj<typeof IntegrationAccessNotice>
 
 export const GoogleAds: Story = { args: { kind: 'google-ads' } }
-
-export const NoNotice: Story = { args: { kind: 'linear' } }
