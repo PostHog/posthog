@@ -18,7 +18,10 @@ The shape we enforce:
   by range resolution (astral-sh/setup-uv#325).
 
 - .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
-  CI. Comparison is on major.minor to allow patch drift.
+  CI. Comparison is on major.minor to allow patch drift. The manifest may
+  declare uv more than once, restricted by system, where the catalog cannot
+  serve the pin everywhere. At least one entry must match; the rest are
+  reported with the systems they cover so the gap stays visible.
 
 Performs four checks:
 1. Workflow pins are present, exact literals, and identical across all files.
@@ -89,22 +92,31 @@ def get_uv_floor_from_pyproject() -> str | None:
     return match.group(1) if match else None
 
 
-def get_uv_version_from_flox() -> str | None:
-    """Extract the uv version literal from the flox manifest."""
+def get_uv_versions_from_flox() -> dict[str, tuple[str, str]]:
+    """Map each flox install entry that provides uv to its version and systems.
+
+    The manifest declares uv more than once when the catalog cannot serve one
+    version on every system, so a single entry does not describe local parity.
+    """
     flox_manifest = Path(__file__).parent.parent / ".flox" / "env" / "manifest.toml"
 
     if not flox_manifest.exists():
-        return None
+        return {}
 
     with open(flox_manifest, "rb") as f:
         data = tomllib.load(f)
 
-    version = data.get("install", {}).get("uv", {}).get("version", "")
-    if not version:
-        return None
+    all_systems = data.get("options", {}).get("systems", [])
 
-    match = re.search(r"(\d+\.\d+\.\d+)", version)
-    return match.group(1) if match else None
+    entries: dict[str, tuple[str, str]] = {}
+    for install_id, entry in data.get("install", {}).items():
+        if not isinstance(entry, dict) or entry.get("pkg-path") != "uv":
+            continue
+        match = re.search(r"(\d+\.\d+\.\d+)", str(entry.get("version", "")))
+        if match:
+            entries[install_id] = (match.group(1), ", ".join(entry.get("systems", all_systems)))
+
+    return entries
 
 
 def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
@@ -282,22 +294,29 @@ def check_flox_alignment(workflow_pin: str | None) -> bool:
     """Check 4: the flox manifest matches the workflow pin on major.minor."""
     _section("Check 4: Flox manifest uv version alignment")
 
-    flox_uv = get_uv_version_from_flox()
-    if not flox_uv:
+    flox_entries = get_uv_versions_from_flox()
+    if not flox_entries:
         print("⚠ Skipped: No flox manifest or uv version found")
         return True
     if not workflow_pin:
         print("⚠ Skipped: No workflow pin to compare against")
         return True
 
-    flox_mm = ".".join(flox_uv.split(".")[:2])
     pin_mm = ".".join(workflow_pin.split(".")[:2])
-    if flox_mm == pin_mm:
-        print(f"✓ Flox uv {flox_uv} matches workflow pin {workflow_pin} on major.minor")
-        return True
-    print(f"✗ Flox uv {flox_uv} diverges from workflow pin {workflow_pin}")
-    print("  Update .flox/env/manifest.toml to match the workflow pin.")
-    return False
+    matched = {i: e for i, e in flox_entries.items() if ".".join(e[0].split(".")[:2]) == pin_mm}
+
+    if not matched:
+        for install_id, (version, systems) in sorted(flox_entries.items()):
+            print(f"✗ Flox {install_id} at {version} diverges from workflow pin {workflow_pin} on {systems}")
+        print("  Update .flox/env/manifest.toml to match the workflow pin.")
+        return False
+
+    for install_id, (version, systems) in sorted(matched.items()):
+        print(f"✓ Flox {install_id} at {version} matches workflow pin {workflow_pin} on {systems}")
+    for install_id in sorted(set(flox_entries) - set(matched)):
+        version, systems = flox_entries[install_id]
+        print(f"⚠ Flox {install_id} at {version} lags the workflow pin on {systems}")
+    return True
 
 
 def main() -> int:

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
+import io
 import subprocess
+from contextlib import redirect_stdout
 
 import unittest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
-from bin.check_uv_python_compatibility import check_uv_python_compatibility, label_workflow_pins
+from bin.check_uv_python_compatibility import check_flox_alignment, check_uv_python_compatibility, label_workflow_pins
 
 
 class TestCheckUvPythonCompatibility(unittest.TestCase):
@@ -58,6 +60,26 @@ class TestLabelWorkflowPins(unittest.TestCase):
         )
         self.assertEqual(missing, ["ci-b.yml"])
         self.assertEqual(set(locations), {"0.11.28", "0.10.2"})
+
+
+class TestCheckFloxAlignment(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("single_entry_matches", {"uv": ("0.12.5", "all")}, True),
+            ("single_entry_diverges", {"uv": ("0.11.25", "all")}, False),
+            (
+                "one_entry_lags_on_its_own_systems",
+                {"uv": ("0.12.5", "aarch64-darwin"), "uv-x86_64-darwin": ("0.11.25", "x86_64-darwin")},
+                True,
+            ),
+            ("every_entry_diverges", {"uv": ("0.11.28", "all"), "uv-old": ("0.11.25", "x86_64-darwin")}, False),
+        ]
+    )
+    def test_alignment(self, _name, flox_entries, expected_ok):
+        with patch("bin.check_uv_python_compatibility.get_uv_versions_from_flox", return_value=flox_entries):
+            with redirect_stdout(io.StringIO()):
+                ok = check_flox_alignment("0.12.5")
+        self.assertEqual(ok, expected_ok)
 
 
 if __name__ == "__main__":
