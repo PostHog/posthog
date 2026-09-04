@@ -241,8 +241,11 @@ async function executeQuery<N extends DataNode>(
         return await executeQuery(
             queryNode,
             methodOptions,
-            // The first run already honoured a forced refresh and cached what it computed, so the
-            // retry reads that cache instead of paying for the same computation twice. Every other
+            // A forced run that finished has cached what it computed, so the retry reads that
+            // cache instead of paying for the same computation twice. Forcing again would
+            // recompute every card returning from a hidden tab, which is the case this retry
+            // exists for. A forced run that failed cached nothing, so its card keeps the earlier
+            // result and the time it was computed, until someone refreshes again. Every other
             // mode consults the cache already and recomputes only what has gone stale.
             refresh === 'force_async' ? 'async' : refresh,
             // Keep the ID the first run was filed under, so anything holding it - a cancel on
