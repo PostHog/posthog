@@ -677,6 +677,26 @@ class TestMalformedUuidReturns400(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
 
+class TestSnapshotLookupRequiresIdentifier(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    # The guard runs before the run lookup, so these need no seeded run.
+    RUN_ID = "3f1c9f0e-2b7a-4a5f-9c1d-8e6b2a4f7d31"
+
+    @parameterized.expand(
+        [
+            ("snapshot_history", "snapshot-history"),
+            ("tolerated_hashes", "tolerated-hashes"),
+        ]
+    )
+    def test_missing_identifier_returns_400(self, _name: str, action: str) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/runs/{self.RUN_ID}/{action}/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
 class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
     CONFIG_AUTO_LOGIN = False
