@@ -305,10 +305,15 @@ _PNPM_CURRENT=$(_sha256_file "$_PNPM_LOCK")
 _UV_CURRENT=$(_sha256_file "$_UV_LOCK")
 _PHROCS_CURRENT=$(_sha256_file "$_PHROCS_BIN")
 
+# A stamp says the lockfile matches the bake, not that this checkout has the
+# outputs. A fresh worktree matches every stamp and has neither, so require the
+# local tree too or activation skips the install and leaves the worktree empty.
+# These probe for what a real install leaves behind rather than a bare directory,
+# since both tools create the parent early and populate it afterwards.
 _PNPM_SKIP=0
-[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" ]] && _PNPM_SKIP=1
+[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" && -d "$FLOX_ENV_PROJECT/node_modules/.pnpm" ]] && _PNPM_SKIP=1
 _UV_SKIP=0
-[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" ]] && _UV_SKIP=1
+[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" && -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] && _UV_SKIP=1
 _PHROCS_SKIP=0
 [[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
 
