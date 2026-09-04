@@ -6,7 +6,6 @@ import { IconPlus, IconX } from '@posthog/icons'
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -16,7 +15,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useDebouncedNameInputs } from './utils'
+import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useNameInputs } from './utils'
 
 type ConditionFilters = Extract<
     HogFlowAction,
@@ -90,7 +89,7 @@ export function StepConditionalBranchConfiguration({
         })
     }
 
-    const { localNames: localConditionNames, handleNameChange } = useDebouncedNameInputs(conditions, setConditions)
+    const { localNames: localConditionNames, handleNameChange } = useNameInputs(conditions, setConditions)
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
@@ -151,24 +150,21 @@ export function StepConditionalBranchConfiguration({
                     >
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex min-w-0 flex-1 items-center gap-2">
-                                <LemonButton
-                                    type="tertiary"
+                                <span
+                                    className="size-2 shrink-0 rounded-full"
+                                    style={{ backgroundColor: branchColor }}
+                                />
+                                <LemonInput
+                                    value={localConditionNames[index] || ''}
+                                    onChange={(value) => handleNameChange(index, value)}
+                                    placeholder={`Condition ${index + 1}`}
                                     size="small"
-                                    noPadding
-                                    className="min-w-0 justify-start"
-                                    icon={
-                                        <span
-                                            className="size-2 shrink-0 rounded-full"
-                                            style={{ backgroundColor: branchColor }}
-                                        />
-                                    }
-                                    aria-label={`Select condition ${index + 1} path`}
-                                    aria-pressed={isBranchSelected}
-                                    onClick={() => setSelectedBranch({ actionId: action.id, index })}
+                                    transparentBackground
+                                    className="min-w-0 border-transparent bg-transparent hover:border-primary focus-within:border-primary"
+                                    aria-label={`Condition ${index + 1} name`}
+                                    onFocus={() => setSelectedBranch({ actionId: action.id, index })}
                                     data-attr="workflow-panel-select-branch"
-                                >
-                                    Condition {index + 1}
-                                </LemonButton>
+                                />
                                 {isCountableCondition(condition.filters) && (
                                     <ConditionAudienceEstimate
                                         actionId={action.id}
@@ -197,15 +193,6 @@ export function StepConditionalBranchConfiguration({
                             }
                             typeKey={`workflow-trigger-${index}`}
                         />
-
-                        <LemonField.Pure label="Condition name (optional)">
-                            <LemonInput
-                                value={localConditionNames[index] || ''}
-                                onChange={(value) => handleNameChange(index, value)}
-                                placeholder={`If condition #${index + 1} matches`}
-                                size="small"
-                            />
-                        </LemonField.Pure>
                     </div>
                 )
             })}

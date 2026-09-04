@@ -11,12 +11,7 @@ import { getHogFlowBranchColor, getHogFlowBranchStyle, useHogFlowBranchSelection
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import {
-    cohortPercentagesAddUp,
-    normalizeCohortPercentages,
-    parseCohortPercentage,
-    useDebouncedNameInputs,
-} from './utils'
+import { cohortPercentagesAddUp, normalizeCohortPercentages, parseCohortPercentage, useNameInputs } from './utils'
 
 // Print enough precision that the two figures in the imbalance warning cannot contradict each other:
 // rounding a 99.996% total to hundredths would claim it adds up to 100% with 0% left over. Number()
@@ -46,7 +41,7 @@ export function StepRandomCohortBranchConfiguration({
         })
     }
 
-    const { localNames: localCohortNames, handleNameChange } = useDebouncedNameInputs(cohorts, setCohorts)
+    const { localNames: localCohortNames, handleNameChange } = useNameInputs(cohorts, setCohorts)
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []

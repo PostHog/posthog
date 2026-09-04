@@ -120,10 +120,9 @@ export function updateItemWithOptionalName<T>(
     })
 }
 
-export function useDebouncedNameInputs<T extends { name?: string }>(
+export function useNameInputs<T extends { name?: string }>(
     items: T[],
-    updateItems: (items: T[]) => void,
-    debounceDelay: number = 300
+    updateItems: (items: T[]) => void
 ): {
     localNames: (string | undefined)[]
     handleNameChange: (index: number, value: string | undefined) => void
@@ -135,19 +134,13 @@ export function useDebouncedNameInputs<T extends { name?: string }>(
         setLocalNames((items ?? []).map((item) => item.name))
     }, [items?.length, items]) // Only update when number of items changes
 
-    // Debounced function to update items
-    const debouncedUpdate = useDebouncedCallback((index: number, value: string | undefined) => {
-        updateItems(updateItemWithOptionalName(items, index, value))
-    }, debounceDelay)
-
     const handleNameChange = (index: number, value: string | undefined): void => {
         // Update local state immediately for responsive typing
         const newNames = [...localNames]
         newNames[index] = value
         setLocalNames(newNames)
 
-        // Debounced update to persist the name
-        debouncedUpdate(index, value)
+        updateItems(updateItemWithOptionalName(items, index, value))
     }
 
     return {
