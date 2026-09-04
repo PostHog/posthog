@@ -832,6 +832,7 @@ frontend_unauthenticated_routes = [
     "unsubscribe",
     # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
     r"code/canvas/[^/]+/[^/]+",
+    r"code/channel/[^/]+",
     r"code/task/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",

@@ -1392,3 +1392,74 @@ def cleanup_canvas_builds() -> int:
             flush()
     flush()
     return pruned
+
+
+class CanvasNotPublished(Exception):
+    """The source canvas has no ready published build to copy from."""
+
+
+def fork_canvas(
+    source: Canvas,
+    *,
+    team_id: int,
+    channel_id: str | UUID,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild]:
+    """Copy the source canvas's published version into a new canvas the caller owns.
+
+    The copy gets the bytes of the version the published build was compiled
+    from, uploaded under its own content-addressed key so nothing is shared
+    with the source (which may live in another team). Lineage is recorded as
+    plain ids that survive the source's deletion. The copy's first build is
+    queued like any publish, under the same capacity cap.
+    """
+    published = source.published_build
+    if published is None or published.status != CanvasBuild.STATUS_READY:
+        raise CanvasNotPublished()
+    with team_scope(source.team_id):
+        version = CanvasSourceVersion.objects.for_team(source.team_id).get(pk=published.source_version_id)
+        project = read_source_project(version)
+
+    fork = Canvas.objects.create(
+        team_id=team_id,
+        channel_id=channel_id,
+        name=source.name,
+        kind=source.kind,
+        description=source.description,
+        template_id=source.template_id,
+        context=source.context,
+        created_by=created_by,
+        forked_from_canvas_id=source.id,
+        forked_from_version_id=version.id,
+    )
+    key, digest, size = upload_source_project(team_id, fork.id, project)
+
+    with transaction.atomic(), team_scope(team_id):
+        fork = _claim_canvas_head(fork, has_expected_version=False, expected_version_id=None)
+        fork_version = CanvasSourceVersion.objects.create(
+            team_id=team_id,
+            canvas=fork,
+            source_hash=digest,
+            source_object_key=key,
+            source_size=size,
+            prompt="Copied from a shared canvas",
+            created_by=created_by,
+            capabilities=version.capabilities,
+            component_meta=version.component_meta,
+        )
+        build = _queue_build(fork_version)
+        fork.current_source_version = fork_version
+        fork.save(update_fields=["current_source_version", "updated_at"])
+
+    _log_canvas_activity(
+        fork,
+        user=created_by,
+        was_impersonated=was_impersonated,
+        activity="created",
+        detail=Detail(
+            name=fork.name,
+            changes=[Change(type="Canvas", action="created", field="forked_from", after=str(source.id))],
+        ),
+    )
+    return fork, fork_version, build

@@ -1,6 +1,10 @@
-import { useHostTRPC } from "@posthog/host-router/react";
+import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import {
+  forkCanvasAndOpen,
+  setForkCanvasHandler,
+} from "@posthog/ui/features/canvas/utils/forkCanvasAndOpen";
 import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
@@ -27,9 +31,19 @@ const log = logger.scope("canvas-deep-link");
  */
 export function useCanvasDeepLink() {
   const trpcReact = useHostTRPC();
+  const client = useHostTRPCClient();
   const isAuthenticated = useAuthStateValue(
     (s) => s.status === "authenticated",
   );
+
+  // In-app clicks on a "link to a copy" reach the fork through this handler,
+  // since the click interceptor has no tRPC client of its own.
+  useEffect(() => {
+    setForkCanvasHandler(
+      (dashboardId) => void forkCanvasAndOpen(client, dashboardId),
+    );
+    return () => setForkCanvasHandler(null);
+  }, [client]);
 
   const pendingDeepLink = useQuery(
     trpcReact.deepLink.getPendingCanvasLink.queryOptions(undefined, {
@@ -41,21 +55,28 @@ export function useCanvasDeepLink() {
     }),
   );
 
-  const openCanvas = useCallback((channelId: string, dashboardId: string) => {
-    log.info(
-      `Opening canvas from deep link: channelId=${channelId} dashboardId=${dashboardId}`,
-    );
-    track(ANALYTICS_EVENTS.DEEP_LINK_CANVAS, {
-      channel_id: channelId,
-      dashboard_id: dashboardId,
-    });
-    navigateToChannelDashboard(channelId, dashboardId);
-  }, []);
+  const openCanvas = useCallback(
+    (channelId: string, dashboardId: string, fork?: boolean) => {
+      log.info(
+        `Opening canvas from deep link: channelId=${channelId} dashboardId=${dashboardId} fork=${fork ? "yes" : "no"}`,
+      );
+      track(ANALYTICS_EVENTS.DEEP_LINK_CANVAS, {
+        channel_id: channelId,
+        dashboard_id: dashboardId,
+      });
+      if (fork) {
+        void forkCanvasAndOpen(client, dashboardId);
+        return;
+      }
+      navigateToChannelDashboard(channelId, dashboardId);
+    },
+    [client],
+  );
 
   useEffect(() => {
     const pending = pendingDeepLink.data;
     if (pending?.channelId && pending?.dashboardId) {
-      openCanvas(pending.channelId, pending.dashboardId);
+      openCanvas(pending.channelId, pending.dashboardId, pending.fork);
     }
   }, [pendingDeepLink.data, openCanvas]);
 
@@ -63,7 +84,7 @@ export function useCanvasDeepLink() {
     trpcReact.deepLink.onOpenCanvas.subscriptionOptions(undefined, {
       onData: (data) => {
         if (data?.channelId && data?.dashboardId) {
-          openCanvas(data.channelId, data.dashboardId);
+          openCanvas(data.channelId, data.dashboardId, data.fork);
         }
       },
     }),

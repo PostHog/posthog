@@ -94,6 +94,12 @@ posthog-code://task/abc123/run/xyz789
 posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 ```
 
+Without `comment`, `scope=task_artifact&item=<artifactId>` opens that artifact's tab once the task shows. This is the link the artifact share dialog copies; `item` is any version's manifest id, and the app resolves it to the file's name and run.
+
+```
+posthog-code://task/abc123?scope=task_artifact&item=artifact-9
+```
+
 An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
 ### `posthog-code://inbox[/<reportId>]`
@@ -152,13 +158,15 @@ that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
 
-| Segment | Required | Description |
+| Segment / Parameter | Required | Description |
 |---|---|---|
 | `<channelId>` | Yes | Channel (folder) row id the canvas lives under. |
 | `<dashboardId>` | Yes | Dashboard row id of the canvas. Both are stable, rename-proof desktop file-system row ids. |
+| `fork` | No | `1` to copy the canvas into the opener's personal space and open the copy, leaving the original untouched. This is the "link to a copy" the share dialog offers; the https bridge forwards it. |
 
 ```
 posthog-code://canvas/019ebc38-d862-77f2-9e56-c5ec42965758/dash_abc123
+posthog-code://canvas/019ebc38-d862-77f2-9e56-c5ec42965758/dash_abc123?fork=1
 ```
 
 ### `posthog-code://channel/<channelId>[/tasks/<taskId>]`

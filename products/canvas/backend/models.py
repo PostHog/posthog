@@ -70,6 +70,10 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     # only when a canvas has no source versions yet; the next publish creates a
     # real version and this field stops mattering.
     legacy_code = models.TextField(null=True, blank=True)
+    # Where a copy came from. Plain ids rather than FKs so the lineage survives
+    # the source's deletion and a copy across teams never joins the other tenant.
+    forked_from_canvas_id = models.UUIDField(null=True, blank=True)
+    forked_from_version_id = models.UUIDField(null=True, blank=True)
 
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False

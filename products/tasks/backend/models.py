@@ -3894,3 +3894,29 @@ def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs
             task_run_id=str(instance.id),
             error=str(e),
         )
+
+
+class SharedTaskArtifact(TeamScopedRootMixin, UUIDModel):
+    """The row a public share of a task-run artifact hangs off.
+
+    Artifacts are manifest entries on ``TaskRun`` rows rather than rows of their
+    own, and a share needs something to point at. The anchor follows the logical
+    file, one per (task, name), so the public link keeps serving the newest
+    version as later runs upload the file again.
+    """
+
+    # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="shared_artifacts")
+    name = models.CharField(max_length=512)
+    content_type = models.CharField(max_length=128, blank=True, default="")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_shared_artifact"
+        constraints = [
+            models.UniqueConstraint(fields=["task", "name"], name="task_shared_artifact_task_name_unique"),
+        ]

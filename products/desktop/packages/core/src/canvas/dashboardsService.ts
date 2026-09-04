@@ -9,6 +9,7 @@ import type {
   CanvasActionDefinition,
   CanvasActionResult,
   CanvasDraft,
+  CanvasSharing,
   CanvasSource,
   CanvasSourceProject,
   CanvasStateEntry,
@@ -131,6 +132,23 @@ function buildRecordInput(build: Record<string, unknown>) {
 
 function toBuildRecord(build: Record<string, unknown>): CanvasBuildRecord {
   return canvasBuildRecordSchema.parse(buildRecordInput(build));
+}
+
+// A sharing configuration as the sharing API returns it.
+interface ApiSharing {
+  enabled: boolean;
+  access_token: string | null;
+  password_required?: boolean;
+  settings?: { allowForking?: boolean } | null;
+}
+
+function toSharing(api: ApiSharing): CanvasSharing {
+  return {
+    enabled: api.enabled,
+    accessToken: api.access_token,
+    passwordRequired: api.password_required ?? false,
+    allowForking: api.settings?.allowForking ?? false,
+  };
 }
 
 function tryToBuildRecord(
@@ -608,6 +626,57 @@ export class DashboardsService {
       },
     );
     return toBuildRecord(build);
+  }
+
+  // A 404 means the backend predates canvas sharing, so the surface hides the
+  // public-sharing section rather than showing an error.
+  async getSharing(id: string): Promise<CanvasSharing | null> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(id)}/sharing/`,
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new ProjectApiError(
+        `Failed to load canvas sharing (${res.status})`,
+        res.status,
+      );
+    }
+    return toSharing((await res.json()) as ApiSharing);
+  }
+
+  async setSharing(input: {
+    id: string;
+    enabled?: boolean;
+    allowForking?: boolean;
+  }): Promise<CanvasSharing> {
+    const body: Record<string, unknown> = {};
+    if (input.enabled !== undefined) body.enabled = input.enabled;
+    if (input.allowForking !== undefined) {
+      body.settings = { allowForking: input.allowForking };
+    }
+    const api = await this.api.json<ApiSharing>(
+      `canvases/${encodeURIComponent(input.id)}/sharing/`,
+      "update canvas sharing",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    return toSharing(api);
+  }
+
+  async fork(id: string): Promise<DashboardRecord> {
+    const api = await this.api.json<ApiCanvas>(
+      `canvases/fork/`,
+      "copy canvas",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_canvas_id: id }),
+      },
+    );
+    return toRecord(api);
   }
 
   async delete(id: string): Promise<void> {

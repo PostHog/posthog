@@ -15547,6 +15547,16 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
       readonly url: string;
+      /**
+         * Id of the canvas this one was copied from, when it was created through fork. Null otherwise.
+         * @nullable
+         */
+      readonly forked_from_canvas_id: string | null;
+      /**
+         * Id of the source version the copy started from. Null unless the canvas was created through fork.
+         * @nullable
+         */
+      readonly forked_from_version_id: string | null;
     }
 
     /**
@@ -15988,6 +15998,19 @@ export namespace Schemas {
       dispatch_outcome: DispatchOutcomeEnum;
       /** The authoring task the fix was routed to. */
       task_id: string;
+    }
+
+    /**
+     * Payload for copying a canvas into the caller's personal space. Exactly one source is given.
+     */
+    export interface CanvasFork {
+      /** Id of a canvas in this project to copy. The caller must be able to open it. */
+      source_canvas_id?: string;
+      /**
+         * Access token of a public canvas link to copy from, possibly from another project. The share must allow copies (settings.allowForking).
+         * @maxLength 400
+         */
+      share_token?: string;
     }
 
     /**

@@ -134,11 +134,16 @@ import type {
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
+  normalizeTaskArtifactSharing,
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
+  type TaskArtifactSharing,
+  type TaskArtifactSharingDTO,
   type TaskRunArtifactDTO,
 } from "./task-normalization";
+
+export type { TaskArtifactSharing } from "./task-normalization";
 
 interface HogQLGrid {
   results: unknown[][];
@@ -4117,6 +4122,55 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as { url: string };
     return data.url;
+  }
+
+  /**
+   * The public-sharing state of a run artifact, addressed by any version's
+   * manifest id. Null when the backend has no sharing route for artifacts.
+   */
+  async getTaskArtifactSharing(
+    taskId: string,
+    artifactId: string,
+  ): Promise<TaskArtifactSharing | null> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/artifacts/${encodeURIComponent(artifactId)}/sharing/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load artifact sharing: ${response.statusText}`,
+      );
+    }
+    return normalizeTaskArtifactSharing(
+      (await response.json()) as TaskArtifactSharingDTO,
+    );
+  }
+
+  async updateTaskArtifactSharing(
+    taskId: string,
+    artifactId: string,
+    enabled: boolean,
+  ): Promise<TaskArtifactSharing> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/artifacts/${encodeURIComponent(artifactId)}/sharing/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify({ enabled }) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update artifact sharing: ${response.statusText}`,
+      );
+    }
+    return normalizeTaskArtifactSharing(
+      (await response.json()) as TaskArtifactSharingDTO,
+    );
   }
 
   async getResourceComments(

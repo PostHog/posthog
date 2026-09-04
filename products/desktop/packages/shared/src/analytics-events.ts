@@ -1164,6 +1164,9 @@ type DashboardActionType =
   | "poll_mode_change"
   | "date_range_apply"
   | "link_copied"
+  | "fork_link_copied"
+  | "share_opened"
+  | "public_share_toggled"
   | "delete_undo"
   | "pin"
   | "unpin";
@@ -1177,6 +1180,8 @@ export interface DashboardActionProperties {
   template_id?: string;
   /** edit_toggle: the state being entered. */
   editing?: boolean;
+  /** public_share_toggled: whether the canvas is now publicly shared. */
+  public?: boolean;
   /** poll_mode_change: the new value ("static"|"10s"|"10min"). */
   poll_mode?: string;
   /** date_range_apply: the named range, when not custom. */

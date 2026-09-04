@@ -858,3 +858,26 @@ class ComputeQuotaDenialReason(StrEnum):
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
+
+
+@dataclass(frozen=True)
+class SharedTaskArtifactIdentityDTO:
+    """What a task-run artifact id resolves to for sharing: the logical file (task + name) and the
+    share anchor that follows it across runs, when one has been created."""
+
+    task_id: UUID
+    name: str
+    content_type: str
+    anchor_id: UUID | None
+
+
+@dataclass(frozen=True)
+class SharedTaskArtifactFileDTO:
+    """The newest version of a shared artifact across the task's runs."""
+
+    artifact_id: str
+    run_id: UUID
+    name: str
+    content_type: str
+    size: int | None
+    uploaded_at: str | None

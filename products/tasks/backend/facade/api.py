@@ -119,6 +119,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSession,
     SandboxSnapshot,
+    SharedTaskArtifact,
     Task,
     TaskActivity,
     TaskArtifact,
@@ -9379,3 +9380,134 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
             )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
+
+
+def user_can_access_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+    """Whether the task is live and visible to the user under the channel rule."""
+    try:
+        return _visible_task_qs(team_id, user_id).filter(id=task_id).exists()
+    except DjangoValidationError:
+        return False
+
+
+def _output_artifact_entry(task: Task, artifact_id: str) -> dict | None:
+    for run in task.runs.only("id", "artifacts"):
+        for entry in run.artifacts or []:
+            if entry.get("id") == artifact_id and entry.get("storage_path") and entry.get("name"):
+                return entry
+    return None
+
+
+def resolve_shared_task_artifact(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, artifact_id: str
+) -> contracts.SharedTaskArtifactIdentityDTO | None:
+    """The logical file an artifact id names, for the sharing API. ``None`` when the task isn't
+    visible to the user or the id is not a file on one of its runs. Never creates the anchor."""
+    try:
+        task = _visible_task(task_id, team_id, user_id)
+    except DjangoValidationError:
+        return None
+    if task is None:
+        return None
+    entry = _output_artifact_entry(task, artifact_id)
+    if entry is None:
+        return None
+    anchor = SharedTaskArtifact.objects.for_team(team_id).filter(task_id=task.id, name=entry["name"]).first()
+    return contracts.SharedTaskArtifactIdentityDTO(
+        task_id=task.id,
+        name=str(entry["name"]),
+        content_type=str(entry.get("content_type") or ""),
+        anchor_id=anchor.id if anchor else None,
+    )
+
+
+def get_or_create_shared_task_artifact(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, name: str, content_type: str
+) -> UUID:
+    """The share anchor for (task, name), created on first use. Returns its id."""
+    anchor, _ = SharedTaskArtifact.objects.for_team(team_id).get_or_create(
+        team_id=team_id,
+        task_id=task_id,
+        name=name,
+        defaults={"content_type": content_type, "created_by_id": user_id},
+    )
+    return anchor.id
+
+
+def _latest_artifact_entry(task_id: UUID, team_id: int, name: str) -> tuple[TaskRun, dict] | None:
+    """The newest undismissed file with this name across the task's runs, the server-side twin of
+    the desktop's version grouping (newest ``uploaded_at`` wins, then the newest run)."""
+    best: tuple[TaskRun, dict] | None = None
+    best_key = ""
+    for run in TaskRun.objects.filter(task_id=task_id, team_id=team_id).only("id", "artifacts").order_by("-created_at"):
+        for entry in run.artifacts or []:
+            if entry.get("name") != name or not entry.get("storage_path") or entry.get("dismissed_at"):
+                continue
+            key = str(entry.get("uploaded_at") or "")
+            if best is None or key > best_key:
+                best, best_key = (run, entry), key
+    return best
+
+
+def _shared_artifact_file(run: TaskRun, entry: dict) -> contracts.SharedTaskArtifactFileDTO:
+    size = entry.get("size")
+    return contracts.SharedTaskArtifactFileDTO(
+        artifact_id=str(entry.get("id") or ""),
+        run_id=run.id,
+        name=str(entry["name"]),
+        content_type=str(entry.get("content_type") or ""),
+        size=size if isinstance(size, int) else None,
+        uploaded_at=str(entry["uploaded_at"]) if entry.get("uploaded_at") else None,
+    )
+
+
+def _shared_anchor(anchor_id: str | UUID, team_id: int) -> SharedTaskArtifact | None:
+    return (
+        SharedTaskArtifact.objects.for_team(team_id)
+        .select_related("task")
+        .filter(id=anchor_id, task__deleted=False)
+        .first()
+    )
+
+
+def shared_task_artifact_file(anchor_id: str | UUID, team_id: int) -> contracts.SharedTaskArtifactFileDTO | None:
+    """The version a public link serves right now. ``None`` when the task is gone or no run
+    carries the file any more."""
+    anchor = _shared_anchor(anchor_id, team_id)
+    if anchor is None:
+        return None
+    found = _latest_artifact_entry(anchor.task_id, team_id, anchor.name)
+    if found is None:
+        return None
+    run, entry = found
+    return _shared_artifact_file(run, entry)
+
+
+def read_shared_task_artifact(
+    anchor_id: str | UUID, team_id: int, *, max_bytes: int | None = None
+) -> tuple[bytes, contracts.SharedTaskArtifactFileDTO] | None:
+    """The bytes of the version a public link serves, with its metadata. ``None`` when there is
+    nothing to serve or the file is larger than ``max_bytes``."""
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    anchor = _shared_anchor(anchor_id, team_id)
+    if anchor is None:
+        return None
+    found = _latest_artifact_entry(anchor.task_id, team_id, anchor.name)
+    if found is None:
+        return None
+    run, entry = found
+    file = _shared_artifact_file(run, entry)
+    if max_bytes is not None and file.size is not None and file.size > max_bytes:
+        return None
+    try:
+        content = object_storage.read_bytes(entry["storage_path"], missing_ok=True)
+    except Exception:
+        logger.exception(
+            "task_run.shared_artifact_read_failed",
+            extra={"task_run_id": str(run.id), "storage_path": entry["storage_path"]},
+        )
+        return None
+    if content is None or (max_bytes is not None and len(content) > max_bytes):
+        return None
+    return content, file

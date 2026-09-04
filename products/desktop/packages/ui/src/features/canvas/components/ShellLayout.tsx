@@ -5,6 +5,7 @@ import {
   LinkIcon,
   PencilSimpleIcon,
   PushPinIcon,
+  ShareNetworkIcon,
   TrashIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -61,6 +62,7 @@ import {
   MentionAvailabilityProvider,
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
+import { ShareModal } from "@posthog/ui/features/sharing/ShareModal";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
@@ -98,6 +100,16 @@ function FreeformEditControls({
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
   // its version history go away for everyone in the space.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const openShare = () => {
+    track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+      action_type: "share_opened",
+      surface: "canvas",
+      channel_id: channelId,
+      dashboard_id: dashboardId,
+    });
+    setShareOpen(true);
+  };
 
   // Once confirmed the canvas vanishes from every list and we return to the
   // space, but the delete isn't sent until the undo toast's
@@ -202,6 +214,10 @@ function FreeformEditControls({
             <ArrowClockwiseIcon size={14} />
             Refresh
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={openShare} data-attr="canvas-share-open">
+            <ShareNetworkIcon size={14} />
+            Share…
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() =>
               void copyCanvasLink(channelId, dashboardId, "canvas")
@@ -225,6 +241,18 @@ function FreeformEditControls({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {shareOpen && (
+        <ShareModal
+          target={{
+            kind: "canvas",
+            channelId,
+            dashboardId,
+            name: dashboard?.name ?? "Canvas",
+          }}
+          surface="canvas"
+          onClose={() => setShareOpen(false)}
+        />
+      )}
       {/* Destructive confirm for "Delete…" — the canvas goes for everyone. */}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent className="max-w-md">

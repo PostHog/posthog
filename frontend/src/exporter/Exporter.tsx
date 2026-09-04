@@ -23,6 +23,8 @@ import { ChartDisplayType } from '~/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
 
+const LazyArtifactScene = lazyWithRetry(() => import('./scenes/ExporterArtifactScene'))
+const LazyCanvasScene = lazyWithRetry(() => import('./scenes/ExporterCanvasScene'))
 const LazyDashboardScene = lazyWithRetry(() => import('./scenes/ExporterDashboardScene'))
 const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapScene'))
 const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightScene'))
@@ -88,6 +90,8 @@ export function Exporter(props: ExportedData): JSX.Element {
         accessToken,
         exportToken,
         interview,
+        canvas,
+        task_artifact: taskArtifact,
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
@@ -127,8 +131,14 @@ export function Exporter(props: ExportedData): JSX.Element {
         } else if (notebook && (type === ExportType.Scene || type === ExportType.Embed)) {
             const baseTitle = notebook.title || 'Notebook'
             document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
+        } else if (canvas && (type === ExportType.Scene || type === ExportType.Embed)) {
+            const baseTitle = canvas.name || 'Canvas'
+            document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
+        } else if (taskArtifact && (type === ExportType.Scene || type === ExportType.Embed)) {
+            const baseTitle = taskArtifact.name || 'File'
+            document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
         }
-    }, [dashboard, insight, notebook, type, whitelabel])
+    }, [dashboard, insight, notebook, canvas, taskArtifact, type, whitelabel])
 
     useThemedHtml(false, forcedTheme)
 
@@ -153,6 +163,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--dashboard': !!dashboard,
                     'Exporter--recording': !!recording,
                     'Exporter--notebook': !!notebook,
+                    'Exporter--canvas': !!canvas,
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
@@ -216,6 +227,51 @@ export function Exporter(props: ExportedData): JSX.Element {
                                 insights={insights}
                                 inline_query_results={inlineQueryResults}
                             />
+                        </Suspense>
+                    </div>
+                ) : canvas ? (
+                    <div className="SharedCanvas">
+                        {!whitelabel && type === ExportType.Scene && (
+                            <div className="SharedDashboard-header">
+                                <Link
+                                    to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-canvas"
+                                    target="_blank"
+                                >
+                                    <Logo size="xs" />
+                                </Link>
+                                <div className="SharedDashboard-header-title">
+                                    <h1 className="mb-2">{canvas.name}</h1>
+                                    <LemonMarkdown lowKeyHeadings>{canvas.description || ''}</LemonMarkdown>
+                                </div>
+                                <div className="SharedDashboard-header-team text-right">
+                                    <span className="block">{currentTeam?.name}</span>
+                                </div>
+                            </div>
+                        )}
+                        <Suspense fallback={<ExportedSceneSkeleton />}>
+                            <LazyCanvasScene canvas={canvas} forcedTheme={forcedTheme} accessToken={accessToken} />
+                        </Suspense>
+                    </div>
+                ) : taskArtifact ? (
+                    <div className="SharedArtifact">
+                        {!whitelabel && type === ExportType.Scene && (
+                            <div className="SharedDashboard-header">
+                                <Link
+                                    to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-artifact"
+                                    target="_blank"
+                                >
+                                    <Logo size="xs" />
+                                </Link>
+                                <div className="SharedDashboard-header-title">
+                                    <h1 className="mb-2">{taskArtifact.name}</h1>
+                                </div>
+                                <div className="SharedDashboard-header-team text-right">
+                                    <span className="block">{currentTeam?.name}</span>
+                                </div>
+                            </div>
+                        )}
+                        <Suspense fallback={<ExportedSceneSkeleton />}>
+                            <LazyArtifactScene artifact={taskArtifact} />
                         </Suspense>
                     </div>
                 ) : insight ? (

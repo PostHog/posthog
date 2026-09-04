@@ -1,4 +1,5 @@
 import {
+  artifactShareUrl,
   canvasShareUrl,
   errorTrackingIssueUrl,
   inboxReportUrl,
@@ -14,6 +15,14 @@ describe("canvasShareUrl", () => {
   it("builds an https /code/canvas link with encoded ids", () => {
     expect(canvasShareUrl("chan/1", "dash 2", "us")).toBe(
       "https://us.posthog.com/code/canvas/chan%2F1/dash%202",
+    );
+  });
+});
+
+describe("artifactShareUrl", () => {
+  it("builds an https /code/task link addressed at the artifact", () => {
+    expect(artifactShareUrl("task/1", "art 2", "us")).toBe(
+      "https://us.posthog.com/code/task/task%2F1?scope=task_artifact&item=art+2",
     );
   });
 });
@@ -48,6 +57,21 @@ describe("parseShareLink", () => {
       "https://us.posthog.com/code/channel/chan1/tasks/task1",
       { kind: "channel", channelId: "chan1", taskId: "task1" },
     ],
+    [
+      "canvas link to a copy",
+      "https://us.posthog.com/code/canvas/chan1/dash1?fork=1",
+      { kind: "canvas", channelId: "chan1", dashboardId: "dash1", fork: true },
+    ],
+    [
+      "artifact link",
+      "https://us.posthog.com/code/task/task1?scope=task_artifact&item=art1",
+      { kind: "artifact", taskId: "task1", artifactId: "art1" },
+    ],
+    [
+      "artifact link with encoded ids",
+      "https://us.posthog.com/code/task/task%2F1?scope=task_artifact&item=art+2",
+      { kind: "artifact", taskId: "task/1", artifactId: "art 2" },
+    ],
   ])("parses a %s", (_label, href, expected) => {
     expect(parseShareLink(href)).toEqual(expected);
   });
@@ -65,6 +89,19 @@ describe("parseShareLink", () => {
     [
       "a channel thread link with a malformed tail",
       "https://us.posthog.com/code/channel/chan1/foo/task1",
+    ],
+    ["a bare task link", "https://us.posthog.com/code/task/task1"],
+    [
+      "a task link focusing a comment",
+      "https://us.posthog.com/code/task/task1?comment=c1&scope=task_artifact&item=art1",
+    ],
+    [
+      "a task link with a non-artifact scope",
+      "https://us.posthog.com/code/task/task1?scope=desktop_canvas&item=c1",
+    ],
+    [
+      "a task link with an artifact scope but no item",
+      "https://us.posthog.com/code/task/task1?scope=task_artifact",
     ],
     ["a malformed url", "not a url"],
   ])("returns null for %s", (_label, href) => {

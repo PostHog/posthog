@@ -16,6 +16,7 @@ import {
   type PostHogObjectReferenceInput,
   type ResourceComment,
   SESSION_LOGS_MAX_PAGE_SIZE,
+  type TaskArtifactSharing,
   type TaskRunSessionLogsResult,
 } from "@posthog/api-client/posthog-client";
 import {
@@ -8627,6 +8628,35 @@ export class SessionService {
       `${authStatus.auth.apiHost}:${authStatus.auth.projectId}`,
       taskId,
       runId,
+    );
+  }
+
+  // Null when the backend cannot share artifacts yet, so the surface hides the
+  // public-sharing section instead of failing.
+  async getTaskArtifactSharing(
+    taskId: string,
+    artifactId: string,
+  ): Promise<TaskArtifactSharing | null> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+    return authStatus.auth.client.getTaskArtifactSharing(taskId, artifactId);
+  }
+
+  async setTaskArtifactSharing(
+    taskId: string,
+    artifactId: string,
+    enabled: boolean,
+  ): Promise<TaskArtifactSharing> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+    return authStatus.auth.client.updateTaskArtifactSharing(
+      taskId,
+      artifactId,
+      enabled,
     );
   }
 

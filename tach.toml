@@ -969,6 +969,16 @@ from = [
     "products.canvas",
 ]
 
+# The generic sharing API delegates "who may share a canvas" and "what a public
+# link serves" to this narrow, product-owned boundary.
+[[interfaces]]
+expose = [
+    "backend\\.sharing.*",
+]
+from = [
+    "products.canvas",
+]
+
 [[modules]]
 path = "products.tracing"
 depends_on = [

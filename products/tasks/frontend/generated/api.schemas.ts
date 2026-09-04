@@ -3026,6 +3026,36 @@ export interface WarmTaskResumeResponseApi {
     run_id: string
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface SharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
+    /** @nullable */
+    readonly access_token: string | null
+    settings?: unknown
+    password_required?: boolean
+    readonly share_passwords: readonly SharePasswordApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
 export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */

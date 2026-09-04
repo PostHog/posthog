@@ -134,6 +134,30 @@ function normalizeArtifactMetadata(
   };
 }
 
+/** A sharing configuration as the sharing API returns it. */
+export interface TaskArtifactSharingDTO {
+  enabled: boolean;
+  access_token: string | null;
+  password_required?: boolean;
+}
+
+/** A run artifact's public-sharing state. The token is the public link's path segment. */
+export interface TaskArtifactSharing {
+  enabled: boolean;
+  accessToken: string | null;
+  passwordRequired: boolean;
+}
+
+export function normalizeTaskArtifactSharing(
+  sharing: TaskArtifactSharingDTO,
+): TaskArtifactSharing {
+  return {
+    enabled: sharing.enabled,
+    accessToken: sharing.access_token,
+    passwordRequired: sharing.password_required ?? false,
+  };
+}
+
 export function normalizeTaskRunArtifact(
   artifact: TaskRunArtifactDTO,
 ): TaskRunArtifact {

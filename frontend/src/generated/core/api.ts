@@ -1393,6 +1393,79 @@ export const organizationsProjectsSettingsAsOfRetrieve = async (
     })
 }
 
+export const getCanvasesSharingListUrl = (projectId: string, canvasId: string) => {
+    return `/api/projects/${projectId}/canvases/${canvasId}/sharing/`
+}
+
+export const canvasesSharingList = async (
+    projectId: string,
+    canvasId: string,
+    options?: RequestInit
+): Promise<SharingConfigurationApi[]> => {
+    return apiMutator<SharingConfigurationApi[]>(getCanvasesSharingListUrl(projectId, canvasId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesSharingPasswordsCreateUrl = (projectId: string, canvasId: string) => {
+    return `/api/projects/${projectId}/canvases/${canvasId}/sharing/passwords/`
+}
+
+/**
+ * Create a new password for the sharing configuration.
+ */
+export const canvasesSharingPasswordsCreate = async (
+    projectId: string,
+    canvasId: string,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
+    options?: RequestInit
+): Promise<SharingConfigurationApi> => {
+    return apiMutator<SharingConfigurationApi>(getCanvasesSharingPasswordsCreateUrl(projectId, canvasId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getCanvasesSharingPasswordsDestroyUrl = (projectId: string, canvasId: string, passwordId: string) => {
+    return `/api/projects/${projectId}/canvases/${canvasId}/sharing/passwords/${passwordId}/`
+}
+
+/**
+ * Delete a password from the sharing configuration.
+ */
+export const canvasesSharingPasswordsDestroy = async (
+    projectId: string,
+    canvasId: string,
+    passwordId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCanvasesSharingPasswordsDestroyUrl(projectId, canvasId, passwordId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getCanvasesSharingRefreshCreateUrl = (projectId: string, canvasId: string) => {
+    return `/api/projects/${projectId}/canvases/${canvasId}/sharing/refresh/`
+}
+
+export const canvasesSharingRefreshCreate = async (
+    projectId: string,
+    canvasId: string,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
+    options?: RequestInit
+): Promise<SharingConfigurationApi> => {
+    return apiMutator<SharingConfigurationApi>(getCanvasesSharingRefreshCreateUrl(projectId, canvasId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
 export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/`
 }

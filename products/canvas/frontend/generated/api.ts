@@ -21,6 +21,7 @@ import type {
     CanvasCreateApi,
     CanvasErrorReportResultApi,
     CanvasFixRequestResultApi,
+    CanvasForkApi,
     CanvasLayoutPatchApi,
     CanvasLayoutPublishApi,
     CanvasLayoutPublishResponseApi,
@@ -75,6 +76,10 @@ export const getCanvasesListUrl = (projectId: string, params?: CanvasesListParam
  *
  * Source is versioned per publish and built server-side; the canvas app
  * renders the published build's artifact from the isolated artifact origin.
+ *
+ * Access is the intersection of two rules: the space the canvas is filed in
+ * (a personal space is only its owner's) and per-object access control,
+ * which the mixin layers on top and which defaults to editor until rules exist.
  */
 export const canvasesList = async (
     projectId: string,
@@ -116,6 +121,10 @@ export const getCanvasesRetrieveUrl = (projectId: string, id: string) => {
  *
  * Source is versioned per publish and built server-side; the canvas app
  * renders the published build's artifact from the isolated artifact origin.
+ *
+ * Access is the intersection of two rules: the space the canvas is filed in
+ * (a personal space is only its owner's) and per-object access control,
+ * which the mixin layers on top and which defaults to editor until rules exist.
  */
 export const canvasesRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<CanvasApi> => {
     return apiMutator<CanvasApi>(getCanvasesRetrieveUrl(projectId, id), {
@@ -154,6 +163,10 @@ export const getCanvasesDestroyUrl = (projectId: string, id: string) => {
  *
  * Source is versioned per publish and built server-side; the canvas app
  * renders the published build's artifact from the isolated artifact origin.
+ *
+ * Access is the intersection of two rules: the space the canvas is filed in
+ * (a personal space is only its owner's) and per-object access control,
+ * which the mixin layers on top and which defaults to editor until rules exist.
  */
 export const canvasesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getCanvasesDestroyUrl(projectId, id), {
@@ -750,6 +763,32 @@ export const canvasesActionsRetrieve = async (
     return apiMutator<CanvasActionsResponseApi>(getCanvasesActionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCanvasesForkCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/canvases/fork/`
+}
+
+/**
+ * Copy a canvas into the caller's personal space.
+ *
+ * The copy starts from the source's published version and gets its own
+ * source, version history, and build; the original is untouched. The
+ * source is either a canvas in this project the caller can open, or a
+ * public share link (`share_token`) whose owner allowed copies, which
+ * may come from another project.
+ */
+export const canvasesForkCreate = async (
+    projectId: string,
+    canvasForkApi?: CanvasForkApi,
+    options?: RequestInit
+): Promise<CanvasApi> => {
+    return apiMutator<CanvasApi>(getCanvasesForkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasForkApi),
     })
 }
 

@@ -1,4 +1,9 @@
-import { DotsThreeIcon, LinkIcon, TrashIcon } from "@phosphor-icons/react";
+import {
+  DotsThreeIcon,
+  LinkIcon,
+  ShareNetworkIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
   Badge,
@@ -23,6 +28,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { ShareModal } from "@posthog/ui/features/sharing/ShareModal";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Grid } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
@@ -166,6 +172,7 @@ function DashboardCardMenu({
   channelId: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const { invalidateDashboards } = useDashboardMutations();
 
   const onDelete = () => {
@@ -178,8 +185,18 @@ function DashboardCardMenu({
     });
   };
 
+  const openShare = () => {
+    track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+      action_type: "share_opened",
+      surface: "dashboards_grid",
+      channel_id: channelId,
+      dashboard_id: id,
+    });
+    setShareOpen(true);
+  };
+
   return (
-    <Box
+    <div
       className={cn(
         "absolute top-2 right-2 transition-opacity",
         open ? "opacity-100" : "opacity-0 group-hover:opacity-100",
@@ -198,6 +215,10 @@ function DashboardCardMenu({
           }
         />
         <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+          <DropdownMenuItem onClick={openShare} data-attr="canvas-share-open">
+            <ShareNetworkIcon size={14} />
+            Share…
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() =>
               void copyCanvasLink(channelId, id, "dashboards_grid")
@@ -212,7 +233,14 @@ function DashboardCardMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </Box>
+      {shareOpen && (
+        <ShareModal
+          target={{ kind: "canvas", channelId, dashboardId: id, name }}
+          surface="dashboards_grid"
+          onClose={() => setShareOpen(false)}
+        />
+      )}
+    </div>
   );
 }
 

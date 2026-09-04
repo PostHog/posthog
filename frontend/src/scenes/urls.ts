@@ -269,6 +269,8 @@ export const urls = {
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
+    // Its own segment rather than `/code/canvas/fork/<token>`, which the two-id canvas route would swallow.
+    codeCanvasFork: (shareToken: string): string => `/code/canvas-fork/${shareToken}`,
     codeChannelLink: (channelId: string, taskId?: string): string =>
         `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
     codeTaskLink: (taskId: string): string => `/code/task/${taskId}`,

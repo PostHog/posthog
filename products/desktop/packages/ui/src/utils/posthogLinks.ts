@@ -129,6 +129,58 @@ export function channelShareUrl(
 }
 
 /**
+ * The "open a copy" form of a canvas link. It is the same https bridge with a
+ * `fork` flag: the app opening it copies the canvas into the opener's own space
+ * and shows the copy, leaving the original untouched.
+ */
+export function canvasForkUrl(
+  channelId: string,
+  dashboardId: string,
+  regionOverride?: CloudRegion | null,
+): string | null {
+  const base = canvasShareUrl(channelId, dashboardId, regionOverride);
+  return base ? `${base}?fork=1` : null;
+}
+
+/** The public page for a sharing configuration's access token. */
+export function sharedResourceUrl(
+  accessToken: string,
+  regionOverride?: CloudRegion | null,
+): string | null {
+  return getPostHogUrl(
+    `/shared/${encodeURIComponent(accessToken)}`,
+    regionOverride,
+  );
+}
+
+/** The comment scope a task-run artifact is addressed under. */
+export const ARTIFACT_LINK_SCOPE = "task_artifact";
+
+/**
+ * The shareable https link for a task-run artifact:
+ * `<instance>/code/task/<taskId>?scope=task_artifact&item=<artifactId>`. It
+ * rides the task bridge: the web interstitial forwards `scope` and `item` onto
+ * the desktop scheme, and the app opens the artifact's tab once the task shows.
+ * The artifact id is any version's manifest id; the app resolves it to the
+ * file's name and run. The inbound side lives in `TaskLinkService` /
+ * `useOpenRequestedArtifact`.
+ */
+export function artifactShareUrl(
+  taskId: string,
+  artifactId: string,
+  regionOverride?: CloudRegion | null,
+): string | null {
+  const params = new URLSearchParams({
+    scope: ARTIFACT_LINK_SCOPE,
+    item: artifactId,
+  });
+  return getPostHogUrl(
+    `/code/task/${encodeURIComponent(taskId)}?${params.toString()}`,
+    regionOverride,
+  );
+}
+
+/**
  * Parse a URL, rejecting anything that isn't https. The gate every surface that
  * renders a backend-supplied link goes through before fetching from it or
  * handing it to the host's external-link opener.
@@ -143,8 +195,9 @@ export function parseHttpsUrl(url: string): URL | null {
 }
 
 export type ShareLinkTarget =
-  | { kind: "canvas"; channelId: string; dashboardId: string }
-  | { kind: "channel"; channelId: string; taskId?: string };
+  | { kind: "canvas"; channelId: string; dashboardId: string; fork?: boolean }
+  | { kind: "channel"; channelId: string; taskId?: string }
+  | { kind: "artifact"; taskId: string; artifactId: string };
 
 const POSTHOG_HOSTS = new Set(
   (Object.keys(REGION_LABELS) as CloudRegion[])
@@ -160,16 +213,21 @@ const POSTHOG_HOSTS = new Set(
 
 interface ShareLinkRoute {
   pattern: string[];
-  build: (params: Record<string, string>) => ShareLinkTarget;
+  /** Returns null when the query does not carry what the route needs. */
+  build: (
+    params: Record<string, string>,
+    query: URLSearchParams,
+  ) => ShareLinkTarget | null;
 }
 
 const SHARE_LINK_ROUTES: ShareLinkRoute[] = [
   {
     pattern: ["code", "canvas", ":channelId", ":dashboardId"],
-    build: ({ channelId, dashboardId }) => ({
+    build: ({ channelId, dashboardId }, query) => ({
       kind: "canvas",
       channelId,
       dashboardId,
+      ...(query.get("fork") === "1" ? { fork: true } : {}),
     }),
   },
   {
@@ -179,6 +237,22 @@ const SHARE_LINK_ROUTES: ShareLinkRoute[] = [
   {
     pattern: ["code", "channel", ":channelId", "tasks", ":taskId"],
     build: ({ channelId, taskId }) => ({ kind: "channel", channelId, taskId }),
+  },
+  // Only an artifact-addressed task link is a share target. A bare task link
+  // (or one focusing a comment) stays a browser link, as it always has.
+  {
+    pattern: ["code", "task", ":taskId"],
+    build: ({ taskId }, query) => {
+      const artifactId = query.get("item");
+      if (
+        query.has("comment") ||
+        query.get("scope") !== ARTIFACT_LINK_SCOPE ||
+        !artifactId
+      ) {
+        return null;
+      }
+      return { kind: "artifact", taskId, artifactId };
+    },
   },
 ];
 
@@ -197,6 +271,7 @@ function decodePathSegments(pathname: string): string[] {
 
 function matchRoute(
   segments: string[],
+  query: URLSearchParams,
   route: ShareLinkRoute,
 ): ShareLinkTarget | null {
   if (segments.length !== route.pattern.length) return null;
@@ -209,7 +284,7 @@ function matchRoute(
       return null;
     }
   }
-  return route.build(params);
+  return route.build(params, query);
 }
 
 export function parseShareLink(href: string): ShareLinkTarget | null {
@@ -223,7 +298,7 @@ export function parseShareLink(href: string): ShareLinkTarget | null {
 
   const segments = decodePathSegments(url.pathname);
   for (const route of SHARE_LINK_ROUTES) {
-    const target = matchRoute(segments, route);
+    const target = matchRoute(segments, url.searchParams, route);
     if (target) return target;
   }
   return null;
