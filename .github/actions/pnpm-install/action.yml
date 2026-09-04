@@ -39,8 +39,17 @@ inputs:
 runs:
     using: composite
     steps:
+        # The action runs `npm ci` to fetch pnpm from registry.npmjs.org on every
+        # job. npm's default fetch-timeout is 5 minutes, so one stalled connection
+        # costs longer than several jobs' whole timeout-minutes budget. Cap a
+        # single attempt well above a healthy fetch and retry instead of waiting.
         - name: Install pnpm
           uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+          env:
+              npm_config_fetch_timeout: 45000
+              npm_config_fetch_retries: 2
+              npm_config_fetch_retry_mintimeout: 5000
+              npm_config_fetch_retry_maxtimeout: 15000
 
         - name: Fix node-gyp permissions
           shell: bash
