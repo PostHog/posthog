@@ -202,33 +202,40 @@ fn frontier_mismatch(
     })
 }
 
-/// What a rejected slice covered, for the warning that reports it. A charge
-/// still owns its slice and reports the offsets it counted; a settlement
-/// hands its offsets to the ledger, so it reports the span the batch commits
-/// and no count.
+/// What a rejected charge or settlement can say about the offsets it carried.
+/// The two stages know different things, so each reports its own fields.
 #[derive(Debug, Clone, Copy)]
-struct RejectedSlice {
-    first: Option<i64>,
-    last: Option<i64>,
-    offsets: Option<usize>,
+enum RejectedSlice {
+    /// The offsets the charge delivered, in delivery order. A charge holds
+    /// its slice, so it names exactly what it submitted to the ledger.
+    Charged {
+        first: Option<i64>,
+        last: Option<i64>,
+        offsets: usize,
+    },
+    /// The batch's delivered span for the partition, which is what the commit
+    /// path submits.
+    Settled { first: i64, last: i64 },
 }
 
 impl RejectedSlice {
-    /// A charged slice, in delivery order.
     fn charged(charges: &[(Offset, Charge)]) -> Self {
-        Self {
+        Self::Charged {
             first: charges.first().map(|(offset, _)| offset.0),
             last: charges.last().map(|(offset, _)| offset.0),
-            offsets: Some(charges.len()),
+            offsets: charges.len(),
         }
     }
 
-    /// A settled slice, described by the batch's offset span.
+    /// The span can cover more offsets than the settlement submitted: a
+    /// generation change mid-batch drops the old generation's charges but
+    /// leaves the span whole. The settled offsets are not retained, so the
+    /// span is reported as the batch's span and never as the settled slice.
+    /// The error names the offending offset.
     fn settled(span: &OffsetSpan) -> Self {
-        Self {
-            first: Some(span.first),
-            last: Some(span.last),
-            offsets: None,
+        Self::Settled {
+            first: span.first,
+            last: span.last,
         }
     }
 }
@@ -260,20 +267,41 @@ fn count_rejection(
                 "kind" => error.kind()
             )
             .increment(1);
-            warn!(
-                stage,
-                topic = %topic_partition.topic,
-                partition = topic_partition.partition,
-                error = %error,
-                kind = error.kind(),
-                batch_generation = stamp,
-                ledger_generation = generation,
-                slice_first = ?slice.first,
-                slice_last = ?slice.last,
-                slice_offsets = ?slice.offsets,
-                depth = held.offsets,
-                "Offset ledger rejected a slice and reset its partition"
-            );
+            // The two stages name their offsets differently, and a tracing
+            // field name is fixed at the call site, so each gets its own call.
+            match slice {
+                RejectedSlice::Charged {
+                    first,
+                    last,
+                    offsets,
+                } => warn!(
+                    stage,
+                    topic = %topic_partition.topic,
+                    partition = topic_partition.partition,
+                    error = %error,
+                    kind = error.kind(),
+                    batch_generation = stamp,
+                    ledger_generation = generation,
+                    depth = held.offsets,
+                    slice_first = ?first,
+                    slice_last = ?last,
+                    slice_offsets = offsets,
+                    "Offset ledger rejected a slice and reset its partition"
+                ),
+                RejectedSlice::Settled { first, last } => warn!(
+                    stage,
+                    topic = %topic_partition.topic,
+                    partition = topic_partition.partition,
+                    error = %error,
+                    kind = error.kind(),
+                    batch_generation = stamp,
+                    ledger_generation = generation,
+                    depth = held.offsets,
+                    batch_first = first,
+                    batch_last = last,
+                    "Offset ledger rejected a slice and reset its partition"
+                ),
+            }
         }
     }
 }
