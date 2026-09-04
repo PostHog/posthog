@@ -53,7 +53,12 @@ from products.logs.backend.group_by_query_runner import (
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
-from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
+from products.logs.backend.log_facet_values_query_runner import (
+    FACET_FIELDS,
+    MAX_BATCH_FACETS,
+    LogAttributeFacetValuesBatchQueryRunner,
+    LogFacetValuesQueryRunner,
+)
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import (
     MAX_CUSTOM_COLUMNS,
@@ -469,6 +474,78 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
 
 class _LogsFacetValuesRequestSerializer(serializers.Serializer):
     query = _LogsFacetValuesBodySerializer(help_text="The facet values query to execute.")
+
+
+class _LogFacetValuesBatchEntrySerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The attribute key these values belong to.")
+    values = _LogFacetValueSerializer(
+        many=True,
+        help_text="Facet values with cross-filtered counts, ordered by count descending. "
+        "Empty when the key has no matching values in the requested window.",
+    )
+
+
+class _LogsFacetValuesBatchResultsSerializer(serializers.Serializer):
+    facetResourceAttributes = _LogFacetValuesBatchEntrySerializer(
+        many=True, help_text="One entry per requested resource attribute key, in the order requested."
+    )
+    facetAttributes = _LogFacetValuesBatchEntrySerializer(
+        many=True, help_text="One entry per requested log attribute key, in the order requested."
+    )
+
+
+class _LogsFacetValuesBatchResponseSerializer(serializers.Serializer):
+    results = _LogsFacetValuesBatchResultsSerializer(
+        help_text="Facet values grouped by attribute type, mirroring the request's two key lists."
+    )
+
+
+class _LogsFacetValuesBatchBodySerializer(serializers.Serializer):
+    facetResourceAttributes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Resource attribute keys to facet on (e.g. 'k8s.namespace.name'). Combined with "
+        "facetAttributes, at least one key is required.",
+    )
+    facetAttributes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Log attribute keys to facet on (e.g. 'log.iostream'). Combined with "
+        "facetResourceAttributes, at least one key is required.",
+    )
+    dateRange = _DateRangeSerializer(required=False, help_text="Date range. Defaults to last hour.")
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names.",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters for the query.",
+    )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
+        ),
+    )
+
+
+class _LogsFacetValuesBatchRequestSerializer(serializers.Serializer):
+    query = _LogsFacetValuesBatchBodySerializer(help_text="The batched facet values query to execute.")
 
 
 class _LogsCountRangesBodySerializer(serializers.Serializer):
@@ -1427,6 +1504,55 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             facet_resource_attribute=facet_resource_attribute or None,
             facet_attribute=facet_attribute or None,
             facet_search=query_data.get("facetSearch"),
+        )
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_LogsFacetValuesBatchRequestSerializer, responses={200: _LogsFacetValuesBatchResponseSerializer}
+    )
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def facet_values_batch(self, request: Request, *args, **kwargs) -> Response:
+        """Facet values for several attribute keys in one query.
+
+        Every attribute facet applies the same filters, so a rail can fetch them together instead of
+        once per facet. A facet that needs its own filter excluded, or a type-ahead search, still
+        goes to `facet_values` — see LogAttributeFacetValuesBatchQueryRunner.
+        """
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        self._require_dict_query(query_data)
+
+        resource_keys = query_data.get("facetResourceAttributes") or []
+        attribute_keys = query_data.get("facetAttributes") or []
+        if not isinstance(resource_keys, list) or not isinstance(attribute_keys, list):
+            raise ParseError("facetResourceAttributes and facetAttributes must be lists")
+        if not resource_keys and not attribute_keys:
+            raise ParseError("Provide at least one key in facetResourceAttributes or facetAttributes")
+        if len(resource_keys) + len(attribute_keys) > MAX_BATCH_FACETS:
+            raise ParseError(f"At most {MAX_BATCH_FACETS} keys may be requested at once")
+
+        date_range_data = query_data.get("dateRange")
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+
+        query = LogsQuery(
+            dateRange=date_range,
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+            personId=query_data.get("personId", None),
+        )
+
+        runner = LogAttributeFacetValuesBatchQueryRunner(
+            team=self.team,
+            query=query,
+            facet_resource_attributes=[str(key) for key in resource_keys],
+            facet_attributes=[str(key) for key in attribute_keys],
         )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,

@@ -1623,6 +1623,49 @@ export interface _LogsFacetValuesResponseApi {
     results: _LogFacetValueApi[]
 }
 
+export interface _LogsFacetValuesBatchBodyApi {
+    /** Resource attribute keys to facet on (e.g. 'k8s.namespace.name'). Combined with facetAttributes, at least one key is required. */
+    facetResourceAttributes?: string[]
+    /** Log attribute keys to facet on (e.g. 'log.iostream'). Combined with facetResourceAttributes, at least one key is required. */
+    facetAttributes?: string[]
+    /** Date range. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+}
+
+export interface _LogsFacetValuesBatchRequestApi {
+    /** The batched facet values query to execute. */
+    query: _LogsFacetValuesBatchBodyApi
+}
+
+export interface _LogFacetValuesBatchEntryApi {
+    /** The attribute key these values belong to. */
+    key: string
+    /** Facet values with cross-filtered counts, ordered by count descending. Empty when the key has no matching values in the requested window. */
+    values: _LogFacetValueApi[]
+}
+
+export interface _LogsFacetValuesBatchResultsApi {
+    /** One entry per requested resource attribute key, in the order requested. */
+    facetResourceAttributes: _LogFacetValuesBatchEntryApi[]
+    /** One entry per requested log attribute key, in the order requested. */
+    facetAttributes: _LogFacetValuesBatchEntryApi[]
+}
+
+export interface _LogsFacetValuesBatchResponseApi {
+    /** Facet values grouped by attribute type, mirroring the request's two key lists. */
+    results: _LogsFacetValuesBatchResultsApi
+}
+
 /**
  * * `log` - log
  * * `resource` - resource

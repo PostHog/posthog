@@ -874,6 +874,117 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The facet values query to execute.'),
 })
 
+/**
+ * Facet values for several attribute keys in one query.
+ *
+ * Every attribute facet applies the same filters, so a rail can fetch them together instead of
+ * once per facet. A facet that needs its own filter excluded, or a type-ahead search, still
+ * goes to `facet_values` — see LogAttributeFacetValuesBatchQueryRunner.
+ */
+export const LogsFacetValuesBatchCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            facetResourceAttributes: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Resource attribute keys to facet on (e.g. 'k8s.namespace.name'). Combined with facetAttributes, at least one key is required."
+                ),
+            facetAttributes: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Log attribute keys to facet on (e.g. 'log.iostream'). Combined with facetResourceAttributes, at least one key is required."
+                ),
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Filter by log severity levels.'),
+            serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Property filters for the query.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+        })
+        .describe('The batched facet values query to execute.'),
+})
+
 export const logsGroupByCreateBodyQueryOneGroupBySourceDefault = `log`
 export const logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault = `log`
 export const logsGroupByCreateBodyQueryOneGroupBysMax = 4

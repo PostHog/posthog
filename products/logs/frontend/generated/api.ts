@@ -58,6 +58,8 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
+    _LogsFacetValuesBatchRequestApi,
+    _LogsFacetValuesBatchResponseApi,
     _LogsFacetValuesRequestApi,
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
@@ -459,6 +461,30 @@ export const logsFacetValuesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsFacetValuesRequestApi),
+    })
+}
+
+export const getLogsFacetValuesBatchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/facet_values_batch/`
+}
+
+/**
+ * Facet values for several attribute keys in one query.
+ *
+ * Every attribute facet applies the same filters, so a rail can fetch them together instead of
+ * once per facet. A facet that needs its own filter excluded, or a type-ahead search, still
+ * goes to `facet_values` — see LogAttributeFacetValuesBatchQueryRunner.
+ */
+export const logsFacetValuesBatchCreate = async (
+    projectId: string,
+    _logsFacetValuesBatchRequestApi: _LogsFacetValuesBatchRequestApi,
+    options?: RequestInit
+): Promise<_LogsFacetValuesBatchResponseApi> => {
+    return apiMutator<_LogsFacetValuesBatchResponseApi>(getLogsFacetValuesBatchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsFacetValuesBatchRequestApi),
     })
 }
 

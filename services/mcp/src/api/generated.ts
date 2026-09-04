@@ -88853,6 +88853,13 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogFacetValuesBatchEntry {
+      /** The attribute key these values belong to. */
+      key: string;
+      /** Facet values with cross-filtered counts, ordered by count descending. Empty when the key has no matching values in the requested window. */
+      values: _LogFacetValue[];
+    }
+
     /**
      * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
      */
@@ -89106,6 +89113,42 @@ export namespace Schemas {
     export interface _LogsCountResponse {
       /** Number of log entries matching the filters. */
       count: number;
+    }
+
+    export interface _LogsFacetValuesBatchBody {
+      /** Resource attribute keys to facet on (e.g. 'k8s.namespace.name'). Combined with facetAttributes, at least one key is required. */
+      facetResourceAttributes?: string[];
+      /** Log attribute keys to facet on (e.g. 'log.iostream'). Combined with facetResourceAttributes, at least one key is required. */
+      facetAttributes?: string[];
+      /** Date range. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
+    }
+
+    export interface _LogsFacetValuesBatchRequest {
+      /** The batched facet values query to execute. */
+      query: _LogsFacetValuesBatchBody;
+    }
+
+    export interface _LogsFacetValuesBatchResults {
+      /** One entry per requested resource attribute key, in the order requested. */
+      facetResourceAttributes: _LogFacetValuesBatchEntry[];
+      /** One entry per requested log attribute key, in the order requested. */
+      facetAttributes: _LogFacetValuesBatchEntry[];
+    }
+
+    export interface _LogsFacetValuesBatchResponse {
+      /** Facet values grouped by attribute type, mirroring the request's two key lists. */
+      results: _LogsFacetValuesBatchResults;
     }
 
     export interface _LogsFacetValuesBody {
