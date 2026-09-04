@@ -31,6 +31,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.tasks.failure_handler import USER_QUERY_ERRORS
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -284,15 +285,30 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
             # Breaker replays were already captured when the original failure happened.
             if getattr(e, "served_from_query_failure_cache", False):
                 pass
-            # A revoked creator's access-denied error is a known limitation - report it as an event
-            # rather than surfacing it in error tracking.
-            elif isinstance(e, TableAccessDeniedError) and creator_access_revoked(insight.created_by, insight.team):
-                report_creator_access_revoked(
-                    user=insight.created_by,
-                    team=insight.team,
-                    source="cache_warming",
-                    error=e,
-                    properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
+            # TableAccessDeniedError is a QueryError, so it must be decided before the general
+            # user-error branch below, which would otherwise swallow every access denial.
+            elif isinstance(e, TableAccessDeniedError):
+                # A revoked creator's access-denied error is a known limitation - report it as an
+                # event rather than surfacing it in error tracking.
+                if creator_access_revoked(insight.created_by, insight.team):
+                    report_creator_access_revoked(
+                        user=insight.created_by,
+                        team=insight.team,
+                        source="cache_warming",
+                        error=e,
+                        properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
+                    )
+                else:
+                    capture_exception(e)
+            # A mistake in the saved query, not broken infrastructure. Warming retries the insight
+            # on every cycle, so error tracking would reopen the same issue until the author fixes it.
+            elif isinstance(e, USER_QUERY_ERRORS):
+                logger.warning(
+                    "cache_warming.user_query_error",
+                    insight_id=insight.pk,
+                    dashboard_id=dashboard_id,
+                    team_id=insight.team_id,
+                    error=str(e),
                 )
             else:
                 capture_exception(e)
