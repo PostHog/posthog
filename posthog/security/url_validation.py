@@ -64,6 +64,12 @@ INTERNAL_DOMAIN_PATTERNS = (
 
 def resolve_host_ips(host: str) -> ResolvedIPs:
     """Resolve a hostname to its IP addresses."""
+    # Resolving a value that is not a host would put it in the warning below, and dnspython
+    # repeats the queried name in its error text, so both fields would carry whatever the
+    # caller passed. Callers reject this shape first; this keeps a new one from leaking.
+    if _host_shape_error(host) is not None:
+        return set()
+
     try:
         return {ipaddress.ip_address(host)}
     except ValueError:
@@ -172,6 +178,36 @@ def _is_private_ip_literal(host: str) -> bool:
         or host.startswith("172.30.")
         or host.startswith("172.31.")
     )
+
+
+# Labels joined by dots, with an optional root dot. Underscores are not valid in a hostname
+# under RFC 1123, but they resolve in practice, so the pattern keeps them: the job here is to
+# reject the parts of a URL, not to enforce the RFC.
+_HOSTNAME_LABEL = r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+_BARE_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?", re.ASCII)
+_MAX_HOSTNAME_LENGTH = 253
+
+
+def _host_shape_error(host: object) -> str | None:
+    """Reason to reject a host on its form alone, or None when the form is usable.
+
+    A host field takes a hostname or an IP address. Customers paste whole connection strings
+    into it, so anything carrying credentials, a scheme, a port or a path is rejected before
+    it reaches DNS or a log line. Takes ``object`` because callers read the value out of
+    untyped config.
+    """
+    if not isinstance(host, str):
+        return "Host must be a string"
+    if not host.strip():
+        return "Host is empty"
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        pass
+    if len(host) > _MAX_HOSTNAME_LENGTH or not _BARE_HOSTNAME.fullmatch(host):
+        return "Host must be a hostname or IP address"
+    return None
 
 
 def _url_shape_error(raw_url: str) -> str | None:
@@ -464,10 +500,9 @@ def validate_external_host(host: str) -> None:
     cannot drift apart. Bypassed in local dev and in tests, unless the
     ``FORCE_URL_VALIDATION`` setting is true.
     """
-    if not isinstance(host, str):
-        raise ValueError("Host must be a string")
-    if not host.strip():
-        raise ValueError("Host is empty")
+    shape_reason = _host_shape_error(host)
+    if shape_reason is not None:
+        raise ValueError(shape_reason)
 
     if _dev_bypass_enabled() or _test_bypass_enabled():
         return

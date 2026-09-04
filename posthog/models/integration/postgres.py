@@ -80,7 +80,12 @@ class PostgreSQLServerIntegration:
         try:
             validate_external_host(host)
         except ValueError:
-            raise common.IntegrationError(f"Provided host '{host}' is not valid")
+            # One message for every reason. The value can be a pasted connection string
+            # carrying a password, so it is not echoed, and reporting whether a host resolved
+            # internally would answer that question for someone probing the network.
+            raise common.IntegrationError(
+                "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
+            )
 
         port = config.get("port", None)
         try:
