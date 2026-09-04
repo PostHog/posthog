@@ -616,11 +616,13 @@ export function useInboxBulkActions(
         return false;
       }
 
-      await suppressMutation.mutateAsync({
+      const result = await suppressMutation.mutateAsync({
         reportIds: eligibility.selectedIds,
         ...(dismissal != null ? { dismissal } : {}),
       });
-      return true;
+      // Per-report rejections settle into the result, so the promise resolving
+      // does not mean the action landed. Callers keep their dialog open on false.
+      return result.failureCount === 0;
     },
     [
       eligibility.suppressDisabledReason,
@@ -635,11 +637,13 @@ export function useInboxBulkActions(
         return false;
       }
 
-      await snoozeMutation.mutateAsync({
+      const result = await snoozeMutation.mutateAsync({
         reportIds: eligibility.selectedIds,
         ...(dismissal != null ? { dismissal } : {}),
       });
-      return true;
+      // Per-report rejections settle into the result, so the promise resolving
+      // does not mean the action landed. Callers keep their dialog open on false.
+      return result.failureCount === 0;
     },
     [eligibility.snoozeDisabledReason, eligibility.selectedIds, snoozeMutation],
   );

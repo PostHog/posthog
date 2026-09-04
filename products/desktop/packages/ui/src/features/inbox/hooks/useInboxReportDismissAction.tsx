@@ -50,11 +50,13 @@ export function useInboxReportDismissAction(
     async (reason: DismissalReasonOptionValue, note = "") => {
       const result = { reason, note } satisfies DismissReportDialogResult;
       const isSnooze = isDismissalReasonSnooze(reason);
-      setOpen(false);
+      // Close only once the action lands. Holding the dialog open keeps the
+      // typed reason and note for a retry, and the quick reasons in the row
+      // menu never open a dialog the reader did not ask for.
       const ok = isSnooze
         ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
-      if (!ok) setOpen(true);
+      if (ok) setOpen(false);
     },
     [bulkActions],
   );
