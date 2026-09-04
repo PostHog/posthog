@@ -110,7 +110,6 @@ export function ErrorTrackingIngestionPrompt({
             isEmpty={true}
             className={cn(introductionClassName, className)}
             {...(introductionStacked !== undefined ? { stacked: introductionStacked } : {})}
-            mcpSurfaceKey="error_tracking.assign"
             customHog={WarningHog}
             actionElementOverride={
                 <div className={actionElementClassName}>

@@ -6,9 +6,6 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 
-import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
-import type { SurfaceKey } from '../MCPHint/prompts'
-
 const HedgehogConstruction2 = pngHoggie(construction2)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
@@ -60,11 +57,6 @@ export type ProductIntroductionProps = {
      * for wide empty states (e.g. template grids). Passed through `cn` with tailwind-merge so `max-w-*` replaces default.
      */
     contentClassName?: string
-    /**
-     * When set, renders an MCP use-case card below the actions, promoting the same product via PostHog MCP from
-     * the user's IDE. Auto-hides if the user has opted out of MCP hints.
-     */
-    mcpSurfaceKey?: SurfaceKey
 }
 
 export const ProductIntroduction = ({
@@ -82,7 +74,6 @@ export const ProductIntroduction = ({
     hogLayout = 'default',
     useMainContentContainerQueries = false,
     contentClassName,
-    mcpSurfaceKey,
 }: ProductIntroductionProps): JSX.Element | null => {
     if (!isEmpty) {
         return null
@@ -187,7 +178,6 @@ export const ProductIntroduction = ({
                             </LemonButton>
                         )}
                     </div>
-                    {mcpSurfaceKey && <MCPUseCaseCard surfaceKey={mcpSurfaceKey} className="max-w-140" />}
                 </div>
             </div>
         </div>
