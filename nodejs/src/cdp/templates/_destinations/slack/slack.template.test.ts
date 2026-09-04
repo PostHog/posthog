@@ -85,6 +85,15 @@ describe('slack template', () => {
         expect(bodyOf(response.invocation.queueParameters)).not.toHaveProperty('thread_ts')
     })
 
+    // Clearing these has to keep the request inside chat:write, so a workspace that never granted
+    // chat:write.customize has a way to make the destination work.
+    it.each([['icon_emoji'], ['username']])('should omit %s when it is empty', async (key) => {
+        const response = await tester.invoke({ ...commonInputs, [key]: '' })
+
+        expect(response.error).toBeUndefined()
+        expect(bodyOf(response.invocation.queueParameters)).not.toHaveProperty(key)
+    })
+
     it.each([
         ['a non-200 status', { status: 400, body: { ok: true } }, "Failed to post message to Slack: 400: {'ok': true}"],
         ['ok: false', { status: 200, body: { ok: false } }, "Failed to post message to Slack: 200: {'ok': false}"],

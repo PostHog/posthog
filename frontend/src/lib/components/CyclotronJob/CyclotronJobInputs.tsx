@@ -49,6 +49,8 @@ import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSug
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
+import { useFieldMissingScopes } from './integrations/fieldScopes'
+import { MissingScopesHint } from './integrations/MissingScopesHint'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
@@ -925,6 +927,7 @@ function CyclotronJobInputWithSchema({
     const value = configuration.inputs?.[schema.key] ?? { value: null }
     const error = errors?.[schema.key]
     const warning = warnings?.[schema.key]
+    const fieldScopes = useFieldMissingScopes(schema, configuration, parentConfiguration)
 
     const onSchemaChange = (newSchema: CyclotronJobInputSchemaType | null): void => {
         let inputsSchema = configuration.inputs_schema || []
@@ -983,11 +986,14 @@ function CyclotronJobInputWithSchema({
                 <LemonField.Pure
                     error={error}
                     help={
-                        typeof schema.description === 'string' ? (
-                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
-                                {schema.description}
-                            </LemonMarkdown>
-                        ) : undefined
+                        <>
+                            {typeof schema.description === 'string' ? (
+                                <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
+                                    {schema.description}
+                                </LemonMarkdown>
+                            ) : null}
+                            <MissingScopesHint fieldScopes={fieldScopes} />
+                        </>
                     }
                 >
                     <>
