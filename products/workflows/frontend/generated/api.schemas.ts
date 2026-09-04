@@ -1575,10 +1575,24 @@ export interface EmailSendingAllowanceApi {
     readonly emails_per_day: number
     /** The largest audience this tier allows for a single batch send. */
     readonly max_batch_audience: number
+    /** The largest audience a batch send is held to right now. Equal to max_batch_audience once the tiers are applied; the flat pre-tier limit while they are only measured. */
+    readonly effective_max_batch_audience: number
     /** Emails sent by this project's workflows in the last hour. */
     readonly emails_sent_last_hour: number
     /** Emails sent by this project's workflows in the last 24 hours. */
     readonly emails_sent_last_day: number
+    /**
+     * Emails per day the next tier allows; null when the project is on the highest tier.
+     * @nullable
+     */
+    readonly next_tier_emails_per_day: number | null
+    /**
+     * Batch audience the next tier allows; null when the project is on the highest tier.
+     * @nullable
+     */
+    readonly next_tier_max_batch_audience: number | null
+    /** Days the project must stay on this tier before it can move up. */
+    readonly min_days_at_tier: number
     /** True when these allowances are applied to sends. False while they are only being measured. */
     readonly enforced: boolean
 }

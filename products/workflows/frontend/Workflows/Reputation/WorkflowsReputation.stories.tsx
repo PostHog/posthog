@@ -86,8 +86,12 @@ const baseResponse: TeamEmailReputationResponseApi = {
         emails_per_hour: 5000,
         emails_per_day: 50000,
         max_batch_audience: 25000,
+        effective_max_batch_audience: 25000,
         emails_sent_last_hour: 1200,
         emails_sent_last_day: 18400,
+        next_tier_emails_per_day: 150000,
+        next_tier_max_batch_audience: 75000,
+        min_days_at_tier: 3,
         enforced: true,
     },
     email_sending_suspended: false,
@@ -136,5 +140,36 @@ export const SharedSendingDomain: StoryFn = () => {
 export const DomainWithheldFromCaller: StoryFn = () => {
     // A domain a project the viewer cannot open also sends from: excluded rather than blended in.
     useStorybookMocks(mockReputation({ ...baseResponse, isps: [], isp_withheld_domains: ['mail.example.com'] }))
+    return <WorkflowsReputation />
+}
+
+export const AllowanceNotYetApplied: StoryFn = () => {
+    // The default rollout state: tiers are measured, so the card has to show the tier while naming
+    // the flat batch ceiling that a send is actually held to.
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: {
+                ...baseResponse.sending_allowance!,
+                effective_max_batch_audience: 500000,
+                enforced: false,
+            },
+        })
+    )
+    return <WorkflowsReputation />
+}
+
+export const AllowanceAtTopTier: StoryFn = () => {
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: {
+                ...baseResponse.sending_allowance!,
+                tier: 4,
+                next_tier_emails_per_day: null,
+                next_tier_max_batch_audience: null,
+            },
+        })
+    )
     return <WorkflowsReputation />
 }
