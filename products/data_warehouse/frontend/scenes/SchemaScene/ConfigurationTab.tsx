@@ -391,7 +391,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     ): Promise<void> => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
 
-        const applyUpdate = async (): Promise<void> => {
+        const applyUpdate = async (backfill: boolean = false): Promise<void> => {
             setSaving(true)
             try {
                 await api.externalDataSchemas.update(schema.id, {
@@ -403,6 +403,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                         syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
                     primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
                     ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                    ...(backfill ? { backfill_on_sync_type_change: true } : {}),
                 })
                 lemonToast.success('Sync method saved')
                 loadSchema()
@@ -432,6 +433,28 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                 ),
                 primaryButton: { children: 'Resync now', onClick: () => void applyUpdate() },
                 secondaryButton: { children: 'Cancel', type: 'tertiary' },
+            })
+            return
+        }
+
+        // A webhook only delivers what changes after it is registered, so rows that changed since
+        // the last sync stay missing from the table unless a backfill picks them up.
+        if (syncType === 'webhook' && schema.sync_type !== 'webhook' && schema.last_synced_at) {
+            LemonDialog.open({
+                title: 'Backfill changes since the last sync?',
+                content: (
+                    <div className="text-sm text-secondary deprecated-space-y-2">
+                        <p>
+                            The webhook delivers changes from the moment it is registered. Rows in{' '}
+                            <strong>{schema.table?.name ?? schema.name}</strong> that changed since the last sync do not
+                            arrive on their own.
+                        </p>
+                        <p>A backfill syncs them once. The rows it syncs count toward your usage.</p>
+                    </div>
+                ),
+                primaryButton: { children: 'Switch and backfill', onClick: () => void applyUpdate(true) },
+                secondaryButton: { children: 'Switch without backfill', onClick: () => void applyUpdate() },
+                tertiaryButton: { children: 'Cancel', type: 'tertiary' },
             })
             return
         }

@@ -6090,7 +6090,8 @@ const api = {
         },
         async update(
             schemaId: ExternalDataSourceSchema['id'],
-            data: Partial<ExternalDataSourceSchema>
+            // `backfill_on_sync_type_change` is write-only, so it is not part of the schema shape.
+            data: Partial<ExternalDataSourceSchema> & { backfill_on_sync_type_change?: boolean }
         ): Promise<ExternalDataSourceSchema> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
         },
