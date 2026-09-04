@@ -115,8 +115,8 @@ import type {
   TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
-import { AsyncMutex } from "../utils/async-mutex";
 import { withTimeout } from "../utils/common";
+import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
@@ -136,6 +136,7 @@ import {
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
+import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
@@ -172,8 +173,6 @@ const errorWithClassificationSchema = z.object({
   data: z.object({ classification: agentErrorClassificationSchema }),
 });
 
-type MessageCallback = (message: unknown) => void;
-
 export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 
 // Bounded per-turn retries for unattended (initial/resume) turns that hit a
@@ -205,106 +204,6 @@ export function buildCloudSessionSystemPrompt(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-class NdJsonTap {
-  private decoder = new TextDecoder();
-  private buffer = "";
-
-  constructor(private onMessage: MessageCallback) {}
-
-  process(chunk: Uint8Array): void {
-    this.buffer += this.decoder.decode(chunk, { stream: true });
-    const lines = this.buffer.split("\n");
-    this.buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        this.onMessage(JSON.parse(line));
-      } catch {
-        // Not valid JSON, skip
-      }
-    }
-  }
-}
-
-function createTappedReadableStream(
-  underlying: ReadableStream<Uint8Array>,
-  onMessage: MessageCallback,
-  logger?: Logger,
-): ReadableStream<Uint8Array> {
-  const reader = underlying.getReader();
-  const tap = new NdJsonTap(onMessage);
-
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const { value, done } = await reader.read();
-        if (done) {
-          controller.close();
-          return;
-        }
-        tap.process(value);
-        controller.enqueue(value);
-      } catch (error) {
-        logger?.debug("Read failed, closing stream", error);
-        controller.close();
-      }
-    },
-    cancel() {
-      reader.releaseLock();
-    },
-  });
-}
-
-function createTappedWritableStream(
-  underlying: WritableStream<Uint8Array>,
-  onMessage: MessageCallback,
-  logger?: Logger,
-): WritableStream<Uint8Array> {
-  const tap = new NdJsonTap(onMessage);
-  const mutex = new AsyncMutex();
-
-  return new WritableStream<Uint8Array>({
-    async write(chunk) {
-      tap.process(chunk);
-      await mutex.acquire();
-      try {
-        const writer = underlying.getWriter();
-        await writer.write(chunk);
-        writer.releaseLock();
-      } catch (error) {
-        logger?.debug("Write failed (stream may be closed)", error);
-      } finally {
-        mutex.release();
-      }
-    },
-    async close() {
-      await mutex.acquire();
-      try {
-        const writer = underlying.getWriter();
-        await writer.close();
-        writer.releaseLock();
-      } catch (error) {
-        logger?.debug("Close failed (stream may be closed)", error);
-      } finally {
-        mutex.release();
-      }
-    },
-    async abort(reason) {
-      await mutex.acquire();
-      try {
-        const writer = underlying.getWriter();
-        await writer.abort(reason);
-        writer.releaseLock();
-      } catch (error) {
-        logger?.debug("Abort failed (stream may be closed)", error);
-      } finally {
-        mutex.release();
-      }
-    },
-  });
 }
 
 export function isTurnCompleteNotification(message: unknown): boolean {
@@ -531,6 +430,7 @@ export class AgentServer {
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
   private eventStreamSender: TaskRunEventStreamSender | null = null;
+  private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
   private questionRelayedToSlack = false;
   private adapterEmittedTurnComplete = false;
@@ -539,6 +439,7 @@ export class AgentServer {
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
+  private slackReplyContext = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -553,6 +454,8 @@ export class AgentServer {
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
+  private storeSkillsInstalledCount = 0;
+  private storeSkillsActivationResolved = false;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -635,22 +538,11 @@ export class AgentServer {
     const formatted =
       data !== undefined ? `${message} ${JSON.stringify(data)}` : message;
 
-    const notification = {
+    this.broadcastAndPersistNotification({
       jsonrpc: "2.0",
       method: POSTHOG_NOTIFICATIONS.CONSOLE,
       params: { level, message: formatted },
-    };
-
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification,
     });
-
-    this.session.logWriter.appendRawLine(
-      this.session.payload.run_id,
-      JSON.stringify(notification),
-    );
   };
 
   constructor(config: AgentServerConfig) {
@@ -1313,9 +1205,9 @@ export class AgentServer {
           // effort while the final composer selection uses another.
           // Resolve before buildDetectedPrContext so a warm auto-publish upgrade
           // also flips the detected-PR context to its push variant.
-          const autoPublishUpgrade = await this.resolveActivationSettings();
+          const activationContext = await this.resolveActivationSettings();
           const hostContext = [
-            ...(autoPublishUpgrade ? [autoPublishUpgrade] : []),
+            ...activationContext,
             ...(this.detectedPrUrl
               ? [this.buildDetectedPrContext(this.detectedPrUrl)]
               : []),
@@ -1492,7 +1384,10 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          this.broadcastTurnComplete(result.stopReason);
+          this.broadcastTurnComplete(
+            result.stopReason,
+            this.promptResultTraceId(result),
+          );
 
           if (result.stopReason === "end_turn") {
             // Relay the response to Slack. For follow-ups this is the primary
@@ -1597,6 +1492,11 @@ export class AgentServer {
             `Refreshed sandbox credentials${owner}: ${refreshedCredentials.join(", ")}`,
           );
         }
+
+        // The backend refreshes the session when the acting user changes, and
+        // the store skills on disk are that user's. Resync them so the previous
+        // actor's skill names and descriptions do not outlive their turn.
+        await this.refreshStoreSkills("refresh_session");
 
         if (mcpServers.length === 0) {
           return { refreshed: true };
@@ -1809,6 +1709,7 @@ export class AgentServer {
     this.nativeResume = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
+    this.storeSkillsActivationResolved = false;
     this.prewarmedStartupTurnPending = false;
     this.autoPublishStateResolved = false;
     this.warmReasoningEffortResolved = false;
@@ -1898,6 +1799,7 @@ export class AgentServer {
     // instance must not keep the previous run's delivery capability.
     this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
     this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
+    this.slackReplyContext = preTaskRun?.state.slack_reply_context === true;
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -1906,6 +1808,13 @@ export class AgentServer {
     const inboxReportUrl = signalReportId
       ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
       : null;
+
+    // Before the prompt: its skills-store section counts the stubs on disk.
+    await this.installStoreSkills(
+      payload.task_id,
+      payload.run_id,
+      preTaskRun?.state ?? null,
+    );
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
@@ -1943,6 +1852,9 @@ export class AgentServer {
       taskId: payload.task_id,
       deviceType: deviceInfo.type,
       logWriter,
+      eventIdSource: this.nextEventId,
+      onWireMessage: (message, eventId) =>
+        this.handleAcpTransportMessage(message, eventId),
       logger: this.logger,
       claudeGatewayEnv: runtimeAdapter !== "codex" ? gatewayEnv : undefined,
       codexOptions:
@@ -1981,24 +1893,12 @@ export class AgentServer {
       },
     });
 
-    // Tap both streams to broadcast all ACP messages via SSE (mimics local transport)
+    // The connection's wire taps broadcast all ACP messages via SSE (mimics local transport)
     this.adapterEmittedTurnComplete = false;
-    const onAcpMessage = (message: unknown) =>
-      this.handleAcpTransportMessage(message);
-
-    const tappedReadable = createTappedReadableStream(
-      acpConnection.clientStreams.readable as ReadableStream<Uint8Array>,
-      onAcpMessage,
-      this.logger,
-    );
-
-    const tappedWritable = createTappedWritableStream(
+    const clientStream = ndJsonStream(
       acpConnection.clientStreams.writable as WritableStream<Uint8Array>,
-      onAcpMessage,
-      this.logger,
+      acpConnection.clientStreams.readable as ReadableStream<Uint8Array>,
     );
-
-    const clientStream = ndJsonStream(tappedWritable, tappedReadable);
 
     const clientConnection = new ClientSideConnection(
       () => this.createCloudClient(payload),
@@ -2233,15 +2133,7 @@ export class AgentServer {
         ...(conversationClear ? { conversationClear } : {}),
       },
     };
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification: runStartedNotification,
-    });
-    this.session.logWriter.appendRawLine(
-      payload.run_id,
-      JSON.stringify(runStartedNotification),
-    );
+    this.broadcastAndPersistNotification(runStartedNotification);
 
     // Mirror the "agent" setup step onto the ingest leg the client is reading;
     // the orchestrator's completed progress only lands in Django.
@@ -2255,15 +2147,7 @@ export class AgentServer {
         label: "Started agent",
       },
     };
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification: agentStartedProgress,
-    });
-    this.session.logWriter.appendRawLine(
-      payload.run_id,
-      JSON.stringify(agentStartedProgress),
-    );
+    this.broadcastAndPersistNotification(agentStartedProgress);
 
     // Signal in_progress so the UI can start polling for updates
     this.posthogAPI
@@ -2448,7 +2332,7 @@ export class AgentServer {
     message: string,
   ): void {
     if (!this.session) return;
-    const notification = {
+    this.broadcastAndPersistNotification({
       jsonrpc: "2.0",
       method: "session/update",
       params: {
@@ -2459,18 +2343,7 @@ export class AgentServer {
           message,
         },
       },
-    };
-
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification,
     });
-
-    this.session.logWriter.appendRawLine(
-      this.session.payload.run_id,
-      JSON.stringify(notification),
-    );
   }
 
   private async sendInitialTaskMessage(
@@ -2621,7 +2494,10 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(result.stopReason);
+      this.broadcastTurnComplete(
+        result.stopReason,
+        this.promptResultTraceId(result),
+      );
 
       if (result.stopReason === "end_turn") {
         await this.relayAgentResponse(payload);
@@ -3003,7 +2879,10 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(result.stopReason);
+      this.broadcastTurnComplete(
+        result.stopReason,
+        this.promptResultTraceId(result),
+      );
 
       if (result.stopReason === "end_turn") {
         await this.relayAgentResponse(payload);
@@ -3798,6 +3677,49 @@ export class AgentServer {
     return normalizedName;
   }
 
+  /**
+   * Put the user's skills-store skills on disk as pointer stubs before the
+   * harness session starts, so it lists them like any local skill. The task
+   * worker resolves the list into the run state when it builds the run, so
+   * this is filesystem work only and adds no request to session start. Skill
+   * bodies stay in the store and cross the PostHog MCP only when a skill is
+   * invoked.
+   */
+  private async installStoreSkills(
+    taskId: string,
+    runId: string,
+    runState: TaskRunState | null,
+  ): Promise<void> {
+    this.storeSkillsInstalledCount = await syncStoreSkills(
+      runState,
+      { taskId, runId },
+      this.logger,
+    );
+  }
+
+  /**
+   * Re-read the run and bring the stubs on disk in line with it. The worker
+   * rewrites `store_skills` when the acting user changes, after this session
+   * started, and refreshes the session right after.
+   */
+  private async refreshStoreSkills(reason: string): Promise<void> {
+    if (!this.session) {
+      return;
+    }
+    const { task_id: taskId, run_id: runId } = this.session.payload;
+    let state: TaskRunState | undefined;
+    try {
+      state = (await this.posthogAPI.getTaskRun(taskId, runId))?.state;
+    } catch (error) {
+      this.logger.debug("Failed to fetch run state for skills store refresh", {
+        reason,
+        error,
+      });
+      return;
+    }
+    await this.installStoreSkills(taskId, runId, state ?? null);
+  }
+
   private async waitForRepoReady(): Promise<void> {
     const readyFile = this.config.repoReadyFile;
     if (!readyFile) {
@@ -3880,7 +3802,7 @@ export class AgentServer {
       cloudAppend,
       userPrompt,
     );
-    return this.getCloudInteractionOrigin() === "slack"
+    return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)
       : sessionPrompt;
   }
@@ -3929,6 +3851,12 @@ export class AgentServer {
     );
   }
 
+  private isSlackReplyContext(): boolean {
+    return (
+      this.slackReplyContext || this.getCloudInteractionOrigin() === "slack"
+    );
+  }
+
   /**
    * Automated, PostHog-branded origins: the Slack app and the Self-driving
    * inbox. These both auto-publish by default and attribute their PRs to
@@ -3952,21 +3880,32 @@ export class AgentServer {
     );
   }
 
-  /** Apply settings from run state before the first turn when launch config is incomplete. */
-  private async resolveActivationSettings(): Promise<string | null> {
+  /**
+   * Apply settings from run state before the first turn when launch config is
+   * incomplete, and return the host-context blocks that prompt needs for them.
+   */
+  private async resolveActivationSettings(): Promise<string[]> {
     if (!this.session) {
-      return null;
+      return [];
     }
 
     const shouldResolveReasoning =
       this.prewarmedRun && !this.warmReasoningEffortResolved;
+    // A warm run's stubs were installed at prewarm time; the worker rewrites
+    // the list for the activating user before it forwards the first message.
+    const shouldResolveStoreSkills =
+      this.prewarmedRun && !this.storeSkillsActivationResolved;
     const shouldResolveAutoPublish =
       !this.autoPublishStateResolved &&
       this.config.autoPublish !== true &&
       this.config.createPr !== false &&
       !this.isAutomatedOrigin();
-    if (!shouldResolveReasoning && !shouldResolveAutoPublish) {
-      return null;
+    if (
+      !shouldResolveReasoning &&
+      !shouldResolveStoreSkills &&
+      !shouldResolveAutoPublish
+    ) {
+      return [];
     }
 
     let state: TaskRunState | undefined;
@@ -3980,13 +3919,29 @@ export class AgentServer {
       // Keep the settings unresolved so a later message retries. A transient
       // control-plane failure must not prevent the first prompt from running.
       this.logger.debug("Failed to fetch activation settings", { error });
-      return null;
+      return [];
     }
 
     if (shouldResolveReasoning) {
       await this.resolveWarmReasoningEffort(state);
     }
-    return this.resolveAutoPublishFromState(state);
+    const context: string[] = [];
+    if (shouldResolveStoreSkills) {
+      const { task_id: taskId, run_id: runId } = this.session.payload;
+      const previousCount = this.storeSkillsInstalledCount;
+      await this.installStoreSkills(taskId, runId, state ?? null);
+      this.storeSkillsActivationResolved = true;
+      if (previousCount === 0 && this.storeSkillsInstalledCount > 0) {
+        context.push(
+          buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
+        );
+      }
+    }
+    const autoPublishUpgrade = this.resolveAutoPublishFromState(state);
+    if (autoPublishUpgrade) {
+      context.push(autoPublishUpgrade);
+    }
+    return context;
   }
 
   private async resolveWarmReasoningEffort(
@@ -4217,7 +4172,7 @@ You do not have GitHub access in this session.
   ): string {
     const taskId = this.config.taskId;
     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
-    const isSlack = this.getCloudInteractionOrigin() === "slack";
+    const isSlack = this.isSlackReplyContext();
     // Every instruction in this section runs through `gh`, so a sandbox holding no
     // GitHub token cannot act on any of it. An empty token is an explicit logout.
     const hasGithubToken = Boolean(resolveGithubToken());
@@ -4348,7 +4303,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.storeSkillsInstalledCount)}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
@@ -5513,7 +5468,7 @@ ${commonInstructions}
     );
   }
 
-  private handleAcpTransportMessage(message: unknown): void {
+  private handleAcpTransportMessage(message: unknown, eventId?: string): void {
     if (isTurnCompleteNotification(message)) {
       if (this.suppressAdapterTurnComplete) {
         return;
@@ -5523,6 +5478,7 @@ ${commonInstructions}
     const event = {
       type: "notification",
       timestamp: new Date().toISOString(),
+      ...(eventId ? { event_id: eventId } : {}),
       notification: message,
     };
     if (!this.session) {
@@ -5532,30 +5488,48 @@ ${commonInstructions}
     this.broadcastEvent(event);
   }
 
-  private broadcastTurnComplete(stopReason: string): void {
+  /** The per-turn gateway trace id the Claude adapter reports via `PromptResponse._meta`. */
+  private promptResultTraceId(result: PromptResponse): string | null {
+    const traceId = (result._meta as { traceId?: unknown } | undefined)
+      ?.traceId;
+    return typeof traceId === "string" ? traceId : null;
+  }
+
+  private broadcastTurnComplete(
+    stopReason: string,
+    traceId: string | null = null,
+  ): void {
     if (!this.session) return;
     if (this.adapterEmittedTurnComplete) {
       this.adapterEmittedTurnComplete = false;
       return;
     }
-    const notification = {
+    this.broadcastAndPersistNotification({
       jsonrpc: "2.0",
       method: POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
       params: {
         sessionId: this.session.acpSessionId,
         stopReason,
+        ...(traceId ? { traceId } : {}),
       },
-    };
+    });
+  }
 
+  private broadcastAndPersistNotification(
+    notification: Record<string, unknown>,
+  ): void {
+    if (!this.session) return;
+    const eventId = this.nextEventId();
     this.broadcastEvent({
       type: "notification",
       timestamp: new Date().toISOString(),
+      event_id: eventId,
       notification,
     });
-
     this.session.logWriter.appendRawLine(
       this.session.payload.run_id,
       JSON.stringify(notification),
+      eventId,
     );
   }
 
@@ -5577,17 +5551,11 @@ ${commonInstructions}
     const runId = this.session.payload.run_id;
     if (this.commandDispatchedRunId === runId) return;
     this.commandDispatchedRunId = runId;
-    const notification = {
+    this.broadcastAndPersistNotification({
       jsonrpc: "2.0" as const,
       method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
       params: {},
-    };
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification,
     });
-    this.session.logWriter.appendRawLine(runId, JSON.stringify(notification));
   }
 
   private flushPreSessionEvents(): void {

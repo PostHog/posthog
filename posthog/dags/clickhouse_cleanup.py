@@ -77,6 +77,12 @@ PERSIST_PAGE_SIZE = 50_000
 # raise team_batches together with max_persons when draining a large backlog in checkpoints.
 DEFAULT_TEAM_BATCHES = 1
 
+# How many cohorts one run sweeps per deletion type. Bounded rather than unlimited because a
+# sensor can start this run unattended. One delete chunk covers 500 cohorts and was measured on
+# prod-EU reading 0.63% of `cohortpeople`, so this is a few chunks of work per run, and a capped
+# run leaves the rest queued.
+DEFAULT_MAX_COHORTS = 2_000
+
 
 class CleanupConfig(dagster.Config):
     """Read once, by the first op, and carried to every later op on CleanupRun.
@@ -108,10 +114,25 @@ class CleanupConfig(dagster.Config):
         default=1800,
         description="Fail a delete batch when attempts keep failing and no part completes for this many seconds.",
     )
+    mutation_capacity_timeout: int = pydantic.Field(
+        default=3600,
+        description="Fail a delete batch that cannot be enqueued because another mutation has held the table for "
+        "this many seconds. This wait happens before the mutation exists, so mutation_wait_deadline cannot cover it.",
+    )
     mutation_wait_deadline: int = pydantic.Field(
         default=86400,
         description="Fail a delete batch that has not finished after this many seconds, even when it is healthy. "
         "A mutation blocked behind another table-sized mutation would otherwise hold the run open forever.",
+    )
+    cohort_sweep: bool = pydantic.Field(
+        default=True,
+        description="Run the cohort membership sweep. False skips it and goes straight to the person sweep, "
+        "which is the lever to pull if cohort mutations misbehave.",
+    )
+    max_cohorts: int = pydantic.Field(
+        default=DEFAULT_MAX_COHORTS,
+        description="Sweep at most this many cohorts per deletion type, 0 for all of them. A capped run "
+        "leaves the rest queued for the next one. Bounded by default because this job can run unattended.",
     )
     max_persons: int = pydantic.Field(
         default=0,
@@ -162,27 +183,31 @@ class SnapshotTable:
         """
         return f"SELECT {self.keys} FROM {self.qualified_name} WHERE run_id = '{self.run_id}'"
 
-    def count(self, client: Client) -> int:
+    def count(self, client: Client, settings: Mapping[str, int] | None = None) -> int:
         [[count]] = client.execute(
             f"SELECT count() FROM {self.qualified_name} WHERE run_id = %(run_id)s",
             {"run_id": self.run_id},
+            settings=settings,
         )
         return count
 
-    def team_ids(self, client: Client) -> list[int]:
+    def team_ids(self, client: Client, settings: Mapping[str, int] | None = None) -> list[int]:
         rows = client.execute(
             f"SELECT DISTINCT team_id FROM {self.qualified_name} WHERE run_id = %(run_id)s ORDER BY team_id",
             {"run_id": self.run_id},
+            settings=settings,
         )
         return [row[0] for row in rows]
 
-    def distinct_key_count(self, client: Client) -> int:
+    def distinct_key_count(self, client: Client, settings: Mapping[str, int] | None = None) -> int:
         # Deduplicated, so the number is stable whether or not a merge has collapsed the
-        # duplicate rows a retried populate leaves behind.
+        # duplicate rows a retried populate leaves behind. Grouping a run's whole worklist is the
+        # heaviest read outside the populates, so it takes the same caps they do.
         [[count]] = client.execute(
             f"SELECT count() FROM (SELECT {self.keys} FROM {self.qualified_name}"
             f" WHERE run_id = %(run_id)s GROUP BY {self.keys})",
             {"run_id": self.run_id},
+            settings=settings,
         )
         return count
 
@@ -440,11 +465,14 @@ class CleanupRun:
     dry_run: bool
     cleanup: bool
     team_batches: int
+    cohort_sweep: bool
+    max_cohorts: int
     shards: int
     max_execution_time: int
     max_memory_usage: int
     dictionary_load_timeout: int
     mutation_stall_timeout: int
+    mutation_capacity_timeout: int
     mutation_wait_deadline: int
     max_persons: int
     min_team_id: int
@@ -467,11 +495,14 @@ class CleanupRun:
             dry_run=config.dry_run,
             cleanup=config.cleanup,
             team_batches=config.team_batches,
+            cohort_sweep=config.cohort_sweep,
+            max_cohorts=config.max_cohorts,
             shards=config.shards,
             max_execution_time=config.max_execution_time,
             max_memory_usage=config.max_memory_usage,
             dictionary_load_timeout=config.dictionary_load_timeout,
             mutation_stall_timeout=config.mutation_stall_timeout,
+            mutation_capacity_timeout=config.mutation_capacity_timeout,
             mutation_wait_deadline=config.mutation_wait_deadline,
             max_persons=config.max_persons,
             min_team_id=config.min_team_id,
@@ -548,12 +579,36 @@ def clear_removed_cohort_data(
         context.log.info("dry run: skipping the cohort sweep")
         return run
 
-    failed = sweep_cohort_deletions()
-    context.add_output_metadata({"failed_passes": dagster.MetadataValue.text(", ".join(failed) or "none")})
+    if not run.cohort_sweep:
+        context.log.warning("cohort sweep disabled, going straight to the person sweep")
+        return run
+
+    # The query tags are what let `system.query_log` tell this run's cohort mutations apart from
+    # any other traffic afterwards, which is how the sweep gets tuned.
+    report = sweep_cohort_deletions(max_cohorts=run.max_cohorts, delete_settings=settings_with_log_comment(context))
+    context.add_output_metadata(
+        {
+            "cohorts_targeted": dagster.MetadataValue.int(report.targets),
+            "cohorts_already_clear": dagster.MetadataValue.int(report.cleared),
+            "deletions_marked_verified": dagster.MetadataValue.int(report.marked),
+            "cohort_mutations": dagster.MetadataValue.int(report.mutations),
+            "unparseable_keys": dagster.MetadataValue.int(report.unparseable_keys),
+            "mark_seconds": dagster.MetadataValue.float(report.mark_seconds),
+            "delete_seconds": dagster.MetadataValue.float(report.delete_seconds),
+            "drain_seconds": dagster.MetadataValue.float(report.drain_seconds),
+            "failed_passes": dagster.MetadataValue.text(", ".join(report.failed) or "none"),
+        }
+    )
+    # Op metadata dies with the run's history; these survive it, and are what a later tuning pass
+    # reads once system.part_log has rolled over.
+    metrics = MetricsClient(cluster)
+    _emit(metrics, "clickhouse_cleanup_cohorts_swept", {}, value=report.targets)
+    _emit(metrics, "clickhouse_cleanup_cohort_mutations", {}, value=report.mutations)
+    _emit(metrics, "clickhouse_cleanup_cohort_deletions_marked", {}, value=report.marked)
     # The prometheus counters sweep_cohort_deletions increments die with this run's pod, so the
     # scrapeable record of a failed pass is the ClickHouse-backed counter.
-    for name in failed:
-        _emit(MetricsClient(cluster), "clickhouse_cleanup_cohort_sweep_failed_passes", {"pass": name})
+    for name in report.failed:
+        _emit(metrics, "clickhouse_cleanup_cohort_sweep_failed_passes", {"pass": name})
     return run
 
 
@@ -578,7 +633,9 @@ def snapshot_deleted_persons(
     # The insert lands on one host, but every host reads this table when the dictionary loads.
     cluster.map_all_hosts(run.persons.sync_replica).result()
 
-    count = cluster.any_host_by_role(run.persons.distinct_key_count, NodeRole.DATA).result()
+    count = cluster.any_host_by_role(
+        partial(run.persons.distinct_key_count, settings=run.query_settings), NodeRole.DATA
+    ).result()
     context.add_output_metadata(
         {
             "deleted_persons": dagster.MetadataValue.int(count),
@@ -606,7 +663,9 @@ def snapshot_orphaned_distinct_ids(
     snapshot_seconds = round(time.monotonic() - started, 1)
     _create_dictionary(context, cluster, run.orphaned_dictionary, run)
 
-    count = cluster.any_host_by_role(run.orphaned.distinct_key_count, NodeRole.DATA).result()
+    count = cluster.any_host_by_role(
+        partial(run.orphaned.distinct_key_count, settings=run.query_settings), NodeRole.DATA
+    ).result()
     context.add_output_metadata(
         {
             "orphaned_distinct_ids": dagster.MetadataValue.int(count),
@@ -632,14 +691,18 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
         cluster: dagster.ResourceParam[ClickhouseCluster],
         run: CleanupRun,
     ) -> CleanupRun:
-        persons_before = cluster.any_host_by_role(run.revived.count, NodeRole.DATA).result()
+        persons_before = cluster.any_host_by_role(
+            partial(run.revived.count, settings=run.query_settings), NodeRole.DATA
+        ).result()
         persons_total = cluster.any_host_by_role(
             partial(run.revived.populate, persons=run.persons, settings=run.query_settings), NodeRole.DATA
         ).result()
         cluster.map_all_hosts(run.revived.sync_replica).result()
 
         # Runs second: which distinct ids still qualify depends on which persons are still deleted.
-        ids_before = cluster.any_host_by_role(run.revived_distinct_ids.count, NodeRole.DATA).result()
+        ids_before = cluster.any_host_by_role(
+            partial(run.revived_distinct_ids.count, settings=run.query_settings), NodeRole.DATA
+        ).result()
         ids_total = cluster.any_host_by_role(
             partial(
                 run.revived_distinct_ids.populate,
@@ -861,6 +924,16 @@ def _wait_for_mutation(
         time.sleep(MUTATION_POLL_SECONDS)
 
 
+@frozen
+class OrderedDeleteReport:
+    """What one table's ordered delete cost. The wait deadlines are set from this distribution,
+    so it is recorded as op metadata rather than left in the run's logs."""
+
+    batches: int
+    seconds_total: float
+    seconds_max: float
+
+
 @dataclass(frozen=True, kw_only=True)
 class TeamRange:
     """One inclusive [low, high] slice of the candidate team ids."""
@@ -896,8 +969,9 @@ def _run_ordered_delete(
     team_ranges: list[TeamRange],
     metrics: MetricsClient,
     stall_timeout: float,
+    capacity_timeout: float,
     wait_deadline: float,
-) -> int:
+) -> "OrderedDeleteReport":
     """Delete every snapshotted row from `table`, oldest version first.
 
     Two passes per team range, in this order and never merged:
@@ -922,13 +996,16 @@ def _run_ordered_delete(
     )
 
     batches = 0
+    durations: list[float] = []
     for team_range in team_ranges:
         for pass_name, key_predicate in passes:
+            started = time.monotonic()
             predicate = f"team_id >= {team_range.low} AND team_id <= {team_range.high} AND {key_predicate}"
             runner = LightweightDeleteMutationRunner(
                 table=table,
                 predicate=predicate,
                 settings=settings_with_log_comment(context),
+                capacity_timeout=capacity_timeout,
             )
             # Both tables are replicated and not sharded, so a mutation started on one host
             # reaches all of them.
@@ -942,21 +1019,38 @@ def _run_ordered_delete(
                 stall_timeout,
                 wait_deadline,
             )
+            durations.append(time.monotonic() - started)
             _emit(metrics, "clickhouse_cleanup_delete_pass_total", {"table": table, "pass": pass_name})
             batches += 1
 
     context.log.info("%s: completed %s ordered delete mutations", table, batches)
-    return batches
+    # sum() of an empty list is an int, and dagster's float metadata rejects one.
+    return OrderedDeleteReport(
+        batches=batches,
+        seconds_total=round(sum(durations, 0.0), 1),
+        seconds_max=round(max(durations, default=0.0), 1),
+    )
 
 
-def _require_snapshot_intact(cluster: ClickhouseCluster, table: SnapshotTable, recorded: int) -> None:
+def _delete_metadata(ranges: list[TeamRange], report: "OrderedDeleteReport") -> dict[str, dagster.MetadataValue]:
+    return {
+        "team_ranges": dagster.MetadataValue.int(len(ranges)),
+        "mutation_batches": dagster.MetadataValue.int(report.batches),
+        "mutation_seconds_total": dagster.MetadataValue.float(report.seconds_total),
+        "mutation_seconds_max": dagster.MetadataValue.float(report.seconds_max),
+    }
+
+
+def _require_snapshot_intact(
+    cluster: ClickhouseCluster, table: SnapshotTable, recorded: int, settings: Mapping[str, int]
+) -> None:
     """Fail the run if the snapshot lost rows since it was recorded.
 
     The 14-day TTL drops a run's partition unconditionally, so a run stalled past it would
     otherwise sweep from a silently shrunken worklist, and nothing would distinguish
     "under-deleted" from "had fewer rows".
     """
-    current = cluster.any_host_by_role(table.distinct_key_count, NodeRole.DATA).result()
+    current = cluster.any_host_by_role(partial(table.distinct_key_count, settings=settings), NodeRole.DATA).result()
     if current != recorded:
         raise dagster.Failure(
             f"{table.table_name} holds {current} keys for this run but {recorded} were snapshotted;"
@@ -975,11 +1069,11 @@ def delete_orphaned_distinct_ids(
         context.log.info("dry run: skipping the delete from %s", PERSON_DISTINCT_ID2_TABLE)
         return run
 
-    _require_snapshot_intact(cluster, run.orphaned, run.orphaned_count)
-    ranges = _team_ranges(cluster.any_host_by_role(run.orphaned.team_ids, NodeRole.DATA).result(), run.team_batches)
-    context.add_output_metadata({"team_ranges": dagster.MetadataValue.int(len(ranges))})
+    _require_snapshot_intact(cluster, run.orphaned, run.orphaned_count, run.query_settings)
+    team_ids = cluster.any_host_by_role(partial(run.orphaned.team_ids, settings=run.query_settings), NodeRole.DATA)
+    ranges = _team_ranges(team_ids.result(), run.team_batches)
 
-    _run_ordered_delete(
+    report = _run_ordered_delete(
         context,
         cluster,
         PERSON_DISTINCT_ID2_TABLE,
@@ -988,8 +1082,10 @@ def delete_orphaned_distinct_ids(
         ranges,
         MetricsClient(cluster),
         run.mutation_stall_timeout,
+        run.mutation_capacity_timeout,
         run.mutation_wait_deadline,
     )
+    context.add_output_metadata(_delete_metadata(ranges, report))
 
     return replace(run, distinct_ids_deleted_at=datetime.now(UTC))
 
@@ -1108,11 +1204,11 @@ def delete_persons(
         context.log.info("dry run: skipping the delete from %s", PERSONS_TABLE)
         return run
 
-    _require_snapshot_intact(cluster, run.persons, run.persons_count)
-    ranges = _team_ranges(cluster.any_host_by_role(run.persons.team_ids, NodeRole.DATA).result(), run.team_batches)
-    context.add_output_metadata({"team_ranges": dagster.MetadataValue.int(len(ranges))})
+    _require_snapshot_intact(cluster, run.persons, run.persons_count, run.query_settings)
+    team_ids = cluster.any_host_by_role(partial(run.persons.team_ids, settings=run.query_settings), NodeRole.DATA)
+    ranges = _team_ranges(team_ids.result(), run.team_batches)
 
-    _run_ordered_delete(
+    report = _run_ordered_delete(
         context,
         cluster,
         PERSONS_TABLE,
@@ -1121,8 +1217,10 @@ def delete_persons(
         ranges,
         MetricsClient(cluster),
         run.mutation_stall_timeout,
+        run.mutation_capacity_timeout,
         run.mutation_wait_deadline,
     )
+    context.add_output_metadata(_delete_metadata(ranges, report))
 
     return run
 

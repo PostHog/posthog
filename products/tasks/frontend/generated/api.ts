@@ -2306,11 +2306,13 @@ export const getTasksRunsStreamRetrieveUrl = (
 }
 
 /**
- * Server-Sent Events stream of task run events. Events carry an `id:` line (a Redis stream id) usable as a resume cursor.
+ * Server-Sent Events stream of task run events. Events carry an `id:` line (a Redis stream id, or a synthetic `log-<n>` id during backlog replay) usable as a resume cursor.
  *
- * The server caps each connection at 900 seconds: it emits `event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run finished — reconnect with the `Last-Event-ID` header set to the last received event id to resume without gaps or duplicates. Only treat the stream as complete when the run itself reaches a terminal status.
+ * The server caps each connection at 900 seconds: it emits `event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run finished — reconnect with the `Last-Event-ID` header set to the last received event id to resume. Only treat the stream as complete when the run itself reaches a terminal status.
  *
  * Resume guarantees cover mirrored events only: on runs where live mirroring is presence-gated, events produced while no viewer was connected are not in the live stream. Reload the run's session logs to recover the agent's output; run-state and progress frames are not in those logs, so refetch the run itself for its current state.
+ *
+ * On runs with durable backlog serving, a connection without `Last-Event-ID` first replays history from the run log under synthetic `log-<n>` event ids, then attaches the live stream, skipping live entries the backlog already covered. Reconnecting with a `log-<n>` id resumes the backlog replay from that point; reconnecting with a Redis id resumes the live stream, may re-deliver a few events already served as backlog frames, and falls back to a full backlog replay when the resume point was trimmed or the stream expired. Runs whose log exceeds the backlog byte cap skip the replay and serve only the recent live window. When the backlog is temporarily unavailable (a storage read failure, or a worker at its concurrent replay budget), the stream emits an `event: error` frame and closes; reconnect with the same cursor to retry. Treat delivery as at-least-once across reconnects.
  *
  * `?start=latest` consumers must also carry `Last-Event-ID` across reconnects: reconnecting without it re-resolves to the then-current latest event, silently skipping anything published while disconnected.
  *

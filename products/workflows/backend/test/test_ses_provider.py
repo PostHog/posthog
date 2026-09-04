@@ -14,7 +14,12 @@ import dns.resolver
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
-from products.workflows.backend.providers.ses import METRIC_QUERY_BUDGET_SECONDS, SESProvider
+from products.workflows.backend.providers.ses import (
+    ISP_IDENTITY_TOTAL,
+    ISP_OTHER,
+    METRIC_QUERY_BUDGET_SECONDS,
+    SESProvider,
+)
 
 TEST_DOMAIN = "test.posthog.com"
 
@@ -588,6 +593,10 @@ class TestGetAccountReputation(TestCase):
             self.provider.get_account_reputation()
 
 
+def _isp_of(query) -> str:
+    return query["Dimensions"].get("ISP", ISP_IDENTITY_TOTAL)
+
+
 class TestGetIdentityIspMetrics(TestCase):
     def setUp(self):
         patcher = patch("products.workflows.backend.providers.ses.boto3.client")
@@ -605,7 +614,7 @@ class TestGetIdentityIspMetrics(TestCase):
                     {
                         "Id": query["Id"],
                         "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)],
-                        "Values": [values_by_subject.get((query["Dimensions"]["ISP"], query["Metric"]), 0)],
+                        "Values": [values_by_subject.get((_isp_of(query), query["Metric"]), 0)],
                     }
                     for query in Queries
                 ]
@@ -619,7 +628,7 @@ class TestGetIdentityIspMetrics(TestCase):
         def respond(Queries):
             results = []
             for query in Queries:
-                buckets = values_by_subject.get((query["Dimensions"]["ISP"], query["Metric"]), {})
+                buckets = values_by_subject.get((_isp_of(query), query["Metric"]), {})
                 results.append(
                     {
                         "Id": query["Id"],
@@ -689,6 +698,32 @@ class TestGetIdentityIspMetrics(TestCase):
         # No delivery series means no trend to draw, rather than a line flat at zero.
         assert rows[0].daily == ()
 
+    def test_a_provider_ses_rejects_does_not_take_its_batch_mates_with_it(self):
+        # SES validates dimension values per request, so a name it will not accept fails every
+        # query sent with it. Five metrics per provider means a ten-query batch carries two, and a
+        # subject is keyed by provider and metric with no domain, so failing the batch dropped a
+        # good provider from every domain rather than from the one request.
+        def respond(Queries):
+            if any(_isp_of(query) == "Mail.ru" for query in Queries):
+                raise ClientError({"Error": {"Code": "BadRequestException"}}, "BatchGetMetricData")
+            return {
+                "Results": [
+                    {"Id": query["Id"], "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)], "Values": [100]}
+                    for query in Queries
+                ]
+            }
+
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
+
+        with self.assertLogs("products.workflows.backend.providers.ses", level="WARNING") as logs:
+            # Gmail shares the first batch with the name SES refuses; Yahoo sits in the second.
+            rows = self.provider.get_identity_isp_metrics(
+                [TEST_DOMAIN], window_days=30, isps=["Gmail", "Mail.ru", "Yahoo"]
+            )
+
+        assert any("SES rejected a metric query" in line for line in logs.output)
+        assert [row.isp for row in rows] == ["Gmail", "Yahoo"]
+
     def test_daily_series_skips_buckets_with_no_sends(self):
         self._serve_series(
             {
@@ -747,10 +782,11 @@ class TestGetIdentityIspMetrics(TestCase):
         self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo", "Outlook"])
 
         batches = [kwargs["Queries"] for _, kwargs in self.mock_client.batch_get_metric_data.call_args_list]
-        # 3 providers x 5 metrics = 15 queries, and SES rejects a batch of more than ten.
-        assert [len(batch) for batch in batches] == [10, 5]
-        sent = {(query["Dimensions"]["ISP"], query["Metric"]) for batch in batches for query in batch}
-        assert len(sent) == 15
+        # 3 providers plus the identity-wide totals, times 5 metrics, is 20 queries. SES rejects a
+        # batch of more than ten.
+        assert [len(batch) for batch in batches] == [10, 10]
+        sent = {(_isp_of(query), query["Metric"]) for batch in batches for query in batch}
+        assert len(sent) == 20
 
     def test_the_domain_cap_keeps_the_domains_that_actually_sent(self):
         # The cap used to take the first few domains in id order, which is the order they were
@@ -842,6 +878,44 @@ class TestGetIdentityIspMetrics(TestCase):
         rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo"])
 
         assert [row.isp for row in rows] == ["Gmail"]
+
+    def test_volume_no_named_provider_accounts_for_is_reported(self):
+        # SES rejects the name of its own catch-all bucket, so the unnamed remainder can only be
+        # derived. On posthog.com it was 91 of 108 sends, and the table dropped every one of them
+        # without saying so.
+        self._serve(
+            {
+                (ISP_IDENTITY_TOTAL, "SEND"): 108,
+                (ISP_IDENTITY_TOTAL, "DELIVERY"): 100,
+                ("Gmail", "SEND"): 16,
+                ("Gmail", "DELIVERY"): 16,
+            }
+        )
+
+        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail"])
+
+        assert [(row.isp, row.emails_sent) for row in rows] == [(ISP_OTHER, 92), ("Gmail", 16)]
+        assert rows[0].delivery_rate == pytest.approx(84 / 92)
+
+    def test_no_remainder_row_when_a_named_provider_did_not_answer(self):
+        # A provider whose SEND query failed has no counts to subtract, so its volume would show up
+        # as unattributed. Reporting nothing beats moving one provider's mail into another row.
+        def respond(Queries):
+            return {
+                "Results": [
+                    {"Id": q["Id"], "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)], "Values": [108]}
+                    for q in Queries
+                    if _isp_of(q) == ISP_IDENTITY_TOTAL
+                ],
+                "Errors": [{"Id": q["Id"], "Code": "X", "Message": "y"} for q in Queries if _isp_of(q) == "Gmail"],
+            }
+
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
+
+        with self.assertLogs("products.workflows.backend.providers.ses", level="WARNING"):
+            rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail"])
+
+        assert [row.isp for row in rows] == []
 
     def test_busiest_provider_is_reported_first(self):
         self._serve({("Gmail", "SEND"): 10, ("Yahoo", "SEND"): 90})

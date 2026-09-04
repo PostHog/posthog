@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 MAX_FEATURE_FLAGS_OVERRIDE_CEILING = 20_000
 
 
+class PropertyMatchingVersion(models.IntegerChoices):
+    LEGACY = 1, "Legacy"
+    EXPLICIT = 2, "Explicit"
+
+
 class TeamFeatureFlagsConfig(models.Model):
     """Internal-only team-level feature flags settings, written by staff and never by customers.
 
@@ -26,9 +31,8 @@ class TeamFeatureFlagsConfig(models.Model):
     It holds server-controlled behavior rollouts and staff-granted limit overrides, not
     customer-editable preferences. The staff-only feature-flags-staff API
     (products/feature_flags/backend/api/staff_team_config.py, gated by IsStaffUser) is the only
-    interactive write surface: it flips minimal_flag_called_events one team at a time after staff
-    manually verify that team's SDK versions support the slim event shape, and it grants per-team
-    flag-count overrides.
+    interactive write surface: it changes SDK-facing behavior one team at a time after staff
+    verify compatible SDK versions, and it grants per-team flag-count overrides.
     Sanctioned writers: the team-creation signal below, get_or_create_team_extension, the
     staff-only feature-flags-staff API (gated by IsStaffUser), and management commands.
     """
@@ -43,6 +47,14 @@ class TeamFeatureFlagsConfig(models.Model):
     # per-team via the feature-flags-staff API once verified, or in bulk via a
     # management command.
     minimal_flag_called_events = models.BooleanField(default=False)
+
+    # Version 1 preserves released SDK behavior. Version 2 uses explicit scalar and array
+    # equality semantics. The database default protects older writers during rolling deploys.
+    property_matching_version = models.SmallIntegerField(
+        choices=PropertyMatchingVersion,
+        default=PropertyMatchingVersion.LEGACY,
+        db_default=PropertyMatchingVersion.LEGACY,
+    )
 
     # Raises or lowers this team's flag-count cap. Null means no override, falling back to the
     # global settings.MAX_FEATURE_FLAGS_PER_TEAM. Resolved by

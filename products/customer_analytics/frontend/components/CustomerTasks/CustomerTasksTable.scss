@@ -1,0 +1,19 @@
+.CustomerTasksTable {
+    container-type: inline-size;
+}
+
+// Source order makes this container override take precedence over the base rule.
+.CustomerTasksTable__narrow-assignee {
+    display: none;
+}
+
+@container (max-width: 720px) {
+    .CustomerTasksTable__updated,
+    .CustomerTasksTable__assignee {
+        display: none;
+    }
+
+    .CustomerTasksTable__narrow-assignee {
+        display: block;
+    }
+}
