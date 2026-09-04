@@ -41,7 +41,7 @@ describe("CanvasSidePanel", () => {
   it("switches from canvas chat to comments for this canvas", () => {
     render(
       <CanvasSidePanel
-        effectiveTaskId="task-1"
+        chatTaskId="task-1"
         commentTaskId="task-1"
         onMinimize={vi.fn()}
         dashboardId="canvas-1"
@@ -61,11 +61,11 @@ describe("CanvasSidePanel", () => {
     );
   });
 
-  it("shows the run that built the canvas on the chat tab while viewing", () => {
+  it("does not reopen the finished run's chat while viewing", () => {
     useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
     render(
       <CanvasSidePanel
-        effectiveTaskId={null}
+        chatTaskId={null}
         commentTaskId="task-1"
         interactive={false}
         onMinimize={vi.fn()}
@@ -80,6 +80,7 @@ describe("CanvasSidePanel", () => {
     );
 
     fireEvent.click(screen.getByText("Chat"));
-    expect(screen.getByTestId("task-chat")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-chat")).not.toBeInTheDocument();
+    expect(screen.getByText("No active run")).toBeInTheDocument();
   });
 });
