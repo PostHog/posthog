@@ -93,6 +93,30 @@ database "posthog" {
     }
   }
 
+  patch_table "metrics_distributed" {
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics2"
+    }
+  }
+
+  patch_table "metric_series_distributed" {
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metric_series2"
+    }
+  }
+
+  patch_table "metric_attributes_distributed" {
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metric_attributes2"
+    }
+  }
+
   # The metrics ingest chain (roles/logs/metrics) is declared in the local shape
   # (noshard ZK paths, posthog_single_shard reader); the cloud envs keep their
   # per-shard logs-cluster paths and read through the logs cluster.
