@@ -319,7 +319,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         created = allowed.json()
         assert Canvas.objects.unscoped().get(id=created["id"]).generation_task_id == bound_task.id
         # The url is what agents hand to users; a guessed link does not resolve.
-        assert created["url"].endswith(f"/code/canvas/{self.channel.id}/{created['id']}")
+        assert created["url"].endswith(f"/desktop/canvas/{self.channel.id}/{created['id']}")
         assert denied.status_code == status.HTTP_403_FORBIDDEN
         assert wrong_channel.status_code == status.HTTP_403_FORBIDDEN
         # The rejection names the task's channel so the agent can recover in one step.

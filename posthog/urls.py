@@ -831,6 +831,11 @@ frontend_unauthenticated_routes = [
     "login",
     "unsubscribe",
     # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
+    r"^desktop/canvas/[^/]+/[^/]+",
+    r"^desktop/channel/[^/]+",
+    r"^desktop/task/[^/]+",
+    # The bridges' pre-rename shape; the frontend redirects each to /desktop/... so links
+    # already shared keep working.
     r"code/canvas/[^/]+/[^/]+",
     r"code/channel/[^/]+",
     r"code/task/[^/]+",

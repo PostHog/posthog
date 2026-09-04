@@ -100,7 +100,7 @@ Without `comment`, `scope=task_artifact&item=<artifactId>` opens that artifact's
 posthog-code://task/abc123?scope=task_artifact&item=artifact-9
 ```
 
-An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
+An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/desktop/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
 ### `posthog-code://inbox[/<reportId>]`
 
@@ -153,7 +153,7 @@ posthog-code://loop/abc123
 Open a canvas (a dashboard inside a Channels-space channel) straight in the
 desktop app. Gated on the `project-bluebird` flag. Unlike the links above,
 users don't share this scheme link directly — the "Copy link" affordance on a
-canvas copies an **https** link (`<instance>/code/canvas/<channelId>/<dashboardId>`)
+canvas copies an **https** link (`<instance>/desktop/canvas/<channelId>/<dashboardId>`)
 that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
@@ -175,7 +175,7 @@ Open a Channels-space channel — or a thread (channel-filed task) inside it —
 straight in the desktop app. Gated on the `project-bluebird` flag. Like canvas
 links, users don't share this scheme link directly — the "Copy link" affordances
 on a channel and on a thread copy an **https** link
-(`<instance>/code/channel/<channelId>[/tasks/<taskId>]`) that resolves to a web
+(`<instance>/desktop/channel/<channelId>[/tasks/<taskId>]`) that resolves to a web
 interstitial in PostHog Cloud, which fires this scheme (or offers the
 desktop-app download).
 

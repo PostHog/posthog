@@ -31,7 +31,7 @@ export function canvasDeepLink(channelId: string, dashboardId: string, searchPar
 
 /**
  * Public, unauthenticated bridge for desktop-app "canvas" share links
- * (`/code/canvas/<channelId>/<dashboardId>`). On mount it deep-links into the desktop
+ * (`/desktop/canvas/<channelId>/<dashboardId>`). On mount it deep-links into the desktop
  * app via the `posthog-code(-dev)://` custom scheme; for visitors without the app it
  * shows an explanation, a manual "open" button (in case the browser blocks the
  * auto-redirect), and a download link. The canvas itself only exists in the desktop

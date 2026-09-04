@@ -26,7 +26,7 @@ describe('renderWorkflowLogMessage', () => {
         )
 
         const link = container.querySelector('a')
-        expect(link?.getAttribute('href')).toContain('/code/task/8b70d61c-ca77-46fb-ba76-3330aaea3dad')
+        expect(link?.getAttribute('href')).toContain('/desktop/task/8b70d61c-ca77-46fb-ba76-3330aaea3dad')
         expect(link?.getAttribute('target')).toBe('_blank')
         expect(link?.textContent).toContain('View task')
     })

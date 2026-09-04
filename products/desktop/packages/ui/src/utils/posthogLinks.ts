@@ -93,7 +93,7 @@ export function inboxReportUrl(
 
 /**
  * The shareable https link for a canvas (a dashboard inside a channel):
- * `<instance>/code/canvas/<channelId>/<dashboardId>`. Opening it in a browser
+ * `<instance>/desktop/canvas/<channelId>/<dashboardId>`. Opening it in a browser
  * hits a web interstitial that deep-links into the desktop app (or offers the
  * download), so the link works for anyone — app installed or not. Not
  * project-scoped: the ids are globally-unique desktop file-system row ids. The
@@ -105,14 +105,14 @@ export function canvasShareUrl(
   regionOverride?: CloudRegion | null,
 ): string | null {
   return getPostHogUrl(
-    `/code/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`,
+    `/desktop/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`,
     regionOverride,
   );
 }
 
 /**
  * The shareable https link for a channel — or a thread (channel-filed task)
- * inside it: `<instance>/code/channel/<channelId>[/tasks/<taskId>]`. Opening
+ * inside it: `<instance>/desktop/channel/<channelId>[/tasks/<taskId>]`. Opening
  * it in a browser hits a web interstitial that deep-links into the desktop app
  * (or offers the download), so the link works for anyone — app installed or
  * not. Not project-scoped: the ids are globally-unique row ids. The inbound
@@ -122,7 +122,7 @@ export function channelShareUrl(
   channelId: string,
   taskId?: string,
 ): string | null {
-  const base = `/code/channel/${encodeURIComponent(channelId)}`;
+  const base = `/desktop/channel/${encodeURIComponent(channelId)}`;
   return getPostHogUrl(
     taskId ? `${base}/tasks/${encodeURIComponent(taskId)}` : base,
   );
@@ -158,7 +158,7 @@ export const ARTIFACT_LINK_SCOPE = "task_artifact";
 
 /**
  * The shareable https link for a task-run artifact:
- * `<instance>/code/task/<taskId>?scope=task_artifact&item=<artifactId>`. It
+ * `<instance>/desktop/task/<taskId>?scope=task_artifact&item=<artifactId>`. It
  * rides the task bridge: the web interstitial forwards `scope` and `item` onto
  * the desktop scheme, and the app opens the artifact's tab once the task shows.
  * The artifact id is any version's manifest id; the app resolves it to the
@@ -175,7 +175,7 @@ export function artifactShareUrl(
     item: artifactId,
   });
   return getPostHogUrl(
-    `/code/task/${encodeURIComponent(taskId)}?${params.toString()}`,
+    `/desktop/task/${encodeURIComponent(taskId)}?${params.toString()}`,
     regionOverride,
   );
 }
@@ -220,9 +220,13 @@ interface ShareLinkRoute {
   ) => ShareLinkTarget | null;
 }
 
-const SHARE_LINK_ROUTES: ShareLinkRoute[] = [
+// The bridges live under /desktop. "code" is their pre-rename prefix, still in
+// messages and clipboards, so both shapes open in the app.
+const BRIDGE_PREFIXES = ["desktop", "code"];
+
+const BRIDGE_ROUTES: ShareLinkRoute[] = [
   {
-    pattern: ["code", "canvas", ":channelId", ":dashboardId"],
+    pattern: ["canvas", ":channelId", ":dashboardId"],
     build: ({ channelId, dashboardId }, query) => ({
       kind: "canvas",
       channelId,
@@ -231,17 +235,17 @@ const SHARE_LINK_ROUTES: ShareLinkRoute[] = [
     }),
   },
   {
-    pattern: ["code", "channel", ":channelId"],
+    pattern: ["channel", ":channelId"],
     build: ({ channelId }) => ({ kind: "channel", channelId }),
   },
   {
-    pattern: ["code", "channel", ":channelId", "tasks", ":taskId"],
+    pattern: ["channel", ":channelId", "tasks", ":taskId"],
     build: ({ channelId, taskId }) => ({ kind: "channel", channelId, taskId }),
   },
   // Only an artifact-addressed task link is a share target. A bare task link
   // (or one focusing a comment) stays a browser link, as it always has.
   {
-    pattern: ["code", "task", ":taskId"],
+    pattern: ["task", ":taskId"],
     build: ({ taskId }, query) => {
       const artifactId = query.get("item");
       if (
@@ -255,6 +259,13 @@ const SHARE_LINK_ROUTES: ShareLinkRoute[] = [
     },
   },
 ];
+
+const SHARE_LINK_ROUTES: ShareLinkRoute[] = BRIDGE_PREFIXES.flatMap((prefix) =>
+  BRIDGE_ROUTES.map((route) => ({
+    ...route,
+    pattern: [prefix, ...route.pattern],
+  })),
+);
 
 function decodePathSegments(pathname: string): string[] {
   return pathname
