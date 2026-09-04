@@ -13,7 +13,16 @@ from products.logs.backend.models import TeamLogsConfig
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
-_ZERO_IMPACT = {"total": 0, "logsWithSessionId": 0, "sessions": 0, "logsWithDistinctId": 0, "users": 0}
+_ZERO_IMPACT = {
+    "total": 0,
+    "logsWithSessionId": 0,
+    "sessions": 0,
+    "logsWithDistinctId": 0,
+    "users": 0,
+    "topSessions": [],
+    "topUsers": [],
+    "sessionGroupKey": None,
+}
 
 
 def _log_row(
@@ -78,14 +87,33 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
             (
                 "full_window",
                 _FIXTURE_WINDOW,
-                {"total": 6, "logsWithSessionId": 4, "sessions": 3, "logsWithDistinctId": 2, "users": 2},
+                {
+                    "total": 6,
+                    "logsWithSessionId": 4,
+                    "sessions": 3,
+                    "logsWithDistinctId": 2,
+                    "users": 2,
+                    "topSessions": [
+                        {"value": "s1", "count": 2},
+                        {"value": "s2", "count": 1},
+                        {"value": "s3", "count": 1},
+                    ],
+                    "topUsers": [{"value": "u1", "count": 1}, {"value": "u2", "count": 1}],
+                    # Two rows carry `sessionId` in the log attributes; every other session
+                    # key appears once, so this is the dominant group-by dimension.
+                    "sessionGroupKey": {"source": "log", "key": "sessionId"},
+                },
             ),
             ("empty_window", {"date_from": "2000-01-01T00:00:00Z", "date_to": "2000-01-02T00:00:00Z"}, _ZERO_IMPACT),
         ]
     )
     @freeze_time("2025-12-18T12:00:00Z")
     def test_impact_counts_identity_coverage(self, _name: str, date_range: dict, expected: dict) -> None:
-        self.assertEqual(self._impact({"dateRange": date_range}), expected)
+        response = self._impact({"dateRange": date_range})
+        # topK breaks count ties in an unspecified order; sort so ties compare stably.
+        for top_list in ("topSessions", "topUsers"):
+            response[top_list] = sorted(response[top_list], key=lambda entry: (-entry["count"], entry["value"]))
+        self.assertEqual(response, expected)
 
     @freeze_time("2025-12-18T12:00:00Z")
     def test_impact_accepts_null_filter_lists(self) -> None:

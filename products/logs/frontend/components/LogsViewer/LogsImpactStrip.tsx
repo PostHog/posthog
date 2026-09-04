@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LogsImpactCounts } from './LogsImpactCounts'
 import { logsImpactLogic } from './logsImpactLogic'
@@ -13,10 +13,11 @@ export interface LogsImpactStripProps {
  */
 export function LogsImpactStrip({ id }: LogsImpactStripProps): JSX.Element | null {
     const { impact } = useValues(logsImpactLogic({ id }))
+    const { groupBySessions } = useActions(logsImpactLogic({ id }))
 
     if (!impact) {
         return null
     }
 
-    return <LogsImpactCounts impact={impact} />
+    return <LogsImpactCounts impact={impact} onGroupBySessions={groupBySessions} />
 }
