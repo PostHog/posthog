@@ -409,7 +409,7 @@ function SessionTurnView({
     showSentiment: boolean
     traceSearchParams: Record<string, unknown>
     rootRef?: Ref<HTMLDivElement>
-}): JSX.Element {
+}): JSX.Element | null {
     const { traceSummaries, loadingFullTraces, fullTraces, expandedGenerationIds } = useValues(
         aiObservabilitySessionDataLogic
     )
@@ -430,7 +430,6 @@ function SessionTurnView({
     ).length
     // Errors already surfaced by a red tool pill are excluded; the rest (e.g.
     // generation failures) render as their own pills in the same style.
-    // Conversation-only mode hides the tool pills, so every error renders here.
     const otherErrors = conversationOnly ? turn.errors : turn.errors.filter((e) => !turn.tools.includes(e.label))
 
     const hasTranscript = turn.isLoaded && !!turn.userVisibleTurn
@@ -439,8 +438,7 @@ function SessionTurnView({
     // Only a settled turn shows its summary, tools, errors, steps, and sidebar.
     const isComplete = phase === 'complete'
 
-    // The end user never saw a span-only trace, so conversation-only mode skips it
-    // unless it failed. Errors stay visible in every mode.
+    // Span-only turns are invisible to the end user; keep only the ones that failed.
     if (conversationOnly && isSpanOnly && turn.errors.length === 0) {
         return null
     }
