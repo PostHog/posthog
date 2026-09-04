@@ -4,6 +4,7 @@ import {
     computeFleetSummary,
     computeHealthSummary,
     isNoOpRun,
+    orderWorkflowHealthRows,
     summarizeRunCost,
 } from './runHealth'
 
@@ -213,6 +214,35 @@ describe('runHealth', () => {
         ],
     ])('computes the fleet pass rate: %s', (_name, rows, expected) => {
         expect(computeFleetSummary(rows).passRate).toBe(expected)
+    })
+
+    const orderable = (
+        workflowName: string,
+        runCount: number,
+        mergeQueueRunCount: number
+    ): { workflowName: string; runCount: number; mergeQueueRunCount: number } => ({
+        workflowName,
+        runCount,
+        mergeQueueRunCount,
+    })
+
+    it.each<[string, { workflowName: string; runCount: number; mergeQueueRunCount: number }[], string[]]>([
+        // A gating workflow outranks a busier non-gating one: the queue runs it before every merge.
+        [
+            'merge-queue workflows first, then run count',
+            [orderable('Docs', 900, 0), orderable('Backend CI', 40, 12), orderable('Frontend CI', 300, 5)],
+            ['Frontend CI', 'Backend CI', 'Docs'],
+        ],
+        // A repo with no merge queue falls straight through to run count.
+        [
+            'no gating rows leaves pure run-count order',
+            [orderable('Docs', 90, 0), orderable('Backend CI', 400, 0)],
+            ['Backend CI', 'Docs'],
+        ],
+        // Equal run counts settle by name, so the table keeps a fixed order between renders.
+        ['equal run counts settle by name', [orderable('Zeta', 10, 0), orderable('Alpha', 10, 0)], ['Alpha', 'Zeta']],
+    ])('orderWorkflowHealthRows: %s', (_name, rows, expected) => {
+        expect(orderWorkflowHealthRows(rows).map((row) => row.workflowName)).toEqual(expected)
     })
 
     const job = (

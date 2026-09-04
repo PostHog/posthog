@@ -102,7 +102,8 @@ function healthItem(
     workflowName: string,
     costUsd: number,
     failures: number[],
-    successRate: number
+    successRate: number,
+    mergeQueueRunCount: number = 0
 ): WorkflowHealthItemApi {
     return {
         repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
@@ -123,6 +124,7 @@ function healthItem(
         billable_minutes: costUsd * 12,
         estimated_cost_usd: costUsd,
         rerun_cycles: 6,
+        merge_queue_run_count: mergeQueueRunCount,
         buckets: failures.map((failed, i) => ({
             bucket_start: `2026-06-${25 + i}T00:00:00Z`,
             run_count: 44 + i,
@@ -133,10 +135,11 @@ function healthItem(
     }
 }
 
+// Two workflows the merge queue runs, so the table shows both the gating order and the muted rest.
 const WORKFLOW_HEALTH: WorkflowHealthItemApi[] = [
-    healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91),
+    healthItem('Backend CI', 210.4, [2, 0, 4, 1, 0, 3, 1], 0.91, 186),
     healthItem('E2E - Playwright', 130.2, [5, 3, 6, 2, 4, 5, 3], 0.78),
-    healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95),
+    healthItem('Frontend CI', 71.9, [0, 1, 0, 0, 2, 0, 1], 0.95, 174),
 ]
 
 const PULL_REQUESTS: PullRequestListApi = {
