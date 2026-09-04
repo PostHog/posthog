@@ -57,7 +57,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │                        GenerateDigestDataWorkflow                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. Count teams & orgs for batching                                         │
+│  1. Cut teams into id-range batches, count orgs for batching                │
 │                                                                             │
 │  2. Generate team-level data (parallel per batch):                          │
 │     ├── generate_dashboard_lookup                                           │

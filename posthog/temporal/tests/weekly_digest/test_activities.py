@@ -8,8 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 
+from posthog.models.team import Team
 from posthog.temporal.weekly_digest.activities import (
+    _cut_team_id_batches,
     _query_team_usage_trends,
+    _teams_in_batch,
     _usage_trend_metric,
     count_organizations,
     count_teams,
@@ -28,6 +31,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_user_notification_lookup,
     send_weekly_digest_batch,
 )
+from posthog.temporal.weekly_digest.queries import query_team_ids_for_digest, query_teams_for_digest
 from posthog.temporal.weekly_digest.types import (
     DEFAULT_PRODUCT_SUGGESTION_TEXT,
     CommonInput,
@@ -148,6 +152,36 @@ async def test_count_teams():
 
     assert result == 42
     mock_queryset.acount.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_team_id_batches_page_the_same_teams_as_offset_paging(organization, digest):
+    for i in range(5):
+        Team.objects.create(organization=organization, name=f"digest team {i}")
+        if i == 2:
+            # Sits inside a batch range, so a leak here shows up as an extra paged team.
+            Team.objects.create(organization=organization, name="demo team", is_demo=True)
+
+    common = CommonInput(batch_size=2, redis_host="localhost", redis_port=6379)
+    expected = list(query_teams_for_digest().values_list("id", flat=True))
+
+    paged: list[int] = []
+    for id_batch in _cut_team_id_batches(list(query_team_ids_for_digest()), common.batch_size):
+        team_ids = [
+            team.id
+            for team in _teams_in_batch(
+                GenerateDigestDataBatchInput(
+                    batch=(id_batch.start, id_batch.end),
+                    batch_is_team_id_range=True,
+                    digest=digest,
+                    common=common,
+                )
+            )
+        ]
+        assert len(team_ids) <= common.batch_size
+        paged.extend(team_ids)
+
+    assert paged == expected
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_survey_lookup,
     generate_usage_trends_lookup,
     generate_user_notification_lookup,
+    list_team_id_batches,
     send_weekly_digest_batch,
 )
 from posthog.temporal.weekly_digest.types import (
@@ -111,17 +112,33 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
     async def run(self, input: GenerateDigestDataInput) -> None:
         batch_size = input.common.batch_size
 
-        team_count = await workflow.execute_activity(
-            count_teams,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-            heartbeat_timeout=timedelta(minutes=1),
-        )
+        batch_is_team_id_range = workflow.patched("weekly-digest-team-id-batches")
 
-        team_batches = [(i, i + batch_size) for i in range(0, team_count, batch_size)]
+        if batch_is_team_id_range:
+            id_batches = await workflow.execute_activity(
+                list_team_id_batches,
+                input.common,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
+                heartbeat_timeout=timedelta(minutes=1),
+            )
+
+            team_batches = [(id_batch.start, id_batch.end) for id_batch in id_batches]
+        else:
+            team_count = await workflow.execute_activity(
+                count_teams,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
+                heartbeat_timeout=timedelta(minutes=1),
+            )
+
+            team_batches = [(i, i + batch_size) for i in range(0, team_count, batch_size)]
 
         generators = [
             generate_dashboard_lookup,
@@ -145,6 +162,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                     generator,
                     GenerateDigestDataBatchInput(
                         batch=batch,
+                        batch_is_team_id_range=batch_is_team_id_range,
                         digest=input.digest,
                         common=input.common,
                     ),
