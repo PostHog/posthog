@@ -54,7 +54,7 @@ class FlagSummary:
     status: str
     status_reason: str
     effectively_full_rollout: bool
-    max_rollout_percentage: int | None
+    max_rollout_percentage: int | float | None
     has_enrollment_overrides: bool
     variant_keys: tuple[str, ...]
     fully_rolled_out_variant: str | None
