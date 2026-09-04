@@ -5,13 +5,24 @@ on:
         branches:
             - master
     pull_request:
+    schedule:
+        # Where master's coverage for these checks comes from. The merge queue's
+        # trunk-merge/** run gates every commit before it lands, so the push lane does
+        # not repeat them.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '43 * * * *'
 
 permissions:
     contents: read
     pull-requests: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -24,6 +35,15 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             python: ${{ steps.filter.outputs.python || 'true' }}
+            complexity_files: ${{ steps.filter.outputs.complexity_files }}
+            # Per-tool outputs gating the self-contained pytest steps in code-quality.
+            # Each defaults to true, so master push and the hourly cron — where the filter
+            # is skipped — still run every suite.
+            hogli: ${{ steps.filter.outputs.hogli || 'true' }}
+            owners: ${{ steps.filter.outputs.owners || 'true' }}
+            query_perf: ${{ steps.filter.outputs.query_perf || 'true' }}
+            stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
+            bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -44,10 +64,21 @@ jobs:
                   # This workflow opts in for the whole repository. It runs on every pull
                   # request, so one wiring covers every shape the comparison needs to see.
                   PATHS_FILTER_SHADOW_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: 'escape'
                   filters: |
+                      # Consumed as a file list (complexity_files) by the changed-file
+                      # complexity check — the PR files API, not a hand-rolled git diff.
+                      complexity:
+                          - 'posthog/**/*.py'
+                          - 'ee/**/*.py'
+                          - 'products/**/*.py'
                       python:
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
@@ -66,12 +97,17 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
+                        # A hand-edit to the generated taxonomy JSON must reach the drift check
+                        - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
+                        # Django templates live outside posthog/ for products, and the
+                        # code-quality job formats them with djlint
+                        - 'products/**/backend/templates/**'
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
                         - 'products/stamphog/packages/pr-approval-agent/**'
@@ -79,14 +115,63 @@ jobs:
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
                         - '**/AGENT_APPROVALS.md'
+                      # Per-tool groups below gate the pytest steps in code-quality. Each of
+                      # these trees imports only stdlib and its own package — none of them
+                      # imports posthog — so a change under posthog/ cannot affect them and
+                      # they do not need to run on every Python PR. Verify that before adding
+                      # a tree here: a path filter that skips tests is a claim about the
+                      # import graph (see ci-things-already-tried.md, #50137).
+                      # Dependency and workflow changes run all of them.
+                      hogli:
+                        - 'tools/hogli/**'
+                        - 'tools/hogli-commands/**'
+                        - 'hogli.yaml'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      owners:
+                        - 'tools/owners/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      query_perf:
+                        - 'tools/query-performance-ai/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      stamphog:
+                        - 'tools/pr-approval-agent/**'
+                        - 'products/stamphog/packages/pr-approval-agent/**'
+                        - '.stamphog/**'
+                        - '**/AGENT_APPROVALS.md'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      bin_scripts:
+                        - 'bin/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
 
     code-quality:
         needs: changes
-        if: needs.changes.outputs.python == 'true'
+        # Skipped on master push: the merge queue already ran this for every landed
+        # commit, and the hourly scheduled run keeps master coverage.
+        if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
+        # Read by the per-tool guards on the pytest steps below. These sit inside a
+        # `parallel:` block, where step-level `if:` has no exercised precedent in this
+        # repo — the one existing case can never be false — so the guard is a shell test
+        # on a job-level env var, which behaves the same either way.
+        env:
+            RUN_HOGLI: ${{ needs.changes.outputs.hogli }}
+            RUN_OWNERS: ${{ needs.changes.outputs.owners }}
+            RUN_QUERY_PERF: ${{ needs.changes.outputs.query_perf }}
+            RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
+            RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -183,6 +268,45 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            # Calls the generator directly because this job installs neither pnpm nor
+            # node_modules. Keep the step after "Install Python dependencies": importing
+            # posthog.taxonomy.taxonomy pulls in Django via posthog/__init__.py, so the
+            # generator needs the full synced dependency set, not just stdlib.
+            - name: Check if the taxonomy JSON is up to date
+              shell: bash
+              run: |
+                  python3 bin/build-taxonomy-json.py --check
+
+            # Warn-only while the pre-existing violation backlog settles: findings annotate
+            # the diff and land in the shared CI report comment, never a job failure.
+            # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
+            # unrebased branches: the lint:complexity command may not be registered yet.
+            - name: Check cyclomatic complexity of changed files
+              if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
+              shell: bash
+              env:
+                  # Space-separated, from paths-filter (list-files: escape) — the PR
+                  # files API, so no git-diff plumbing to drift from what the PR changed.
+                  CHANGED_FILES: ${{ needs.changes.outputs.complexity_files }}
+              run: |
+                  if [ ! -f tools/hogli-commands/hogli_commands/complexity_lint.py ]; then
+                      echo "hogli lint:complexity not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  # xargs re-parses the escape format, keeping escaped paths whole.
+                  printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli lint:complexity --report complexity-findings-python.json
+
+            - name: Post CI report — complexity
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-python.json ]; then
+                      node .github/scripts/post-complexity-section.mjs python complexity-findings-python.json
+                  else
+                      echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
+
             - parallel:
                   - name: Check for syntax errors, import sort, and code style violations
                     shell: bash
@@ -192,25 +316,41 @@ jobs:
                     shell: bash
                     run: ruff format --check --diff .
 
+                  - name: Check Django template formatting
+                    shell: bash
+                    run: ./bin/hogli format:html:check
+
+                  - name: Lint Django templates
+                    shell: bash
+                    run: ./bin/hogli lint:html
+
                   - name: Check hogli manifest completeness
                     shell: bash
                     run: ./bin/hogli meta:check
 
                   - name: Run hogli framework tests
                     shell: bash
-                    run: pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
+                    run: |
+                        [ "$RUN_HOGLI" = "true" ] || { echo "hogli unchanged — skipping"; exit 0; }
+                        pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
 
                   - name: Run hogli extension tests
                     shell: bash
-                    run: pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
+                    run: |
+                        [ "$RUN_HOGLI" = "true" ] || { echo "hogli unchanged — skipping"; exit 0; }
+                        pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
                   - name: Run owners resolver tests
                     shell: bash
-                    run: pytest tools/owners/tests -v --junitxml=junit-owners.xml
+                    run: |
+                        [ "$RUN_OWNERS" = "true" ] || { echo "tools/owners unchanged — skipping"; exit 0; }
+                        pytest tools/owners/tests -v --junitxml=junit-owners.xml
 
                   - name: Run query-performance-ai tests
                     shell: bash
-                    run: pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+                    run: |
+                        [ "$RUN_QUERY_PERF" = "true" ] || { echo "query-performance-ai unchanged — skipping"; exit 0; }
+                        pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
 
                   - name: Run pr-approval-agent (stamphog) tests
                     shell: bash
@@ -220,6 +360,7 @@ jobs:
                     # both exist, because that merge can add a file at the old path next to the new
                     # tree.
                     run: |
+                        [ "$RUN_STAMPHOG" = "true" ] || { echo "pr-approval-agent unchanged — skipping"; exit 0; }
                         found=0
                         for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do
                           [ -d "$dir" ] || continue
@@ -233,13 +374,17 @@ jobs:
 
                   - name: Run dependency detection script tests
                     shell: bash
-                    run: pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
                   name: junit-results-hogli
+                  # A gated-off suite writes no junit file, which is now the common case.
+                  if-no-files-found: ignore
                   path: |
                       junit-hogli.xml
                       junit-hogli-commands.xml
@@ -252,13 +397,8 @@ jobs:
               if: always()
               with:
                   name: junit-results-dependency-detection
+                  if-no-files-found: ignore
                   path: junit-dependency-detection.xml
-
-            # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
-            #   if: needs.changes.outputs.python == 'true'
-            #   shell: bash
-            #   run: |
-            #       npm run taxonomy:build:json && git diff --exit-code
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always

@@ -3,7 +3,7 @@ from contextvars import ContextVar
 from functools import cached_property
 from typing import Any, Optional, cast
 
-from django.db.models import F, Model, Q
+from django.db.models import Model, Q
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -192,11 +192,7 @@ class SubjectAccessControl(UserAccessControl):
         assert self._team is not None
         if not EE_AVAILABLE:
             return []
-        return list(
-            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                team_id=self._team.id
-            )
-        )
+        return list(AccessControl.objects.filter(team_id=self._team.id))
 
     def preload_access_controls(
         self,

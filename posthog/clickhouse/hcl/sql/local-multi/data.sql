@@ -77,6 +77,34 @@ CREATE TABLE posthog.channel_definition (
   type_if_paid Nullable(String),
   type_if_organic Nullable(String)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.channel_definition', '{replica}-{shard}') ORDER BY (domain, kind) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.clickhouse_cleanup_deleted_persons (
+  run_id String,
+  team_id Int64,
+  person_id UUID,
+  max_version UInt64,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_deleted_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_orphaned_distinct_ids (
+  run_id String,
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  own_tombstone UInt8,
+  max_version Int64,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_orphaned_distinct_ids', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, distinct_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_revived_distinct_ids (
+  run_id String,
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_distinct_ids', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, distinct_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.clickhouse_cleanup_revived_persons (
+  run_id String,
+  team_id Int64,
+  person_id UUID,
+  created_at DateTime64(6, 'UTC') DEFAULT now64()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.cohort_membership (
   team_id Int64,
   cohort_id Int64,
@@ -1172,7 +1200,7 @@ CREATE TABLE posthog.sharded_events_recent (
   _timestamp DateTime,
   _offset UInt64,
   inserted_at DateTime64(6, 'UTC') DEFAULT now64()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDateTime(inserted_at) + toIntervalDay(7) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDate(inserted_at) + toIntervalDay(9) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,

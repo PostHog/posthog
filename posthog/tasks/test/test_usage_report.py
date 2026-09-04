@@ -303,14 +303,14 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 team=self.org_1_team_1,
                 name="Enabled scanner",
                 scanner_type=ScannerType.MONITOR,
-                model=ScannerModel.GEMINI_3_7_FLASH,
+                model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=True,
             )
             ReplayScanner.objects.create(
                 team=self.org_1_team_1,
                 name="Disabled scanner",
                 scanner_type=ScannerType.MONITOR,
-                model=ScannerModel.GEMINI_3_7_FLASH,
+                model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=False,
             )
 
@@ -3295,60 +3295,59 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # A team that changed retention 14d -> 30d mid-period: 1.5 GB total split across both tiers
-            # (0.5 GB at 14d, 1.0 GB at 30d).
+            # 1.5 GB at a non-tier 45 days = 67.5 GB-days, so logs_retention_mb_days_in_period = 67_500
+            # (67_500_000_000 byte-days // 1_000_000).
             (
-                "split_retention_14d_to_30d",
+                "arbitrary_retention_days",
                 {
                     "bytes_ingested": 1_500_000_000,
-                    "bytes_ingested_retention_14d": 500_000_000,
-                    "bytes_ingested_retention_30d": 1_000_000_000,
+                    "retention_byte_days": 67_500_000_000,
                     "records_ingested": 1000,
                 },
                 {
                     "logs_bytes_in_period": 1_500_000_000,
                     "logs_records_in_period": 1000,
                     "logs_mb_in_period": 1500,
-                    "logs_retention_14d_mb_in_period": 500,
-                    "logs_retention_30d_mb_in_period": 1000,
-                    "logs_retention_90d_mb_in_period": 0,
+                    "logs_and_traces_mb_in_period": 1500,
+                    "logs_retention_mb_days_in_period": 67_500,
                 },
             ),
-            # A team on a single tier the whole period: 2.5 GB, all under 90d retention.
+            # Sub-MB-day total floors to 0: 500 KB retained 1 day is 500_000 byte-days, under 1 MB-day.
             (
-                "single_tier_90d",
+                "sub_mb_day_floors_to_zero",
                 {
-                    "bytes_ingested": 2_500_000_000,
-                    "bytes_ingested_retention_90d": 2_500_000_000,
-                    "records_ingested": 2000,
-                },
-                {
-                    "logs_bytes_in_period": 2_500_000_000,
-                    "logs_records_in_period": 2000,
-                    "logs_mb_in_period": 2500,
-                    "logs_retention_14d_mb_in_period": 0,
-                    "logs_retention_30d_mb_in_period": 0,
-                    "logs_retention_90d_mb_in_period": 2500,
-                },
-            ),
-            # Sub-MB bytes split across tiers: each tier is floored to whole MB independently, so both
-            # tier counters drop to 0 even though the total (1.2 MB) rounds down to 1 MB. The tiers can
-            # sum to less than logs_mb_in_period.
-            (
-                "sub_mb_split_floors_to_zero",
-                {
-                    "bytes_ingested": 1_200_000,
-                    "bytes_ingested_retention_14d": 600_000,
-                    "bytes_ingested_retention_30d": 600_000,
+                    "bytes_ingested": 500_000,
+                    "retention_byte_days": 500_000,
                     "records_ingested": 5,
                 },
                 {
-                    "logs_bytes_in_period": 1_200_000,
+                    "logs_bytes_in_period": 500_000,
                     "logs_records_in_period": 5,
-                    "logs_mb_in_period": 1,
-                    "logs_retention_14d_mb_in_period": 0,
-                    "logs_retention_30d_mb_in_period": 0,
+                    "logs_mb_in_period": 0,
+                    "logs_and_traces_mb_in_period": 0,
+                    "logs_retention_mb_days_in_period": 0,
+                },
+            ),
+            # Per-tier and byte-days in parallel: 2 GB at 30 days + 1 GB at 14 days. Each tier reports
+            # its own MB; byte-days = 2_000*30 + 1_000*14 = 74_000 MB-days.
+            (
+                "per_tier_and_byte_days_in_parallel",
+                {
+                    "bytes_ingested": 3_000_000_000,
+                    "bytes_ingested_retention_30d": 2_000_000_000,
+                    "bytes_ingested_retention_14d": 1_000_000_000,
+                    "retention_byte_days": 74_000_000_000,
+                    "records_ingested": 1500,
+                },
+                {
+                    "logs_bytes_in_period": 3_000_000_000,
+                    "logs_records_in_period": 1500,
+                    "logs_mb_in_period": 3000,
+                    "logs_and_traces_mb_in_period": 3000,
+                    "logs_retention_14d_mb_in_period": 1000,
+                    "logs_retention_30d_mb_in_period": 2000,
                     "logs_retention_90d_mb_in_period": 0,
+                    "logs_retention_mb_days_in_period": 74_000,
                 },
             ),
         ]
@@ -3465,23 +3464,32 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # MB is floored to whole decimal MB like logs_mb_in_period.
+            # Per-signal MB is floored to whole decimal MB, and the billable combined metric is
+            # floored once off the summed bytes: 77_000_000 + 2_500_000 -> 79 MB.
             (
                 "with_usage",
                 {"bytes_ingested": 2_500_000, "records_ingested": 40},
+                77_000_000,
                 {
                     "apm_tracing_bytes_in_period": 2_500_000,
                     "apm_tracing_spans_in_period": 40,
                     "apm_tracing_mb_in_period": 2,
+                    "logs_mb_in_period": 77,
+                    "logs_and_traces_mb_in_period": 79,
                 },
             ),
+            # Flooring once off the summed bytes, rather than adding the floored per-signal figures,
+            # keeps the remainders both signals drop: 77_600_000 + 999_999 -> 78 MB, not 77 + 0.
             (
-                "sub_mb_floors_to_zero",
+                "sub_mb_remainders_add_up",
                 {"bytes_ingested": 999_999, "records_ingested": 5},
+                77_600_000,
                 {
                     "apm_tracing_bytes_in_period": 999_999,
                     "apm_tracing_spans_in_period": 5,
                     "apm_tracing_mb_in_period": 0,
+                    "logs_mb_in_period": 77,
+                    "logs_and_traces_mb_in_period": 78,
                 },
             ),
         ]
@@ -3492,6 +3500,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self,
         _name: str,
         metrics: dict[str, int],
+        logs_bytes: int,
         expected: dict[str, int],
         billing_task_mock: MagicMock,
         posthog_capture_mock: MagicMock,
@@ -3510,7 +3519,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             team_id=self.org_1_team_1.id,
             app_source="logs",
             metric_name="bytes_ingested",
-            count=77_000_000,
+            count=logs_bytes,
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -3520,7 +3529,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
 
-        # Only org_1_team_1 has traces usage, so the org-level rollup equals that single team's values.
+        # Only org_1_team_1 has logs or traces usage, so the org-level rollup equals that team's values.
         team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
         for field, value in expected.items():
             assert org_1_report[field] == value, field
@@ -6631,8 +6640,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "a later generation does not replenish the per-trace allowance",
         )
 
-    def test_conversations_events_excluded_from_billable_count(self) -> None:
-        """Test that Conversations widget events are excluded from billable event counts."""
+    def test_events_owned_by_other_products_excluded_from_billable_count(self) -> None:
+        """Test that Conversations widget and prompt management events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
 
         billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
@@ -6646,6 +6655,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "$conversations_restore_link_requested",
             "$conversations_widget_state_changed",
             "$conversations_back_to_tickets",
+            "$llm_prompt_fetched",
         ):
             _create_event(
                 event=event_name,

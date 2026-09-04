@@ -34,6 +34,7 @@ function createService() {
   const imageProcessor = { downscale: vi.fn() };
   const workspaceSettings = {
     getWorktreeLocation: vi.fn(() => "/tmp/worktrees"),
+    setWorktreeLocation: vi.fn(),
   };
 
   const storagePaths = {
@@ -154,9 +155,15 @@ describe("OsService simple delegations", () => {
     expect(service.getAppVersion()).toBe("9.9.9");
   });
 
-  it("returns the worktree location from workspace settings", () => {
-    const { service } = createService();
+  it("reads and updates the worktree location through workspace settings", () => {
+    const { service, workspaceSettings } = createService();
     expect(service.getWorktreeLocation()).toBe("/tmp/worktrees");
+
+    service.setWorktreeLocation("/tmp/posthog-desktop/worktrees");
+
+    expect(workspaceSettings.setWorktreeLocation).toHaveBeenCalledWith(
+      "/tmp/posthog-desktop/worktrees",
+    );
   });
 
   it("opens external URLs through the url launcher", async () => {

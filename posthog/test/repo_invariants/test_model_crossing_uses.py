@@ -8,6 +8,11 @@ frozen here, so the count can fall but never rise.
 it resolves through the Django app registry, so no import linter can see the edge. Test modules stay
 out of scope on that channel.
 
+`reverse-accessor(...)` lines come from the model graph, not the AST: a relation field that
+crosses a product boundary without `related_name="+"` adds a reverse accessor to the target class,
+with no import for any other check to see. Seal the relation and delete the line in the same change;
+a caller that needs reverse access gets a facade read function.
+
 `drives(...)` lines read tests only: a test outside a product that executes a query runner in the
 product's wiring location `backend/hogql_queries/`. `drives(<Kind>)` is a query kind the test builds
 and runs; `drives(<Name>)` is a name it imports from there. `hogli product:lint` keeps that location
@@ -22,13 +27,13 @@ Regenerate after removing uses:
     bin/hogli product:crossings --all --write-baseline
 """
 
-from hogli_commands.product.crossings import BASELINE_PATH, disallowed_uses, read_baseline, scan_crossing_uses
+from hogli_commands.product.crossings import BASELINE_PATH, all_crossing_uses, disallowed_uses, read_baseline
 
 REGENERATE = "bin/hogli product:crossings --all --write-baseline"
 
 
 def test_disallowed_crossing_uses_match_the_baseline() -> None:
-    scanned = sorted(use.as_baseline_line() for use in disallowed_uses(scan_crossing_uses()))
+    scanned = sorted(use.as_baseline_line() for use in disallowed_uses(all_crossing_uses()))
     recorded = sorted(read_baseline())
     if scanned == recorded:
         return
@@ -42,7 +47,11 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
         "change the caller: move the query, serializer or write into the model's own product and "
         "call a facade function instead. A 'get_model' line is an apps.get_model reference from "
         "outside the owning product; it is a coupling the import linters cannot see, and it belongs "
-        "behind a facade function too. A 'drives(...)' line is a test outside the product that executes "
+        "behind a facade function too. A 'reverse-accessor(...)' line is a boundary-crossing relation "
+        'field without related_name="+" (a query:<name> row means an explicit related_query_name '
+        "keeps filter() traversal alive); seal it, remove the explicit query name, and give "
+        "callers a facade read function. "
+        "A 'drives(...)' line is a test outside the product that executes "
         "one of its query runners; move that test into the product. Only a doctrine amendment in "
         "products/architecture.md § Wiring couplings can add a line.\n"
         f"A '-' line means a use went away — good, but the file must record that too. Run: {REGENERATE}\n"

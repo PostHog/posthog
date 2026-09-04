@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render } from '@testing-library/react'
-import posthog, { DisplaySurveyType } from 'posthog-js'
+import posthog, { DisplaySurveyType, type Properties } from 'posthog-js'
 
 import { FeedbackSurveyButton } from './FeedbackSurveyButton'
 
@@ -16,8 +16,8 @@ function mockSurveysLoaded(context: { isLoaded: boolean } | null): void {
     }) as typeof posthog.onSurveysLoaded)
 }
 
-function renderButton(): HTMLElement {
-    const { getByRole } = render(<FeedbackSurveyButton surveyId={SURVEY_ID} />)
+function renderButton(properties?: Properties): HTMLElement {
+    const { getByRole } = render(<FeedbackSurveyButton surveyId={SURVEY_ID} properties={properties} />)
     return getByRole('button')
 }
 
@@ -39,7 +39,8 @@ describe('FeedbackSurveyButton', () => {
 
     it('displays the survey with condition bypass once surveys load', () => {
         mockSurveysLoaded({ isLoaded: true })
-        const button = renderButton()
+        const properties = { feedback_surface: 'mcp_analytics', mcp_analytics_tab: 'activity' }
+        const button = renderButton(properties)
 
         expect(button.getAttribute('aria-disabled')).not.toBe('true')
         fireEvent.click(button)
@@ -47,6 +48,7 @@ describe('FeedbackSurveyButton', () => {
             displayType: DisplaySurveyType.Popover,
             ignoreConditions: true,
             ignoreDelay: true,
+            properties,
         })
     })
 

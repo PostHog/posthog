@@ -69,6 +69,7 @@ import {
     NOTEBOOK_AI_PRESENCE_NAME,
 } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { NotebookVariablesBar } from './NotebookVariablesBar'
 
 const NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN = '<Prompt question="" />'
 const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
@@ -107,7 +108,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         setMarkdownAIPresenceActive,
     } = useActions(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const remoteMarkdown = getMarkdownNotebookMarkdown(notebook?.content)
+    const remoteMarkdown = useMemo(() => getMarkdownNotebookMarkdown(notebook?.content), [notebook?.content])
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
     const [aiCaretFading, setAICaretFading] = useState(false)
@@ -710,6 +711,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     deferRemoteValue={markdownEditorInteractionActive}
                     onInteractionStateChange={setMarkdownEditorInteractionActive}
                     allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
+                    canvasHeader={<NotebookVariablesBar />}
                     className="Notebook__markdown-v2"
                     data-attr="notebook-markdown-v2"
                     autoFocus={isEditable}

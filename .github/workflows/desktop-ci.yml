@@ -66,7 +66,7 @@ jobs:
                 github.event.pull_request.head.repo.full_name == github.repository &&
                 startsWith(github.head_ref, 'trunk-merge/')
             )
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Checkout gate scripts
@@ -95,7 +95,7 @@ jobs:
         name: Desktop Tests Pass
         needs: [build, quality, typecheck, test, backend-coupling]
         if: always()
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Check results

@@ -1,7 +1,7 @@
 import uuid
 import dataclasses
 from collections.abc import Callable, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -23,6 +23,19 @@ from posthog.temporal.common.client import async_connect
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.run_gates import (
+    # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
+    # into the scout harness. Every decision behind them stays Signals-side.
+    ScoutRunRejectionKind as ScoutRunRejectionKind,
+)
+from products.signals.backend.scout_harness.workflow_runs import (
+    WorkflowScoutRunRejected as WorkflowScoutRunRejected,
+    WorkflowScoutRunStarted as WorkflowScoutRunStarted,
+    # Facade entrypoint for a workflow's "Run scout" step: the workflows endpoint proves which
+    # workflow is firing, and everything after that (enrolment, budget, quota, the paused-scout
+    # rule, the workflow cooldown, single-flight, dispatch) happens here.
+    start_workflow_scout_run as start_workflow_scout_run,
+)
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
@@ -948,3 +961,63 @@ def scout_reports_for_source(
             )
         )
     return reports
+
+
+def update_scout_for_source(
+    team_id: int,
+    source_product: str,
+    config_id: str,
+    *,
+    enabled: bool | None = None,
+    run_cron_schedule: str | None = None,
+    output_destinations: dict[str, Any] | None = None,
+) -> bool:
+    """Apply the schedule/enablement/delivery updates a source product may make to its own scout.
+
+    Returns False when no scout with that config id belongs to the source. The skill body is
+    deliberately not updatable here — prompt edits go through the scout surface, where the
+    skill-authoring bar applies.
+    """
+    config = SignalScoutConfig.objects.for_team(team_id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        return False
+    update_fields: list[str] = ["updated_at"]
+    if enabled is not None and enabled != config.enabled:
+        config.enabled = enabled
+        update_fields.append("enabled")
+    if run_cron_schedule is not None and run_cron_schedule != config.run_cron_schedule:
+        config.run_cron_schedule = run_cron_schedule
+        config.schedule_changed_at = datetime.now(UTC)
+        update_fields += ["run_cron_schedule", "schedule_changed_at"]
+    if output_destinations is not None and output_destinations != config.output_destinations:
+        config.output_destinations = output_destinations
+        update_fields.append("output_destinations")
+    if len(update_fields) > 1:
+        config.save(update_fields=update_fields)
+    return True
+
+
+def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str) -> bool:
+    """Retire a source-owned scout for good: archive its skill and remove its config.
+
+    Deleting only the config is not enough — the coordinator recreates a default config while the
+    skill exists — so the skill is archived in the same transaction. Returns False when no scout
+    with that config id belongs to the source.
+    """
+    from django.db import transaction  # noqa: PLC0415 — keeps the API surface off the import path
+
+    from products.skills.backend.api.skill_services import (  # noqa: PLC0415 — keeps the API surface off the import path
+        LLMSkillNotFoundError,
+        archive_skill,
+    )
+
+    config = SignalScoutConfig.objects.for_team(team.id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        return False
+    with transaction.atomic():
+        try:
+            archive_skill(team, config.skill_name)
+        except LLMSkillNotFoundError:
+            pass  # Already archived; the config is the orphan being cleaned up.
+        config.delete()
+    return True

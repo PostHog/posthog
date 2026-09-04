@@ -388,6 +388,9 @@ class OAuthValidator(OAuth2Validator):
         if request.client:
             return request.client
 
+        if not client_id:
+            return None
+
         app = OAuthApplication.objects.filter(client_id=client_id).first()
 
         if app is None or not app.is_usable(request):
@@ -1994,6 +1997,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     if a confidential client's client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
 
+    Either way a caller only sees tokens issued to its own application. The scope
+    grants the capability; it does not widen which tokens the capability reaches.
+
     Self-introspection: An access token can always introspect itself without
     requiring the `introspection` scope. This allows MCP clients to discover
     their own token's scopes and permissions during initialization. Refresh
@@ -2040,11 +2046,15 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             bearer_token = request.headers.get("Authorization", "")[7:]
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
-                OAuthAccessToken.objects.get(token_checksum=token_checksum)
+                request.oauth_caller_access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
             except OAuthAccessToken.DoesNotExist:
                 return False, request
             return True, request
-        return super().verify_request(request)
+
+        valid, oauth_request = super().verify_request(request)
+        if valid:
+            request.oauth_caller_access_token = getattr(oauth_request, "access_token", None)
+        return valid, oauth_request
 
     def authenticate_client(self, request):
         """Authenticate the client and record which application was verified.
@@ -2097,13 +2107,23 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         credential_client_id = self._client_credentials_client_id(request)
 
-        # The bearer path (self-introspection or the `introspection` scope) is governed by
-        # scope, not by client identity, and never reaches here. On the client-credentials
-        # path, treating an unidentifiable caller as exempt from the ownership check below
-        # would be indistinguishable from disclosing any token to anyone.
+        # The bearer path identifies its caller through `oauth_caller_access_token` below and
+        # never reaches here. On the client-credentials path, treating an unidentifiable caller
+        # as exempt from the ownership check below would be indistinguishable from disclosing
+        # any token to anyone.
         is_client_credentials = not hasattr(request, "resource_owner")
         if is_client_credentials and credential_client_id is None:
             return JsonResponse({"active": False}, status=200)
+
+        # The bearer caller is identified by the application its own token belongs to. The
+        # `introspection` scope says a caller may introspect, not whose tokens it may read,
+        # and `/oauth/register/` hands the scope to anyone, so the scope alone would let one
+        # client read back every other client's tokens.
+        caller_token = None
+        if not is_client_credentials:
+            caller_token = getattr(request, "oauth_caller_access_token", None)
+            if caller_token is None:
+                return JsonResponse({"active": False}, status=200)
 
         # Try access token first (indexed lookup via token_checksum)
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
@@ -2118,8 +2138,25 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             # issues a confidential client_id and secret to anyone who asks.
             if credential_client_id and getattr(access_token.application, "client_id", None) != credential_client_id:
                 return JsonResponse({"active": False}, status=200)
+            # `application_id` is nullable, so the primary-key match is what keeps the
+            # self-introspection carve-out in verify_request working for a token that
+            # carries no application.
+            if caller_token is not None and not (
+                access_token.pk == caller_token.pk
+                or (
+                    caller_token.application_id is not None
+                    and access_token.application_id == caller_token.application_id
+                )
+            ):
+                return JsonResponse({"active": False}, status=200)
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
+                return JsonResponse({"active": False}, status=200)
+            # Deactivating a user drops their login sessions but leaves their OAuth tokens
+            # intact, and callers that authorize on this response rather than merely describe a
+            # token (the Streamlit proxy is one) would keep letting them in until it expires.
+            # `user` is null for a client-credentials grant, which has no resource owner.
+            if access_token.user is not None and not access_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
             data = {
                 "active": True,
@@ -2143,6 +2180,14 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         if refresh_token:
             if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
+            # A refresh token is never the caller: it cannot be presented as a Bearer
+            # credential, so it has no self-introspection case to preserve.
+            if caller_token is not None and (
+                caller_token.application_id is None or refresh_token.application_id != caller_token.application_id
+            ):
+                return JsonResponse({"active": False}, status=200)
+            if not refresh_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available

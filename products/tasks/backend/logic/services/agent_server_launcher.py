@@ -9,6 +9,7 @@ inherit it unchanged.
 from __future__ import annotations
 
 import json
+import time
 import shlex
 import logging
 from typing import TYPE_CHECKING
@@ -37,6 +38,8 @@ from products.tasks.backend.logic.services.sandbox import (
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
+    build_health_check_command,
+    health_check_timeout_seconds,
     wait_for_health_check,
 )
 
@@ -47,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -72,8 +76,34 @@ def _session_init_probe_hosts() -> list[str]:
     return hosts
 
 
+def _start_and_wait_command(command: str) -> str:
+    health_command = build_health_check_command(AGENT_SERVER_PORT, AGENT_SERVER_HEALTH_MAX_ATTEMPTS)
+    return (
+        f"{command}; launch_status=$?; "
+        'if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; fi; '
+        "health_started=$(date +%s%3N); "
+        f"({health_command}); health_status=$?; "
+        "health_finished=$(date +%s%3N); "
+        f'echo "{AGENT_SERVER_HEALTH_DURATION_PREFIX}$((health_finished - health_started))"; '
+        'exit "$health_status"'
+    )
+
+
+def _health_duration_ms(stdout: str) -> int | None:
+    for line in stdout.splitlines():
+        if line.startswith(AGENT_SERVER_HEALTH_DURATION_PREFIX):
+            try:
+                return max(0, int(line.removeprefix(AGENT_SERVER_HEALTH_DURATION_PREFIX)))
+            except ValueError:
+                return None
+    return None
+
+
 class AgentServerLaunchMixin(SandboxBase):
     """Launches and supervises the in-sandbox agent-server over ``execute``."""
+
+    def supports_combined_agent_server_start_and_health(self) -> bool:
+        return True
 
     def _build_agent_server_command(
         self,
@@ -102,6 +132,7 @@ class AgentServerLaunchMixin(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
@@ -121,6 +152,7 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
@@ -148,23 +180,31 @@ class AgentServerLaunchMixin(SandboxBase):
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
         )
+        launch_started_at = "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)"
 
         if repo_ready_file:
             # Keep the adapter process from inheriting a repository cwd that does not
             # exist yet, even if an overlaid agent-server mishandles its readiness flag.
-            wait_for_repo = f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; exec {server_cmd}"
+            wait_for_repo = (
+                f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; "
+                f"{launch_started_at}; exec {server_cmd}"
+            )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
+        launch_started_prefix = "" if repo_ready_file else f"{launch_started_at} && "
 
         if allowed_domains is not None:
             return (
-                f"cd /scripts && {initialize_env_file} && "
+                f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
                 f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
             )
         else:
-            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            return (
+                f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
+                f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            )
 
     def _termination_failure_reason(self) -> str:
         """Provider-specific detail for a sandbox that died before becoming healthy."""
@@ -241,8 +281,9 @@ class AgentServerLaunchMixin(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
-    ) -> None:
+    ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
@@ -253,10 +294,8 @@ class AgentServerLaunchMixin(SandboxBase):
             raise RuntimeError("Sandbox not in running state.")
 
         if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
-            if wait_for_health:
-                self.wait_for_agent_server_ready(allowed_domains)
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
-            return
+            return 0 if wait_for_health else None
         self._free_agent_server_port()
 
         repo_path: str | None = None
@@ -324,13 +363,31 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        launch_result = self.execute(command, timeout_seconds=30)
+        execute_command = _start_and_wait_command(command) if wait_for_health else command
+        timeout_seconds = 30 + health_check_timeout_seconds(AGENT_SERVER_HEALTH_MAX_ATTEMPTS) if wait_for_health else 30
+        start_time = time.perf_counter()
+        launch_result = self.execute(execute_command, timeout_seconds=timeout_seconds)
+        start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
         if launch_result.exit_code != 0:
+            health_duration_ms = _health_duration_ms(launch_result.stdout)
+            if wait_for_health and health_duration_ms is not None:
+                diagnostics = self._diagnose_startup_failure(allowed_domains)
+                raise SandboxExecutionError(
+                    "Agent-server failed to start",
+                    {
+                        "sandbox_id": self.id,
+                        **diagnostics,
+                        "health_poll_ms": health_duration_ms,
+                        "start_and_health_ms": start_and_health_ms,
+                    },
+                    cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
+                )
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {launch_result.stderr}")
             raise SandboxExecutionError(
                 "Agent-server failed to start",
@@ -339,7 +396,15 @@ class AgentServerLaunchMixin(SandboxBase):
             )
 
         if wait_for_health:
-            self.wait_for_agent_server_ready(allowed_domains)
+            if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
+                raise SandboxExecutionError(
+                    "Failed to verify agentsh network enforcement",
+                    {"sandbox_id": self.id},
+                    cause=RuntimeError("agentsh daemon health check failed"),
+                )
+            logger.info(f"Agent-server ready in sandbox {self.id}")
+            return _health_duration_ms(launch_result.stdout)
+        return None
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
         if self._wait_for_health_check():

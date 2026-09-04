@@ -6,6 +6,7 @@ import {
   XCircle,
 } from "@phosphor-icons/react";
 import { Button, Text } from "@posthog/quill";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 
 export type StepStatus = "pending" | "in_progress" | "completed" | "failed";
@@ -25,7 +26,11 @@ interface StepIconProps {
 export function StepIcon({ status, size = 14 }: StepIconProps) {
   switch (status) {
     case "in_progress":
-      return <CircleNotch size={size} className="animate-spin text-blue-9" />;
+      return (
+        <Spin className="text-blue-9">
+          <CircleNotch size={size} />
+        </Spin>
+      );
     case "completed":
       return <CheckCircle size={size} weight="fill" className="text-green-9" />;
     case "failed":
@@ -56,7 +61,7 @@ function StepDetail({ detail }: { detail: string }) {
   const url = parseWebUrl(detail);
 
   if (!url) {
-    return <Text className="text-[13px] text-gray-10">{detail}</Text>;
+    return <Text className="truncate text-[13px] text-gray-10">{detail}</Text>;
   }
 
   const label = formatWebUrl(url);

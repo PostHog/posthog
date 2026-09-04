@@ -9,6 +9,7 @@ import { ReactNode } from 'react'
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
+import { percent } from '../lib/format'
 import { DeltaBadge, percentChange, pointChange } from './MetricTile'
 
 function MagnitudeBar({
@@ -41,9 +42,8 @@ function MagnitudeBar({
 }
 
 function SplitBar({ rate }: { rate: number }): JSX.Element {
-    const passedPercent = Math.round(rate * 100)
     return (
-        <Tooltip title={`${passedPercent}% passed, ${100 - passedPercent}% failed`}>
+        <Tooltip title={`${percent(rate, 1)} passed, ${percent(1 - rate, 1)} failed`}>
             <div className="flex h-2.5 flex-1 overflow-hidden rounded-sm">
                 <div className="h-full bg-success" style={{ width: `${rate * 100}%` }} />
                 <div className="h-full flex-1 bg-danger" />
@@ -98,6 +98,7 @@ export function WindowComparisonCard({
     goodWhenDown = false,
     share = false,
     deltaUnit,
+    deltaPrecision,
     tooltip,
     marker,
     markerPrevious,
@@ -116,6 +117,8 @@ export function WindowComparisonCard({
     share?: boolean
     /** 'pt' renders the delta as percentage points; default is relative percent. */
     deltaUnit?: 'pt'
+    /** Decimal places shown in the delta badge. */
+    deltaPrecision?: number
     /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
     /** A companion figure (e.g. p90) pinned as a tick on each magnitude bar, on the same scale as
@@ -150,7 +153,7 @@ export function WindowComparisonCard({
                             value={delta}
                             unit={deltaUnit ?? '%'}
                             goodWhenDown={goodWhenDown}
-                            vs="vs the previous window"
+                            precision={deltaPrecision}
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">

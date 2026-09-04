@@ -5,9 +5,20 @@ on:
         branches:
             - master
     pull_request:
+    schedule:
+        # Where master's coverage for the dagster suite comes from. The merge queue's
+        # trunk-merge/** run gates every commit before it lands, so the push lane does
+        # not repeat it.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '33 * * * *'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -106,7 +117,11 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -147,6 +162,7 @@ jobs:
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
+                        - 'posthog/ph_client.py'
                         - 'products/managed_warehouse/backend/**'
                         # Backward compatibility for unrebased PRs; remove after August 14, 2026.
                         - 'posthog/ducklake/**'
@@ -232,7 +248,9 @@ jobs:
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
-              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
+              # `schedule` has to be listed explicitly for the same reason as build-matrix
+              # below, which consumes this step's oldest_supported output.
+              if: github.event_name == 'schedule' || steps.filter.outputs.dagster == 'true'
               run: |
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
@@ -243,7 +261,10 @@ jobs:
 
             - name: Build sharded test matrix
               id: build-matrix
-              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
+              # `schedule` has to be listed explicitly: the paths filter is skipped there,
+              # so steps.filter.outputs.dagster is empty. Without this the matrix would be
+              # [] and the hourly run would report green having run no tests at all.
+              if: github.event_name == 'schedule' || steps.filter.outputs.dagster == 'true'
               env:
                   OLDEST_SUPPORTED: ${{ steps.read-versions.outputs.oldest_supported }}
               run: |
@@ -354,25 +375,13 @@ jobs:
               with:
                   version: '0.11.28'
 
-            - name: Restore test durations from cache
+            - name: Download the last published durations
               # The selector's full-run cutoff and shard sizing read .test_durations,
-              # which is not in the repo. This job runs on a GitHub-hosted runner, so
-              # the Depot-side cache misses and the fallback below is the usual path.
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .test_durations
-                  key: posthog-test-durations-${{ github.run_id }}
-                  restore-keys: |
-                      posthog-test-durations-
-
-            - name: Fall back to the last published durations
-              # .test_durations is not in the repo. The timing workflow refreshes the
-              # cache several times a day and publishes the same files as an artifact
-              # of its own runs. On a cache miss (retention lapsed, timing workflow
-              # down for two weeks) take the newest artifact; if that is gone too,
-              # pytest-split splits by count and turbo-discover sizes from file counts
-              # until the next timing run.
-              if: ${{ hashFiles('.test_durations') == '' }}
+              # which is not in the repo. The timing workflow saves it to the Actions
+              # cache from a Depot runner. GitHub-hosted jobs like this one read a
+              # separate cache store, so a cache restore here can never hit. Take the
+              # artifact the timing workflow publishes instead; if that is gone too,
+              # the selector estimates without durations until the next timing run.
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -380,7 +389,7 @@ jobs:
                   run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
                       --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
                   if [ -z "$run_id" ]; then
-                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      echo "::warning::No successful timing run, sharding without durations"
                       exit 0
                   fi
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
@@ -449,12 +458,15 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.select-tests.outputs.matrix_include || needs.changes.outputs.matrix_include || '[]') }}
-        # !cancelled() lets this run when select-tests is skipped (master,
+        # !cancelled() lets this run when select-tests is skipped (schedule,
         # merge queue) or failed (fall back to the full matrix); mode 'none'
         # means the diff cannot affect any dagster test, so nothing runs and
         # the merge-queue full suite remains the gate.
+        # Skipped on master push: the merge queue already ran the suite for every
+        # landed commit, and the hourly scheduled run keeps master coverage.
         if: >-
             ${{ !cancelled()
+            && github.event_name != 'push'
             && needs.select-tests.outputs.mode != 'none'
             && (needs.changes.outputs.dagster_direct == 'true'
                 || (needs.changes.outputs.merge_queue == 'true'
@@ -476,6 +488,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:

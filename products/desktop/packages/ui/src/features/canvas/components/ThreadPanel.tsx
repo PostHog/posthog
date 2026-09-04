@@ -393,7 +393,7 @@ function ThreadPanelHeader({
   );
 }
 
-export function ThreadTimeline({
+function ThreadTimeline({
   timeline,
   isReady,
   currentUserUuid,
@@ -459,7 +459,7 @@ export function ThreadTimeline({
   );
 }
 
-export function ThreadReplyComposer({
+function ThreadReplyComposer({
   draft,
   onDraftChange,
   onSubmit,

@@ -2,11 +2,14 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.model_selection import scout_model_pin_catalog
 
 
 class TestScannerScoutCreate(_VisionAPITestCase):
@@ -33,6 +36,63 @@ class TestScannerScoutCreate(_VisionAPITestCase):
             config = SignalScoutConfig.objects.get(skill_name="signals-scout-daily-digest")
         assert config.source_product == SCOUT_SOURCE_PRODUCT
         assert config.source_id == str(self.scanner.id)
+
+    def test_a_scout_can_be_created_with_a_slack_destination(self) -> None:
+        # The create modal offers a Slack channel, so the destination arrives on the create call
+        # rather than a follow-up PATCH. Validating it needs the project and the request in the
+        # body serializer's context.
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        response = self.client.post(
+            self._scouts_url(str(self.scanner.id)),
+            data=self._payload(
+                config={
+                    "output_destinations": {
+                        "slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings"}
+                    }
+                },
+            ),
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        with team_scope(self.team.id):
+            config = SignalScoutConfig.objects.get(skill_name="signals-scout-daily-digest")
+        assert config.output_destinations == {
+            "slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings", "thread_reports": False}
+        }
+
+    def test_a_scout_can_be_created_with_a_model_pin(self) -> None:
+        # The model gate reads the team from the serializer context, so a create without it rejected
+        # every pin as unavailable even where the flag was on.
+        model = scout_model_pin_catalog()[0]
+        with patch("products.signals.backend.scout_harness.serializers.scout_model_config_enabled", return_value=True):
+            response = self.client.post(
+                self._scouts_url(str(self.scanner.id)),
+                data=self._payload(config={"model": model}),
+                format="json",
+            )
+
+        assert response.status_code == 201, response.json()
+        with team_scope(self.team.id):
+            config = SignalScoutConfig.objects.get(skill_name="signals-scout-daily-digest")
+        assert config.model == model
+
+    def test_a_slack_destination_on_another_project_is_rejected_as_bad_input(self) -> None:
+        # A destination the project does not own is the caller's mistake, so it must come back as a
+        # 400 the modal can show — not a 500.
+        other_team = Team.objects.create(organization=self.organization, name="other project")
+        integration = Integration.objects.create(team=other_team, kind=Integration.IntegrationKind.SLACK)
+        response = self.client.post(
+            self._scouts_url(str(self.scanner.id)),
+            data=self._payload(
+                config={"output_destinations": {"slack": {"integration_id": integration.id, "channel": "C1|#c"}}},
+            ),
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        with team_scope(self.team.id):
+            assert not SignalScoutConfig.objects.filter(skill_name="signals-scout-daily-digest").exists()
 
     def test_a_source_supplied_in_the_body_cannot_claim_another_scanner(self) -> None:
         # The pair is the reports endpoint's ownership record, so it must come from the URL the
@@ -123,7 +183,6 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         # environment clears the default scope check (URL team is the child) while the skill and
         # config it creates land on the parent.
         from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.team import Team
         from posthog.models.utils import generate_random_token_personal, hash_key_value
 
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")

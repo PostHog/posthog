@@ -11,6 +11,43 @@ MAX_PROXY_DOMAIN_LABEL_LENGTH = 63
 _LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
 _PROXY_DOMAIN_RE = re.compile(rf"{_LABEL}(?:\.{_LABEL})*")
 
+# Every apex domain PostHog itself registers or serves production traffic on: the
+# Route53 zones in posthog-cloud-infra's terraform/environments/aws-accnt-root/route53-zones.tf,
+# plus postwh.com, posthogusercontent.com, and the literal CLOUDFLARE_PROXY_BASE_CNAME /
+# PROXY_BASE_CNAME targets from charts' shared/posthog-django/common.<env>.yaml (europehog.com,
+# proxyhog.com, livehog.com are the Cloudflare/legacy CNAME targets that every other tenant's
+# proxy domain already points to).
+RESERVED_PROXY_DOMAINS = frozenset(
+    {
+        "posthog.com",
+        "posthog.dev",
+        "posthog.net",
+        "posthog.io",
+        "posthog.eu",
+        "posthog.click",
+        "posthog.lol",
+        "posthog.biz",
+        "posthog.cc",
+        "hog.dev",
+        "deskhog.com",
+        "posthug.com",
+        "productforengineers.com",
+        "hedgehog.vc",
+        "postvar.com",
+        "productautonomy.com",
+        "producthog.com",
+        "phog.gg",
+        "prehog.net",
+        "ph-proxy.com",
+        "livehog.com",
+        "warmhog.com",
+        "postwh.com",
+        "posthogusercontent.com",
+        "europehog.com",
+        "proxyhog.com",
+    }
+)
+
 
 def is_valid_proxy_domain(domain: str) -> bool:
     """Whether `domain` is a bare hostname that means the same thing to a DNS resolver
@@ -40,6 +77,20 @@ def is_valid_proxy_domain(domain: str) -> bool:
     if any(len(label) > MAX_PROXY_DOMAIN_LABEL_LENGTH for label in labels):
         return False
     return not labels[-1].isdigit()
+
+
+def is_reserved_proxy_domain(domain: str) -> bool:
+    """Whether `domain` is, or is a subdomain of, a domain PostHog itself owns.
+
+    A registered `domain` is the Host this system will route through PostHog's shared
+    reverse-proxy ingress (Cloudflare custom hostnames, or the legacy Caddy CNAME target)
+    once the CNAME is verified. Letting an org claim one of PostHog's own domains would
+    hand them routing, SNI matching, or certificate issuance for a hostname other
+    tenants', or PostHog's own, traffic depends on. See `RESERVED_PROXY_DOMAINS` for the
+    source of the list.
+    """
+    domain = domain.lower()
+    return any(domain == reserved or domain.endswith(f".{reserved}") for reserved in RESERVED_PROXY_DOMAINS)
 
 
 class ProxyRecord(UUIDTModel):

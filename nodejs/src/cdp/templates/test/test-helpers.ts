@@ -235,6 +235,7 @@ export class TemplateTester {
                 // invokeFetchResponse simulates any transport's response push. The scoped-JWT
                 // transport itself is covered in hog-executor.service.test.ts.
                 conversationsTicketsJwt: new ScopedServiceJwt(PosthogJwtAudience.CONVERSATIONS_TICKETS, ''),
+                customerAnalyticsAccountsJwt: new ScopedServiceJwt(PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS, ''),
                 hogInputsService,
                 emailService,
                 recipientTokensService,

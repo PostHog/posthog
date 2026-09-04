@@ -8,6 +8,7 @@ import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
@@ -196,6 +197,7 @@ describe('ErrorTrackingConsumer', () => {
             cookielessManager: infra.cookielessManager,
             redisPool: infra.redisPool,
             personRepository: createMockPersonRepository(),
+            createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
         const consumer = new ErrorTrackingConsumer(config, deps)
         // Replace Kafka consumer with mock to avoid actual connections

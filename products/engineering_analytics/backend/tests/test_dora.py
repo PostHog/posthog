@@ -189,7 +189,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.deploy_data_available is True
-        assert result.environment_scope == "production"
+        assert result.environment_scope == "prod"  # the busiest (only) production-marked environment
         assert result.environments == ["prod", "staging"]
         assert result.has_membership_data is False
         assert result.github_teams == []
@@ -207,6 +207,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # work: d1 succeeded after PR 6's merge but its head merged before it, so d1 doesn't count.
         assert result.median_merge_to_deploy_seconds == 9000.0
         assert result.median_merge_to_deploy_seconds_prev == 7200.0
+        # Open→deploy per PR: PR 1 26h, PR 2 28h, PR 6 51h; prev window PR 5 4h.
+        assert result.median_open_to_deploy_seconds == 100800.0
+        assert result.median_open_to_deploy_seconds_prev == 14400.0
         assert result.merged_pr_count == 4  # PRs 1, 2, 4, 6; the bot merge is excluded
         assert result.unattributed_merged_pr_share == 0.25  # PR 4 merged Jan 19, never deployed
         assert result.latest_deploy_status_at == datetime(2026, 1, 13, 12, 0, tzinfo=UTC)
@@ -227,9 +230,29 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert jan_13.deployed_pr_count == 2  # PRs 2 and 6, both deployed by d3
         assert jan_13.min_seconds == 9000.0
         assert jan_13.max_seconds == 97200.0
+        # ClickHouse quantile interpolates linearly between the two samples.
+        assert jan_13.p05_seconds == 13410.0
+        assert jan_13.p95_seconds == 92790.0
         empty = lead[datetime(2026, 1, 15)]
         assert empty.deployed_pr_count == 0
         assert empty.p50_seconds is None
+
+        # The stage series share the deployed-PR population and buckets, so a wrong stage slice
+        # in the shared series row would surface here as swapped values.
+        otm = {bucket.bucket_start: bucket for bucket in result.open_to_merge_series}
+        otd = {bucket.bucket_start: bucket for bucket in result.open_to_deploy_series}
+        assert len(result.open_to_merge_series) == len(result.open_to_deploy_series) == 11
+        # PR 1: created Jan 11 08:00, merged Jan 12 08:00, deployed Jan 12 10:00.
+        assert otm[datetime(2026, 1, 12)].deployed_pr_count == 1
+        assert otm[datetime(2026, 1, 12)].p50_seconds == 86400.0
+        assert otd[datetime(2026, 1, 12)].p50_seconds == 93600.0
+        # PR 2: 25.5h open→merge, 28h open→deploy. PR 6: 24h open→merge, 51h open→deploy.
+        assert otm[datetime(2026, 1, 13)].min_seconds == 86400.0
+        assert otm[datetime(2026, 1, 13)].max_seconds == 91800.0
+        assert otd[datetime(2026, 1, 13)].min_seconds == 100800.0
+        assert otd[datetime(2026, 1, 13)].max_seconds == 183600.0
+        assert otm[datetime(2026, 1, 15)].deployed_pr_count == 0
+        assert otd[datetime(2026, 1, 15)].p50_seconds is None
 
     def test_restore_recovery_excluded_when_it_lands_after_date_to(self):
         # d2 fails Jan 13 10:00, recovers via d3's success at Jan 13 12:00 (see _seeded_curated).
@@ -285,11 +308,11 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # Deploy-scoped figures are unaffected.
         assert result.deployment_count == 2
 
-    def test_busiest_environment_fallback_excludes_transient_and_sibling_environments(self):
-        # Nothing is production-marked (this repo's real shape), so the default scope falls back
-        # to the single busiest persistent environment: the ephemeral per-PR preview deploys and
-        # the quieter sibling environment (a second region, dev, a package registry) must stay
-        # out of the counts — every-persistent counted them all and multiplied every metric.
+    def test_production_named_environment_beats_busier_dev_environment(self):
+        # Nothing is production-marked (this repo's real shape) and dev deploys more often than
+        # production, so the default scope must resolve through the environment NAME: without the
+        # name tier the busiest-persistent fallback reported dev deploys as every DORA figure.
+        # Transient per-PR previews stay out of every default scope.
         curated = self._curated(
             self.team,
             deployment_rows=[
@@ -297,12 +320,16 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _deployment_row(2, "sha-b", "preview-pr-123", "2026-01-12 09:30:00", production=False, transient=True),
                 _deployment_row(3, "sha-c", "prod-us", "2026-01-13 09:30:00", production=False),
                 _deployment_row(4, "sha-d", "dev", "2026-01-12 09:30:00", production=False),
+                _deployment_row(5, "sha-e", "dev", "2026-01-13 09:30:00", production=False),
+                _deployment_row(6, "sha-f", "dev", "2026-01-14 09:30:00", production=False),
             ],
             status_rows=[
                 _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
                 _status_row(21, 2, "success", "preview-pr-123", "2026-01-12 10:00:00"),
                 _status_row(31, 3, "success", "prod-us", "2026-01-13 10:00:00"),
                 _status_row(41, 4, "success", "dev", "2026-01-12 10:00:00"),
+                _status_row(51, 5, "success", "dev", "2026-01-13 10:00:00"),
+                _status_row(61, 6, "success", "dev", "2026-01-14 10:00:00"),
             ],
             # One never-merged PR keeps the seeded CSV non-empty without joining any deploy.
             pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
@@ -314,7 +341,33 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.environment_scope == "prod-us"
-        assert result.environments == ["prod-us", "dev"]
+        assert result.environments == ["dev", "prod-us"]
+        assert result.deployment_count == 2
+
+    def test_busiest_environment_fallback_without_production_named_environment(self):
+        # No production flag and no production-looking name: the single busiest persistent
+        # environment still carries the default scope, so such a repo gets numbers, not zeros.
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "staging", "2026-01-12 09:30:00", production=False),
+                _deployment_row(2, "sha-b", "staging", "2026-01-13 09:30:00", production=False),
+                _deployment_row(3, "sha-c", "dev", "2026-01-12 09:30:00", production=False),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "staging", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "staging", "2026-01-13 10:00:00"),
+                _status_row(31, 3, "success", "dev", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.environment_scope == "staging"
         assert result.deployment_count == 2
 
     def test_deploy_scan_slack_bounds_prewindow_deployments(self):
@@ -372,7 +425,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             curated=curated,
             date_from=datetime(2026, 1, 10, tzinfo=UTC),
             date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            environment="staging",
+            environments_filter=["staging"],
         )
 
         assert result.environment_scope == "staging"
@@ -380,3 +433,43 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.failed_deployment_count == 0
         # PR 1 (merged Jan 12 08:00) reaches staging's 09:00 success: a 1h lead time.
         assert result.median_merge_to_deploy_seconds == 3600.0
+
+        both = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+            environments_filter=["staging", "prod"],
+            granularity="week",
+        )
+
+        assert both.environment_scope == "staging, prod"
+        assert both.deployment_count == 2  # the multi-environment scope admits d1 and d4
+        assert both.series_granularity == "week"  # the caller's override beats the window fit
+
+    def test_default_scope_picks_busiest_production_environment(self):
+        # Two production-marked regions: the default scope takes the busiest one, so a
+        # multi-region repo doesn't double-count every deploy and hand lead time to
+        # whichever region ships first.
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=True),
+                _deployment_row(2, "sha-b", "prod-us", "2026-01-13 09:30:00", production=True),
+                _deployment_row(3, "sha-c", "prod-eu", "2026-01-12 09:30:00", production=True),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod-us", "2026-01-13 10:00:00"),
+                _status_row(31, 3, "success", "prod-eu", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.environment_scope == "prod-us"
+        assert result.environments == ["prod-us", "prod-eu"]
+        assert result.deployment_count == 2

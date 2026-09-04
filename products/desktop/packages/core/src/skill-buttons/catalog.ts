@@ -84,16 +84,7 @@ export const SKILL_BUTTON_CATALOG: Record<
   },
 };
 
-export const SKILL_BUTTON_ORDER: SkillButtonId[] = [
-  "add-analytics",
-  "add-logging",
-  "add-error-tracking",
-  "instrument-llm-calls",
-  "create-feature-flags",
-  "run-experiment",
-];
-
-export const SKILL_BUTTON_IDS: ReadonlySet<SkillButtonId> = new Set(
+const SKILL_BUTTON_IDS: ReadonlySet<SkillButtonId> = new Set(
   Object.keys(SKILL_BUTTON_CATALOG) as SkillButtonId[],
 );
 

@@ -101,6 +101,10 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
     afterEach(async () => {
         await Promise.allSettled(services.map((service) => service.stop()))
+        // stop() returns when the direct child (pnpm) exits; the node process it spawned
+        // can still be draining its gRPC listener. Do not let the next test allocate
+        // ports while they are held.
+        await waitForPortsFree(workerPortsInUse.splice(0))
         services = []
         outputTopicStartWatermarks = new Map()
     })
@@ -402,8 +406,28 @@ async function startRustNodeStack(
     return { workers, ...rust }
 }
 
+// Every port a worker has listened on this test, so afterEach can wait for them to be
+// released before the next test allocates.
+const workerPortsInUse: number[] = []
+
 async function startNodeIngestionApiWorker(name: string, port?: number): Promise<NodeWorker> {
-    const workerPort = port ?? (await getFreeWorkerPort())
+    // A free-port check is a snapshot: another socket can take the port before the
+    // worker binds it. Unpinned starts retry with a fresh pair; pinned restarts wait
+    // for the previous holder to let go (see restartNodeIngestionApiWorker).
+    for (let attempt = 1; ; attempt++) {
+        const workerPort = port ?? (await getFreeWorkerPort())
+        try {
+            return await spawnNodeIngestionApiWorker(name, workerPort)
+        } catch (error) {
+            const addressInUse = error instanceof Error && error.message.includes('EADDRINUSE')
+            if (port !== undefined || !addressInUse || attempt >= 3) {
+                throw error
+            }
+        }
+    }
+}
+
+async function spawnNodeIngestionApiWorker(name: string, workerPort: number): Promise<NodeWorker> {
     const service = new ServiceProcess(name, 'pnpm', ['exec', 'tsx', 'src/index.ts'], {
         cwd: NODEJS_ROOT,
         env: {
@@ -425,6 +449,9 @@ async function startNodeIngestionApiWorker(name: string, port?: number): Promise
 
     const url = `http://127.0.0.1:${workerPort}`
     await service.waitForHttpOk(`${url}/_ready`)
+    // Only a worker that actually bound its ports owns them; a failed attempt's pair
+    // belongs to whatever foreign socket caused the collision.
+    workerPortsInUse.push(workerPort, workerPort + GRPC_PORT_OFFSET)
     return { service, url }
 }
 
@@ -447,12 +474,28 @@ function isPortFree(port: number): Promise<boolean> {
     })
 }
 
+// Poll until every port can be bound. A stopped worker's node process releases its
+// listeners only after its graceful shutdown (gRPC drain), which outlives the pnpm
+// wrapper that ServiceProcess.stop() waits on.
+async function waitForPortsFree(ports: number[], timeoutMs = 15_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    for (const port of ports) {
+        while (!(await isPortFree(port))) {
+            if (Date.now() > deadline) {
+                throw new Error(`port ${port} was not released within ${timeoutMs}ms`)
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+    }
+}
+
 async function restartNodeIngestionApiWorker(
     services: ServiceProcess[],
     worker: NodeWorker,
     name: string
 ): Promise<NodeWorker> {
     const port = Number(new URL(worker.url).port)
+    await waitForPortsFree([port, port + GRPC_PORT_OFFSET])
     const restartedWorker = await startNodeIngestionApiWorker(name, port)
     services.push(restartedWorker.service)
     return restartedWorker

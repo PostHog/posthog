@@ -1,3 +1,8 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from json import dumps
+from urllib.parse import quote
+
 import freezegun
 from posthog.test.base import (
     APIBaseTest,
@@ -6,6 +11,7 @@ from posthog.test.base import (
     _create_event,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -721,3 +727,148 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_1", "scrolldepth", x=0, y=0)
 
         self._assert_heatmap_result_count({"date_from": "2023-03-08", "type": "scrolldepth"}, 1)
+
+    @contextmanager
+    def _event_filter_flag(self, enabled: bool) -> Iterator[None]:
+        with patch(
+            "products.web_analytics.backend.api.heatmaps_utils.posthoganalytics.feature_enabled",
+            return_value=enabled,
+        ):
+            yield
+
+    @staticmethod
+    def _events_param(events: list[dict]) -> str:
+        return quote(dumps(events), safe="")
+
+    def _heatmap_x_positions(self, params: dict[str, str | int | None]) -> list[float]:
+        response = self._get_heatmap(params)
+        return sorted(result["pointer_relative_x"] for result in response.data["results"])
+
+    def _create_three_sessions_at_distinct_positions(self) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T09:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T09:00:00", viewport_width=100, x=50, y=10)
+        self._create_heatmap_event("session_3", "click", "2023-03-08T09:00:00", viewport_width=100, x=100, y=10)
+
+    @freezegun.freeze_time("2025-03-31")
+    @snapshot_clickhouse_queries
+    def test_event_filter_narrows_to_sessions_containing_every_selected_event(self) -> None:
+        self._create_three_sessions_at_distinct_positions()
+        for session_id, event_names in [
+            ("session_1", ["purchase", "signed_up"]),
+            ("session_2", ["purchase"]),
+            ("session_3", ["signed_up"]),
+        ]:
+            for event_name in event_names:
+                self.create_event(
+                    session_id=session_id, timestamp="2023-03-08T09:00:00", event_name=event_name, properties={}
+                )
+
+        with self._event_filter_flag(True):
+            one_event = self._events_param([{"id": "purchase"}])
+            assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": one_event}) == [0.0, 0.5]
+
+            two_events = self._events_param([{"id": "purchase"}, {"id": "signed_up"}])
+            assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": two_events}) == [0.0]
+
+    @freezegun.freeze_time("2025-03-31")
+    @snapshot_clickhouse_queries
+    def test_event_filter_applies_the_property_filters_carried_by_an_event(self) -> None:
+        self._create_three_sessions_at_distinct_positions()
+        self.create_event(
+            session_id="session_1", timestamp="2023-03-08T09:00:00", event_name="purchase", properties={"plan": "pro"}
+        )
+        self.create_event(
+            session_id="session_2", timestamp="2023-03-08T09:00:00", event_name="purchase", properties={"plan": "free"}
+        )
+
+        events = self._events_param(
+            [
+                {
+                    "id": "purchase",
+                    "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
+                }
+            ]
+        )
+        with self._event_filter_flag(True):
+            assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": events}) == [0.0]
+
+    @freezegun.freeze_time("2025-03-31")
+    @snapshot_clickhouse_queries
+    def test_event_filter_keeps_a_session_whose_event_landed_before_the_window(self) -> None:
+        # The interaction is inside the window and the event that selects it is not, because the session
+        # crossed midnight. The events scan reaches a day past each end of the window so this still matches.
+        self._create_heatmap_event("session_1", "click", "2023-03-08T00:30:00", viewport_width=100, x=5, y=10)
+        self.create_event(session_id="session_1", timestamp="2023-03-07T23:50:00", event_name="purchase", properties={})
+
+        events = self._events_param([{"id": "purchase"}])
+        with self._event_filter_flag(True):
+            assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": events}) == [0.0]
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_event_filter_is_ignored_when_the_flag_is_off(self) -> None:
+        self._create_three_sessions_at_distinct_positions()
+        self.create_event(session_id="session_1", timestamp="2023-03-08T09:00:00", event_name="purchase", properties={})
+
+        events = self._events_param([{"id": "purchase"}])
+        with self._event_filter_flag(False):
+            assert self._heatmap_x_positions({"date_from": "2023-03-08", "events": events}) == [0.0, 0.5, 1.0]
+
+    @freezegun.freeze_time("2025-03-31")
+    @snapshot_clickhouse_queries
+    def test_event_filter_also_narrows_the_interaction_drill_down(self) -> None:
+        # The drill-down has to answer for the same sessions as the heatmap it was opened from, or a hotspot
+        # lists interactions the heatmap already filtered out.
+        self._create_heatmap_event("session_1", "click", "2023-03-08T09:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T09:00:00", viewport_width=100, x=5, y=10)
+        self.create_event(session_id="session_1", timestamp="2023-03-08T09:00:00", event_name="purchase", properties={})
+
+        points = quote(dumps([{"x": 0.0, "y": 16, "target_fixed": True}]), safe="")
+        events = self._events_param([{"id": "purchase"}])
+        with self._event_filter_flag(True):
+            response = self.client.get(f"/api/heatmap/events/?date_from=2023-03-08&points={points}&events={events}")
+            assert response.status_code == status.HTTP_200_OK, response.data
+            assert [result["session_id"] for result in response.data["results"]] == ["session_1"]
+
+    @parameterized.expand(
+        [
+            ("not_json", "purchase"),
+            ("not_a_list", '{"id": "purchase"}'),
+            ("entry_is_not_an_object", '["purchase"]'),
+            ("missing_id", '[{"properties": []}]'),
+            ("id_is_not_a_string", '[{"id": 1}]'),
+            ("properties_is_not_a_list", '[{"id": "purchase", "properties": "plan"}]'),
+            ("properties_entries_are_not_objects", '[{"id": "purchase", "properties": ["plan"]}]'),
+            # A "hogql" property carries a raw expression the caller authored. Accepting it here would let
+            # a heatmap-only caller read any table the HogQL database exposes, so the type is not allowed.
+            ("hogql_property_type", '[{"id": "purchase", "properties": [{"type": "hogql", "key": "1"}]}]'),
+            (
+                "cohort_property_type",
+                '[{"id": "purchase", "properties": [{"type": "cohort", "key": "id", "value": 1}]}]',
+            ),
+            (
+                "person_property_type",
+                '[{"id": "purchase", "properties": [{"type": "person", "key": "email", "value": "a"}]}]',
+            ),
+            # Each entry adds an events-table subquery, so the count is capped (11 entries here).
+            ("too_many_events", dumps([{"id": f"e{i}"} for i in range(11)])),
+            # Every property adds a predicate inside that subquery, so those are capped too (21 here).
+            (
+                "too_many_properties_on_one_event",
+                dumps(
+                    [
+                        {
+                            "id": "purchase",
+                            "properties": [{"type": "event", "key": f"p{i}", "value": "x"} for i in range(21)],
+                        }
+                    ]
+                ),
+            ),
+        ]
+    )
+    def test_event_filter_rejects_malformed_or_disallowed_events(self, _name: str, events: str) -> None:
+        # A bad shape reaches property_to_expr while the query builds and surfaces as a 500, and a
+        # disallowed property type widens what the caller can read. Both are turned away as a 400.
+        self._assert_heatmap_no_result_count(
+            {"date_from": "2023-03-08", "events": quote(events, safe="")},
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
+        )

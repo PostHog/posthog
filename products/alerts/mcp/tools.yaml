@@ -101,11 +101,13 @@ tools:
         title: Simulate detector on insight
         description: >
             Run an anomaly detector on an insight's historical data without creating any alert or check records. Use
-            this to preview how a detector configuration would perform before saving it as an alert. Requires an insight
-            ID and a detector_config object with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn,
-            lof, ocsvm, pca, or ensemble). Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to
-            simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point,
-            triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.
+            this to preview how a detector configuration would perform before saving it as an alert. Pass either the
+            numeric insight ID or its saved short ID. Omit detector_config to use the default daily z-score detector
+            (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass
+            detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca, or
+            ensemble). Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and
+            series_index to pick which series to analyze. Returns data values, anomaly scores per point, triggered
+            indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.
     alert-update:
         operation: alerts_partial_update
         enabled: true

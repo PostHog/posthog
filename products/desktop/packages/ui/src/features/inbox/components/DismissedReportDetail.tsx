@@ -1,7 +1,7 @@
 import {
   ArrowCounterClockwiseIcon,
-  CopyIcon,
   FileTextIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
@@ -89,7 +89,7 @@ function DismissedReportDetailContent({
             onClick={() => copyInboxReportLink(report)}
             title="Copy a deep link to this report"
           >
-            <CopyIcon size={12} />
+            <LinkIcon size={12} />
           </Button>
         </>
       }

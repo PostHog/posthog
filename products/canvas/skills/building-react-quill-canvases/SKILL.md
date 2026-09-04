@@ -25,6 +25,10 @@ Use React, Quill, Recharts, Lucide, and Day.js for the standard application shel
 also admits ten optional libraries for specialized work. Read
 [references/platform-libraries.md](references/platform-libraries.md) before choosing one.
 
+PostHog data comes through `import { ph } from "@posthog/canvas-sdk"` — a platform-provided
+module, so it needs no `dependencies` entry. The same object exists as the `window.ph` global
+(how existing canvases reach it); prefer the import in new code.
+
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
 validation. Direct network requests and external images, fonts, media, or frames require an exact
 HTTPS origin in `capabilities.network.origins`. They work only in the **published** canvas — the

@@ -1,11 +1,10 @@
 {% extends "admin/base_site.html" %}
 {% load i18n static %}
-
 {% block extrastyle %}
-{{ block.super }}
-<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
-<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
-<style>
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
+    <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
+    <style>
 .entry-context {
     display: flex;
     flex-wrap: wrap;
@@ -77,63 +76,58 @@
     font-size: 12px;
     color: var(--body-quiet-color);
 }
-</style>
+    </style>
 {% endblock %}
-
 {% if not is_popup %}
-{% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
-    &rsaquo; <a href="{{ dashboard_url }}">TopHog Dashboard</a>
-    &rsaquo; Restrictions
-</div>
-{% endblock %}
+    {% block breadcrumbs %}
+        <div class="breadcrumbs">
+            <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+            &rsaquo; <a href="{{ dashboard_url }}">TopHog Dashboard</a>
+            &rsaquo; Restrictions
+        </div>
+    {% endblock %}
 {% endif %}
-
 {% block content %}
-<div id="content-main">
-    <h2>Restrictions for tophog entry</h2>
-
-    <div class="entry-context">
-        <span class="chip"><b>token:</b> {{ token }}</span>
-        {% for k, v in key.items %}
-        <span class="chip"><b>{{ k }}:</b> {{ v }}</span>
-        {% endfor %}
-        {% if tophog_pipelines %}
-        <span class="chip"><b>pipelines:</b> {{ tophog_pipelines|join:", " }}</span>
-        {% endif %}
-    </div>
-
-    {% if restriction_pipelines %}
-    <p class="pipeline-note">
-        Mapped to restriction pipelines: {{ restriction_pipelines|join:", " }}{% if unmapped_pipelines %}
-        (no restriction pipeline mapping for: {{ unmapped_pipelines|join:", " }}){% endif %}
-    </p>
-    {% elif unmapped_pipelines %}
+    <div id="content-main">
+        <h2>Restrictions for tophog entry</h2>
+        <div class="entry-context">
+            <span class="chip"><b>token:</b> {{ token }}</span>
+            {% for k, v in key.items %}
+                <span class="chip"><b>{{ k }}:</b> {{ v }}</span>
+            {% endfor %}
+            {% if tophog_pipelines %}
+                <span class="chip"><b>pipelines:</b> {{ tophog_pipelines|join:", " }}</span>
+            {% endif %}
+        </div>
+        {% if restriction_pipelines %}
+            <p class="pipeline-note">
+                Mapped to restriction pipelines: {{ restriction_pipelines|join:", " }}{% if unmapped_pipelines %}
+                (no restriction pipeline mapping for: {{ unmapped_pipelines|join:", " }}){% endif %}
+        </p>
+{% elif unmapped_pipelines %}
     <p class="pipeline-note">No restriction pipeline mapping for: {{ unmapped_pipelines|join:", " }}</p>
-    {% endif %}
-
-    {% if not token %}
-        <p class="errornote">No token given — cannot search restrictions.</p>
-    {% elif entries %}
-        <div class="module">
-            <table style="width: 100%;">
-                <caption>Existing restrictions for this token</caption>
-                <thead>
-                    <tr>
-                        <th scope="col">Type</th>
-                        <th scope="col">Pipelines</th>
-                        <th scope="col">Distinct IDs</th>
-                        <th scope="col">Session IDs</th>
-                        <th scope="col">Event names</th>
-                        <th scope="col">Event UUIDs</th>
-                        <th scope="col">Note</th>
-                        <th scope="col">Covers this entry</th>
-                        <th scope="col"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for entry in entries %}
+{% endif %}
+{% if not token %}
+    <p class="errornote">No token given — cannot search restrictions.</p>
+{% elif entries %}
+    <div class="module">
+        <table style="width: 100%;">
+            <caption>Existing restrictions for this token</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Type</th>
+                    <th scope="col">Pipelines</th>
+                    <th scope="col">Distinct IDs</th>
+                    <th scope="col">Session IDs</th>
+                    <th scope="col">Event names</th>
+                    <th scope="col">Event UUIDs</th>
+                    <th scope="col">Note</th>
+                    <th scope="col">Covers this entry</th>
+                    <th scope="col"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
                     <tr>
                         <td>{{ entry.restriction.get_restriction_type_display }}</td>
                         <td>{{ entry.restriction.pipelines|join:", " }}</td>
@@ -144,34 +138,37 @@
                         <td>{{ entry.restriction.note|default:""|truncatechars:80 }}</td>
                         <td>
                             {% if entry.matches %}
-                            <span class="match-badge matches">covers</span>
+                                <span class="match-badge matches">covers</span>
                             {% else %}
-                            <span class="match-badge no-match">does not cover</span>
+                                <span class="match-badge no-match">does not cover</span>
                             {% endif %}
                         </td>
                         <td class="actions-cell">
                             {% if entry.extendable_fields %}
-                            <form method="post" action="">
-                                {% csrf_token %}
-                                <input type="hidden" name="restriction_id" value="{{ entry.restriction.pk }}">
-                                <button type="submit" class="action-link" title="Append entry values to: {{ entry.extendable_fields|join:', ' }}">Extend</button>
-                            </form>
+                                <form method="post" action="">
+                                    {% csrf_token %}
+                                    <input type="hidden"
+                                           name="restriction_id"
+                                           value="{{ entry.restriction.pk }}">
+                                    <button type="submit"
+                                            class="action-link"
+                                            title="Append entry values to: {{ entry.extendable_fields|join:', ' }}">Extend</button>
+                                </form>
                             {% endif %}
                             <a href="{{ entry.edit_url }}" class="action-link">Edit</a>
                         </td>
                     </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    {% else %}
-        <p>No existing restrictions for this token.</p>
-    {% endif %}
-
-    {% if create_url %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <p>No existing restrictions for this token.</p>
+{% endif %}
+{% if create_url %}
     <div class="create-bar">
         <a href="{{ create_url }}" class="action-link">Create new restriction</a>
     </div>
-    {% endif %}
+{% endif %}
 </div>
 {% endblock %}

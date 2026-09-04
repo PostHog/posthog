@@ -2,7 +2,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.db import transaction
-from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
@@ -19,10 +18,7 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
-from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
-from products.replay_vision.backend.api.vision_actions import VisionActionSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
@@ -30,7 +26,6 @@ from products.replay_vision.backend.impact import compute_scanner_impact, create
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.models.vision_action import ActionMode, VisionAction, VisionActionRun
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
@@ -45,7 +40,6 @@ from products.replay_vision.backend.scanner_access import (
     is_uuid,
     readable_observation_scanner_ids,
     scanner_for_reading_observations,
-    selection_target_ids,
 )
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.scanning import (
@@ -208,31 +202,6 @@ class ReplayVisionGatesMixin:
         if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, level):
             return None
         return scanner
-
-    def _action_for(self, action_id: str, level: AccessControlLevel = "editor") -> "VisionAction | None":
-        """An action this user may act on at `level`.
-
-        Mirrors `_check_action_scanner_access` on the API. The bound scanner is checked at `level`,
-        because an action is automation attached to it and a per-scanner restriction has to block it
-        here too. Scanners named only in the selection are pure data sources the action never mutates,
-        so viewer is the bar for those, but they are checked: a summary fans in their observations and
-        its report is derived from all of them.
-
-        The object check on the action itself does not cover either, since `vision_action` inherits the
-        `replay_scanner` resource rather than any individual scanner's ACL.
-        """
-        if not is_uuid(action_id):
-            return None
-        action = VisionAction.objects.for_team(self._team.id).filter(id=action_id).select_related("scanner").first()
-        if action is None or not self.user_access_control.check_access_level_for_object(action, level):
-            return None
-        if not self.user_access_control.check_access_level_for_object(action.scanner, level):
-            return None
-        source_ids = selection_target_ids(action.scanner_id, action.selection)
-        sources = ReplayScanner.objects.filter(team_id=self._team.id, id__in=source_ids)
-        if not all(self.user_access_control.check_access_level_for_object(s, "viewer") for s in sources):
-            return None
-        return action
 
     def _observation_for(self, observation_id: str, level: AccessControlLevel = "editor") -> "ReplayObservation | None":
         """An observation this user may act on at `level`. Observations inherit their scanner's RBAC,
@@ -590,23 +559,13 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
 # Everything a scan costs is priced per observation from this model unless a saved scanner names another.
 DEFAULT_SCAN_MODEL = ScannerModel.GEMINI_3_FLASH_PREVIEW
 
-# Pinned to the hour the built-in digest uses, so a summary Max sets up fires at the same time as
-# every UI-created one rather than at whatever `starts_at` happened to be.
-_SUMMARY_HOUR = 8
-# The two cadences worth offering in a chat; anything finer belongs in the UI's rrule editor.
 # The scan tool takes no tags or scale, so it offers only the types a prompt alone configures.
 _INLINE_SCAN_TYPES = {ScannerType.MONITOR, ScannerType.SUMMARIZER}
 
-_MAX_ACTION_RUNS = 10
 # A project can hold hundreds of scanners. The whole list lands in the model's context, so cap it and say so.
 _MAX_LISTED = 50
 # Free text from a model, so it gets a ceiling before it reaches a column.
 MAX_FEEDBACK_LENGTH = 1000
-
-_CADENCE_RRULES = {
-    "daily": f"FREQ=DAILY;BYHOUR={_SUMMARY_HOUR};BYMINUTE=0",
-    "weekly": f"FREQ=WEEKLY;BYHOUR={_SUMMARY_HOUR};BYMINUTE=0",
-}
 
 
 def _dedup(session_ids: list[str]) -> list[str]:
@@ -1149,103 +1108,6 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         }
 
 
-CREATE_ACTION_TOOL_DESCRIPTION = """
-Use this tool to set up a recurring summary of what a Replay Vision scanner is finding.
-
-# When to use
-- The user wants a daily or weekly digest of a scanner's observations
-- The user asks to be kept updated on what a scanner is seeing, without reading each observation
-
-# What it does
-Creates a scheduled group summary: on the cadence you give it, one report is synthesized from the
-observations the scanner produced since the last run. It starts no new scans, so it spends no Replay
-Vision credits, but each run calls the synthesis model and bills the team's AI credits. That recurs
-until someone disables it, so the user is asked to confirm before it is created.
-
-The report appears in the app. Delivering it to Slack or a webhook needs an integration id, so point the
-user at the scanner's "Summaries and alerts" tab for that rather than guessing one.
-
-For an alert that fires on a condition rather than a cadence, point the user at that tab too: alerts need
-a threshold, a metric and a window that are easier to set there.
-"""
-
-
-class CreateVisionActionArgs(BaseModel):
-    scanner_id: str = Field(description="The scanner whose observations get summarized.")
-    name: str = Field(description="Human-readable name, unique within the project.")
-    cadence: str = Field(
-        default="daily",
-        description="How often the summary runs: 'daily' or 'weekly'.",
-    )
-    focus: str | None = Field(
-        default=None,
-        description="Optional steer on what the summary should emphasize, e.g. 'group by the feature involved'.",
-    )
-
-
-class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
-    # It spends no Replay Vision observation credits, but each run calls the synthesis model with
-    # `$ai_billable`, so it commits the team to recurring AI spend that continues until someone disables
-    # it. Recurring, agent-created spend is the case the confirmation exists for.
-    needs_confirmation: ClassVar[bool] = True
-    name: str = "create_replay_vision_action"
-    description: str = CREATE_ACTION_TOOL_DESCRIPTION
-    args_schema: type[BaseModel] = CreateVisionActionArgs
-
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        return [("vision_action", "editor"), ("session_recording", "viewer")]
-
-    async def format_dangerous_operation_preview(self, name: str = "", cadence: str = "daily", **kwargs) -> str:
-        return (
-            f"**Create a {cadence} summary** '{name}'. It runs on that schedule from now on, and each run "
-            "calls the synthesis model and bills the project's AI credits. It keeps running until someone "
-            "disables it. This spends no Replay Vision scanning credits."
-        )
-
-    async def _arun_impl(
-        self, scanner_id: str, name: str, cadence: str = "daily", focus: str | None = None
-    ) -> tuple[str, dict[str, Any]]:
-        return await self._create(scanner_id, name, cadence, focus)
-
-    @database_sync_to_async
-    def _create(self, scanner_id: str, name: str, cadence: str, focus: str | None) -> tuple[str, dict[str, Any]]:
-        rrule = _CADENCE_RRULES.get(cadence.strip().lower())
-        if rrule is None:
-            return "Cadence has to be 'daily' or 'weekly'.", {"error": "invalid_cadence"}
-        # Configured scanners only: a summary is a standing job, and an inline scan's scanner is a
-        # throwaway the reaper may collect.
-        scanner = (
-            ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_id).first() if is_uuid(scanner_id) else None
-        )
-        # Editor, not viewer: an action is automation bound to the scanner, and _check_action_scanner_access
-        # object-checks the target at editor level for writes. Viewer here would let a per-scanner
-        # restriction that blocks the API be walked around through Max.
-        if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "editor"):
-            return f"Scanner {scanner_id} not found.", {"error": "not_found"}
-        # Through the serializer so the rrule and timezone are validated and the unique-name race is
-        # handled, rather than writing a trigger_config the scheduler later chokes on.
-        serializer = VisionActionSerializer(
-            data={
-                "name": name.strip(),
-                "scanner": str(scanner.id),
-                "mode": ActionMode.GROUP_SUMMARY,
-                "trigger_config": {"rrule": rrule, "timezone": self._team.timezone or "UTC"},
-                "synthesis_config": {"prompt_guide": focus.strip()} if focus and focus.strip() else {},
-            },
-            # team_id is not optional: the scanner field is team-scoped and fails safe to .none(),
-            # so without it the scanner never resolves and every call fails validation.
-            context={"get_team": lambda: self._team, "team_id": self._team.id, "user": self._user},
-        )
-        if not serializer.is_valid():
-            return _first_error(serializer.errors), {"error": "invalid_config"}
-        action = serializer.save()
-        return (
-            f"Created a {cadence} summary of that scanner's observations. It appears on the scanner's "
-            "'Summaries and alerts' tab, and you can add Slack or webhook delivery there.",
-            {"vision_action_id": str(action.id)},
-        )
-
-
 def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: float) -> str:
     """Projected monthly cost of running a scanner, which is what enabling actually commits to.
 
@@ -1614,310 +1476,6 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                 "sampling_rate": rate,
                 "credits_remaining": remaining,
             },
-        )
-
-
-READ_ACTIONS_TOOL_DESCRIPTION = """
-Use this tool to see the recurring summaries and alerts set up over Replay Vision scanners, and to read
-the reports they've produced.
-
-# When to use
-- The user asks what summaries or alerts exist, or which are running
-- The user asks what the latest summary said, or what a digest found
-- You need an action's id for update, run, or delete
-
-# What it returns
-With no `action_id`, every action with its id, name, mode, cadence and whether it's enabled. With an
-`action_id`, that action's recent runs and their synthesized reports. Reading costs nothing.
-"""
-
-
-class ReadActionsArgs(BaseModel):
-    action_id: str | None = Field(
-        default=None,
-        description="Read this action's recent runs and their reports. Leave unset to list every action.",
-    )
-
-
-class ReadReplayVisionActionsTool(ReplayVisionGatesMixin, MaxTool):
-    # Reading spends nothing.
-    needs_confirmation: ClassVar[bool] = False
-    name: str = "read_replay_vision_actions"
-    description: str = READ_ACTIONS_TOOL_DESCRIPTION
-    args_schema: type[BaseModel] = ReadActionsArgs
-
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        # Reports quote recording-derived output, so reading them needs recording read.
-        return [("vision_action", "viewer"), ("session_recording", "viewer")]
-
-    async def _arun_impl(self, action_id: str | None = None) -> tuple[str, dict[str, Any]]:
-        return await self._read(action_id)
-
-    @database_sync_to_async
-    def _read(self, action_id: str | None) -> tuple[str, dict[str, Any]]:
-        if action_id is None:
-            readable = self._readable_actions().order_by("name", "id")
-            actions = [
-                {
-                    "action_id": str(a.id),
-                    # User-editable, so it goes back neutralized rather than as prose the model trusts.
-                    "name": neutralize_markup(a.name),
-                    "mode": a.mode,
-                    "enabled": a.enabled,
-                    "rrule": (a.trigger_config or {}).get("rrule"),
-                    "scanner_id": str(a.scanner_id),
-                }
-                for a in readable[:_MAX_LISTED]
-            ]
-            if not actions:
-                return "This project has no Replay Vision summaries or alerts yet.", {"actions": []}
-            total = readable.count()
-            shown = f"{len(actions)} of {total} action(s)" if total > len(actions) else f"{len(actions)} action(s)"
-            return f"{shown}. Their ids are in the result.", {"actions": actions, "total": total}
-
-        action = self._action_for(action_id, "viewer")
-        if action is None:
-            return f"Action {action_id} not found.", {"error": "not_found"}
-        runs = [
-            {
-                "run_id": str(r.id),
-                "status": r.status,
-                "scheduled_at": r.scheduled_at.isoformat() if r.scheduled_at else None,
-                "observation_count": r.observation_count,
-                # The report is model-written over recording content, so it stays fenced.
-                "report": as_untrusted_data("report", [r.synthesized_markdown]) if r.synthesized_markdown else None,
-            }
-            for r in VisionActionRun.objects.for_team(self._team.id)
-            .filter(vision_action_id=action.id)
-            .order_by("-scheduled_at")[:_MAX_ACTION_RUNS]
-            if self._may_read_run(r)
-        ]
-        if not runs:
-            return "That action hasn't run yet.", {"action_id": action_id, "runs": []}
-        return f"The {len(runs)} most recent run(s) for that action.", {"action_id": action_id, "runs": runs}
-
-    def _may_read_run(self, run: VisionActionRun) -> bool:
-        """Whether this user may read the report a past run produced.
-
-        A run's `observation_ids` reflect the selection at run time, so a later selection edit, or a
-        grant revoked since, can leave the report drawing on a scanner the caller can't read. Same check
-        `VisionActionRunViewSet.retrieve` applies; viewer is the bar, as these are read-only sources.
-        """
-        ids = run.observation_ids if isinstance(run.observation_ids, list) else []
-        if not ids:
-            return True
-        scanner_ids = set(
-            ReplayObservation.objects.filter(team_id=self._team.id, id__in=ids).values_list("scanner_id", flat=True)
-        )
-        scanners = ReplayScanner.objects.filter(team_id=self._team.id, id__in=scanner_ids)
-        return all(self.user_access_control.check_access_level_for_object(s, "viewer") for s in scanners)
-
-    def _readable_actions(self) -> "QuerySet[VisionAction]":
-        """Actions whose bound scanner this user may read.
-
-        The resource-level filter isn't enough alone: `vision_action` inherits the `replay_scanner`
-        resource, not any individual scanner's ACL, so a per-scanner restriction would still leave the
-        action listed along with reports derived from that scanner's observations.
-        """
-        actions = self.user_access_control.filter_queryset_by_access_level(VisionAction.objects.for_team(self._team.id))
-        readable_scanners = self.user_access_control.filter_queryset_by_access_level(
-            ReplayScanner.objects.filter(team_id=self._team.id)
-        )
-        return actions.filter(scanner_id__in=readable_scanners.values("id"))
-
-
-UPDATE_ACTION_TOOL_DESCRIPTION = """
-Use this tool to change a recurring Replay Vision summary or alert: pause it, resume it, rename it, or
-change how often it runs.
-
-# When to use
-- The user wants to stop a summary that keeps arriving, or start one again
-- The user wants a daily digest weekly, or the other way round
-
-# Cost
-Resuming an action means each run calls the synthesis model and bills the project's AI credits, on that
-cadence, until it's paused again, so resuming asks the user to confirm. Pausing and renaming cost
-nothing.
-"""
-
-
-class UpdateActionArgs(BaseModel):
-    action_id: str = Field(description="The summary or alert to change.")
-    enabled: bool | None = Field(
-        default=None, description="False to pause it, true to resume. Leave unset to keep it as it is."
-    )
-    name: str | None = Field(default=None, description="New name. Leave unset to keep the current one.")
-    cadence: str | None = Field(
-        default=None, description="New cadence: 'daily' or 'weekly'. Leave unset to keep the current one."
-    )
-
-
-class UpdateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
-    name: str = "update_replay_vision_action"
-    description: str = UPDATE_ACTION_TOOL_DESCRIPTION
-    args_schema: type[BaseModel] = UpdateActionArgs
-
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        return [("vision_action", "editor"), ("session_recording", "viewer")]
-
-    async def is_dangerous_operation(self, enabled: bool | None = None, **kwargs) -> bool:
-        # Argument-dependent: resuming restarts recurring AI spend, pausing and renaming stop or cost nothing.
-        return enabled is True
-
-    async def format_dangerous_operation_preview(self, action_id: str = "", **kwargs) -> str:
-        return (
-            f"**Resume** summary {action_id}. Each run calls the synthesis model and bills the project's "
-            "AI credits, on its schedule, until it's paused again."
-        )
-
-    async def _arun_impl(
-        self, action_id: str, enabled: bool | None = None, name: str | None = None, cadence: str | None = None
-    ) -> tuple[str, dict[str, Any]]:
-        return await self._update(action_id, enabled, name, cadence)
-
-    @database_sync_to_async
-    def _update(
-        self, action_id: str, enabled: bool | None, name: str | None, cadence: str | None
-    ) -> tuple[str, dict[str, Any]]:
-        action = self._action_for(action_id)
-        if action is None:
-            return f"Action {action_id} not found.", {"error": "not_found"}
-        data: dict[str, Any] = {}
-        if enabled is not None:
-            data["enabled"] = enabled
-        if name is not None:
-            data["name"] = name.strip()
-        if cadence is not None:
-            rrule = _CADENCE_RRULES.get(cadence.strip().lower())
-            if rrule is None:
-                return "Cadence has to be 'daily' or 'weekly'.", {"error": "invalid_cadence"}
-            data["trigger_config"] = {**(action.trigger_config or {}), "rrule": rrule}
-        if not data:
-            return "Nothing to change. Say what you want to update.", {"error": "no_changes"}
-        # Through the serializer so the rrule and timezone stay valid and the unique-name race is handled.
-        serializer = VisionActionSerializer(
-            action,
-            data=data,
-            partial=True,
-            context={"get_team": lambda: self._team, "team_id": self._team.id, "user": self._user},
-        )
-        if not serializer.is_valid():
-            return _first_error(serializer.errors), {"error": "invalid_config"}
-        old_enabled, old_name = action.enabled, action.name
-        # Atomic with the re-provision, matching `perform_update`: a destination failure has to roll the
-        # edit back rather than leave an action whose deliveries describe a state it's no longer in.
-        with transaction.atomic():
-            updated = serializer.save()
-            if updated.enabled != old_enabled or updated.name != old_name:
-                provision_delivery(updated, user=self._user, team=self._team)
-        state = "It's running on its schedule." if updated.enabled else "It's paused, so it won't run or spend."
-        return f"Updated the action. {state}", {"action_id": str(updated.id), "enabled": updated.enabled}
-
-
-DELETE_ACTION_TOOL_DESCRIPTION = """
-Use this tool to delete a recurring Replay Vision summary or alert.
-
-# When to use
-- The user explicitly asks to delete or remove a summary or an alert
-
-# What it does
-Deletes the action and its run history, including the reports it produced. That history is not
-recoverable, and its delivery destinations stop firing. Pausing keeps the history, so offer
-update_replay_vision_action with enabled false first unless the user is clear they want it gone.
-"""
-
-
-class DeleteActionArgs(BaseModel):
-    action_id: str = Field(description="The summary or alert to delete, along with its run history.")
-
-
-class DeleteReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
-    # Spends nothing, but destroys the reports it produced.
-    needs_confirmation: ClassVar[bool] = True
-    name: str = "delete_replay_vision_action"
-    description: str = DELETE_ACTION_TOOL_DESCRIPTION
-    args_schema: type[BaseModel] = DeleteActionArgs
-
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        return [("vision_action", "editor")]
-
-    async def format_dangerous_operation_preview(self, action_id: str = "", **kwargs) -> str:
-        return (
-            f"**Delete** action {action_id} and every report it has produced. That history is gone for "
-            "good, and its Slack or webhook deliveries stop. Pausing it instead keeps the reports."
-        )
-
-    async def _arun_impl(self, action_id: str) -> tuple[str, dict[str, Any]]:
-        return await self._delete(action_id)
-
-    @database_sync_to_async
-    def _delete(self, action_id: str) -> tuple[str, dict[str, Any]]:
-        action = self._action_for(action_id)
-        if action is None:
-            return f"Action {action_id} not found.", {"error": "not_found"}
-        # Archive destinations before the row goes, matching `perform_destroy`.
-        archive_delivery(action, team=self._team)
-        action.delete()
-        return "Deleted the action and its reports.", {"action_id": action_id}
-
-
-RUN_ACTION_TOOL_DESCRIPTION = """
-Use this tool to run a Replay Vision summary now, without waiting for its schedule.
-
-# When to use
-- The user wants the latest summary immediately rather than at the next scheduled time
-
-# Cost
-Running it calls the synthesis model once and bills the project's AI credits, so the user is asked to
-confirm. The report is not returned immediately: synthesis takes a little while, and
-read_replay_vision_actions with the action's id shows it once it lands.
-"""
-
-
-class RunActionArgs(BaseModel):
-    action_id: str = Field(description="The summary to run now.")
-
-
-class RunReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
-    # One synthesis call, billed to the project's AI credits.
-    needs_confirmation: ClassVar[bool] = True
-    name: str = "run_replay_vision_action"
-    description: str = RUN_ACTION_TOOL_DESCRIPTION
-    args_schema: type[BaseModel] = RunActionArgs
-
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        return [("vision_action", "editor"), ("session_recording", "viewer")]
-
-    async def format_dangerous_operation_preview(self, action_id: str = "", **kwargs) -> str:
-        return (
-            f"**Run** summary {action_id} now. It calls the synthesis model once and bills the project's "
-            "AI credits. This is a one-off; its schedule is unchanged."
-        )
-
-    async def _arun_impl(self, action_id: str) -> tuple[str, dict[str, Any]]:
-        if not await self._consent_given():
-            return self._no_ai_consent()
-        return await self._run_now(action_id)
-
-    @database_sync_to_async
-    def _run_now(self, action_id: str) -> tuple[str, dict[str, Any]]:
-        action = self._action_for(action_id)
-        if action is None:
-            return f"Action {action_id} not found.", {"error": "not_found"}
-        if action.mode != ActionMode.GROUP_SUMMARY:
-            return "Only scheduled summaries can be run on demand.", {"error": "not_runnable"}
-        # scheduled_at=now anchors this run's observation window; the recurring schedule is untouched.
-        _, outcome = start_process_vision_action_workflow(action.id, self._team.id, scheduled_at=timezone.now())
-        if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
-            return (
-                "That summary is already running. Its report will appear when it finishes.",
-                {"action_id": action_id, "already_running": True},
-            )
-        if outcome is not WorkflowStartOutcome.STARTED:
-            return "Couldn't start that summary. Try again in a moment.", {"error": "start_failed"}
-        return (
-            "Started the summary. It takes a little while; read it back with read_replay_vision_actions.",
-            {"action_id": action_id},
         )
 
 

@@ -6,7 +6,7 @@ export interface TaskInputReportAssociation {
   title: string;
 }
 
-export interface TaskInputPrefill {
+interface TaskInputPrefill {
   requestId?: string;
   folderId?: string;
   /** `owner/repo` of the picked sidebar group, for groups with no folder. */

@@ -1897,8 +1897,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         returned_ids = []
         # The property-access-control feature check reuses the request's already-loaded team,
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
-        # saved-expressions fetch in the HogQL database build.
-        with self.assertNumQueries(16):
+        # saved-expressions fetch in the HogQL database build. +1 for the shared-database
+        # kill-switch instance setting, cold-cache here but TTL-cached per worker in production.
+        with self.assertNumQueries(17):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]

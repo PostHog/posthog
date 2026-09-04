@@ -99,10 +99,6 @@ export type CanvasCaptureResult = z.infer<typeof canvasCaptureResultSchema>;
 export const canvasAgentRequestInputSchema = z.object({
   prompt: z.string().min(1).max(10_000),
 });
-export type CanvasAgentRequestInput = z.infer<
-  typeof canvasAgentRequestInputSchema
->;
-
 export const canvasAgentRequestResultSchema = z.object({
   requestOutcome: z.enum(["signaled", "new_run", "already_queued", "reported"]),
   taskId: z.string().min(1),
@@ -132,8 +128,6 @@ export type CanvasCaptureConfig = z.infer<typeof canvasCaptureConfigSchema>;
 // Stamped on every frame so a page hosting multiple canvas iframes (or other
 // postMessage traffic) can route unambiguously.
 const CANVAS_CHANNEL = "posthog-canvas" as const;
-export const CANVAS_MESSAGE_CHANNEL = CANVAS_CHANNEL;
-
 // Analytics bootstrap config handed to the iframe so posthog-js can run INSIDE
 // it (the only way session replay records the app's DOM). Only the PUBLIC
 // capture key crosses — never the private read token. `distinctId` seeds
@@ -177,8 +171,8 @@ export type CanvasCommentHighlight = z.infer<
   typeof canvasCommentHighlightSchema
 >;
 
-export const MAX_CANVAS_COMMENT_HIGHLIGHTS = 500;
-export const MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH = 100_000;
+const MAX_CANVAS_COMMENT_HIGHLIGHTS = 500;
+const MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH = 100_000;
 
 export function limitCanvasCommentHighlights(
   highlights: CanvasCommentHighlight[],

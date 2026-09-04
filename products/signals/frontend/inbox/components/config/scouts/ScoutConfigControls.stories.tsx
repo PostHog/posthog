@@ -28,7 +28,7 @@ const meta: Meta<typeof ScoutConfigForm> = {
     title: 'Scenes-App/Inbox/ScoutConfigForm',
     component: ScoutConfigForm,
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true },
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true },
     },
 }
 export default meta
@@ -48,4 +48,14 @@ export const DryRun: Story = {
 // that would change that run's timing lock.
 export const Disabled: Story = {
     render: () => <EditableConfigForm initialConfig={{ ...mockScoutConfigs[0], enabled: false }} />,
+}
+
+// A weekly schedule: the day picker and the time picker together write a `30 8 * * 4`-style cron.
+export const WeeklySchedule: Story = {
+    render: () => <EditableConfigForm initialConfig={{ ...mockScoutConfigs[0], run_cron_schedule: '30 8 * * 4' }} />,
+}
+
+// A schedule the presets cannot express. The expression is editable, and validated as it is typed.
+export const CustomCronSchedule: Story = {
+    render: () => <EditableConfigForm initialConfig={{ ...mockScoutConfigs[0], run_cron_schedule: '0 9 * * 1-5' }} />,
 }

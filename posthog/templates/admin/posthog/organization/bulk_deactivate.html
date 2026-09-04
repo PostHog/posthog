@@ -1,6 +1,5 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_urls %}
-
 {% block extrahead %}
     {{ block.super }}
     <script nonce="{{ request.csp_nonce }}">
@@ -24,91 +23,92 @@
         })
     </script>
 {% endblock %}
-
 {% block content %}
-<div id="content-main">
-    <h1>{{ title }}</h1>
-    <p>Paste organization IDs, choose the reason users will see, then review the matched organizations before deactivation.</p>
-    <div id="bulk-deactivate-settings" data-custom-reason-value="{{ custom_reason_value }}"></div>
-
-    <form method="post">
-        {% csrf_token %}
-        {{ form.non_field_errors }}
-        <fieldset class="module aligned">
-            {% for field in form %}
-                <div class="form-row field-{{ field.name }}">
-                    {{ field.errors }}
-                    {{ field.label_tag }} {{ field }}
-                    {% if field.help_text %}
-                        <div class="help">{{ field.help_text }}</div>
-                    {% endif %}
-                </div>
-            {% endfor %}
-        </fieldset>
-
-        {% if preview_organizations %}
-            <input type="hidden" name="preview_token" value="{{ preview_token }}">
-
-            <h2>Review organizations</h2>
-            <p>This will deactivate {{ deactivation_organizations|length }} active organization{{ deactivation_organizations|length|pluralize }} with this reason:</p>
-            <blockquote>{{ resolved_reason }}</blockquote>
-
-            {% if missing_ids %}
-                <p><strong>These IDs were not found and will be skipped:</strong></p>
-                <ul>
-                    {% for organization_id in missing_ids %}
-                        <li><code>{{ organization_id }}</code></li>
-                    {% endfor %}
-                </ul>
-            {% endif %}
-
-            {% if already_inactive_organizations %}
-                <p><strong>These organizations are already inactive and will be skipped:</strong></p>
-                <ul>
-                    {% for organization in already_inactive_organizations %}
-                        <li><code>{{ organization.id }}</code> {{ organization.name }}</li>
-                    {% endfor %}
-                </ul>
-            {% endif %}
-
-            <table>
-                <thead>
-                    <tr>
-                        <th scope="col">Organization ID</th>
-                        <th scope="col">Name</th>
-                        <th scope="col">Current status</th>
-                        <th scope="col">Current reason</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for organization in preview_organizations %}
-                        <tr>
-                            <td><code>{{ organization.id }}</code></td>
-                            <td>
-                                <a href="{% url 'admin:posthog_organization_change' organization.id %}">
-                                    {{ organization.name }}
-                                </a>
-                            </td>
-                            <td>{% if organization.is_active %}Active{% else %}Not active{% endif %}</td>
-                            <td>{{ organization.is_not_active_reason|default:"-" }}</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-
-            <div class="submit-row">
-                {% if deactivation_organizations %}
-                    <input type="submit" value="Deactivate organizations" class="default" name="confirm">
+    <div id="content-main">
+        <h1>{{ title }}</h1>
+        <p>Paste organization IDs, choose the reason users will see, then review the matched organizations before deactivation.</p>
+        <div id="bulk-deactivate-settings"
+             data-custom-reason-value="{{ custom_reason_value }}"></div>
+        <form method="post">
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+            <fieldset class="module aligned">
+                {% for field in form %}
+                    <div class="form-row field-{{ field.name }}">
+                        {{ field.errors }}
+                        {{ field.label_tag }} {{ field }}
+                        {% if field.help_text %}
+                            <div class="help">{{ field.help_text }}</div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </fieldset>
+            {% if preview_organizations %}
+                <input type="hidden" name="preview_token" value="{{ preview_token }}">
+                <h2>Review organizations</h2>
+                <p>This will deactivate {{ deactivation_organizations|length }} active organization{{ deactivation_organizations|length|pluralize }} with this reason:</p>
+                <blockquote>
+                    {{ resolved_reason }}
+                </blockquote>
+                {% if missing_ids %}
+                    <p><strong>These IDs were not found and will be skipped:</strong></p>
+                    <ul>
+                        {% for organization_id in missing_ids %}
+                            <li><code>{{ organization_id }}</code></li>
+                        {% endfor %}
+                    </ul>
                 {% endif %}
-                <input type="submit" value="Refresh preview" name="preview">
-                <a href="{% url 'admin:posthog_organization_changelist' %}" class="closelink">Back to organization list</a>
-            </div>
-        {% else %}
-            <div class="submit-row">
-                <input type="submit" value="Preview deactivation" class="default" name="preview">
-                <a href="{% url 'admin:posthog_organization_changelist' %}" class="closelink">Back to organization list</a>
-            </div>
-        {% endif %}
-    </form>
-</div>
+                {% if already_inactive_organizations %}
+                    <p><strong>These organizations are already inactive and will be skipped:</strong></p>
+                    <ul>
+                        {% for organization in already_inactive_organizations %}
+                            <li><code>{{ organization.id }}</code> {{ organization.name }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Organization ID</th>
+                            <th scope="col">Name</th>
+                            <th scope="col">Current status</th>
+                            <th scope="col">Current reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for organization in preview_organizations %}
+                            <tr>
+                                <td><code>{{ organization.id }}</code></td>
+                                <td>
+                                    <a href="{% url 'admin:posthog_organization_change' organization.id %}">{{ organization.name }}</a>
+                                </td>
+                                <td>{% if organization.is_active %}Active{% else %}Not active{% endif %}</td>
+                                <td>{{ organization.is_not_active_reason|default:"-" }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <div class="submit-row">
+                    {% if deactivation_organizations %}
+                        <input type="submit"
+                               value="Deactivate organizations"
+                               class="default"
+                               name="confirm">
+                    {% endif %}
+                    <input type="submit" value="Refresh preview" name="preview">
+                    <a href="{% url 'admin:posthog_organization_changelist' %}"
+                       class="closelink">Back to organization list</a>
+                </div>
+            {% else %}
+                <div class="submit-row">
+                    <input type="submit"
+                           value="Preview deactivation"
+                           class="default"
+                           name="preview">
+                    <a href="{% url 'admin:posthog_organization_changelist' %}"
+                       class="closelink">Back to organization list</a>
+                </div>
+            {% endif %}
+        </form>
+    </div>
 {% endblock %}

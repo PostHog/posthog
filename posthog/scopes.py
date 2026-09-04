@@ -106,6 +106,7 @@ APIScopeObject = Literal[
     "signal_scout",
     "signal_scout_internal",
     "signal_scout_report",
+    "signal_scratchpad_internal",
     "stamphog",
     "streamlit_app",
     "subscription",
@@ -120,7 +121,7 @@ APIScopeObject = Literal[
     "usage_metric",
     "user",
     "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
-    "vision_action",
+    "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
     "warehouse_objects",
@@ -181,6 +182,11 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # opted into the report tools (via the `signals_scout_reports` posture) — every
         # other scout's token lacks it, so the MCP server strips those tools entirely.
         "signal_scout_report",
+        # Sandbox-only write for the shared scratchpad (remember / forget). Split out from
+        # `signal_scout_internal` for the same reason as the report channel: the report
+        # pipeline's research and implementation runs need durable memory, and granting it
+        # through the scout object would hand them `emit_signal` and `record_output` too.
+        "signal_scratchpad_internal",
     }
 )
 
@@ -215,6 +221,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
     ("loop", "write"),
+    # Read-only export of experiment definitions (list/retrieve), so services syncing
+    # experiments into a warehouse don't need a credential tied to one person's account.
+    ("experiment", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

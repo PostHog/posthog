@@ -438,9 +438,14 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (!trimmedSearch || isLoading) {
             return false
         }
+        // Offering an excluded name would let it be selected as a non-captured event, committing the
+        // value the exclusion forbids. Mirrors legacy infiniteListLogic's `showNonCapturedEventOption`.
+        if (group.excludedProperties?.includes(trimmedSearch)) {
+            return false
+        }
         const realResults = items.filter((item) => !isQuickFilterItem(item))
         return realResults.length === 0
-    }, [allowNonCapturedEvents, group.type, trimmedSearch, isLoading, items])
+    }, [allowNonCapturedEvents, group.type, group.excludedProperties, trimmedSearch, isLoading, items])
 
     // Empty / loading state checks read array length, not the API-reported
     // total — a remote tab can have count > 0 while still loading its first

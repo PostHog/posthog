@@ -180,7 +180,3 @@ export function openTaskInput(
   if (channelId) nav.navigateToChannelNewTask(channelId);
   else nav.navigateToNewTask();
 }
-
-export function useOpenTaskInput(): typeof openTaskInput {
-  return useCallback(openTaskInput, []);
-}
