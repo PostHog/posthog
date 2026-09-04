@@ -248,7 +248,7 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 
 - `_posthog/run_started` — `{ sessionId, runId, taskId?, agentVersion }` — session initialized and ready. `agentVersion` is the agent's semver, used by clients to gate UI features against agent capabilities
 - `_posthog/task_complete` — `{ sessionId, taskId }` — agent finished (success or end-turn)
-- `_posthog/error` — `{ sessionId, message, error? }` — unrecoverable error
+- `_posthog/error` — `{ sessionId, message, error?, errorCategory? }` — unrecoverable error. `errorCategory` is the `classifyAgentError()` classification, which the Django log drain reports as the run's cause
 - `_posthog/status` — `{ sessionId, status, message? }` — progress updates
 - `_posthog/sdk_session` — `{ taskRunId, sessionId, adapter }` — maps the ACP session to a task run and adapter type (emitted once per session, used by clients to know which adapter is active)
 

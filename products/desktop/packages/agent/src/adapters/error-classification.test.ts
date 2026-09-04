@@ -30,6 +30,16 @@ describe("classifyAgentError", () => {
       "API Error: Content block is not a thinking block",
       "content_block_rejection",
     ],
+    // The codex app-server reports provider HTTP failures with its own wording.
+    [
+      "unexpected status 429 Too Many Requests: slow down",
+      "upstream_provider_failure",
+    ],
+    [
+      "unexpected status 502 Bad Gateway: upstream unavailable",
+      "upstream_provider_failure",
+    ],
+    ["unexpected status 403 Forbidden: needs a paid plan", "agent_error"],
     [
       "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
       "turn_ended_without_response",

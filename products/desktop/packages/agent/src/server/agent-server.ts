@@ -169,7 +169,12 @@ type TurnFailureDisposition =
   | "retryable_followup";
 
 const errorWithClassificationSchema = z.object({
-  data: z.object({ classification: agentErrorClassificationSchema }),
+  data: z.object({
+    classification: agentErrorClassificationSchema,
+    // The adapter carries the app-server's own cause here, so the diagnostic
+    // path can report it separately from the generic ACP display text.
+    result: z.string().optional(),
+  }),
 });
 
 type MessageCallback = (message: unknown) => void;
@@ -2283,6 +2288,7 @@ export class AgentServer {
   private extractErrorClassification(error: unknown): {
     classification: AgentErrorClassification;
     message: string;
+    cause: string;
   } {
     const message =
       error instanceof Error ? error.message : String(error ?? "");
@@ -2290,10 +2296,22 @@ export class AgentServer {
     // Prefer the structured `data` carried on RequestError if present.
     const parsed = errorWithClassificationSchema.safeParse(error);
     if (parsed.success) {
-      return { classification: parsed.data.data.classification, message };
+      // `message` is the generic text the SDK builds at the ACP boundary. The
+      // adapter puts the app-server's real cause on `data.result`, so the
+      // diagnostic path (terminal event + task-run update) reports that.
+      const cause = parsed.data.data.result || message;
+      return {
+        classification: parsed.data.data.classification,
+        message,
+        cause,
+      };
     }
 
-    return { classification: classifyAgentError(message), message };
+    return {
+      classification: classifyAgentError(message),
+      message,
+      cause: message,
+    };
   }
 
   private async runOwnedTurn<T>(operation: () => Promise<T>): Promise<T> {
@@ -2396,7 +2414,8 @@ export class AgentServer {
     phase: "initial" | "resume" | "followup",
     error: unknown,
   ): Promise<TurnFailureDisposition> {
-    const { classification, message } = this.extractErrorClassification(error);
+    const { classification, message, cause } =
+      this.extractErrorClassification(error);
     const isUpstreamFailure =
       upstreamProviderFailureClassifications.has(classification);
     const isTurnWithoutResponse =
@@ -2439,7 +2458,12 @@ export class AgentServer {
       return "retryable_followup";
     }
 
-    await this.signalTaskComplete(payload, "error", displayMessage);
+    // The live client already saw `displayMessage` via broadcastTurnFailure;
+    // the terminal event and task-run update carry the real cause so a failed
+    // run is diagnosable by its actual error, not the generic wrapper.
+    await this.signalTaskComplete(payload, "error", cause || displayMessage, {
+      errorCategory: classification,
+    });
     return "terminal";
   }
 
@@ -4595,7 +4619,23 @@ ${commonInstructions}
     payload: JwtPayload,
     stopReason: string,
     errorMessage?: string,
+    options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
+    // Enqueue the terminal error event before the final flush. `message` and
+    // `errorCategory` are the `_posthog/error` contract the Django log drain
+    // parses to report the real cause of a failed run, and it reads that event
+    // from the S3 log. So the event has to be written to the log before the
+    // flush that ships it to S3 — not only onto the live stream and OTel.
+    if (stopReason === "error") {
+      this.enqueueTaskTerminalEvent(POSTHOG_NOTIFICATIONS.ERROR, {
+        source: "agent_server",
+        stopReason,
+        message: errorMessage ?? "Agent error",
+        error: errorMessage ?? "Agent error",
+        errorCategory: options?.errorCategory,
+      });
+    }
+
     if (this.session?.payload.run_id === payload.run_id) {
       try {
         await this.session.logWriter.flush(payload.run_id, {
@@ -4618,12 +4658,6 @@ ${commonInstructions}
     }
 
     const status = "failed";
-
-    this.enqueueTaskTerminalEvent(POSTHOG_NOTIFICATIONS.ERROR, {
-      source: "agent_server",
-      stopReason,
-      error: errorMessage ?? "Agent error",
-    });
 
     try {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
@@ -4660,10 +4694,16 @@ ${commonInstructions}
       },
     };
     this.eventStreamSender?.enqueue(entry);
-    // Terminal events bypass the SessionLogWriter (and its sinks), so mirror
-    // them onto the OTel writer directly — a failed run is exactly what the
-    // telemetry must record.
-    this.session?.telemetry?.append(this.session.payload.run_id, entry);
+    // Persist to the session log too: the Django drain reads the terminal event
+    // from the S3 log to report the real cause of a failed run, and only the
+    // SessionLogWriter feeds that log. appendRawLine wraps the bare notification
+    // in the same {type, timestamp, notification} envelope the drain parses, and
+    // forwards it to the OTel sink — so telemetry still records the failed run
+    // without a second append here.
+    this.session?.logWriter.appendRawLine(
+      this.session.payload.run_id,
+      JSON.stringify(entry.notification),
+    );
   }
 
   private configureEnvironment({

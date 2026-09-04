@@ -283,9 +283,11 @@ export class RunTraceBuilder {
     this.closeTurn({ stopReason, errored: true }, time);
     // params.error is free text that can embed prompt or repo content, so
     // only the error's provenance is exported; the raw message stays in the
-    // session log and on the task run's error_message.
+    // session log and on the task run's error_message. The classification is a
+    // fixed vocabulary, so it is safe to export.
     const attrs: Attributes = {};
     strAttr(attrs, "error_source", params.source);
+    strAttr(attrs, "error_category", params.errorCategory);
     this.rootSpan.setAttributes(attrs);
     this.rootSpan.setStatus({ code: SpanStatusCode.ERROR });
     return this.rootContext;
