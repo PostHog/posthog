@@ -16,7 +16,7 @@ import type {
 import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { SCOUT_DAILY_AT_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
+import { SCOUT_DAILY_AT_SCHEDULE_MODE, SCOUT_WEEKLY_ON_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
 import { ScoutCreateModalLogicProps, scoutCreateModalLogic, scoutCreateModalLogicKey } from './scoutCreateModalLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
@@ -156,6 +156,7 @@ describe('scoutCreateModalLogic', () => {
             description: 'Investigates recurring checkout failures.',
             body: 'Inspect checkout failure signals and report meaningful regressions.',
             dailyTime: '09:00',
+            weeklyDay: '1',
             config: {
                 enabled: false,
                 emit: false,
@@ -309,6 +310,41 @@ describe('scoutCreateModalLogic', () => {
         )
     })
 
+    it('submits a weekly day and run time as a cron schedule', async () => {
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+        logic = scoutCreateModalLogic({
+            logicKey: 'weekly-scout',
+            initialValues: {
+                name: 'signals-scout-checkout-failures',
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+            },
+            onClose,
+            onCreated,
+        })
+        logic.mount()
+
+        logic.actions.setScoutCreateScheduleMode(SCOUT_WEEKLY_ON_SCHEDULE_MODE)
+        logic.actions.setScoutCreateWeeklyDay('4')
+        logic.actions.setScoutCreateDailyTime('14:45')
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateForm: expect.objectContaining({
+                weeklyDay: '4',
+                dailyTime: '14:45',
+                config: expect.objectContaining({ run_cron_schedule: '45 14 * * 4' }),
+            }),
+        })
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            expect.objectContaining({
+                config: expect.objectContaining({ run_cron_schedule: '45 14 * * 4' }),
+            })
+        )
+    })
+
     it('does not submit a daily schedule without a run time', async () => {
         mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
         logic = scoutCreateModalLogic({
@@ -422,6 +458,38 @@ describe('scoutCreateModalLogic', () => {
         // off and one backdrop click would silently discard the restored draft.
         expect(reopened.values.scoutCreateFormChanged).toBe(true)
         reopened.unmount()
+    })
+
+    it('picks a run day for a draft persisted before the weekly mode existed', async () => {
+        const logicKey = scoutCreateModalLogicKey(undefined)
+        const first = scoutCreateModalLogic({ logicKey, onClose })
+        first.mount()
+        first.actions.setScoutCreateFormValue('body', 'Watch checkout latency and report spikes.')
+        await expectLogic(first).toFinishAllListeners()
+        first.unmount()
+
+        // kea-localstorage restores the stored object over the whole reducer default instead of
+        // merging in fields added since, so a draft written before the weekly mode shipped comes
+        // back with no run day at all. Strip the key to reproduce that draft.
+        for (const key of Object.keys(localStorage)) {
+            const stored = localStorage.getItem(key)
+            if (stored?.includes('"weeklyDay"')) {
+                const draft = JSON.parse(stored)
+                delete draft.weeklyDay
+                localStorage.setItem(key, JSON.stringify(draft))
+            }
+        }
+
+        logic = scoutCreateModalLogic({ logicKey, onClose })
+        logic.mount()
+        logic.actions.setScoutCreateScheduleMode(SCOUT_WEEKLY_ON_SCHEDULE_MODE)
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateForm: expect.objectContaining({
+                weeklyDay: '1',
+                config: expect.objectContaining({ run_cron_schedule: '0 9 * * 1' }),
+            }),
+        })
     })
 
     it('does not restore a persisted draft after switching to another project', async () => {
