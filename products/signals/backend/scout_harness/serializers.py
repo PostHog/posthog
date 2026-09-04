@@ -50,6 +50,7 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
+    MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
     MAX_REPORT_SUMMARY_LENGTH,
     MAX_REPORT_TITLE_LENGTH,
@@ -1118,15 +1119,11 @@ class ReportEvidenceSerializer(serializers.Serializer):
     """One observation backing an authored report — becomes a bound signal row on the report."""
 
     description = serializers.CharField(
+        max_length=MAX_EVIDENCE_DESCRIPTION_LENGTH,
         help_text="Prose for this observation. Embedded and rendered to the safety/research surfaces.",
     )
     source_id = serializers.CharField(
         help_text="Stable id for this observation within the report (lets a later edit address it).",
-    )
-    weight = serializers.FloatField(
-        required=False,
-        min_value=0.0,
-        help_text="Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.",
     )
 
 

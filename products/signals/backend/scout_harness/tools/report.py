@@ -218,13 +218,14 @@ class EditReportResult:
 def _edit_update_text(note: str | None, evidence: Sequence[ScoutReportSignal] | None) -> str:
     """The text a note-shaped Slack update carries for an edit that left the report message alone.
 
-    A note goes out as the scout wrote it. Appended evidence is labelled and bulleted, so a reader
-    can tell a new observation from commentary in a channel that shows neither the evidence rail nor
-    the work log."""
-    parts = [note] if note is not None else []
+    Appended evidence goes first because Slack truncates this text as one section. Thus, a long note
+    cannot hide the fact that the scout added evidence. The report link gives access to all content."""
+    parts = []
     if evidence:
         lines = "\n".join(f"- {signal.description}" for signal in evidence)
         parts.append(f"**New evidence**\n{lines}")
+    if note is not None:
+        parts.append(note)
     return "\n\n".join(parts)
 
 
@@ -233,7 +234,10 @@ def _surfaced(status: SignalReport.Status) -> bool:
 
 
 def _build_signals(evidence: list[ReportEvidence]) -> list[ScoutReportSignal]:
-    return [ScoutReportSignal(description=e.description, source_id=e.source_id, weight=e.weight) for e in evidence]
+    return [
+        ScoutReportSignal(description=e.description, source_id=e.source_id, weight=SCOUT_SIGNAL_WEIGHT)
+        for e in evidence
+    ]
 
 
 def _build_actionability(*, explanation: str, choice: str, already_addressed: bool) -> ActionabilityAssessment:

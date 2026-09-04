@@ -3459,15 +3459,13 @@ export interface SignalScoutRunDetailApi {
  * One observation backing an authored report — becomes a bound signal row on the report.
  */
 export interface ReportEvidenceApi {
-    /** Prose for this observation. Embedded and rendered to the safety/research surfaces. */
+    /**
+     * Prose for this observation. Embedded and rendered to the safety/research surfaces.
+     * @maxLength 4000
+     */
     description: string
     /** Stable id for this observation within the report (lets a later edit address it). */
     source_id: string
-    /**
-     * Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.
-     * @minimum 0
-     */
-    weight?: number
 }
 
 /**

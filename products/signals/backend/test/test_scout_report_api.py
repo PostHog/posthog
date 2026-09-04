@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
@@ -19,6 +20,7 @@ from posthog.models.organization import OrganizationMembership
 from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
+    MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
     MAX_SUGGESTED_REVIEWERS,
     REPORT_KIND_FINDING,
@@ -38,6 +40,7 @@ from products.signals.backend.scout_harness.tools.report import (
 )
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
+from products.signals.backend.temporal.types import SignalData, render_signal_to_text
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -329,7 +332,9 @@ class TestScoutReportAPI(APIBaseTest):
                 self._edit_url(str(run.id)),
                 data={
                     "report_id": created["report_id"],
-                    "append_evidence": [{"description": "p99 doubled again on /cart", "source_id": "obs-2"}],
+                    "append_evidence": [
+                        {"description": "p99 doubled again on /cart", "source_id": "obs-2", "weight": 100.0}
+                    ],
                 },
                 format="json",
             )
@@ -343,7 +348,27 @@ class TestScoutReportAPI(APIBaseTest):
         metadata = embed_mock.call_args.kwargs["metadata"]
         assert metadata["report_id"] == created["report_id"]
         assert metadata["source_id"] == "obs-2"
+        assert metadata["weight"] == 1.0
         assert metadata["extra"]["skill_name"] == run.skill_name
+
+    def test_evidence_description_limit_is_in_the_request_schema(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge() as judge_mock, patch(EMBED_PATH) as embed_mock:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "append_evidence": [
+                        {"description": "x" * (MAX_EVIDENCE_DESCRIPTION_LENGTH + 1), "source_id": "obs-2"}
+                    ],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge_mock.assert_not_awaited()
+        embed_mock.assert_not_called()
 
     def test_evidence_append_is_rejected_at_the_report_cap_before_the_judge(self) -> None:
         # Emit plus every append share one cap, and it is checked before the safety judge so a call
@@ -438,6 +463,44 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         queue.assert_called_once()
         assert "p99 doubled again on /cart" in queue.call_args.kwargs["edit_note"]
+
+    def test_combined_slack_update_puts_evidence_before_the_note(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "append_note": "Context for the observation",
+                    "append_evidence": [{"description": "p99 doubled again on /cart", "source_id": "obs-2"}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        update = queue.call_args.kwargs["edit_note"]
+        assert update.startswith("**New evidence**\n- p99 doubled again on /cart")
+        assert update.endswith("Context for the observation")
+
+    def test_safety_renderer_includes_the_source_id(self) -> None:
+        rendered = render_signal_to_text(
+            SignalData(
+                signal_id="signal-1",
+                content="The checkout error rate increased.",
+                source_product="signals_scout",
+                source_type="cross_source_issue",
+                source_id="checkout-errors",
+                weight=1.0,
+                timestamp=timezone.now(),
+                extra={},
+            )
+        )
+        assert "- Source ID: checkout-errors" in rendered
 
     def test_edit_report_records_edited_report_once_across_repeated_edits(self) -> None:
         # The edited tally is set-membership, not a per-edit log: a run editing the same report twice
