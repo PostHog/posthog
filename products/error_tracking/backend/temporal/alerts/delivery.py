@@ -196,7 +196,7 @@ def _opener_filter_matches(
     }
 
 
-def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
+def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs, *, final_attempt: bool = False) -> int:
     planned = plan_alert_deliveries(inputs)
     filter_matches = _opener_filter_matches(planned, inputs)
     throttle_allowed: dict = {}
@@ -297,7 +297,8 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
             failures += 1
             retrying.add(delivery.alert.id)
     for alert_id, alert in throttled_openers.items():
-        if alert_id not in rooted and alert_id not in retrying:
+        # On the last attempt nothing is coming back for the retrying alerts either.
+        if alert_id not in rooted and (final_attempt or alert_id not in retrying):
             # Every destination of this alert failed for good (or nothing was
             # posted) and no retry is coming: a window that never opened a
             # conversation must not silence the next opener, which is the first
