@@ -21,7 +21,11 @@ class Command(BaseCommand):
         parser.add_argument("--concurrency", type=int, default=PROBE_CONCURRENCY, help="Probes in flight.")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        target = min(options["limit"] or probeable_server_count(), probeable_server_count())
+        limit = options["limit"]
+        if limit is not None and limit < 0:
+            limit = 0
+        # `limit or count` would treat 0 as "no limit", so spell the default out.
+        target = min(limit if limit is not None else probeable_server_count(), probeable_server_count())
         if target == 0:
             self.stdout.write("no probeable servers: crawl the registry first")
             return
