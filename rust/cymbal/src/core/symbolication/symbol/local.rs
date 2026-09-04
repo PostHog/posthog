@@ -213,8 +213,14 @@ impl LocalSymbolResolver {
                 .await?;
 
         if !persisted {
+            let refresh_if_older_than = self
+                .skip_unchanged_rewrites
+                .then(|| Utc::now() - self.ttl_policy.refresh_age(&raw_id, &stored.records));
             for record in &records {
-                let rows_affected = match record.save(&self.pool).await {
+                let rows_affected = match record
+                    .save_with_refresh_guard(&self.pool, refresh_if_older_than)
+                    .await
+                {
                     Ok(rows_affected) => rows_affected,
                     Err(error) => {
                         record_frame_write(FrameWriteOutcome::Error, 0);

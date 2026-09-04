@@ -162,6 +162,22 @@ impl ErrorTrackingStackFrame {
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
+        self.save_with_refresh_guard(e, None).await
+    }
+
+    // Racing writers load the same stale snapshot and would each rewrite identical
+    // content. With a threshold, the conflict update becomes a server-side no-op
+    // (no new tuple version, rows_affected 0) unless the row's content differs or
+    // its created_at is older than the threshold. `None` keeps the update
+    // unconditional.
+    pub(crate) async fn save_with_refresh_guard<'c, E>(
+        &self,
+        e: E,
+        refresh_if_older_than: Option<DateTime<Utc>>,
+    ) -> Result<u64, UnhandledError>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
         let context = if let Some(context) = &self.context {
             Some(serde_json::to_value(context)?)
         } else {
@@ -177,6 +193,11 @@ impl ErrorTrackingStackFrame {
                 contents = $6,
                 resolved = $7,
                 context = $9
+            WHERE posthog_errortrackingstackframe.symbol_set_id IS DISTINCT FROM $5
+                OR posthog_errortrackingstackframe.contents IS DISTINCT FROM $6
+                OR posthog_errortrackingstackframe.resolved IS DISTINCT FROM $7
+                OR posthog_errortrackingstackframe.context IS DISTINCT FROM $9
+                OR posthog_errortrackingstackframe.created_at < COALESCE($10, 'infinity'::timestamptz)
             "#,
             self.id.hash_id,
             self.id.part,
@@ -187,6 +208,7 @@ impl ErrorTrackingStackFrame {
             self.resolved,
             Uuid::now_v7(),
             context,
+            refresh_if_older_than,
         )
         .execute(e)
         .await?;
@@ -395,6 +417,55 @@ mod tests {
         assert_eq!(
             classify_frame_snapshot(&stale.records, &refreshed.records),
             FrameWriteOutcome::Unchanged
+        );
+    }
+
+    // Without the guard, every racing writer that loaded the same stale snapshot
+    // rewrites an identical row, creating a dead tuple and index churn per race.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn guarded_save_suppresses_noop_conflict_rewrites(pool: sqlx::PgPool) {
+        let id = FrameId::new("raw-frame-id".to_string(), 0, 0);
+        let frame = frame_with_part(id.clone(), 0);
+        let record = ErrorTrackingStackFrame::new(id, None, frame, true, None);
+        assert_eq!(record.save(&pool).await.unwrap(), 1);
+
+        let threshold = Some(Utc::now() - Duration::minutes(10));
+
+        let mut duplicate = record.clone();
+        duplicate.created_at = Utc::now();
+        assert_eq!(
+            duplicate
+                .save_with_refresh_guard(&pool, threshold)
+                .await
+                .unwrap(),
+            0,
+            "identical content on a fresh row is a server-side no-op"
+        );
+
+        assert_eq!(
+            duplicate
+                .save_with_refresh_guard(&pool, Some(Utc::now() + Duration::seconds(1)))
+                .await
+                .unwrap(),
+            1,
+            "identical content still refreshes a row older than the threshold"
+        );
+
+        let mut changed = record.clone();
+        changed.resolved = false;
+        assert_eq!(
+            changed
+                .save_with_refresh_guard(&pool, threshold)
+                .await
+                .unwrap(),
+            1,
+            "changed content always writes"
+        );
+
+        assert_eq!(
+            record.save(&pool).await.unwrap(),
+            1,
+            "an unguarded save keeps the unconditional update"
         );
     }
 
