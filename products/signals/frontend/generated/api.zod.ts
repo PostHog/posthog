@@ -945,7 +945,7 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
     .describe('Request body for `notes-create`.')
 
 /**
- * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
+ * Rewrite a report's title/summary, append a note or fresh evidence, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
  * @summary Edit an existing report for a run
  */
 export const signalsScoutEditReportBodyTitleMax = 300
@@ -953,6 +953,10 @@ export const signalsScoutEditReportBodyTitleMax = 300
 export const signalsScoutEditReportBodySummaryMax = 20000
 
 export const signalsScoutEditReportBodyAppendNoteMax = 10000
+
+export const signalsScoutEditReportBodyAppendEvidenceItemDescriptionMax = 4000
+
+export const signalsScoutEditReportBodyAppendEvidenceMax = 50
 
 export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
 
@@ -994,6 +998,29 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .max(signalsScoutEditReportBodyAppendNoteMax)
             .nullish()
             .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
+        append_evidence: zod
+            .array(
+                zod
+                    .object({
+                        description: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyAppendEvidenceItemDescriptionMax)
+                            .describe(
+                                'Prose for this observation. Embedded and rendered to the safety\/research surfaces.'
+                            ),
+                        source_id: zod
+                            .string()
+                            .describe(
+                                'Stable id for this observation within the report (lets a later edit address it).'
+                            ),
+                    })
+                    .describe('One observation backing an authored report — becomes a bound signal row on the report.')
+            )
+            .max(signalsScoutEditReportBodyAppendEvidenceMax)
+            .nullish()
+            .describe(
+                "Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report."
+            ),
         suggested_reviewers: zod
             .array(
                 zod
@@ -1091,7 +1118,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
  */
 export const signalsScoutEmitReportBodyTitleMax = 300
 
-export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
+export const signalsScoutEmitReportBodyEvidenceItemDescriptionMax = 4000
 
 export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
 export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 200
@@ -1131,6 +1158,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                     .object({
                         description: zod
                             .string()
+                            .max(signalsScoutEmitReportBodyEvidenceItemDescriptionMax)
                             .describe(
                                 'Prose for this observation. Embedded and rendered to the safety\/research surfaces.'
                             ),
@@ -1139,11 +1167,6 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .describe(
                                 'Stable id for this observation within the report (lets a later edit address it).'
                             ),
-                        weight: zod
-                            .number()
-                            .min(signalsScoutEmitReportBodyEvidenceItemWeightMin)
-                            .optional()
-                            .describe('Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.'),
                     })
                     .describe('One observation backing an authored report — becomes a bound signal row on the report.')
             )
