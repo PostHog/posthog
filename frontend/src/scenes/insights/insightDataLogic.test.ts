@@ -10,6 +10,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -603,6 +604,57 @@ describe('insightDataLogic', () => {
                 findMountedSpy.mockRestore()
                 sceneLogic.unmount()
             }
+        })
+
+        it('sends overlapping saves one at a time, so the newest query is written last', async () => {
+            const laterQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                },
+            }
+            const patchedQueries: Node[] = []
+            let markFirstPatchSent: () => void = () => {}
+            let releaseFirstPatch: () => void = () => {}
+            const firstPatchSent = new Promise<void>((resolve) => {
+                markFirstPatchSent = resolve
+            })
+            const firstPatchHeld = new Promise<void>((resolve) => {
+                releaseFirstPatch = resolve
+            })
+            const recordPatch = async (request: Request): Promise<Record<string, any>> => {
+                const body = (await request.json()) as Record<string, any>
+                patchedQueries.push(body.query)
+                return body
+            }
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = await recordPatch(request)
+                markFirstPatchSent()
+                await firstPatchHeld
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = await recordPatch(request)
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+
+            logic.actions.persistDisplayOptions(updatedQuery)
+            await firstPatchSent
+
+            const secondSave = expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(laterQuery)
+            })
+            // Past the 700ms debounce, so the second PATCH would run next to the first one if the
+            // saves were not serialized.
+            await delay(800)
+            expect(patchedQueries).toEqual([updatedQuery])
+
+            releaseFirstPatch()
+            await secondSave.toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchedQueries).toEqual([updatedQuery, laterQuery])
         })
 
         it('restores the saved query when the current save fails', async () => {
