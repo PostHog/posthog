@@ -27,7 +27,8 @@ def organization_accepted_desktop_beta_terms(organization_id: OrganizationId) ->
     # Deferred: the tasks facade pulls in a heavy dependency tree kept off the web startup path.
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
-    return tasks_facade.get_desktop_beta_terms_acceptance(organization_id).is_desktop_beta_terms_accepted
+    org_uuid = organization_id if isinstance(organization_id, uuid.UUID) else uuid.UUID(organization_id)
+    return tasks_facade.get_desktop_beta_terms_acceptance(org_uuid).is_desktop_beta_terms_accepted
 
 
 def organization_acted_on_signal(organization_id: OrganizationId) -> bool:
