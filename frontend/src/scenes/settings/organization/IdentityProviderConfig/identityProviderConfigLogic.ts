@@ -36,7 +36,11 @@ import {
 import type { Breadcrumb } from '~/types'
 
 import { identityProviderConfigsLogic } from './identityProviderConfigsLogic'
-import { IDENTITY_PROVIDER_FEATURES, hasSamlDomainScopeConflict } from './identityProviderConfigUtils'
+import {
+    IDENTITY_PROVIDER_FEATURES,
+    getIdentityProviderConfigsForScope,
+    hasSamlDomainScopeConflict,
+} from './identityProviderConfigUtils'
 
 export interface IdentityProviderConfigLogicProps {
     configScope: ConfigScopeEnumApi | null
@@ -44,6 +48,7 @@ export interface IdentityProviderConfigLogicProps {
 }
 
 export interface IdentityProviderConfigForm {
+    name: string
     domain_scope: DomainScopeEnumApi
     organization_domain_ids: string[]
     saml_entity_id: string
@@ -74,6 +79,7 @@ const NEW_CONFIG_ID = 'new'
 const ORGANIZATION_DOMAINS_PAGE_SIZE = 100
 
 const emptyIdentityProviderConfigForm = (): IdentityProviderConfigForm => ({
+    name: '',
     domain_scope: DomainScopeEnumApi.All,
     organization_domain_ids: [],
     saml_entity_id: '',
@@ -86,6 +92,7 @@ const emptyIdentityProviderConfigForm = (): IdentityProviderConfigForm => ({
 })
 
 const formValuesFromConfig = (config: IdentityProviderConfigApi | null): IdentityProviderConfigForm => ({
+    name: config?.name ?? '',
     domain_scope:
         !config || config.domain_scope === DomainScopeEnumApi.All
             ? DomainScopeEnumApi.All
@@ -105,6 +112,7 @@ const payloadFromForm = (
     formValues: IdentityProviderConfigForm
 ): IdentityProviderConfigWritePayload => {
     const commonPayload = {
+        name: formValues.name.trim(),
         domain_scope: formValues.domain_scope,
         organization_domain_ids:
             formValues.domain_scope === DomainScopeEnumApi.All ? [] : formValues.organization_domain_ids,
@@ -146,9 +154,13 @@ export interface identityProviderConfigLogicValues {
     identityProviderConfigs: IdentityProviderConfigApi[] | null // identityProviderConfigsLogic
     currentOrganizationId: string // organizationLogic
     breadcrumbs: Breadcrumb[]
+    configId: string
     configScope: ConfigScopeEnumApi | null
+    deleteConfirmation: string
     hasSamlDomainScopeConflict: boolean
     identityProviderConfig: IdentityProviderConfigApi | null
+    identityProviderConfigDeleting: boolean
+    identityProviderConfigDeletingLoading: boolean
     identityProviderConfigForm: IdentityProviderConfigForm
     identityProviderConfigFormAllErrors: Record<string, any>
     identityProviderConfigFormChanged: boolean
@@ -162,6 +174,7 @@ export interface identityProviderConfigLogicValues {
     identityProviderConfigLoaded: boolean
     identityProviderConfigLoading: boolean
     isConfigScopeValid: boolean
+    isDeleteModalOpen: boolean
     isIdentityProviderConfigFormSubmitting: boolean
     isIdentityProviderConfigFormValid: boolean
     isRedesignEnabled: boolean
@@ -183,6 +196,30 @@ export interface identityProviderConfigLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    loadIdentityProviderConfigs: () => any // identityProviderConfigsLogic
+    loadIdentityProviderConfigsSuccess: (
+        identityProviderConfigs: IdentityProviderConfigApi[],
+        payload?: any
+    ) => {
+        identityProviderConfigs: IdentityProviderConfigApi[]
+        payload?: any
+    } // identityProviderConfigsLogic
+    closeDeleteModal: () => {}
+    deleteIdentityProviderConfig: () => any
+    deleteIdentityProviderConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    deleteIdentityProviderConfigSuccess: (
+        identityProviderConfigDeleting: boolean,
+        payload?: any
+    ) => {
+        identityProviderConfigDeleting: boolean
+        payload?: any
+    }
     loadIdentityProviderConfig: () => any
     loadIdentityProviderConfigFailure: (
         error: string,
@@ -213,6 +250,7 @@ export interface identityProviderConfigLogicActions {
         organizationDomains: OrganizationDomainApi[]
         payload?: any
     }
+    openDeleteModal: () => {}
     regenerateScimToken: () => any
     regenerateScimTokenFailure: (
         error: string,
@@ -230,6 +268,9 @@ export interface identityProviderConfigLogicActions {
     }
     resetIdentityProviderConfigForm: (values?: IdentityProviderConfigForm) => {
         values?: IdentityProviderConfigForm
+    }
+    setDeleteConfirmation: (confirmation: string) => {
+        confirmation: string
     }
     setIdentityProviderConfigFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -272,6 +313,7 @@ export interface identityProviderConfigLogicActions {
 export interface identityProviderConfigLogicMeta {
     key: ConfigScopeEnumApi | 'invalid'
     __keaTypeGenInternalSelectorTypes: {
+        configId: (configId: string) => string
         configScope: (configScope: ConfigScopeEnumApi | null) => ConfigScopeEnumApi | null
         isRedesignEnabled: (featureFlags: FeatureFlagsSet, arg: any) => boolean
         isConfigScopeValid: (identityProviderConfig: IdentityProviderConfigApi | null, arg: any) => boolean
@@ -313,10 +355,18 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
             featureFlagLogic,
             ['featureFlags', 'receivedFeatureFlags'],
         ],
-        actions: [featureFlagLogic, ['setFeatureFlags']],
+        actions: [
+            featureFlagLogic,
+            ['setFeatureFlags'],
+            identityProviderConfigsLogic,
+            ['loadIdentityProviderConfigsSuccess', 'loadIdentityProviderConfigs'],
+        ],
     })),
     actions({
         setRevealedScimToken: (token: string | null) => ({ token }),
+        openDeleteModal: () => ({}),
+        closeDeleteModal: () => ({}),
+        setDeleteConfirmation: (confirmation: string) => ({ confirmation }),
     }),
     forms(({ actions, props, values }) => ({
         identityProviderConfigForm: {
@@ -377,6 +427,21 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
                     props.configId === NEW_CONFIG_ID
                         ? null
                         : await api.identityProviderConfigsRetrieve(values.currentOrganizationId, props.configId),
+            },
+        ],
+        identityProviderConfigDeleting: [
+            false,
+            {
+                deleteIdentityProviderConfig: async () => {
+                    if (!values.identityProviderConfig || values.identityProviderConfig.config_scope == null) {
+                        throw new Error('Only feature-specific identity provider configurations can be deleted.')
+                    }
+                    await api.identityProviderConfigsDestroy(
+                        values.currentOrganizationId,
+                        values.identityProviderConfig.id
+                    )
+                    return true
+                },
             },
         ],
         organizationDomains: [
@@ -447,8 +512,25 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
                 setRevealedScimToken: (_, { token }) => token,
             },
         ],
+        isDeleteModalOpen: [
+            false,
+            {
+                openDeleteModal: () => true,
+                closeDeleteModal: () => false,
+            },
+        ],
+        deleteConfirmation: [
+            '',
+            {
+                // A stale confirmation must not survive a reopen, or a typed confirmation
+                // from last time would let a single click delete the config.
+                openDeleteModal: () => '',
+                setDeleteConfirmation: (_, { confirmation }) => confirmation,
+            },
+        ],
     }),
     selectors({
+        configId: [(_, props) => [props.configId], (configId: string): string => configId],
         configScope: [
             (_, props) => [props.configScope],
             (configScope: ConfigScopeEnumApi | null): ConfigScopeEnumApi | null => configScope,
@@ -511,22 +593,58 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
             }
         },
         loadIdentityProviderConfigSuccess: ({ identityProviderConfig }) => {
-            actions.resetIdentityProviderConfigForm(formValuesFromConfig(identityProviderConfig))
+            const form = formValuesFromConfig(identityProviderConfig)
+            if (!identityProviderConfig && props.configId === NEW_CONFIG_ID && props.configScope) {
+                const hasExistingConfig = values.identityProviderConfigs
+                    ? getIdentityProviderConfigsForScope(values.identityProviderConfigs, props.configScope).length > 0
+                    : false
+                form.name = hasExistingConfig
+                    ? ''
+                    : `Default ${IDENTITY_PROVIDER_FEATURES[props.configScope].name} configuration`
+            }
+            actions.resetIdentityProviderConfigForm(form)
+        },
+        loadIdentityProviderConfigsSuccess: ({ identityProviderConfigs }) => {
+            if (props.configId === NEW_CONFIG_ID && props.configScope) {
+                // The list can finish after the form is interactive. Reconcile the guessed
+                // default name only while the user hasn't edited the form.
+                if (values.identityProviderConfigFormChanged) {
+                    return
+                }
+                const hasExistingConfig =
+                    getIdentityProviderConfigsForScope(identityProviderConfigs, props.configScope).length > 0
+                actions.resetIdentityProviderConfigForm({
+                    ...values.identityProviderConfigForm,
+                    name: hasExistingConfig
+                        ? ''
+                        : `Default ${IDENTITY_PROVIDER_FEATURES[props.configScope].name} configuration`,
+                })
+            }
         },
         submitIdentityProviderConfigFormSuccess: () => {
+            actions.loadIdentityProviderConfigs()
             const config = values.identityProviderConfig
             if (!config || !props.configScope) {
                 return
             }
 
             actions.resetIdentityProviderConfigForm(values.identityProviderConfigForm)
-            if (props.configId === NEW_CONFIG_ID) {
+            if (props.configId === NEW_CONFIG_ID && config.id) {
+                // Adopt the saved config's URL so another save updates it instead of creating a duplicate.
                 router.actions.replace(urls.identityProviderConfig(props.configScope, config.id))
             }
             lemonToast.success(`${IDENTITY_PROVIDER_FEATURES[props.configScope].name} configuration saved.`)
         },
         submitIdentityProviderConfigFormFailure: () => {
             lemonToast.error('Could not save the identity provider configuration. Check the form and try again.')
+        },
+        deleteIdentityProviderConfigSuccess: () => {
+            actions.loadIdentityProviderConfigs()
+            router.actions.replace(urls.settings('organization-authentication'))
+            lemonToast.success('Identity provider configuration deleted.')
+        },
+        deleteIdentityProviderConfigFailure: () => {
+            lemonToast.error('Could not delete the identity provider configuration. Try again.')
         },
         regenerateScimTokenSuccess: ({ regeneratedScimToken }) => {
             actions.setRevealedScimToken(regeneratedScimToken)
