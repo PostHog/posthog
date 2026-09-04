@@ -1,5 +1,7 @@
 import re
 
+from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
+
 FLAG_UNCALLED_DAYS = 365
 FLAG_DISABLED_DAYS = 90
 FLAG_FULL_ROLLOUT_DAYS = 180
@@ -15,3 +17,13 @@ MAX_DIRECTORY_LINES = 5000
 ALL_SCOPE_ROOTS = ("products", "frontend/src/scenes", "posthog", "ee")
 
 SUMMARY_NOTE_AUTHOR = "reaper-hog-scan"
+VERIFICATION_NOTE_AUTHOR = "reaper-hog-verify"
+
+VERIFICATION_SKILL_NAME = "reaper-hog-verification-criteria"
+VERIFICATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
+VERIFICATION_MODEL: str | None = "claude-opus-5"
+VERIFICATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+VERIFICATION_INITIAL_PERMISSION_MODE: str | None = None
+MAX_VERIFICATIONS_PER_RUN = 20
+
+REAPER_MCP_SCOPES: list[str] = ["llm_skill:read", "user:read"]

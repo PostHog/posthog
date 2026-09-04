@@ -1448,7 +1448,7 @@ from = [
 
 [[modules]]
 path = "products.reaper_hog"
-depends_on = ["posthog", "products.experiments", "products.feature_flags"]
+depends_on = ["posthog", "products.experiments", "products.feature_flags", "products.skills", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]

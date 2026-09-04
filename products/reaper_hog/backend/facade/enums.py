@@ -39,7 +39,14 @@ class InventoryStatus(StrEnum):
 
 class ArtefactType(StrEnum):
     HIT = "hit"
+    VERDICT = "verdict"
     NOTE = "note"
+
+
+class Confidence(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 
 
 SCOPE_FLAGS = "flags"
