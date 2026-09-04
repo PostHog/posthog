@@ -325,17 +325,21 @@ export function TranscriptBubbleStream({
     outputs: CompatMessage[]
     hideInternal?: boolean
 }): JSX.Element | null {
+    // Keys come from the unfiltered index so toggling `hideInternal` does not hand one
+    // bubble's expanded state to its neighbor.
     const items = useMemo(
         () =>
-            buildStreamItems([...inputs, ...outputs]).filter(
-                (item) => !hideInternal || (item.kind === 'bubble' && CONVERSATION_ROLES.has(item.message.role))
-            ),
+            buildStreamItems([...inputs, ...outputs])
+                .map((item, key) => ({ item, key }))
+                .filter(
+                    ({ item }) => !hideInternal || (item.kind === 'bubble' && CONVERSATION_ROLES.has(item.message.role))
+                ),
         [inputs, outputs, hideInternal]
     )
 
     const capturedRef = useRef<Set<string>>(new Set())
     useEffect(() => {
-        for (const item of items) {
+        for (const { item } of items) {
             if (item.kind === 'bubble' && item.nonText) {
                 captureUnrenderableMessageOnce(item.message, capturedRef.current)
             }
@@ -348,10 +352,10 @@ export function TranscriptBubbleStream({
 
     return (
         <div className="flex flex-col gap-1.5">
-            {items.map((item, i) =>
+            {items.map(({ item, key }) =>
                 item.kind === 'bubble' ? (
                     <MessageTemplate
-                        key={i}
+                        key={key}
                         type={item.message.role === 'user' ? 'human' : 'ai'}
                         wrapperClassName="max-w-[75%]"
                         // Same user-message fill the Trace page uses, so the two sides don't blend together
@@ -361,7 +365,7 @@ export function TranscriptBubbleStream({
                         {item.nonText && <div className="italic text-muted text-xs mt-1">(has attachments)</div>}
                     </MessageTemplate>
                 ) : (
-                    <InternalGroupPill key={i} messages={item.messages} labels={item.labels} role={item.role} />
+                    <InternalGroupPill key={key} messages={item.messages} labels={item.labels} role={item.role} />
                 )
             )}
         </div>
