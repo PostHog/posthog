@@ -300,5 +300,5 @@ class DashboardTile(models.Model):
             .prefetch_related("text__dashboard_tiles", "button_tile__dashboard_tiles", "widget__dashboard_tiles")
             .exclude(dashboard__deleted=True, deleted=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
-            .order_by("insight__order", "id")
+            .order_by("insight__order")
         )
