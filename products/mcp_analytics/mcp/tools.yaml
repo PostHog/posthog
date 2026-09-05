@@ -194,17 +194,18 @@ wrappers:
         title: List MCP tools with their headline numbers
         description: >
             List this project's MCP tools, one row per effective tool name, with calls, errors, error rate, p50/p95/p99
-            latency, unique users, unique sessions, and first and last seen. Start here when you do not have a tool name
-            yet: to rank tools by volume or error rate, to check whether the project records MCP calls at all, or to
-            find the exact toolName that the per-tool tools (query-mcp-tool-stats, query-mcp-tool-daily-stats,
-            query-mcp-tool-failures and the other tool-detail tools) require. Every parameter is optional. Narrow with
-            dateRange (server default the last 7 days), categories, and a case-insensitive search on the tool name. Only
-            tools called inside that window get a row, and first_seen and last_seen are the first and last call inside
-            it, not the tool's lifetime. Widen dateRange to reach a tool that has been idle for longer, or to find when
-            a tool was really first called. Order with sortColumn (total_calls, error_rate_pct, p50_duration_ms,
-            p95_duration_ms, p99_duration_ms, users, sessions, last_seen) and sortDirection. Page with limit (server
-            default 50, maximum 100) and offset. You get one page and no total, so a full page can mean more tools
-            matched: raise limit to 100, page on with offset, or narrow with search.
+            latency, unique users, unique sessions (distinct $session_id), and first and last seen. Start here when you
+            do not have a tool name yet: to rank tools by volume or error rate, to check whether the project records MCP
+            calls at all, or to find the exact toolName that the per-tool tools (query-mcp-tool-stats,
+            query-mcp-tool-daily-stats, query-mcp-tool-failures and the other tool-detail tools) require. Every
+            parameter is optional. Narrow with dateRange (server default the last 7 days), categories, and a
+            case-insensitive search on the tool name. Only tools called inside that window get a row, and first_seen and
+            last_seen are the first and last call inside it, not the tool's lifetime. Widen dateRange to reach a tool
+            that has been idle for longer, or to find when a tool was really first called. Order with sortColumn
+            (total_calls, error_rate_pct, p50_duration_ms, p95_duration_ms, p99_duration_ms, users, sessions, last_seen)
+            and sortDirection. Page with limit (server default 50, maximum 100) and offset. You get one page and no
+            total, so a full page can mean more tools matched: raise limit to 100, page on with offset, or narrow with
+            search.
         system_prompt_hint: MCP tools called in the window ranked — calls, error rate, latency, users, sessions
         exclude_properties:
             - response
@@ -226,13 +227,15 @@ wrappers:
         title: Summarise one MCP tool
         description: >
             Return the headline numbers for a single MCP tool over the window: total calls, error count, p50 and p95
-            latency, unique users, unique sessions, and how many calls carried an intent. This tool needs toolName, the
-            effective tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the
+            latency, unique users, conversations, and how many calls carried an intent. Conversations count
+            $mcp_session_id, falling back to $session_id, and that transport id rotates on reconnect, so the number can
+            exceed the sessions count query-mcp-tools reports for the same tool and window. This tool needs toolName,
+            the effective tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the
             tool-detail UI. Spell it in camelCase: tool_name and toolname are not accepted. The only other parameter is
             dateRange. There is no limit, days, or category parameter, and there is no all-tools mode: a call without
             toolName is rejected. To get a tool name, or to rank every tool, call query-mcp-tools first. Use to answer
             "how is tool X doing overall?" before drilling into failures, users, or neighbours.
-        system_prompt_hint: One MCP tool's headline stats — calls, errors, p50/p95, users, sessions, intents
+        system_prompt_hint: One MCP tool's headline stats — calls, errors, p50/p95, users, conversations, intents
         exclude_properties:
             - response
             - modifiers
@@ -252,11 +255,13 @@ wrappers:
         title: Daily trend for one MCP tool
         description: >
             Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and
-            unique sessions per day. This tool needs toolName, the effective tool name, resolved server-side. Spell it
-            in camelCase: tool_name and toolname are not accepted. The other parameters are dateRange and interval.
-            There is no limit or days parameter, and there is no all-tools mode: a call without toolName is rejected. To
-            get a tool name, or to rank every tool, call query-mcp-tools first. Use to answer "how has tool X trended?"
-            — spotting error spikes, latency regressions, or adoption changes over time.
+            sessions per day. Sessions here count $mcp_session_id, falling back to $session_id, and that transport id
+            rotates on reconnect, so the number can exceed the sessions count query-mcp-tools reports for the same tool
+            and window. This tool needs toolName, the effective tool name, resolved server-side. Spell it in camelCase:
+            tool_name and toolname are not accepted. The other parameters are dateRange and interval. There is no limit
+            or days parameter, and there is no all-tools mode: a call without toolName is rejected. To get a tool name,
+            or to rank every tool, call query-mcp-tools first. Use to answer "how has tool X trended?" — spotting error
+            spikes, latency regressions, or adoption changes over time.
         system_prompt_hint: One MCP tool's day-by-day series — calls, errors, p50/p95, users, sessions
         exclude_properties:
             - response
