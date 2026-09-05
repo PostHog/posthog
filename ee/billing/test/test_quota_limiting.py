@@ -18,9 +18,11 @@ from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.utils import get_current_day
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
+    PLAN_TRANSITION_GRACE_PERIOD_DAYS,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
@@ -588,6 +590,31 @@ class TestQuotaLimiting(BaseTest):
             "survey_responses": {"usage": 20, "limit": 100, "todays_usage": 0},
         }
 
+    @parameterized.expand(
+        [
+            ("limit_drops", 1000, 5, 1000),
+            ("limit_rises", 100, 1000, None),
+            ("limit_unchanged", 100, 100, None),
+        ]
+    )
+    def test_set_org_usage_summary_stamps_limit_decreased_from_only_when_limit_drops(
+        self, _name, previous_limit, new_limit, expected_marker
+    ):
+        self.organization.usage = {
+            "events": {"usage": 90, "limit": previous_limit, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        new_usage = {
+            "events": {"usage": 90, "limit": new_limit},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        set_org_usage_summary(self.organization, new_usage=cast(OrganizationUsageInfo, new_usage))
+
+        assert self.organization.usage["events"].get("limit_decreased_from") == expected_marker
+
     def test_set_org_usage_summary_does_nothing_if_the_same(self):
         self.organization.usage = {
             "events": {"usage": 99, "limit": 100, "todays_usage": 10},
@@ -898,6 +925,119 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limiting_suspended_until": None,
             }
 
+    @freeze_time("2021-01-25T12:00:00Z")
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_org_quota_limited_until_grants_grace_period_when_limit_drops_under_stable_usage(self):
+        # A plan flip to the free tier (e.g. a lapsed subscription) collapses `limit` while
+        # usage is unchanged. Without limit_decreased_from, a zero-trust-score org (the default
+        # for a healthy paying customer) falls into the "no trust score" branch and loses data
+        # on the spot. This must suspend instead.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.usage = {
+            "events": {"usage": 90, "todays_usage": 0, "limit": 5, "limit_decreased_from": 1000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        expected_suspended_until = round(
+            (get_current_day().end + datetime.timedelta(days=PLAN_TRANSITION_GRACE_PERIOD_DAYS)).timestamp()
+        )
+
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+
+        assert result == {
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": expected_suspended_until,
+        }
+        # The marker is one-shot: consumed once acted on, so it does not keep re-granting grace.
+        assert "limit_decreased_from" not in self.organization.usage["events"]
+
+        # A later quota check runs with the marker already consumed and the org still over its
+        # new limit. The active suspension must survive unchanged - the grace lasts its full two
+        # days, not just until the next 15-minute quota tick.
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+
+        assert result == {
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": expected_suspended_until,
+        }
+        assert self.organization.usage["events"]["quota_limiting_suspended_until"] == expected_suspended_until
+
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_org_quota_limited_until_limits_immediately_when_already_over_previous_limit(self):
+        # If the org was already over its OLD limit too, the drop is not what pushed it over -
+        # this is genuine overage, so the usual zero-trust-score immediate limit still applies.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.usage = {
+            "events": {"usage": 1200, "todays_usage": 0, "limit": 5, "limit_decreased_from": 1000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+
+        assert result == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
+        assert "limit_decreased_from" not in self.organization.usage["events"]
+
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_org_quota_limited_until_consumes_stale_marker_when_under_new_limit(self):
+        # A harmless decrease leaves usage under the new limit, so no grace is needed. The
+        # one-shot marker must be consumed here too - if it survives, a later organic overage
+        # that is still below the OLD limit would wrongly claim the plan-transition grace.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.usage = {
+            "events": {"usage": 90, "todays_usage": 0, "limit": 1000, "limit_decreased_from": 1_000_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        # Under the new limit: no suspension, and the stale marker is cleared.
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+        assert result is None
+        assert "limit_decreased_from" not in self.organization.usage["events"]
+
+        # Usage now grows organically past the new limit (still below the old one). With the
+        # marker gone this is a plain overage, so it limits at once instead of getting grace.
+        self.organization.usage["events"]["usage"] = 1200
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+        assert result == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
+
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_org_quota_limited_until_consumes_stale_marker_when_limit_is_removed(self):
+        # A marker stamped by an earlier decrease can be carried forward to a period where the
+        # limit is removed entirely. No limit means no overage, so the marker cannot earn grace
+        # and must be consumed - otherwise it survives into the next capped period as a stale one.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.usage = {
+            "events": {"usage": 90, "todays_usage": 0, "limit": None, "limit_decreased_from": 1_000_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+
+        assert result is None
+        assert "limit_decreased_from" not in self.organization.usage["events"]
+
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_org_quota_limited_until_ignores_limit_drop_marker_for_grace_exempt_resources(self):
+        # AI credits (and other GRACE_PERIOD_EXEMPT_RESOURCES) never get a grace period,
+        # including the plan-transition one - abuse risk outweighs the false-positive here.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.usage = {
+            "ai_credits": {"usage": 10, "todays_usage": 0, "limit": 5, "limit_decreased_from": 1000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        result = org_quota_limited_until(self.organization, QuotaResource.AI_CREDITS, [])
+
+        assert result == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
+
     def test_over_quota_but_not_dropped_org(self):
         self.organization.usage = None
         previously_quota_limited_team_tokens_events = list_limited_team_attributes(
@@ -1166,6 +1306,31 @@ class TestQuotaLimiting(BaseTest):
                     QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
                 )
             ) == sorted(["5678"])
+
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_update_org_billing_quotas_moves_org_out_of_limiter_when_granting_grace(self):
+        # An org already in the limiter zset then gets a plan-transition suspension (its limit
+        # dropped under otherwise-fine usage). The suspension must move it out of the limiter set,
+        # not just add a suspended entry - capture reads only the limiter set, so a leftover entry
+        # keeps its events dropping through the grace window.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        team_tokens = get_team_attribute_by_quota_resource(self.organization)
+        add_limited_team_tokens(
+            QuotaResource.EVENTS,
+            dict.fromkeys(team_tokens, 1612137599),
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        self.organization.usage = {
+            "events": {"usage": 90, "todays_usage": 0, "limit": 5, "limit_decreased_from": 1000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        update_org_billing_quotas(self.organization)
+
+        assert list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) == []
+        assert sorted(
+            list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
+        ) == sorted(team_tokens)
 
     @patch("ee.billing.quota_limiting.capture_exception")
     def test_get_team_attribute_by_quota_resource(self, mock_capture):

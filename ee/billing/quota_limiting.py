@@ -63,6 +63,11 @@ QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
 # Feature flags always get a 2-day grace period regardless of trust score
 FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
 
+# When a synced `limit` drops out from under an org that was within its old limit (e.g. a
+# lapsed subscription reverting to the free tier), that is a billing-side plan transition,
+# not overage - give it a short grace window regardless of trust score.
+PLAN_TRANSITION_GRACE_PERIOD_DAYS = 2
+
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
     3: 0,
@@ -329,6 +334,7 @@ def org_quota_limited_until(
     limit = summary.get("limit")
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
+    limit_decreased_from = summary.get("limit_decreased_from", None)
 
     # Credited-path signals PR refunds free the org's quota slot posthog-side (billing's stored
     # usage still contains the refunded units). Consulted only when the raw comparison is already
@@ -356,8 +362,14 @@ def org_quota_limited_until(
                 },
             )
             update_organization_usage_fields(
-                organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+                organization,
+                resource,
+                {"quota_limited_until": None, "quota_limiting_suspended_until": None, "limit_decreased_from": None},
             )
+        elif limit_decreased_from is not None:
+            # No limit means no overage is possible, so a decrease marker cannot earn grace here.
+            # Consume it now, otherwise it survives into the next capped period as a stale marker.
+            update_organization_usage_fields(organization, resource, {"limit_decreased_from": None})
         return None
 
     is_over_limit = usage + todays_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]
@@ -374,7 +386,8 @@ def org_quota_limited_until(
     # 1. ignore the limits
     #       a. not over limit
     #       b. 'never_drop_data' set
-    #       c. feature flag to retain data past quota limit
+    #       c. limit dropped out from under otherwise-fine usage (plan transition)
+    #       d. feature flag to retain data past quota limit
     # 2. limit the org
     #       a. already being limited
     #       b. no trust score
@@ -398,8 +411,15 @@ def org_quota_limited_until(
                 },
             )
             update_organization_usage_fields(
-                organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+                organization,
+                resource,
+                {"quota_limited_until": None, "quota_limiting_suspended_until": None, "limit_decreased_from": None},
             )
+        elif limit_decreased_from is not None:
+            # A harmless decrease: usage stayed under the new limit, so the drop cost nothing.
+            # Consume the one-shot marker now, otherwise a later organic overage that is still
+            # below the old limit would claim the plan-transition grace it never earned.
+            update_organization_usage_fields(organization, resource, {"limit_decreased_from": None})
         return None
 
     # 1b. never drop
@@ -417,9 +437,54 @@ def org_quota_limited_until(
             },
         )
         update_organization_usage_fields(
-            organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+            organization,
+            resource,
+            {"quota_limited_until": None, "quota_limiting_suspended_until": None, "limit_decreased_from": None},
         )
         return None
+
+    # 1c. plan transition: the limit itself dropped out from under otherwise-fine usage (e.g.
+    # a lapsed subscription synced back down to the free tier), rather than usage growing past
+    # a stable limit. Grant a short grace window regardless of trust score - a healthy paying
+    # customer has no reason to carry a trust score entry, so without this they fall straight
+    # into the "no trust score" branch below and lose data immediately.
+    if limit_decreased_from is not None and resource not in GRACE_PERIOD_EXEMPT_RESOURCES:
+        was_over_previous_limit = (
+            usage + todays_usage - refund_offset >= limit_decreased_from + OVERAGE_BUFFER[resource]
+        )
+        if not was_over_previous_limit:
+            plan_transition_suspended_until = round(
+                (get_current_day().end + timedelta(days=PLAN_TRANSITION_GRACE_PERIOD_DAYS)).timestamp()
+            )
+            report_organization_action(
+                organization,
+                "org_quota_limited_until",
+                properties={
+                    "event": "plan transition grace",
+                    "current_usage": usage + todays_usage,
+                    **refund_offset_properties,
+                    "resource": resource.value,
+                    "limit": limit,
+                    "previous_limit": limit_decreased_from,
+                    "quota_limiting_suspended_until": plan_transition_suspended_until,
+                },
+            )
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {
+                    "quota_limited_until": None,
+                    "quota_limiting_suspended_until": plan_transition_suspended_until,
+                    "limit_decreased_from": None,
+                },
+            )
+            return {
+                "quota_limited_until": None,
+                "quota_limiting_suspended_until": plan_transition_suspended_until,
+            }
+        # Already over the previous limit too - the drop is not what caused the overage.
+        # Consume the marker and fall through to ordinary overage handling below.
+        update_organization_usage_fields(organization, resource, {"limit_decreased_from": None})
 
     if team_tokens is None:
         team_tokens = get_team_attribute_by_quota_resource(organization)
@@ -441,14 +506,20 @@ def org_quota_limited_until(
             },
         )
         update_organization_usage_fields(
-            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
+            organization,
+            resource,
+            {
+                "quota_limited_until": billing_period_end,
+                "quota_limiting_suspended_until": None,
+                "limit_decreased_from": None,
+            },
         )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
         }
 
-    # 1c. feature flag to retain data past quota limit
+    # 1d. feature flag to retain data past quota limit
     # Note: this is rarely used but we want to keep it around for now and this is after check if they are already being limited
     if posthoganalytics.feature_enabled(
         QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -469,7 +540,9 @@ def org_quota_limited_until(
             },
         )
         update_organization_usage_fields(
-            organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+            organization,
+            resource,
+            {"quota_limited_until": None, "quota_limiting_suspended_until": None, "limit_decreased_from": None},
         )
         return None
 
@@ -479,6 +552,40 @@ def org_quota_limited_until(
     minimum_grace_period = 0
     if resource == QuotaResource.FEATURE_FLAG_REQUESTS:
         minimum_grace_period = FEATURE_FLAGS_GRACE_PERIOD_DAYS
+
+    # An active plan-transition suspension must survive later quota checks until it expires.
+    # 1c grants that suspension to an org that would otherwise be limited immediately (no or
+    # low trust), and it consumes limit_decreased_from at the same time. Without this branch the
+    # next check no longer sees the transition, falls into the immediate-limit branch below, and
+    # collapses the two-day window to a single quota tick. Return the suspension unchanged rather
+    # than extending it. Trust scores 7/10/15 keep their own period-aware handling in branch 3.
+    if (
+        quota_limiting_suspended_until
+        and today_end.timestamp() <= quota_limiting_suspended_until
+        and resource not in GRACE_PERIOD_EXEMPT_RESOURCES
+        and trust_score not in [7, 10, 15]
+        and minimum_grace_period == 0
+    ):
+        report_organization_action(
+            organization,
+            "org_quota_limited_until",
+            properties={
+                "event": "suspension not expired",
+                "current_usage": usage + todays_usage,
+                **refund_offset_properties,
+                "resource": resource.value,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
+            },
+        )
+        update_organization_usage_fields(
+            organization,
+            resource,
+            {"quota_limited_until": None, "quota_limiting_suspended_until": quota_limiting_suspended_until},
+        )
+        return {
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": quota_limiting_suspended_until,
+        }
 
     # Now we check the trust score
     # These trust score levels are defined in billing::customer::TrustScores.
@@ -503,7 +610,13 @@ def org_quota_limited_until(
             },
         )
         update_organization_usage_fields(
-            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
+            organization,
+            resource,
+            {
+                "quota_limited_until": billing_period_end,
+                "quota_limiting_suspended_until": None,
+                "limit_decreased_from": None,
+            },
         )
         return {
             "quota_limited_until": billing_period_end,
@@ -725,6 +838,10 @@ def update_org_billing_quotas(organization: Organization):
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 )
             elif limiting_suspended_until and limiting_suspended_until >= today_end.timestamp():
+                # A suspended org keeps ingesting, so it must not also carry a limiter entry -
+                # capture reads only the limiter set and would keep dropping its events. Clear any
+                # stale limiter entry first so the two sets stay mutually exclusive.
+                remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
                 add_limited_team_tokens(
                     resource,
                     dict.fromkeys(team_attributes, limiting_suspended_until),
@@ -833,6 +950,29 @@ def set_org_usage_summary(
             and "quota_limiting_suspended_until" not in resource_usage
         ):
             resource_usage["quota_limiting_suspended_until"] = original_field_usage["quota_limiting_suspended_until"]
+
+        # Preserve an un-consumed limit_decreased_from marker (see below) rather than
+        # letting a later sync silently drop it before org_quota_limited_until acts on it.
+        if (
+            original_field_usage
+            and "limit_decreased_from" in original_field_usage
+            and "limit_decreased_from" not in resource_usage
+        ):
+            resource_usage["limit_decreased_from"] = original_field_usage["limit_decreased_from"]
+
+        # Stamp a one-shot marker when the synced limit drops (e.g. a plan flip to the free
+        # tier). org_quota_limited_until reads and clears this to tell "usage grew past the
+        # limit" apart from "the limit collapsed under otherwise-fine usage" - the latter
+        # gets a grace window instead of being limited on the spot.
+        previous_limit = original_field_usage.get("limit") if original_field_usage else None
+        new_limit = resource_usage.get("limit")
+        if (
+            previous_limit is not None
+            and new_limit is not None
+            and new_limit < previous_limit
+            and "limit_decreased_from" not in resource_usage
+        ):
+            resource_usage["limit_decreased_from"] = previous_limit
 
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
