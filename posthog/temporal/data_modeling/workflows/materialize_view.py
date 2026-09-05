@@ -99,6 +99,7 @@ NON_RETRYABLE_ERRORS = [
     "InvalidNodeTypeException",
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
+    "DuplicateOutputColumnError",
 ]
 
 
