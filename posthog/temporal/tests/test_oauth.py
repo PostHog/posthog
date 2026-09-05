@@ -230,7 +230,9 @@ class TestResolveScopes(SimpleTestCase):
         # the dict decodes as its two keys and the run's token holds no read scope at all.
         posture = scout_scope_posture("signals_scout_reports", ["insight:write", "dashboard:write"])
         converter = JSONPlainPayloadConverter()
-        decoded = converter.from_payload(converter.to_payload(posture), PosthogMcpScopes)
+        payload = converter.to_payload(posture)
+        assert payload is not None
+        decoded = converter.from_payload(payload, cast(type, PosthogMcpScopes))
         assert decoded == posture
         assert resolve_scopes(decoded) == resolve_scopes(posture)
 

@@ -1350,6 +1350,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         entry = ActivityLog.objects.filter(team_id=self.team.id, scope="SignalScoutConfig", activity="created").latest(
             "created_at"
         )
+        assert entry.detail is not None
         assert [(change["field"], change["action"], change["after"]) for change in entry.detail["changes"]] == [
             ("write access", "created", ["dashboard:write"])
         ]
