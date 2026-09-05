@@ -265,6 +265,10 @@ jobs:
                         # files from `backend_files`.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Re-included after the excludes above: this markdown is agent-facing
+                        # guidance whose function claims are asserted against the HogQL registry
+                        # by products/posthog_ai/skills/test_querying_posthog_data_guidelines.py.
+                        - 'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed

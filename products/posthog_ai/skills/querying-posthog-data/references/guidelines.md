@@ -324,12 +324,17 @@ properties.foo['bar-baz']
 ##### Unsupported/changed functions
 
 Don't use | Use instead
-`toFloat64OrNull()`, `toFloat64()` | `toFloat()`
+`toFloat64()`, `toInt64()`, `toInt32()`, `toUInt8()` | `toFloat()`, `toInt()`
+`toInt64OrNull()`, `toInt64OrZero()`, `toFloat64OrZero()` | `toIntOrZero()`, `toFloatOrZero()`
+`toUInt()`, `toIntOrNull()` | `toInt()`
 `toDateOrNull(timestamp)` | `toDate(timestamp)`
 `LAG()`, `LEAD()` | `lagInFrame()`, `leadInFrame()` with `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`
 `count(*)` | `count()`
 `cardinality(bitmap)` | `bitmapCardinality(bitmap)`
 `split()` | `splitByChar()`, `splitByString()`
+
+`toFloat64OrNull()` is the one width-suffixed name HogQL accepts, as an alias of `toFloat()`.
+`toInt()` and `toFloat()` already return NULL when the input does not parse.
 
 ##### JOIN constraints
 
