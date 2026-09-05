@@ -76,6 +76,12 @@ _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
     ("Unknown database", "Database does not exist. Check the database name is correct."),
 ]
 
+# Error 1045 is the same failure the Postgres, Supabase, and Neon sources already word this
+# way. Keeping one wording means a wrong password reads the same whichever database it is.
+_INVALID_CREDENTIALS_ERROR = (
+    "The database rejected the username or password. Check the user and password for this source and try again."
+)
+
 _HOST_IS_URL_ERROR = (
     "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
     "connection string. Remove any scheme (like http:// or mysql://) and any username, password, "
@@ -200,7 +206,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # user's host grant) is wrong. Surface it as an auth failure — mirroring the Postgres
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
-            "Access denied for user": "Invalid user or password",
+            "Access denied for user": _INVALID_CREDENTIALS_ERROR,
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already
