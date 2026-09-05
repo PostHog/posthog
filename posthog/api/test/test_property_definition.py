@@ -798,6 +798,26 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             f"{[q['sql'] for q in event_property_queries]}"
         )
 
+    def test_list_joins_the_enterprise_table_with_a_left_join(self):
+        # A FULL OUTER JOIN blocks the planner from seeking the project-scoped index, so it
+        # can fall back to a sequential scan of the tenant-shared table. The sibling event
+        # definitions path hit that plan in production. Lock the join type here.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from posthog.settings import EE_AVAILABLE
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        definition_queries = [q["sql"] for q in ctx.captured_queries if "posthog_propertydefinition" in q["sql"]]
+        assert definition_queries, "expected at least one property definition query"
+        assert not any("FULL OUTER JOIN" in sql for sql in definition_queries)
+        if EE_AVAILABLE:
+            assert any("LEFT JOIN ee_enterprisepropertydefinition" in sql for sql in definition_queries)
+
     def test_property_definition_project_id_coalesce(self):
         # Create legacy property with only team_id (old style)
         PropertyDefinition.objects.create(team=self.team, name="legacy_team_prop", property_type="String")
