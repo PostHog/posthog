@@ -73,6 +73,16 @@ export const AccountsEvents = {
     NotesTabFiltered: 'customer analytics notes tab filtered',
     NotesTabNoteClicked: 'customer analytics notes tab note clicked',
     NotesTabAccountClicked: 'customer analytics notes tab account clicked',
+    DetailViewSelected: 'customer analytics account detail view selected',
+    DetailViewSaved: 'customer analytics account detail view saved',
+    DetailViewUpdated: 'customer analytics account detail view updated',
+    DetailViewDeleted: 'customer analytics account detail view deleted',
+    DetailViewsPinned: 'customer analytics account detail views pinned',
+    DetailWidgetAdded: 'customer analytics account detail widget added',
+    DetailWidgetRemoved: 'customer analytics account detail widget removed',
+    DetailPinnedPropertiesChanged: 'customer analytics account detail pinned properties changed',
+    DetailPropertyEdited: 'customer analytics account detail property edited',
+    DetailRailActionClicked: 'customer analytics account detail rail action clicked',
 } as const
 
 export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts'
