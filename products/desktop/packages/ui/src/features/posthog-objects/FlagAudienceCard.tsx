@@ -46,20 +46,23 @@ function EntityChip({ value }: { value: FlagValue }) {
   const title = [value.label, value.secondary].filter(Boolean).join(" · ");
   const body = (
     <>
-      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-(--blue-4) text-(--blue-11)">
-        <Icon size={10} weight="bold" />
-      </span>
+      <Icon size={12} className="shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">{value.label}</span>
       {value.secondary && (
-        <span className="min-w-0 truncate font-normal opacity-70">
+        <span className="min-w-0 truncate font-normal text-muted-foreground">
           {value.secondary}
         </span>
       )}
-      {url && <ArrowSquareOutIcon size={11} className="shrink-0 opacity-70" />}
+      {url && (
+        <ArrowSquareOutIcon
+          size={11}
+          className="shrink-0 text-muted-foreground"
+        />
+      )}
     </>
   );
   const className =
-    "inline-flex max-w-full items-center gap-1.5 rounded-full border border-(--blue-6) bg-(--blue-2) py-px pr-2 pl-1 font-medium text-(--blue-11) text-xs leading-5";
+    "inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-1.5 py-px font-medium text-foreground text-xs leading-5";
   if (!url) {
     return (
       <span className={className} title={title || value.raw}>
@@ -70,7 +73,7 @@ function EntityChip({ value }: { value: FlagValue }) {
   return (
     <button
       type="button"
-      className={`${className} cursor-pointer transition-colors hover:bg-(--blue-3)`}
+      className={`${className} cursor-pointer transition-colors hover:bg-muted`}
       title={title || value.raw}
       onClick={() => openExternalUrl(url)}
     >
@@ -83,7 +86,7 @@ function ValueChip({ value }: { value: FlagValue }) {
   if (value.link) return <EntityChip value={value} />;
   return (
     <span
-      className={`inline-flex max-w-full items-center truncate rounded-md border border-border bg-muted px-1.5 py-px text-xs leading-5 ${value.literal ? "font-mono text-foreground" : "font-medium"}`}
+      className={`inline-flex max-w-full items-center truncate rounded-md border border-border bg-card px-1.5 py-px text-xs leading-5 ${value.literal ? "font-mono" : "font-medium"}`}
       title={value.label}
     >
       {value.label}
@@ -100,11 +103,7 @@ function ConditionLine({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-      {!first && (
-        <span className="rounded border border-border px-1 font-semibold text-[10px] text-muted-foreground uppercase leading-4 tracking-wide">
-          and
-        </span>
-      )}
+      {!first && <span className="text-muted-foreground">and</span>}
       <span className="font-medium text-foreground">{condition.subject}</span>
       <span className="text-muted-foreground">{condition.operator}</span>
       {condition.values.map((value, index) => (
@@ -127,7 +126,7 @@ function ResultPill({
     case "true":
       return (
         <span
-          className={`${base} border-(--green-6) bg-(--green-3) font-mono text-(--green-11)`}
+          className={`${base} border-border bg-card font-mono text-(--green-11)`}
         >
           true
         </span>
@@ -135,7 +134,7 @@ function ResultPill({
     case "false":
       return (
         <span
-          className={`${base} border-border bg-muted font-mono text-muted-foreground`}
+          className={`${base} border-border bg-card font-mono text-muted-foreground`}
         >
           false
         </span>
@@ -191,9 +190,9 @@ function ShareMeter({ share }: { share: number }) {
       className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground tabular-nums"
       title={`${share}% of the people who match this rule`}
     >
-      <span className="flex h-1.5 w-10 overflow-hidden rounded-full bg-(--gray-5)">
+      <span className="flex h-1.5 w-10 overflow-hidden rounded-full bg-border">
         <span
-          className="h-full rounded-full bg-(--gray-9)"
+          className="h-full rounded-full bg-muted-foreground"
           style={{ width: `${share}%` }}
         />
       </span>
@@ -249,13 +248,11 @@ function StepMarker({
   tone = "default",
 }: {
   children: ReactNode;
-  tone?: "default" | "muted" | "info" | "warning";
+  tone?: "default" | "muted";
 }) {
   const tones = {
     default: "border-border bg-card text-foreground",
     muted: "border-dashed border-border bg-card text-muted-foreground",
-    info: "border-(--blue-6) bg-(--blue-3) text-(--blue-11)",
-    warning: "border-(--amber-6) bg-(--amber-3) text-(--amber-11)",
   };
   return (
     <span
@@ -306,7 +303,7 @@ function RuleRow({
       }
     >
       {unreachable && (
-        <span className="inline-flex w-fit items-center gap-1 rounded border border-border bg-muted px-1.5 text-[10.5px] text-muted-foreground leading-4">
+        <span className="text-[11px] text-muted-foreground">
           Never reached. An earlier rule already matches everyone.
         </span>
       )}
@@ -459,9 +456,7 @@ export function FlagAudienceCard({
               <span
                 aria-hidden
                 className={`mt-2 size-2.5 shrink-0 rounded-full ${
-                  audience.disabled
-                    ? "bg-(--gray-8)"
-                    : "bg-(--green-9) shadow-[0_0_0_3px_var(--green-4)]"
+                  audience.disabled ? "bg-(--gray-8)" : "bg-(--green-9)"
                 }`}
               />
               <h2 className="font-semibold text-foreground text-xl leading-tight tracking-tight">
@@ -498,8 +493,8 @@ export function FlagAudienceCard({
             {audience.enrollmentKey && (
               <FlowRow
                 marker={
-                  <StepMarker tone="info">
-                    <KeyIcon size={12} weight="bold" />
+                  <StepMarker>
+                    <KeyIcon size={12} />
                   </StepMarker>
                 }
                 position={nextPosition()}
@@ -525,15 +520,15 @@ export function FlagAudienceCard({
             {audience.holdout && (
               <FlowRow
                 marker={
-                  <StepMarker tone="warning">
-                    <FlaskIcon size={12} weight="bold" />
+                  <StepMarker>
+                    <FlaskIcon size={12} />
                   </StepMarker>
                 }
                 position={nextPosition()}
                 result={
                   <>
                     <ShareMeter share={audience.holdout.exclusionPercentage} />
-                    <span className="inline-flex h-6 items-center rounded-md border border-(--amber-6) bg-(--amber-3) px-2 font-mono font-semibold text-(--amber-11) text-xs">
+                    <span className="inline-flex h-6 items-center rounded-md border border-border bg-card px-2 font-mono font-semibold text-xs">
                       holdout-{audience.holdout.id}
                     </span>
                   </>
@@ -574,7 +569,7 @@ export function FlagAudienceCard({
               <FlowRow
                 marker={
                   <StepMarker tone="muted">
-                    <ArrowElbowDownRightIcon size={12} weight="bold" />
+                    <ArrowElbowDownRightIcon size={12} />
                   </StepMarker>
                 }
                 position={nextPosition()}
