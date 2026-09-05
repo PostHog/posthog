@@ -22,7 +22,7 @@ import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessions
 
 export function AIObservabilityReloadAction(): JSX.Element {
     const { activeTab } = useValues(aiObservabilitySharedLogic)
-    const { selectedDashboardId } = useValues(aiObservabilityDashboardLogic)
+    const { selectedDashboardId, availableDashboardsLoading } = useValues(aiObservabilityDashboardLogic)
 
     const shouldUseDashboardLogic = !!(selectedDashboardId && activeTab === 'dashboard')
 
@@ -63,6 +63,18 @@ export function AIObservabilityReloadAction(): JSX.Element {
     const isLoading = shouldUseDashboardLogic ? dashboardLoading : activeTab === 'sessions' ? sessionsLoading : false
     const lastRefresh = shouldUseDashboardLogic ? effectiveLastRefresh : null
 
+    // On the dashboard tab a refresh needs a real dashboard. Before one is selected (new projects,
+    // or while the default dashboard is still being created) the fallback logic points at a
+    // dashboard that does not exist, so a click does nothing. Disable the button until it is ready.
+    const dashboardNotReady = activeTab === 'dashboard' && !selectedDashboardId
+    const disabledReason = isLoading
+        ? 'Loading...'
+        : dashboardNotReady
+          ? availableDashboardsLoading
+              ? 'Wait for your dashboard to finish loading'
+              : 'Your dashboard is not ready yet'
+          : undefined
+
     const handleRefresh = (): void => {
         if (activeTab === 'dashboard') {
             triggerDashboardRefresh()
@@ -86,7 +98,7 @@ export function AIObservabilityReloadAction(): JSX.Element {
             type="secondary"
             icon={isLoading ? <Spinner textColored /> : <IconRefresh />}
             size="small"
-            disabledReason={isLoading ? 'Loading...' : undefined}
+            disabledReason={disabledReason}
         >
             <span className="dashboard-items-action-refresh-text">
                 {isLoading ? (

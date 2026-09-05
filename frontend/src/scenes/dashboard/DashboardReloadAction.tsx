@@ -72,23 +72,33 @@ export function DashboardReloadAction(): JSX.Element {
 
     usePageVisibilityCb(setPageVisibility)
 
-    const refreshDisabledReason =
+    const isRefreshBlocked =
         !itemsLoading &&
         blockRefresh &&
-        nextAllowedDashboardRefresh &&
+        !!nextAllowedDashboardRefresh &&
         dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
-            ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
-            : ''
 
-    // Force a re-render when nextAllowedDashboardRefresh is reached, since the blockRefresh
-    // selector uses now() which isn't reactive - it only recomputes on dependency changes
+    // The gate opens `DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES` after the last dashboard refresh.
+    // Show that same countdown on the button so a blocked click is never a surprise.
+    const cooldownRemaining = isRefreshBlocked
+        ? humanFriendlyDuration(dayjs(nextAllowedDashboardRefresh).diff(dayjs(), 'second'), { maxUnits: 1 })
+        : ''
+
+    const refreshDisabledReason = isRefreshBlocked ? `You can refresh again in ${cooldownRemaining}` : ''
+
+    // Force a re-render while the cool-down runs, since the blockRefresh selector uses now() which
+    // isn't reactive: tick so the countdown stays current, and re-enable when the gate opens.
     const [, setRenderTrigger] = useState(0)
     useEffect(() => {
         if (nextAllowedDashboardRefresh) {
             const msUntilRefreshAllowed = dayjs(nextAllowedDashboardRefresh).diff(dayjs())
             if (msUntilRefreshAllowed > 0) {
+                const intervalId = setInterval(() => setRenderTrigger((n) => n + 1), 15000)
                 const timeoutId = setTimeout(() => setRenderTrigger((n) => n + 1), msUntilRefreshAllowed + 100)
-                return () => clearTimeout(timeoutId)
+                return () => {
+                    clearInterval(intervalId)
+                    clearTimeout(timeoutId)
+                }
             }
         }
     }, [nextAllowedDashboardRefresh])
@@ -115,17 +125,7 @@ export function DashboardReloadAction(): JSX.Element {
                     <LemonButton
                         onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())}
                         type="secondary"
-                        icon={
-                            itemsLoading ? (
-                                <IconX />
-                            ) : blockRefresh &&
-                              nextAllowedDashboardRefresh &&
-                              dayjs(nextAllowedDashboardRefresh).isAfter(dayjs()) ? (
-                                <IconCheck />
-                            ) : (
-                                <IconRefresh />
-                            )
-                        }
+                        icon={itemsLoading ? <IconX /> : isRefreshBlocked ? <IconCheck /> : <IconRefresh />}
                         size="small"
                         data-attr="dashboard-items-action-refresh"
                         tooltip={itemsLoading ? 'Cancel refresh' : undefined}
@@ -178,7 +178,7 @@ export function DashboardReloadAction(): JSX.Element {
                             },
                         }}
                     >
-                        {itemsLoading ? 'Cancel' : 'Refresh'}
+                        {itemsLoading ? 'Cancel' : isRefreshBlocked ? `Refresh in ${cooldownRemaining}` : 'Refresh'}
                     </LemonButton>
                 </div>
             </Shortcut>
