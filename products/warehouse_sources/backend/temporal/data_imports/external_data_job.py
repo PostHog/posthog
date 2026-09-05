@@ -331,6 +331,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
     source: ExternalDataSource | None = None
     has_non_retryable_error = False
+    has_auth_error = False
     if inputs.internal_error:
         logger.exception(
             f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
@@ -370,11 +371,10 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-            # An account the vendor rejects only starts working again once the customer
-            # reconnects it, so say so on the integration itself. Everywhere the connection is
-            # shown then reads as broken and offers to reconnect, instead of as connected.
-            if error_message_matches(internal_error_normalized, source_cls.get_auth_errors()):
-                await database_sync_to_async_pool(mark_integration_auth_error)(source, job_id=job_id)
+            # Decided here, published below. Marking the integration is what raises the reconnect
+            # prompt, and a reconnect only restarts tables already recorded as stopped by this
+            # failure, so the prompt must not appear while that record is still pending.
+            has_auth_error = error_message_matches(internal_error_normalized, source_cls.get_auth_errors())
 
             # Computed after the friendly error so the teardown records the same message
             # the job will show. Excluding this workflow keeps the disable's teardown from
@@ -394,6 +394,13 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         logger=logger,
         team_id=inputs.team_id,
     )
+
+    # An account the vendor rejects only starts working again once the customer reconnects it, so
+    # say so on the integration itself. Everywhere the connection is shown then reads as broken and
+    # offers to reconnect, instead of as connected. Last, because the call above is what makes this
+    # table's stopped state durable, and the reconnect reads that state to know what to restart.
+    if has_auth_error and source is not None:
+        await database_sync_to_async_pool(mark_integration_auth_error)(source, job_id=job_id)
 
     if inputs.internal_error and source is not None:
         # This activity runs once the workflow has given up, so every error reaching here has

@@ -313,3 +313,57 @@ def test_only_an_auth_failure_marks_the_connected_integration(_name: str, error:
 
     integration.refresh_from_db()
     assert (integration.errors == ERROR_TOKEN_REFRESH_FAILED) is expect_marked
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_reconnect_prompt_waits_for_the_failure_to_be_recorded() -> None:
+    # A reconnect only restarts tables already recorded as stopped by the failure. Marking the
+    # integration first would show the prompt while that record was still pending, so a reconnect
+    # landing in between would clear the prompt, restart nothing, and leave the table off for good.
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    integration = Integration.objects.create(team=team, kind="meta-ads", integration_id="act_1")
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_type=ExternalDataSourceType.METAADS.value,
+        job_inputs={"meta_ads_integration_id": integration.id},
+    )
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="campaigns")
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    errors_while_recording_the_failure: list[str] = []
+
+    def _record_failure(**kwargs: object) -> None:
+        errors_while_recording_the_failure.append(Integration.objects.get(id=integration.id).errors)
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=META_AUTH_ERROR_MESSAGE,
+        latest_error=META_AUTH_ERROR_MESSAGE,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status",
+            side_effect=_record_failure,
+        ),
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    assert errors_while_recording_the_failure == [""]
+    integration.refresh_from_db()
+    assert integration.errors == ERROR_TOKEN_REFRESH_FAILED
