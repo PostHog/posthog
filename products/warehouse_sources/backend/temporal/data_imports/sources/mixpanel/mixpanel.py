@@ -40,6 +40,15 @@ NO_URLLIB_RETRY = Retry(total=0)
 # (or hostile) value can't pin a worker thread for an unbounded stretch.
 MAX_RETRY_AFTER_SECONDS = 120
 
+# Mixpanel answers 402 when the project's plan does not include raw data access, or the account
+# is not in good standing. This is permanent until the customer acts, so it is shown on both the
+# credential-validation path and the sync path (via `get_non_retryable_errors`).
+PAYMENT_REQUIRED_MESSAGE = (
+    "Mixpanel denied the request (402 Payment Required). Raw data access usually needs a Mixpanel "
+    "plan that includes the data export API, and the account must be in good standing. Check your "
+    "Mixpanel plan and billing, then try again."
+)
+
 
 class MixpanelRetryableError(Exception):
     def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
@@ -194,12 +203,7 @@ def validate_credentials(
             return True, None
         return False, "The service account does not have access to this resource in the selected project."
     if response.status_code == 402:
-        return (
-            False,
-            "Mixpanel denied the request (402 Payment Required). Raw data access usually needs a Mixpanel "
-            "plan that includes the data export API, and the account must be in good standing. Check your "
-            "Mixpanel plan and billing, then try again.",
-        )
+        return False, PAYMENT_REQUIRED_MESSAGE
     if response.status_code == 400:
         return (
             False,
