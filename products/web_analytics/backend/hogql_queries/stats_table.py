@@ -1005,11 +1005,11 @@ WHERE and(
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.VIEWPORT:
-                return ast.Tuple(
-                    exprs=[
-                        ast.Field(chain=["properties", "$viewport_width"]),
-                        ast.Field(chain=["properties", "$viewport_height"]),
-                    ]
+                # nullIf collapses junk 0x0 measurements into NULL at the source, so both
+                # "missing" and "junk zero" flow through the same NULL -> (none) path below,
+                # instead of needing separate handling in outer_where_breakdown.
+                return parse_expr(
+                    "tuple(nullIf(properties.$viewport_width, 0), nullIf(properties.$viewport_height, 0))"
                 )
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["properties", "$device_type"])
@@ -1059,20 +1059,18 @@ WHERE and(
                 # GeoIP can't resolve the subdivision/city — those rows surface in the UI as
                 # "(not set)" so totals stay consistent with the parent Country view.
                 return parse_expr("tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL")
-            case WebStatsBreakdown.VIEWPORT:
-                return parse_expr(
-                    "tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL AND tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL AND "
-                    "tupleElement(`context.columns.breakdown_value`, 1) != 0 AND tupleElement(`context.columns.breakdown_value`, 2) != 0"
-                )
             case (
                 # Breakdowns where missing data is real and worth surfacing as "(not set)"
                 # rather than silently dropped — keeps totals consistent with the overview tile
                 # and parent breakdowns. Path-like breakdowns (PAGE/INITIAL_PAGE/EXIT_*/...) still
                 # drop NULLs via the default branch since a pageview without a path is junk.
+                # Viewport's 0x0 junk values are normalized to NULL upstream in
+                # _counts_breakdown_value, so they fall into this same (not set) path too.
                 WebStatsBreakdown.COUNTRY
                 | WebStatsBreakdown.BROWSER
                 | WebStatsBreakdown.OS
                 | WebStatsBreakdown.DEVICE_TYPE
+                | WebStatsBreakdown.VIEWPORT
                 | WebStatsBreakdown.LANGUAGE
                 | WebStatsBreakdown.TIMEZONE
                 | WebStatsBreakdown.INITIAL_REFERRING_DOMAIN
