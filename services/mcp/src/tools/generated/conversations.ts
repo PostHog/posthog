@@ -287,6 +287,45 @@ const conversationsTicketsUpdate = (): ToolBase<
     },
 })
 
+const ConversationsViewsCreateSchema = () => {
+    const ConversationsViewsCreateBody = orvalSchemas.ConversationsViewsCreateBody()
+    return ConversationsViewsCreateBody
+}
+
+const conversationsViewsCreate = (): ToolBase<
+    ReturnType<typeof ConversationsViewsCreateSchema>,
+    WithPostHogUrl<Schemas.TicketView>
+> => ({
+    name: 'conversations-views-create',
+    schema: ConversationsViewsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsViewsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.is_favorited !== undefined) {
+            body['is_favorited'] = params.is_favorited
+        }
+        const result = await context.api.request<Schemas.TicketView>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/views/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'short_id',
+            'name',
+            'filters',
+            'is_favorited',
+            'created_at',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/support/tickets?view=${filtered.short_id}`)
+    },
+})
+
 const ConversationsViewsListSchema = () => {
     const ConversationsViewsListQueryParams = orvalSchemas.ConversationsViewsListQueryParams()
     return ConversationsViewsListQueryParams
@@ -316,6 +355,85 @@ const conversationsViewsList = (): ToolBase<
     },
 })
 
+const ConversationsViewsRetrieveSchema = () => {
+    const ConversationsViewsRetrieveParams = orvalSchemas.ConversationsViewsRetrieveParams()
+    return ConversationsViewsRetrieveParams.omit({ project_id: true }).extend({
+        short_id: ConversationsViewsRetrieveParams.shape['short_id'].describe(
+            'Short identifier of the view, as returned by conversations-views-list.'
+        ),
+    })
+}
+
+const conversationsViewsRetrieve = (): ToolBase<
+    ReturnType<typeof ConversationsViewsRetrieveSchema>,
+    WithPostHogUrl<Schemas.TicketView>
+> => ({
+    name: 'conversations-views-retrieve',
+    schema: ConversationsViewsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsViewsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TicketView>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/views/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'short_id',
+            'name',
+            'filters',
+            'is_favorited',
+            'created_at',
+            'created_by',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/support/tickets?view=${filtered.short_id}`)
+    },
+})
+
+const ConversationsViewsUpdateSchema = () => {
+    const ConversationsViewsPartialUpdateBody = orvalSchemas.ConversationsViewsPartialUpdateBody()
+    const ConversationsViewsPartialUpdateParams = orvalSchemas.ConversationsViewsPartialUpdateParams()
+    return ConversationsViewsPartialUpdateParams.omit({ project_id: true })
+        .extend(ConversationsViewsPartialUpdateBody.shape)
+        .extend({
+            short_id: ConversationsViewsPartialUpdateParams.shape['short_id'].describe(
+                'Short identifier of the view, as returned by conversations-views-list.'
+            ),
+        })
+}
+
+const conversationsViewsUpdate = (): ToolBase<
+    ReturnType<typeof ConversationsViewsUpdateSchema>,
+    WithPostHogUrl<Schemas.TicketView>
+> => ({
+    name: 'conversations-views-update',
+    schema: ConversationsViewsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsViewsUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.is_favorited !== undefined) {
+            body['is_favorited'] = params.is_favorited
+        }
+        const result = await context.api.request<Schemas.TicketView>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/views/${encodeURIComponent(String(params.short_id))}/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'short_id',
+            'name',
+            'filters',
+            'is_favorited',
+            'created_at',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/support/tickets?view=${filtered.short_id}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
@@ -324,5 +442,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-reply-create': conversationsTicketsReplyCreate,
     'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-update': conversationsTicketsUpdate,
+    'conversations-views-create': conversationsViewsCreate,
     'conversations-views-list': conversationsViewsList,
+    'conversations-views-retrieve': conversationsViewsRetrieve,
+    'conversations-views-update': conversationsViewsUpdate,
 }
