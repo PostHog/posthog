@@ -7,6 +7,7 @@ longer authenticate, and the reconnect path, which resumes the tables that failu
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSchemaStatus, ExternalDataSourceType
@@ -32,15 +33,34 @@ def get_source_integration_ids(source: ExternalDataSource) -> set[int]:
     return integration_ids
 
 
-def mark_integration_auth_error(source: ExternalDataSource) -> None:
+def mark_integration_auth_error(source: ExternalDataSource, *, job_id: str) -> None:
     """Record on the connected integration that it can no longer authenticate.
 
     Only the token-refresh call used to write this, so an account the vendor rejects at request
     time kept reading as connected everywhere the integration is shown, with no way to reconnect.
+
+    A run reads its access token once and holds it for the rest of the run, so a run that outlives
+    a reconnect would report a credential that no longer exists and undo the repair. An integration
+    re-authorized after this run started is therefore left alone: the credential it holds now was
+    never the one that failed. OAuth stamps `config["refreshed_at"]` on every reconnect and token
+    refresh, which is the only credential version both sides can see.
     """
     integration_ids = get_source_integration_ids(source)
     if not integration_ids:
         return
+    run_started_at = (
+        ExternalDataJob.objects.filter(pk=job_id, team_id=source.team_id).values_list("created_at", flat=True).first()
+    )
+    if run_started_at is not None:
+        # Only a stamp we can read and compare skips the write. An integration with no
+        # `refreshed_at` is still marked, so an older row without the stamp keeps the old behavior.
+        integration_ids -= set(
+            Integration.objects.filter(
+                id__in=integration_ids,
+                team_id=source.team_id,
+                config__refreshed_at__gt=int(run_started_at.timestamp()),
+            ).values_list("id", flat=True)
+        )
     Integration.objects.filter(id__in=integration_ids, team_id=source.team_id).exclude(
         errors=ERROR_TOKEN_REFRESH_FAILED
     ).update(errors=ERROR_TOKEN_REFRESH_FAILED)

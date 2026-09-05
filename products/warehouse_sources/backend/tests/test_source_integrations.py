@@ -1,13 +1,17 @@
+import datetime as dt
 from typing import Any
 from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.source_integrations import (
@@ -40,6 +44,14 @@ def _source(team: Any, integration: Integration) -> ExternalDataSource:
     )
 
 
+def _job(team: Any, source: ExternalDataSource, *, started_at: dt.datetime) -> ExternalDataJob:
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, status=ExternalDataJob.Status.FAILED, rows_synced=0, workflow_id=str(uuid4())
+    )
+    ExternalDataJob.objects.filter(pk=job.pk).update(created_at=started_at)
+    return job
+
+
 def _schema(team: Any, source: ExternalDataSource, *, name: str, error: str | None, status: str | None) -> Any:
     return ExternalDataSchema.objects.create(
         team=team, source=source, name=name, should_sync=False, latest_error=error, status=status
@@ -54,14 +66,33 @@ def test_reads_every_integration_id_a_source_holds(team: Any) -> None:
     assert get_source_integration_ids(source) == {integration.id, 77}
 
 
-def test_auth_failure_marks_the_connected_integration(team: Any) -> None:
+@pytest.mark.parametrize(
+    "reconnected_offset,expected_errors",
+    [
+        # No reconnect at all, and a reconnect that predates the run: the credential this run held
+        # is still the one on the integration, so the failure belongs to it.
+        (None, ERROR_TOKEN_REFRESH_FAILED),
+        (dt.timedelta(minutes=-5), ERROR_TOKEN_REFRESH_FAILED),
+        # A reconnect after the run started replaced the credential this run held, so the failure
+        # says nothing about the account now connected and must not undo the repair.
+        (dt.timedelta(minutes=5), ""),
+    ],
+)
+def test_auth_failure_marks_the_connected_integration(
+    team: Any, reconnected_offset: dt.timedelta | None, expected_errors: str
+) -> None:
+    started_at = timezone.now() - dt.timedelta(hours=1)
     integration = _integration(team)
+    if reconnected_offset is not None:
+        integration.config = {"refreshed_at": int((started_at + reconnected_offset).timestamp())}
+        integration.save()
     source = _source(team, integration)
+    job = _job(team, source, started_at=started_at)
 
-    mark_integration_auth_error(source)
+    mark_integration_auth_error(source, job_id=str(job.pk))
 
     integration.refresh_from_db()
-    assert integration.errors == ERROR_TOKEN_REFRESH_FAILED
+    assert integration.errors == expected_errors
 
 
 def test_reconnect_resumes_only_the_tables_the_auth_failure_stopped(team: Any) -> None:

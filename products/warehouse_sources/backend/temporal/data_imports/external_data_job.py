@@ -374,7 +374,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             # reconnects it, so say so on the integration itself. Everywhere the connection is
             # shown then reads as broken and offers to reconnect, instead of as connected.
             if error_message_matches(internal_error_normalized, source_cls.get_auth_errors()):
-                await database_sync_to_async_pool(mark_integration_auth_error)(source)
+                await database_sync_to_async_pool(mark_integration_auth_error)(source, job_id=job_id)
 
             # Computed after the friendly error so the teardown records the same message
             # the job will show. Excluding this workflow keeps the disable's teardown from
