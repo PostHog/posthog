@@ -955,13 +955,13 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
     return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
 
 
-def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
+def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) -> dict[str, str]:
     """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
     ids = [str(t) for t in task_ids]
     if not ids:
         return {}
     rows = (
-        TaskRun.objects.filter(task_id__in=ids, output__pr_url__isnull=False)
+        TaskRun.objects.filter(*conditions, task_id__in=ids, output__pr_url__isnull=False)
         .exclude(output__pr_url="")
         .order_by("task_id", "-created_at", "-id")
         .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
@@ -1020,7 +1020,7 @@ def latest_task_run_pr_merged_subquery(*conditions: Q, **task_run_filter) -> Sub
     )
 
 
-def get_merged_pr_task_ids(task_ids: Iterable[str | UUID]) -> set[str]:
+def get_merged_pr_task_ids(task_ids: Iterable[str | UUID], *conditions: Q) -> set[str]:
     """Of the supplied tasks, those whose latest PR-bearing run has a webhook-attested merged PR.
 
     Batched counterpart to ``latest_task_run_pr_merged_subquery``, matching ``get_latest_pr_url_by_task``
@@ -1030,7 +1030,7 @@ def get_merged_pr_task_ids(task_ids: Iterable[str | UUID]) -> set[str]:
     if not ids:
         return set()
     rows = (
-        TaskRun.objects.filter(task_id__in=ids, output__pr_url__isnull=False)
+        TaskRun.objects.filter(*conditions, task_id__in=ids, output__pr_url__isnull=False)
         .exclude(output__pr_url="")
         .order_by("task_id", "-created_at", "-id")
         .annotate(output_pr_merged_flag=KeyTextTransform("pr_merged", "output"))
