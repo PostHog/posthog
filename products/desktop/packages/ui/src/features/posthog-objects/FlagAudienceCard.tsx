@@ -46,7 +46,7 @@ function EntityChip({ value }: { value: FlagValue }) {
   const title = [value.label, value.secondary].filter(Boolean).join(" · ");
   const body = (
     <>
-      <Icon size={12} className="shrink-0 text-muted-foreground" />
+      <Icon size={11} className="shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">{value.label}</span>
       {value.secondary && (
         <span className="min-w-0 truncate font-normal text-muted-foreground">
@@ -62,7 +62,7 @@ function EntityChip({ value }: { value: FlagValue }) {
     </>
   );
   const className =
-    "inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-1.5 py-px font-medium text-foreground text-xs leading-5";
+    "inline-flex max-w-full items-center gap-1 rounded border border-border bg-card px-1.5 font-medium text-foreground text-xs leading-[18px]";
   if (!url) {
     return (
       <span className={className} title={title || value.raw}>
@@ -86,7 +86,7 @@ function ValueChip({ value }: { value: FlagValue }) {
   if (value.link) return <EntityChip value={value} />;
   return (
     <span
-      className={`inline-flex max-w-full items-center truncate rounded-md border border-border bg-card px-1.5 py-px text-xs leading-5 ${value.literal ? "font-mono" : "font-medium"}`}
+      className={`inline-flex max-w-full items-center truncate rounded border border-border bg-card px-1.5 text-xs leading-[18px] ${value.literal ? "font-mono" : "font-medium"}`}
       title={value.label}
     >
       {value.label}
@@ -121,7 +121,7 @@ function ResultPill({
   variants: FlagVariant[];
 }) {
   const base =
-    "inline-flex h-6 items-center gap-1.5 rounded-md border px-2 font-semibold text-xs";
+    "inline-flex h-5 items-center gap-1.5 rounded border px-1.5 font-semibold text-xs";
   switch (result.kind) {
     case "true":
       return (
@@ -528,7 +528,7 @@ export function FlagAudienceCard({
                 result={
                   <>
                     <ShareMeter share={audience.holdout.exclusionPercentage} />
-                    <span className="inline-flex h-6 items-center rounded-md border border-border bg-card px-2 font-mono font-semibold text-xs">
+                    <span className="inline-flex h-5 items-center rounded border border-border bg-card px-1.5 font-mono font-semibold text-xs">
                       holdout-{audience.holdout.id}
                     </span>
                   </>
