@@ -398,8 +398,9 @@ export const signalsScoutCreateBodyConfigOneTagsMax = 10
 
 export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
 
-export const signalsScoutCreateBodySuggestionIdMax = 64
 export const signalsScoutCreateBodyConfigOneWriteScopesMax = 4
+
+export const signalsScoutCreateBodySuggestionIdMax = 64
 
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
