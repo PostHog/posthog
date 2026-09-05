@@ -63,7 +63,10 @@ export function PanelLayoutPanels(): JSX.Element | null {
                 />
             ),
             Chat: (
-                <div className="pointer-events-auto flex flex-col h-full min-h-screen max-h-screen bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]">
+                <div
+                    className="pointer-events-auto flex flex-col h-full min-h-screen max-h-screen bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]"
+                    data-attr="nav-panel-chat"
+                >
                     <Suspense
                         fallback={
                             <div className="flex flex-col gap-px px-1 pt-2">

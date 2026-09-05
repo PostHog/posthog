@@ -594,6 +594,7 @@ export function ProjectTree({
 
     return (
         <PanelLayoutPanel
+            panelName={(root ?? 'project://').replace('://', '')}
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
                     <TreeSearchField
