@@ -15,6 +15,7 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
 from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework.settings import api_settings
 
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
@@ -316,6 +317,32 @@ class EventDefinitionBulkUpdateVerifiedResponseSerializer(serializers.Serializer
     )
 
 
+# Postgres LIMIT and OFFSET take a bigint. DRF accepts arbitrary-size ints, and binding one past
+# the bigint range makes Postgres answer with a 500, so clamp them.
+POSTGRES_BIGINT_MAX = 2**63 - 1
+
+
+class EventDefinitionQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        default=api_settings.PAGE_SIZE,
+        help_text="Number of results to return per page.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+        help_text="The initial index from which to return the results.",
+    )
+
+    def validate_limit(self, value: int) -> int:
+        return min(value, POSTGRES_BIGINT_MAX)
+
+    def validate_offset(self, value: int) -> int:
+        return min(value, POSTGRES_BIGINT_MAX)
+
+
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -430,8 +457,10 @@ class EventDefinitionViewSet(
             return event_definition_object_manager.filter(id__in=ids, tagged_items__tag__name__in=tags_list).distinct()
 
         paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
-        params["limit"] = paginator.get_limit(self.request)
-        params["offset"] = paginator.get_offset(self.request)
+        query = EventDefinitionQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        params["limit"] = query.validated_data["limit"]
+        params["offset"] = query.validated_data["offset"]
 
         count_sql = create_event_definitions_count_sql(
             event_type,

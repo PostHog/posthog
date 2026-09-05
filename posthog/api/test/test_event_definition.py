@@ -111,10 +111,19 @@ class TestEventDefinitionAPI(APIBaseTest):
         ]
     )
     def test_list_event_definitions_ignores_non_list_tags_filter(self, _name, tags_value):
-        # A ?tags= value that decodes to something other than a list is not a tag filter. It must
-        # be ignored and the request paged normally. A bare scalar used to reach the `__in` filter,
-        # which raised a 500 on a non-iterable value.
         response = self.client.get("/api/projects/@current/event_definitions/", data={"tags": tags_value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    @parameterized.expand(
+        [
+            ("limit", "limit=9223372036854775808"),
+            ("offset", "offset=9223372036854775808"),
+        ]
+    )
+    def test_list_event_definitions_accepts_out_of_range_bigint_pagination(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
@@ -178,8 +187,6 @@ class TestEventDefinitionAPI(APIBaseTest):
                 ],
             ),
             (
-                # A single non-unique ordering must get an implicit `name ASC` tiebreaker, or the three
-                # rows tied on 2020-01-01 page inconsistently under SQL LIMIT/OFFSET.
                 "ordering=-last_seen_at::date",
                 [
                     ("$pageview", "2020-01-01T22:56:00Z"),
