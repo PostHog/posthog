@@ -145,8 +145,13 @@ function conditionGroups(flag: Schemas.FeatureFlag): ConditionGroup[] {
       typeof group.rollout_percentage === "number"
         ? group.rollout_percentage
         : 100;
+    // An explicit null means person-level aggregation; only an absent field
+    // inherits the flag-level group index. `??` would collapse that null into
+    // the flag-level value and mislabel person rules as group rules.
     const groupIndex =
-      group.aggregation_group_type_index ?? flagLevelGroupIndex;
+      group.aggregation_group_type_index !== undefined
+        ? group.aggregation_group_type_index
+        : flagLevelGroupIndex;
     return {
       properties: Array.isArray(group.properties)
         ? group.properties.filter(isRecord)
