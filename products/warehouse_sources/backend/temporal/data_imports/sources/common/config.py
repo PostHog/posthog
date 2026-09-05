@@ -244,6 +244,7 @@ def to_config(
     config_cls: type[ConfigProtocol],
     d: dict[str, typing.Any],
     prefixes: tuple[str, ...] | None = None,
+    reserved_keys: frozenset[str] = frozenset(),
 ) -> ConfigProtocol:
     """Initialize a class from dict.
 
@@ -254,6 +255,9 @@ def to_config(
         d: The dictionary we are using to initialize the class.
         prefixes: Used in recursive call, should be left empty by top level
             callers.
+        reserved_keys: Bare (unprefixed) key names that belong to a sibling field one level up
+            and must not be read by this class's own fields. Used in recursive calls, should be
+            left empty by top level callers. See its use below for why it exists.
 
     Raises:
         TypeError: If called with a class not decorated with @config.
@@ -268,6 +272,7 @@ def to_config(
 
     fields = dataclasses.fields(config_cls)
     module_path = config_cls.__module__
+    sibling_names = frozenset(f.name for f in fields)
 
     for field in fields:
         field_type = _resolve_field_type(field, module_path=module_path)
@@ -278,10 +283,15 @@ def to_config(
 
         if field_flat_key in d:
             field_key = field_flat_key
-        elif field_nested_key in d:
+        elif field_nested_key in d and field_nested_key not in reserved_keys:
             field_key = field_nested_key
-        else:
+        elif field.name not in reserved_keys:
             field_key = field.name
+        else:
+            # Every bare-name spelling of this key is reserved for a sibling field one level up
+            # (see the call site below), so it must not be read here even though it is present in
+            # `d`. `None` never collides with a real dict key, so the lookups below simply miss.
+            field_key = None
 
         if field_meta and field_meta.converter != _noop_convert:
             convert = field_meta.converter
@@ -295,15 +305,6 @@ def to_config(
             else:
                 config_types = typing.get_args(field_type)
 
-            has_default = field.default is not dataclasses.MISSING or field.default_factory is not dataclasses.MISSING
-            if has_default and not _mapping_holds_nested_config(
-                config_types, d, (field_flat_key, field_nested_key, field.name), field_meta, top_level_prefixes
-            ):
-                # Nothing in the mapping addresses this nested config, so its default stands. The
-                # flat-structure path below would otherwise read the enclosing config's own keys
-                # and build, for example, an SSH tunnel out of the database host, port and password.
-                continue
-
             for config_type in config_types:
                 if not is_config(config_type):
                     if config_type is type(None):
@@ -313,6 +314,8 @@ def to_config(
                         # dict, leaving a typed field holding an untyped dict and crashing
                         # downstream (e.g. `config.ssh_tunnel.enabled`). Skip so the field
                         # falls back to its default instead.
+                        continue
+                    if field_key is None:
                         continue
                     try:
                         value = d[field_key]
@@ -344,20 +347,26 @@ def to_config(
                         break
 
                 else:
-                    # Assuming a flat structure
+                    # Assuming a flat structure. The nested config is built from the very same
+                    # mapping as its enclosing config, matched by bare (unprefixed) field name —
+                    # see `_get_nested_key`. Left unchecked, that lets a nested config's field
+                    # steal a sibling field's value purely by sharing its name (e.g. an SSH
+                    # tunnel's own `host` reading the database's `host`). Reserve this config's
+                    # other field names so the nested config can't read them by bare name; it can
+                    # still be built from its own prefixed keys or its own defaults.
                     field_prefixes = _resolve_field_prefixes(
                         config_type, field_type_meta, field_meta, top_level_prefixes
                     )
 
                     try:
-                        value = to_config(config_type, d, field_prefixes)
+                        value = to_config(config_type, d, field_prefixes, reserved_keys=sibling_names - {field.name})
                     except TypeError:
                         # We want to try all possible config types
                         continue
                     else:
                         inputs[field.name] = convert(value)
                         break
-        else:
+        elif field_key is not None:
             try:
                 value = d[field_key]
             except KeyError:
@@ -382,33 +391,6 @@ def to_config(
         if not missing:
             raise
         raise TypeError(f"Cannot build '{config_cls.__name__}': missing required field(s) {missing}") from e
-
-
-def _mapping_holds_nested_config(
-    config_types: tuple[typing.Any, ...],
-    d: dict[str, typing.Any],
-    field_keys: tuple[str, ...],
-    field_meta: MetaConfig | None,
-    top_level_prefixes: tuple[str, ...],
-) -> bool:
-    """Whether a mapping carries any value for a nested config field.
-
-    A nested config is addressed either by one of the field's own keys, when the value is a
-    nested mapping, or by prefixed keys for its members, when the mapping is flat.
-    """
-    if any(field_key in d for field_key in field_keys):
-        return True
-
-    for config_type in config_types:
-        config_type_meta = _try_get_meta(config_type)
-        if config_type_meta is None:
-            continue
-
-        prefix = "_".join(_resolve_field_prefixes(config_type, config_type_meta, field_meta, top_level_prefixes))
-        if any(key.startswith(f"{prefix}_") for key in d):
-            return True
-
-    return False
 
 
 def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
