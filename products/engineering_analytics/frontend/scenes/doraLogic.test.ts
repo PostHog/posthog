@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig } from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -58,6 +59,13 @@ describe('doraLogic', () => {
                 '/api/projects/:team_id/engineering_analytics/dora/': async ({ request }) => {
                     const params = new URL(request.url).searchParams
                     requests.push(params)
+                    const requested = [...new Set(params.getAll('environment').map((name) => name.trim()))]
+                    const available = new Set(
+                        params.get('repo') === 'example/repo' ? ['staging'] : [...DORA.environments, 'preview-pr-2']
+                    )
+                    if (requested.some((name) => !available.has(name))) {
+                        return [400, { detail: 'Select a valid environment.', attr: 'environment' }]
+                    }
                     if (params.get('repo') === 'example/repo') {
                         await scopedRequest
                         return [
@@ -70,26 +78,12 @@ describe('doraLogic', () => {
                             },
                         ]
                     }
-                    const requested = [
-                        ...new Set(
-                            params
-                                .getAll('environment')
-                                .map((name) => name.trim())
-                                .filter(Boolean)
-                        ),
-                    ]
-                    const available = new Set([...DORA.environments, 'preview-pr-2'])
-                    const selected = requested.filter((name) => available.has(name))
                     return [
                         200,
                         {
                             ...DORA,
-                            environment_scope: requested.length
-                                ? selected.length
-                                    ? selected.join(', ')
-                                    : 'No matching environments'
-                                : DORA.environment_scope,
-                            selected_environments: requested.length ? selected : DORA.selected_environments,
+                            environment_scope: requested.length ? requested.join(', ') : DORA.environment_scope,
+                            selected_environments: requested.length ? requested : DORA.selected_environments,
                         },
                     ]
                 },
@@ -132,7 +126,10 @@ describe('doraLogic', () => {
         logic.mount()
     })
 
-    afterEach(() => logic.unmount())
+    afterEach(() => {
+        resumeKeaLoadersErrors()
+        logic.unmount()
+    })
 
     it('shows both resolved production regions as selected on first load', async () => {
         await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
@@ -157,7 +154,7 @@ describe('doraLogic', () => {
     it('uses the backend-validated environment selection and options', async () => {
         await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
         await expectLogic(logic, () =>
-            logic.actions.setEnvironments([' prod-eu ', 'missing', 'prod-eu', 'preview-pr-2', ''])
+            logic.actions.setEnvironments([' prod-eu ', 'prod-eu', 'preview-pr-2'])
         ).toDispatchActions(['loadDoraSuccess'])
 
         expect(logic.values.selectedEnvironments).toEqual(['prod-eu', 'preview-pr-2'])
@@ -169,12 +166,23 @@ describe('doraLogic', () => {
             'preview-pr-2',
         ])
 
-        await expectLogic(logic, () => logic.actions.setEnvironments(['missing'])).toDispatchActions([
-            'loadDoraSuccess',
-        ])
-        expect(logic.values.selectedEnvironments).toEqual([])
-        expect(logic.values.environmentScopeLabel).toBe('No matching environments')
-        expect(logic.values.environmentOptions.map(({ key }) => key)).toEqual(['dev', 'prod-us', 'prod-eu'])
+        silenceKeaLoadersErrors()
+        for (const environments of [['missing'], ['prod-eu', 'missing'], [' '], ['prod-eu', '']]) {
+            await expectLogic(logic, () => logic.actions.setEnvironments(environments))
+                .toDispatchActions(['loadDoraFailure'])
+                .toMatchValues({
+                    doraLoading: false,
+                    doraFailed: true,
+                    selectedEnvironments: ['prod-eu', 'preview-pr-2'],
+                    environmentScopeLabel: 'prod-eu, preview-pr-2',
+                })
+            expect(logic.values.environmentOptions.map(({ key }) => key)).toEqual([
+                'dev',
+                'prod-us',
+                'prod-eu',
+                'preview-pr-2',
+            ])
+        }
     })
 
     it('resolves the new repository default instead of retaining an old environment or team', async () => {
