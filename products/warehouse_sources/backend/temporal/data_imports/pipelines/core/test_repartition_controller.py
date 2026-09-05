@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionAttemptsExhausted,
     RepartitionSupersededError,
+    RepartitionTooLargeForBudgetError,
     RepartitionUnpartitionableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
@@ -962,16 +963,27 @@ class TestRepartitionActivity:
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
 
-    def test_unpartitionable_clears_pending(self, team):
+    @pytest.mark.parametrize(
+        "error",
+        [
+            RepartitionUnpartitionableError("no keys"),
+            RepartitionTooLargeForBudgetError("one budget cannot cover the table"),
+        ],
+    )
+    def test_a_terminal_rewrite_error_clears_pending(self, team, error):
         schema = _make_schema(team, {})
         schema.set_repartition_pending(
             {"partition_mode": None, "partition_keys": [], "trigger_reason": "test", "attempts": 0}
         )
-        mocked = AsyncMock(side_effect=RepartitionUnpartitionableError("no keys"))
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t", "rows_written": 10, "budget_exhausted": True})
+        mocked = AsyncMock(side_effect=error)
         capture = self._run(self._inputs(team, schema), mocked)
         schema.refresh_from_db()
         assert schema.repartition_pending is None
+        # A checkpoint left behind would resume the rewrite the give-up just abandoned.
+        assert schema.repartition_rewrite is None
         assert "warehouse_repartition_skipped" in [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
         # Clearing pending alone re-arms the loop — detection re-flags the unchanged table next sync.
         # The cooldown stamp is what actually stops the flag → start → skip churn every 5 minutes.
         assert schema.last_repartition_at is not None

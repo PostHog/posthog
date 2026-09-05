@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionSchemePersistError,
     RepartitionSupersededError,
     RepartitionTarget,
+    RepartitionTooLargeForBudgetError,
     RepartitionUnpartitionableError,
     repartition_table_in_place,
 )
@@ -492,8 +493,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             outcome=_handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger, charged_attempts),
         ).inc()
         return
-    except RepartitionUnpartitionableError as e:
-        # Terminal: the table can't be partitioned on its keys. Clear the flag AND engage the cooldown —
+    except (RepartitionUnpartitionableError, RepartitionTooLargeForBudgetError) as e:
+        # Terminal: the table can't be partitioned on its keys, or one activity budget can't cover it
+        # and its checkpoint can't be resumed. Clear the flag AND engage the cooldown —
         # clearing `repartition_pending` alone re-arms the loop, because detection re-flags on the very
         # next sync (the OOM/size trigger is still true and the table's scheme is unchanged), so the
         # table churns flag → start → skip every 5 minutes forever. The cooldown re-evaluates at most
