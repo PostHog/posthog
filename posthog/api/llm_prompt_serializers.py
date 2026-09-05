@@ -165,6 +165,11 @@ class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
 
 
 class LLMPromptListQuerySerializer(serializers.Serializer):
+    label = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Filter prompts to those carrying this label, returning each prompt at its labeled version.",
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,

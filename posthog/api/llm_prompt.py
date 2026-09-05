@@ -47,6 +47,7 @@ from posthog.api.services.llm_prompt import (
     duplicate_prompt,
     get_active_prompt_queryset,
     get_latest_prompts_queryset,
+    get_prompts_by_label_queryset,
     get_prompt_by_name_from_db,
     get_prompt_labels,
     publish_prompt_version,
@@ -225,7 +226,13 @@ class LLMPromptViewSet(
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
         params = self._get_list_params(request)
 
-        queryset = get_latest_prompts_queryset(self.team).annotate(
+        label = params.get("label", "").strip() if params.get("label") else ""
+        if label:
+            base_qs = get_prompts_by_label_queryset(self.team, label)
+        else:
+            base_qs = get_latest_prompts_queryset(self.team)
+
+        queryset = base_qs.annotate(
             prompt_size_bytes=Func(
                 Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
             ),

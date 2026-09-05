@@ -89,3 +89,8 @@ class TestGetPromptOutline(TestCase):
     )
     def test_get_prompt_outline(self, _name: str, value: object, expected: list[dict[str, object]]) -> None:
         assert get_prompt_outline(value) == expected
+    def test_get_prompt_outline_with_label_metadata(self) -> None:
+        text = "# System Prompt\nPerform task"
+        outline = get_prompt_outline(text)
+        assert len(outline) == 1
+        assert outline[0]["text"] == "System Prompt"
