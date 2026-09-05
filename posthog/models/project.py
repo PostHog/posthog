@@ -111,4 +111,10 @@ class Project(UpdatedMetaFields):
 
     @cached_property
     def passthrough_team(self) -> "Team":
+        # A caller that prefetched `teams` holds the row already. Read it from the cache so that a
+        # list of projects does not run one query per project.
+        if "teams" in getattr(self, "_prefetched_objects_cache", {}):
+            for team in self.teams.all():
+                if team.pk == self.pk:
+                    return team
         return self.teams.get(pk=self.pk)

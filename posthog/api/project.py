@@ -4,7 +4,7 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Model
+from django.db.models import Model, Prefetch
 from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -1396,14 +1396,7 @@ class ProjectViewSet(
 
     scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = ProjectBackwardCompatSerializer
-    queryset = (
-        Project.objects.all()
-        .select_related("organization")
-        .prefetch_related(
-            "teams",
-            project_tags.prefetch(),
-        )
-    )
+    queryset = Project.objects.all().select_related("organization").prefetch_related(project_tags.prefetch())
     lookup_field = "id"
     ordering = "-created_by"
     filter_backends = [PhraseSearchFilter]
@@ -1416,6 +1409,18 @@ class ProjectViewSet(
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
             queryset = queryset.filter(organization_id__in=scoped_organizations)
         queryset = project_tags.filter_queryset(queryset, self.request.query_params)
+        if self.action == "list":
+            # `ProjectBackwardCompatBasicSerializer` reads only the passthrough fields off each
+            # project's team. `posthog_team` is a wide row, so a full-width read pulls TOAST pages
+            # that the response then discards.
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "teams",
+                    queryset=Team.objects.only(
+                        "project", *ProjectBackwardCompatBasicSerializer.Meta.team_passthrough_fields
+                    ),
+                )
+            )
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
