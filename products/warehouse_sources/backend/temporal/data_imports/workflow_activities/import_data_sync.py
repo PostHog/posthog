@@ -529,6 +529,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
+                connection_target=new_source.connection_target_fingerprint(model.pipeline.job_inputs),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,

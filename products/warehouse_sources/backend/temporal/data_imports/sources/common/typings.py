@@ -116,6 +116,10 @@ class SourceInputs:
     # Effective vendor API version: the source instance's pin resolved through the source's
     # `default_version`. Sources with a versioned vendor API thread it to their request layer.
     api_version: Optional[str] = None
+    # Digest of where this source sends its requests, from `connection_target_fingerprint`. `None`
+    # when the source names no target. Resume checkpoints key off it, so repointing a source at a
+    # different host retires its cursors instead of replaying them against the new target.
+    connection_target: Optional[str] = None
     # True when this schema is a fan-out child whose parent should be read from the warehouse
     # (flag on + parents verified synced). Evaluated once by the run-time gate in
     # `import_data_activity_sync` so sources don't re-evaluate the feature flag per run.
