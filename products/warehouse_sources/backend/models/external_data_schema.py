@@ -2,11 +2,13 @@ import re
 import sys
 import uuid
 import fnmatch
+from collections import defaultdict
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from itertools import batched
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -82,8 +84,13 @@ def sync_disable_context(
         _sync_disable_context.reset(token)
 
 
-def _schedule_sync_teardown(*, schema_id: str, team_id: int, deleted: bool) -> None:
-    """Dispatch the async teardown of a schema's in-flight sync work, post-commit.
+# How many schema ids one running-job lookup may carry. Postgres probes the job index once per
+# id, so an unsplit list from a source with thousands of schemas runs past the statement timeout.
+RUNNING_JOB_LOOKUP_CHUNK_SIZE = 500
+
+
+def _schedule_sync_teardowns(schemas: Iterable[tuple[uuid.UUID, int]], *, deleted: bool) -> None:
+    """Dispatch the async teardown of in-flight sync work for the given schemas, post-commit.
 
     Stopping the scheduler is not enough: the in-flight run keeps its Temporal
     workflow, its Running job, and its enqueued v3 batches, and a run that still
@@ -91,6 +98,10 @@ def _schedule_sync_teardown(*, schema_id: str, team_id: int, deleted: bool) -> N
     Celery task because it may fail tens of thousands of queue rows and talks to
     Temporal, neither of which may block the write that flipped the flag; cancelling
     a workflow is irreversible, so the dispatch waits for the commit.
+
+    The read that finds the live runs waits for the commit too. It scales with the number of
+    schemas, and a source-wide delete stops every schema at once, so a slow read inside the
+    caller's atomic block would roll back a soft delete that already succeeded.
     """
     ctx = _sync_disable_context.get()
     if ctx is not None and ctx.error_message:
@@ -101,29 +112,42 @@ def _schedule_sync_teardown(*, schema_id: str, team_id: int, deleted: bool) -> N
         reason = SYNC_DISABLED_JOB_ERROR
     exclude_workflow_id = ctx.exclude_workflow_id if ctx is not None else None
 
+    schema_ids_by_team: dict[int, list[uuid.UUID]] = defaultdict(list)
+    for schema_id, team_id in schemas:
+        schema_ids_by_team[team_id].append(schema_id)
+
     def _dispatch() -> None:
         # Deferred to keep Celery off the import path of this models module.
         from products.warehouse_sources.backend.tasks import cleanup_disabled_external_data_schema  # noqa: PLC0415
 
-        cleanup_disabled_external_data_schema.delay(
-            team_id=team_id,
-            schema_id=schema_id,
-            reason=reason,
-            exclude_workflow_id=exclude_workflow_id,
-        )
+        for team_id, schema_ids in schema_ids_by_team.items():
+            for schema_id in _schema_ids_with_running_jobs(team_id=team_id, schema_ids=schema_ids):
+                cleanup_disabled_external_data_schema.delay(
+                    team_id=team_id,
+                    schema_id=str(schema_id),
+                    reason=reason,
+                    exclude_workflow_id=exclude_workflow_id,
+                )
 
-    transaction.on_commit(_dispatch)
+    # robust=True: the hook runs from the commit itself, so a raise leaves the caller's `atomic()`
+    # block. Source `destroy()` deletes the webhook, the Temporal schedules and the S3 data after
+    # that block, and its row is already committed as deleted, so a repeat request gets a 404 and
+    # those steps never run. `sweep_stopped_schema_syncs` re-dispatches a teardown missed here.
+    transaction.on_commit(_dispatch, robust=True)
 
 
-def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+def _schema_ids_with_running_jobs(*, team_id: int, schema_ids: Iterable[uuid.UUID]) -> set[uuid.UUID]:
     # Deferred to break the import cycle with external_data_job.
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob  # noqa: PLC0415
 
-    return set(
-        ExternalDataJob.objects.filter(schema_id__in=schema_ids, status=ExternalDataJob.Status.RUNNING).values_list(
-            "schema_id", flat=True
+    running: set[uuid.UUID] = set()
+    for chunk in batched(schema_ids, RUNNING_JOB_LOOKUP_CHUNK_SIZE, strict=False):
+        running.update(
+            ExternalDataJob.objects.filter(
+                team_id=team_id, schema_id__in=chunk, status=ExternalDataJob.Status.RUNNING
+            ).values_list("schema_id", flat=True)
         )
-    )
+    return running
 
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
@@ -133,8 +157,8 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
         Queryset ``.update()`` bypasses ``Model.save()``, so without this override a
         bulk disable (e.g. ``disable_cdc``) or bulk soft-delete (source ``destroy``)
         would strand its in-flight runs. The transition set is read before the write
-        so rows already disabled/deleted are not re-torn-down, and only schemas with
-        a Running job dispatch a task.
+        so rows already disabled/deleted are not re-torn-down; only schemas that still
+        have a Running job at commit time dispatch a task.
         """
         disabling = kwargs.get("should_sync") is False
         deleting = kwargs.get("deleted") is True
@@ -148,10 +172,7 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
             transitioning = list(self.filter(predicate).values_list("id", "team_id"))
         updated = super().update(**kwargs)
         if transitioning:
-            running = _schema_ids_with_running_jobs([schema_id for schema_id, _ in transitioning])
-            for schema_id, team_id in transitioning:
-                if schema_id in running:
-                    _schedule_sync_teardown(schema_id=str(schema_id), team_id=team_id, deleted=deleting)
+            _schedule_sync_teardowns(transitioning, deleted=deleting)
         return updated
 
 
@@ -273,8 +294,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         else:
             super().save(*args, **kwargs)
 
-        if teardown_kind is not None and _schema_ids_with_running_jobs([self.pk]):
-            _schedule_sync_teardown(schema_id=str(self.pk), team_id=self.team_id, deleted=teardown_kind == "deleted")
+        if teardown_kind is not None:
+            _schedule_sync_teardowns([(self.pk, self.team_id)], deleted=teardown_kind == "deleted")
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
