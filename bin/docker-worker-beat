@@ -2,4 +2,10 @@
 set -e
 
 rm celerybeat.pid || echo "celerybeat.pid not found, proceeding"
+
+# RedBeat connects to Redis directly on startup (no Celery broker startup-retry), so a
+# transient DNS/connection blip would crash beat and the container would restart-loop,
+# re-emitting the same exception each time. Wait (bounded) for Redis before launching.
+python bin/wait-for-redis
+
 celery -A posthog beat -S redbeat.RedBeatScheduler
