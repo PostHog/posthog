@@ -772,6 +772,7 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class _BestEffortDateTimeField(serializers.DateTimeField):
     """A `DateTimeField` that never fails the request on an unparseable value.
 
@@ -779,6 +780,11 @@ class _BestEffortDateTimeField(serializers.DateTimeField):
     writes carry a malformed or nonsense datetime. The expiry is optional metadata; the content is
     the memory worth keeping. Coerce an unparseable value to `None` (durable) instead of rejecting
     the whole write — the same best-effort stance `run_id` takes on this serializer.
+
+    The field presents as a plain string, not `format: date-time`, so this tolerance can run. A
+    `date-time` format makes the generated MCP client reject an offset-less datetime or a bare date
+    before the request leaves the caller, and the write is lost one layer above this code — the
+    same reason `_BestEffortUUIDField` works, where the `uuid` format is stripped during codegen.
     """
 
     def run_validation(self, data: Any = empty) -> datetime | None:
@@ -990,19 +996,22 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
             "and no scout. Omit or leave blank for a general note every scout sees."
         ),
     )
-    expires_at = serializers.DateTimeField(
+    expires_at = _BestEffortDateTimeField(
         required=False,
         allow_null=True,
         help_text=(
             "Optional ISO-8601 expiry. After this time the note drops out of the default list view, "
             "so time-boxed steering ('watch closely this week') retires itself. Omit for a note that "
-            "stays active until deleted."
+            "stays active until deleted. Best-effort — a value that can't be parsed or is already in "
+            "the past is dropped (the note stays active), not rejected, so the note is never lost."
         ),
     )
 
     def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        # A past expiry would hide the note the moment it lands. Drop it rather than rejecting the
+        # whole call — the steering prose is what the author came to write, the expiry is not.
         if value is not None and value <= timezone.now():
-            raise serializers.ValidationError("expires_at must be in the future")
+            return None
         return value
 
 
