@@ -141,9 +141,18 @@ if [ "${SKIP_BOOT:-0}" != "1" ]; then
     dc up -d "${ALL_SERVICES[@]}"
 
     echo "==> Waiting for Postgres + Redis + ClickHouse nodes to become healthy..."
+    # Poll every node at once: each wait is idle time, so the total is one timeout,
+    # not the sum of eleven serial ones.
+    health_pids=()
     for svc in db redis7 "${CH_SERVICES[@]}"; do
-        wait_for_healthy "$svc"
+        wait_for_healthy "$svc" &
+        health_pids+=("$!")
     done
+    health_rc=0
+    for pid in "${health_pids[@]}"; do
+        wait "$pid" || health_rc=1
+    done
+    [ "$health_rc" -eq 0 ] || exit 1
 fi
 
 SMOKE_STAGE="hosts-resolution"
