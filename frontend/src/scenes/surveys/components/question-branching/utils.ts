@@ -1,3 +1,6 @@
+import { truncate } from 'lib/utils/strings'
+import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
+
 import {
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
@@ -99,6 +102,60 @@ export function canQuestionHaveResponseBasedBranching(
     question: SurveyQuestion
 ): question is RatingSurveyQuestion | MultipleSurveyQuestion {
     return question.type === SurveyQuestionType.Rating || question.type === SurveyQuestionType.SingleChoice
+}
+
+/**
+ * Lists every response a question can branch on, which is one entry per choice for a single
+ * choice question and one entry per rating bucket for a rating question.
+ */
+export function getResponseConfiguration(
+    question: RatingSurveyQuestion | MultipleSurveyQuestion
+): { value: string | number; label: string }[] {
+    if (question.type === SurveyQuestionType.Rating) {
+        // Handle different rating scales with appropriate groupings
+        switch (question.scale) {
+            case 2:
+                return [
+                    { value: 'positive', label: '1 (Thumbs up)' },
+                    { value: 'negative', label: '2 (Thumbs down)' },
+                ]
+            case 3:
+                return [
+                    { value: 'negative', label: '1 (Negative)' },
+                    { value: 'neutral', label: '2 (Neutral)' },
+                    { value: 'positive', label: '3 (Positive)' },
+                ]
+            case 5:
+                return [
+                    { value: 'negative', label: '1 to 2 (Negative)' },
+                    { value: 'neutral', label: '3 (Neutral)' },
+                    { value: 'positive', label: '4 to 5 (Positive)' },
+                ]
+            case 7:
+                return [
+                    { value: 'negative', label: '1 to 3 (Negative)' },
+                    { value: 'neutral', label: '4 (Neutral)' },
+                    { value: 'positive', label: '5 to 7 (Positive)' },
+                ]
+            case 10:
+                // NPS scale with standard categories
+                return [
+                    { value: 'detractors', label: `0 to 6 (${NPS_DETRACTOR_LABEL})` },
+                    { value: 'passives', label: `7 to 8 (${NPS_PASSIVE_LABEL})` },
+                    { value: 'promoters', label: `9 to 10 (${NPS_PROMOTER_LABEL})` },
+                ]
+            default:
+                return []
+        }
+    } else if (question.type === SurveyQuestionType.SingleChoice) {
+        // Map each choice to its index for branching
+        return question.choices.map((choice, choiceIndex) => ({
+            value: choiceIndex,
+            label: `Option ${choiceIndex + 1} ("${truncate(choice, 15)}")`,
+        }))
+    }
+
+    return []
 }
 
 export function createBranchingConfig(

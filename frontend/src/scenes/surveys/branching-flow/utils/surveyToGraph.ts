@@ -1,7 +1,9 @@
 import { Survey, SurveyQuestion, SurveyQuestionBranchingType } from '~/types'
 
-import { getResponseConfiguration } from '../../components/question-branching/QuestionBranchingInput'
-import { canQuestionHaveResponseBasedBranching } from '../../components/question-branching/utils'
+import {
+    canQuestionHaveResponseBasedBranching,
+    getResponseConfiguration,
+} from '../../components/question-branching/utils'
 import { NewSurvey } from '../../constants'
 import type { EndNodeData, QuestionNodeData, SurveyFlowEdge, SurveyFlowNode, SurveyNodeHandle } from '../types'
 
