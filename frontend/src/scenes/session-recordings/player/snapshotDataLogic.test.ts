@@ -104,7 +104,7 @@ describe('snapshotDataLogic', () => {
             consoleError.mockRestore()
         })
 
-        it.each([401, 403, 404, 410])(
+        it.each([401, 403, 410])(
             'gives up on the first failure for a terminal %s, instead of spending the retry budget',
             async (status) => {
                 const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
@@ -114,6 +114,16 @@ describe('snapshotDataLogic', () => {
                 consoleError.mockRestore()
             }
         )
+
+        // Fetching one source 404s on a stale block key too, and re-listing the sources fixes that,
+        // so this one keeps its retries rather than giving up at once.
+        it('spends the retry budget on a 404 fetching a source', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('not found', new ApiError('not found', 404))
+            }).toNotHaveDispatchedActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
     })
 
     describe('permanentSnapshotLoadError', () => {
@@ -124,7 +134,6 @@ describe('snapshotDataLogic', () => {
         it.each([
             [401, 'unauthorized'],
             [403, 'forbidden'],
-            [404, 'notFound'],
             [410, 'deleted'],
         ])('classifies a %s as %s', (status, expected) => {
             logic.actions.loadSnapshotsForSourceFailure('terminal', new ApiError('terminal', status as number))
@@ -136,6 +145,14 @@ describe('snapshotDataLogic', () => {
             logic.actions.loadSnapshotSourcesFailure('Recording not found', new ApiError('Recording not found', 404))
 
             expect(logic.values.permanentSnapshotLoadError).toBe('notFound')
+        })
+
+        // Only the source listing 404s because the recording is gone. Fetching one source also 404s
+        // on a block key the recording no longer has, and a fresh listing recovers that.
+        it('leaves a 404 fetching one source recoverable', () => {
+            logic.actions.loadSnapshotsForSourceFailure('Block index out of range', new ApiError('nope', 404))
+
+            expect(logic.values.permanentSnapshotLoadError).toBe(null)
         })
 
         it('is null for a transient failure that a retry can fix', () => {

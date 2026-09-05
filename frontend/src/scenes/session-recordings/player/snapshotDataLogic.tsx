@@ -37,7 +37,12 @@ import { SeekTarget, planNextBatch } from './snapshot-store/planNextBatch'
 
 export type PermanentSnapshotLoadError = 'unauthorized' | 'forbidden' | 'notFound' | 'deleted'
 
+// Which request failed. The snapshots API answers 404 for two unrelated conditions, and only the
+// request tells them apart, so permanentSnapshotLoadError needs this alongside the status.
+type SnapshotLoadErrorRequest = 'listing' | 'fetch'
+
 // Terminal responses from the snapshots API: the recording is gone, or this user can never read it.
+// A 404 qualifies only when listing the sources — see permanentSnapshotLoadError.
 const PERMANENT_SNAPSHOT_LOAD_STATUSES: Record<number, PermanentSnapshotLoadError> = {
     401: 'unauthorized',
     403: 'forbidden',
@@ -72,6 +77,7 @@ export interface snapshotDataLogicValues {
     recordingDeletedBy: string | null
     seekTarget: SeekTarget | null
     snapshotLoadError: Error | null
+    snapshotLoadErrorRequest: SnapshotLoadErrorRequest | null
     snapshotSources: SessionRecordingSnapshotSource[] | null
     snapshotSourcesLoading: boolean
     snapshotStore: SnapshotStore
@@ -233,7 +239,10 @@ export interface snapshotDataLogicMeta {
         isRecordingDeleted: (snapshotLoadError: Error | null) => boolean
         recordingDeletedAt: (snapshotLoadError: Error | null) => number | null
         recordingDeletedBy: (snapshotLoadError: Error | null) => string | null
-        permanentSnapshotLoadError: (snapshotLoadError: Error | null) => PermanentSnapshotLoadError | null
+        permanentSnapshotLoadError: (
+            snapshotLoadError: Error | null,
+            snapshotLoadErrorRequest: SnapshotLoadErrorRequest | null
+        ) => PermanentSnapshotLoadError | null
     }
 }
 
@@ -333,6 +342,16 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
                 loadSnapshotSources: () => null,
                 loadSnapshotSourcesFailure: (_, { errorObject }) => errorObject ?? null,
+            },
+        ],
+        snapshotLoadErrorRequest: [
+            null as SnapshotLoadErrorRequest | null,
+            {
+                loadSnapshotsForSource: () => null,
+                loadSnapshotsForSourceSuccess: () => null,
+                loadSnapshotsForSourceFailure: () => 'fetch',
+                loadSnapshotSources: () => null,
+                loadSnapshotSourcesFailure: () => 'listing',
             },
         ],
     })),
@@ -768,15 +787,24 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // A recording that is missing, deleted, or closed to this user never comes back by loading
         // it again, so a source failing this way must never be handed a fresh retry budget.
         permanentSnapshotLoadError: [
-            (s) => [s.snapshotLoadError],
-            (snapshotLoadError: Error | null): PermanentSnapshotLoadError | null => {
+            (s) => [s.snapshotLoadError, s.snapshotLoadErrorRequest],
+            (
+                snapshotLoadError: Error | null,
+                snapshotLoadErrorRequest: SnapshotLoadErrorRequest | null
+            ): PermanentSnapshotLoadError | null => {
                 if (snapshotLoadError instanceof RecordingDeletedError) {
                     return 'deleted'
                 }
-                if (snapshotLoadError instanceof ApiError && snapshotLoadError.status) {
-                    return PERMANENT_SNAPSHOT_LOAD_STATUSES[snapshotLoadError.status] ?? null
+                if (!(snapshotLoadError instanceof ApiError) || !snapshotLoadError.status) {
+                    return null
                 }
-                return null
+                // Fetching one source also answers 404 when the client asks for a block that the
+                // recording no longer has under that key, which happens when the source list goes
+                // stale. Re-listing the sources fixes that, so keep it recoverable.
+                if (snapshotLoadError.status === 404 && snapshotLoadErrorRequest !== 'listing') {
+                    return null
+                }
+                return PERMANENT_SNAPSHOT_LOAD_STATUSES[snapshotLoadError.status] ?? null
             },
         ],
     })),
