@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -101,7 +101,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
         values: [personsLogic({ syncWithUrl: true, urlId: props.urlId }), ['persons']],
     })),
     actions({
-        setSelectedPersonToAssignSplit: (id: string) => ({ id }),
+        setSelectedPersonToAssignSplit: (id: string | null) => ({ id }),
         setSplitMode: (mode: SplitMode) => ({ mode }),
         setDistinctIdsToSplit: (ids: string[]) => ({ ids }),
         cancel: true,
@@ -117,10 +117,19 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
                             : values.selectedPersonToAssignSplit
                               ? { main_distinct_id: values.selectedPersonToAssignSplit }
                               : {}
-                    const splitAction = await api.create('api/person/' + values.person.id + '/split/', payload)
+                    let splitAction: { success?: boolean }
+                    try {
+                        splitAction = await api.create('api/person/' + values.person.id + '/split/', payload)
+                    } catch (error) {
+                        // The backend rejects distinct IDs that aren't on this person (e.g. a manually
+                        // typed ID with a typo). Surface that message rather than a generic failure.
+                        const detail = error instanceof ApiError ? error.detail : null
+                        lemonToast.error(detail || 'Could not split person')
+                        return false
+                    }
                     if (splitAction.success) {
                         lemonToast.success(
-                            'Person succesfully split. This may take up to a couple of minutes to complete.'
+                            'Person successfully split. This may take up to a couple of minutes to complete.'
                         )
                         eventUsageLogic.actions.reportPersonSplit(values.person.distinct_ids.length)
                         actions.setSplitMergeModalShown(false)
