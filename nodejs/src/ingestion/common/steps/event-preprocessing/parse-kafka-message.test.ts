@@ -223,6 +223,36 @@ describe('createParseKafkaMessageStep', () => {
                 })
             )
         })
+
+        it('should skip the request-IP fallback for historical migrations', async () => {
+            // A historical migration's request IP is the import machine's, so
+            // stamping it into $ip would geo-tag every imported event.
+            const mockMessage: Message = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        data: JSON.stringify({
+                            event: 'test_event',
+                            distinct_id: 'test_user',
+                            properties: { test: 'value' },
+                        }),
+                        uuid: VALID_UUID,
+                        ip: '192.168.1.1',
+                    })
+                ),
+            } as Message
+
+            const headers: EventHeaders = {
+                force_disable_person_processing: false,
+                historical_migration: true,
+                skip_heatmap_processing: false,
+            }
+            const result = await step({ message: mockMessage, headers })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.event.event.properties).not.toHaveProperty('$ip')
+            }
+        })
     })
 
     describe('uuid validation', () => {

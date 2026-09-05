@@ -35,12 +35,12 @@ export function parseMessageTopHogMetrics<
     ]
 }
 
-export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<
+export function createParseKafkaMessageStep<T extends { message: Message; headers?: EventHeaders }>(): ProcessingStep<
     T,
     T & { event: IncomingEvent }
 > {
     return function parseKafkaMessageStep(input) {
-        const { message } = input
+        const { message, headers } = input
 
         try {
             const {
@@ -58,7 +58,11 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
 
             // Use sanitize-only normalization here. Full normalization (including
             // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
-            const event: PipelineEvent = sanitizeEvent(parsePipelineEvent(combinedEvent))
+            // Historical migrations skip the request-IP fallback: the request IP is the
+            // import machine's, so it would geo-tag every imported event to its datacenter.
+            const event: PipelineEvent = sanitizeEvent(parsePipelineEvent(combinedEvent), {
+                skipIpFallback: headers?.historical_migration,
+            })
 
             return Promise.resolve(ok({ ...input, event: { event } }))
         } catch (error) {
