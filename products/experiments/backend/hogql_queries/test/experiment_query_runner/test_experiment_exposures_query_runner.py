@@ -1818,12 +1818,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
 
-    def _flag_call_journey(self, distinct_id: str, error: str | None) -> dict:
+    def _flag_call_journey(self, distinct_id: str, error: str | None, variant: str | None = None) -> dict:
         properties: dict[str, str] = {"$feature_flag": self.feature_flag.key}
-        if error is None:
-            properties["$feature_flag_response"] = "control"
-            properties[f"$feature/{self.feature_flag.key}"] = "control"
-        else:
+        # A failed evaluation carries no variant, unless the caller asks for both.
+        variant = variant or (None if error else "control")
+        if variant is not None:
+            properties["$feature_flag_response"] = variant
+            properties[f"$feature/{self.feature_flag.key}"] = variant
+        if error is not None:
             properties["$feature_flag_error"] = error
         return {distinct_id: [{"event": "$feature_flag_called", "timestamp": "2024-01-02", "properties": properties}]}
 
@@ -1857,6 +1859,36 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(coverage.evaluated_entities, 96)
         self.assertEqual(coverage.error_reasons, {"timeout": 4, "connection_error": 1})
         self.assertAlmostEqual(coverage.errored_percentage, 5 / 101 * 100, places=5)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_coverage_treats_a_call_with_a_variant_as_evaluated(self):
+        # SDKs attach response-level errors, such as another flag failing to compute, to calls
+        # that still resolved a variant. The exposure query counts those, so coverage must too.
+        self.experiment.end_date = None
+        self.experiment.save()
+
+        journeys: dict = {}
+        for index in range(90):
+            journeys.update(self._flag_call_journey(f"user_ok_{index}", "errors_while_computing", variant="control"))
+        for index in range(10):
+            journeys.update(self._flag_call_journey(f"user_timeout_{index}", "timeout"))
+        journeys_for(journeys, self.team)
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=None,
+        )
+        result = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        coverage = result.exposure_coverage
+        assert coverage is not None
+        self.assertEqual(coverage.evaluated_entities, 90)
+        self.assertEqual(coverage.error_reasons, {"timeout": 10})
 
     @freeze_time("2024-01-07T12:00:00Z")
     def test_exposure_coverage_counts_error_reasons_past_the_default_row_limit(self):

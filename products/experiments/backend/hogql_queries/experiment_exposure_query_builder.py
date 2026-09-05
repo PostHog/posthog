@@ -287,9 +287,15 @@ class ExposureQueryBuilder:
 
         Rows are (reason, entities). An empty reason means the entity got a variant back
         at least once; any other reason is the `$feature_flag_error` value of an entity
-        that only ever got errors. SDKs choose their own error strings, so the row count is
+        that never got one. SDKs choose their own error strings, so the row count is
         unbounded: the largest reasons come first, which keeps the row limit from dropping
         the row that carries the evaluated entities.
+
+        A call that carries a variant is evaluated even when it also carries an error.
+        SDKs report response-level errors, such as another flag in the same response
+        failing to compute or a refresh that fell back to a cached value, next to a
+        variant they resolved correctly. The exposure query counts those calls, so
+        reading the error alone would report the same entities as missing.
 
         Always reads `$feature_flag_called` rather than the configured exposure event:
         this measures what the SDK reported, and a failed evaluation carries no variant
@@ -299,6 +305,7 @@ class ExposureQueryBuilder:
             SelectQuery with columns: reason, entities
         """
         error_property = parse_expr("ifNull(toString(properties.$feature_flag_error), '')")
+        response_property = parse_expr("ifNull(toString(properties.$feature_flag_response), '')")
         query = parse_select(
             """
             SELECT reason, count() AS entities
@@ -306,7 +313,7 @@ class ExposureQueryBuilder:
                 SELECT
                     {entity_key} AS entity_id,
                     if(
-                        countIf(empty({error_property})) > 0,
+                        countIf(notEmpty({response_property})) > 0,
                         '',
                         anyIf({error_property}, notEmpty({error_property}))
                     ) AS reason
@@ -325,6 +332,7 @@ class ExposureQueryBuilder:
             placeholders={
                 "entity_key": parse_expr(self.context.entity_key),
                 "error_property": error_property,
+                "response_property": response_property,
                 "date_from": self.context.date_range_query.date_from_as_hogql(),
                 "date_to": self.context.date_range_query.date_to_as_hogql(),
                 "flag_called_event": ast.Constant(value=DEFAULT_EXPOSURE_EVENT),
