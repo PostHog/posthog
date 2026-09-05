@@ -4387,6 +4387,22 @@ def set_custom_property_value(
     return _to_custom_property_value(row)
 
 
+def clear_custom_property_value(
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    *,
+    actor: "User | None" = None,
+) -> None:
+    if _source_backed_definition_ids(team_id, [definition_id]):
+        raise CustomPropertyValueSourceManaged(
+            "This custom property is managed by a data warehouse source and can't be cleared manually."
+        )
+    _custom_property_values_logic.set_account_custom_properties_by_id(
+        team_id=team_id, account_id=account_id, properties={str(definition_id): None}, actor=actor
+    )
+
+
 def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
     """Record when a customer last messaged in the Slack channel bound to `account_id`.
 
