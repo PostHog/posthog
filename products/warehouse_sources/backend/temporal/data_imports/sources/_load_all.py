@@ -1170,6 +1170,7 @@ from .telnyx.source import TelnyxSource
 from .tempo.source import TempoSource
 from .temporalio.source import TemporalIOSource
 from .tenable_vulnerability_management.source import TenableVulnerabilityManagementSource
+from .tenjin.source import TenjinSource
 from .terabox.source import TeraBoxSource
 from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
