@@ -380,8 +380,8 @@ export interface heatmapToolbarMenuLogicValues {
         limit: number
         url: string | null
     } | null
-    loadedElementStatsCount: number
     loadAllPagesLoaded: number
+    loadedElementStatsCount: number
     loadingAllElementStats: boolean
     matchLinksByHref: boolean
     processedElements: CountedHTMLElement[]
