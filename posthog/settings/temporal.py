@@ -301,6 +301,21 @@ SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
     "SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS", 30, type_cast=int
 )
 
+# Signals stranded-report reconciler (products/signals/backend/temporal/stranded_reports.py). A
+# report whose research workflow closed without running its own failure path (execution timeout,
+# termination, a history that no longer replays) stays `in_progress` forever, because no promotion
+# rule reads that status. The reconciler marks such reports failed. On by default: it only stamps
+# a failure on a report whose workflow is verifiably gone, which is what the workflow's own error
+# handler would have done. The switch is the kill switch; pausing the Temporal schedule is the other.
+SIGNAL_STRANDED_REPORT_RECONCILER_ENABLED: bool = get_from_env(
+    "SIGNAL_STRANDED_REPORT_RECONCILER_ENABLED", True, type_cast=str_to_bool
+)
+# A report must have been `in_progress` at least this long before its workflow is checked, so a
+# pass that just started (workflow registered, first activity still scheduling) is never judged.
+SIGNAL_STRANDED_REPORT_MIN_AGE_MINUTES: int = get_from_env("SIGNAL_STRANDED_REPORT_MIN_AGE_MINUTES", 20, type_cast=int)
+# Upper bound on reports examined per tick; the oldest go first, so a backlog drains across ticks.
+SIGNAL_STRANDED_REPORT_MAX_PER_TICK: int = get_from_env("SIGNAL_STRANDED_REPORT_MAX_PER_TICK", 200, type_cast=int)
+
 # Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
 EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")
 

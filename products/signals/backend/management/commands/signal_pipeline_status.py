@@ -97,7 +97,10 @@ class Command(BaseCommand):
 
     def _is_settled(self, status, expected_signals, ch_count, prev_ch_count, stable_polls):
         pg = status["postgres"]
-        transient = pg.get("candidate", 0) + pg.get("in_progress", 0)
+        # A stranded report is in_progress with no workflow behind it, so nothing will move it;
+        # waiting on it would never end.
+        stranded = len(status["temporal"].get("stranded_report_ids", []))
+        transient = pg.get("candidate", 0) + pg.get("in_progress", 0) - stranded
         if transient > 0:
             return False
 
@@ -113,6 +116,9 @@ class Command(BaseCommand):
     def _status_summary(self, status):
         pg = status["postgres"]
         parts = [f"{count} {s}" for s, count in pg.items() if s != "total" and count > 0]
+        stranded = len(status["temporal"].get("stranded_report_ids", []))
+        if stranded:
+            parts.append(f"{stranded} stranded")
         return ", ".join(parts) if parts else "no reports"
 
     def _collect_status(self, team, report_id=None):
@@ -143,13 +149,16 @@ class Command(BaseCommand):
         result["grouping_v2_workflow"] = self._describe_workflow(client, grouping_v2_wf_id)
 
         if report_id:
-            reports = list(SignalReport.objects.filter(team=team, id=report_id).only("id", "run_count"))
+            reports = list(SignalReport.objects.filter(team=team, id=report_id).only("id", "run_count", "status"))
         else:
             reports = list(
-                SignalReport.objects.filter(team=team, status__in=["candidate", "in_progress"]).only("id", "run_count")
+                SignalReport.objects.filter(team=team, status__in=["candidate", "in_progress"]).only(
+                    "id", "run_count", "status"
+                )
             )
 
         summary_workflows = {}
+        stranded_report_ids = []
         for report in reports:
             base_wf_id = SignalReportSummaryWorkflow.workflow_id_for(team.id, str(report.id))
             candidate_ids = [base_wf_id]
@@ -166,7 +175,10 @@ class Command(BaseCommand):
                 if wf["status"] != "NOT_FOUND" and chosen is None:
                     chosen = wf
 
-            summary_workflows[str(report.id)] = chosen or {"workflow_id": candidate_ids[0], "status": "NOT_FOUND"}
+            chosen = chosen or {"workflow_id": candidate_ids[0], "status": "NOT_FOUND"}
+            summary_workflows[str(report.id)] = chosen
+            if report.status == SignalReport.Status.IN_PROGRESS and chosen["status"] != "RUNNING":
+                stranded_report_ids.append(str(report.id))
 
         paused_until = None
         gv2_running = result["grouping_v2_workflow"]["status"] == "RUNNING"
@@ -179,6 +191,7 @@ class Command(BaseCommand):
         result["grouping_v2_paused_until"] = paused_until.isoformat() if paused_until else None
 
         result["summary_workflows"] = summary_workflows
+        result["stranded_report_ids"] = stranded_report_ids
         return result
 
     def _describe_workflow(self, client, workflow_id):
@@ -308,6 +321,18 @@ class Command(BaseCommand):
                     self.stdout.write(f"    {rid}: {style(wf['status'])}")
             else:
                 self.stdout.write("  Summary workflows: none in transient state")
+
+            stranded = temporal.get("stranded_report_ids", [])
+            if stranded:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  Stranded in_progress reports (summary workflow not running): {', '.join(stranded)}"
+                    )
+                )
+                self.stdout.write(
+                    "    The stranded report reconciler fails these on its next tick. To run it now: "
+                    "temporal schedule trigger --schedule-id signals-stranded-report-reconciler-schedule"
+                )
 
         self.stdout.write(self.style.MIGRATE_HEADING("\nClickHouse (document_embeddings):"))
         ch = status["clickhouse"]

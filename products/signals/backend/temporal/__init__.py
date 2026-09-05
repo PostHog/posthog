@@ -68,6 +68,11 @@ from products.signals.backend.temporal.signal_queries import (
     run_signal_semantic_search_activity,
     wait_for_signal_in_clickhouse_activity,
 )
+from products.signals.backend.temporal.stranded_reports import (
+    StrandedReportReconcilerWorkflow,
+    fail_stranded_report_activity,
+    find_stranded_reports_activity,
+)
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
@@ -102,6 +107,7 @@ WORKFLOWS = [
     RunScoutSuggestionsWorkflow,
     ScoutSuggestionsCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
+    StrandedReportReconcilerWorkflow,
 ]
 
 ACTIVITIES = [
@@ -158,4 +164,6 @@ ACTIVITIES = [
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
+    find_stranded_reports_activity,
+    fail_stranded_report_activity,
 ]

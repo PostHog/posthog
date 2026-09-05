@@ -49,8 +49,20 @@ class TestCounterHelpers:
             metrics.increment_llm_call("match", metrics.LLM_STATUS_OK)
             metrics.increment_ch_wait_timeout()
             metrics.increment_scout_run("completed")
+            metrics.increment_stranded_report_reconciled(metrics.STRANDED_OUTCOME_FAILED)
 
         get_meter.assert_not_called()
+
+    def test_stranded_report_reconciled_labels_outcome(self):
+        meter = _mock_meter()
+        with (
+            patch.object(metrics, "_in_temporal_context", return_value=True),
+            patch.object(metrics, "get_metric_meter", return_value=meter) as get_meter,
+        ):
+            metrics.increment_stranded_report_reconciled(metrics.STRANDED_OUTCOME_SKIPPED_RUNNING)
+
+        assert get_meter.call_args[0][0] == {"outcome": "skipped_running"}
+        meter.create_counter.return_value.add.assert_called_once_with(1)
 
     def test_zero_count_is_a_noop(self):
         with (
