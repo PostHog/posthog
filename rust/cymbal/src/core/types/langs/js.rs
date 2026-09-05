@@ -15,7 +15,9 @@ use crate::{
     },
 };
 
-use super::utils::{add_raw_to_junk, get_sourcelocation_context, is_kotlin_compose_source};
+use super::utils::{
+    add_raw_to_junk, get_sourcelocation_context, is_extension_source, is_kotlin_compose_source,
+};
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
@@ -179,6 +181,13 @@ impl RawJSFrame {
         format!("{:x}", hasher.finalize())
     }
 
+    // A frame is from a browser extension when its raw filename uses an extension URL scheme.
+    // Symbolication cannot resolve these frames, so without this check we mark them `in_app` and
+    // open an issue for code the customer does not own.
+    fn is_extension_frame(&self) -> bool {
+        self.source_url.as_deref().is_some_and(is_extension_source)
+    }
+
     pub fn is_suspicious(&self) -> bool {
         // posthog-js is served from a regional asset CDN whose host is
         // `{region}-assets.i.posthog.com` (the `assets` target in the SDK's request router).
@@ -224,7 +233,9 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
             .and_then(|f| f.name())
             .map(|s| sanitize_string(s.to_string()));
 
-        let in_app = raw_frame.meta.in_app && !source.as_deref().is_some_and(is_dependency_source);
+        let in_app = raw_frame.meta.in_app
+            && !source.as_deref().is_some_and(is_dependency_source)
+            && !raw_frame.is_extension_frame();
 
         let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
 
@@ -290,7 +301,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             line: Some(location.line),
             column: Some(location.column),
             source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
-            in_app: raw_frame.meta.in_app,
+            in_app: raw_frame.meta.in_app && !raw_frame.is_extension_frame(),
             resolved_name,
             lang: "javascript".to_string(),
             resolved,
@@ -323,7 +334,7 @@ impl From<&RawJSFrame> for Frame {
             .map(|s| s == "<anonymous>")
             .unwrap_or_default();
 
-        let in_app = raw_frame.meta.in_app && !is_anon;
+        let in_app = raw_frame.meta.in_app && !is_anon && !raw_frame.is_extension_frame();
 
         let mut res = Self {
             frame_id: FrameId::placeholder(),
@@ -457,5 +468,33 @@ mod test {
         }
 
         assert!(!frame_from(None).is_suspicious());
+    }
+
+    #[test]
+    fn extension_frames_are_not_in_app() {
+        use crate::error::JsResolveErr;
+
+        let extension_sources = [
+            "webkit-masked-url://hidden/",
+            "chrome-extension://abcdefg/content.js",
+            "moz-extension://abcdefg/content.js",
+        ];
+
+        for source in extension_sources {
+            let mut frame = frame_from(Some(source));
+            frame.location = Some(super::FrameLocation { line: 1, column: 1 });
+            frame.meta.in_app = true;
+
+            let resolved = frame.handle_resolution_error(JsResolveErr::NoUrlOrChunkId);
+            assert!(!resolved.in_app, "{source}");
+        }
+
+        // A page's own script keeps its in_app classification.
+        let mut own = frame_from(Some("https://example.com/app.js"));
+        own.location = Some(super::FrameLocation { line: 1, column: 1 });
+        own.meta.in_app = true;
+
+        let resolved = own.handle_resolution_error(JsResolveErr::NoUrlOrChunkId);
+        assert!(resolved.in_app);
     }
 }
