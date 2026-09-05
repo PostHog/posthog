@@ -589,6 +589,19 @@ MONGO_DOCUMENT_MISSING_ID_ERROR = (
     "view whose pipeline removes _id. Sync the underlying collection instead, or add _id to the view."
 )
 
+# A cluster signs every command reply with a cluster-time HMAC, keyed off a key document the config
+# servers rotate. While a rotation is in flight, a command fails with OperationFailure code 211
+# (KeyNotFound), and the cluster clears that on its own. Match the code rather than the message,
+# whose key id and cluster time vary per occurrence, and raise our own text instead: pymongo's
+# str() appends the whole server response. The source's get_retryable_errors matches this phrase to
+# keep the occurrence out of error tracking.
+_KEY_NOT_FOUND_ERROR_CODE = 211
+
+MONGO_KEYS_UNAVAILABLE_ERROR = (
+    "PostHog couldn't read this MongoDB collection because the cluster's signing keys were briefly "
+    "unavailable. This clears by itself, and the sync will run again automatically."
+)
+
 
 def mongo_source(
     connection_string: str,
@@ -714,6 +727,8 @@ def mongo_source(
                         cursor = open_resumable_cursor()
                         rows_since_cursor_opened = 0
                     except OperationFailure as e:
+                        if e.code == _KEY_NOT_FOUND_ERROR_CODE:
+                            raise OperationFailure(MONGO_KEYS_UNAVAILABLE_ERROR, e.code) from e
                         # The option is rejected when the cursor is opened, before any document is
                         # yielded, so retrying without it can't duplicate rows. The tradeoff is that
                         # the server-side idle timeout applies again — hence the CursorNotFound
