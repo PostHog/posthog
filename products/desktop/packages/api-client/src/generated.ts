@@ -20235,6 +20235,21 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.PersonRecord };
     };
+    /**
+     * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+     */
+    export type post_Persons_batch_by_distinct_ids_create = {
+        method: "POST";
+        path: "/api/projects/{project_id}/persons/batch_by_distinct_ids/";
+        requestFormat: "json";
+        parameters: {
+            query: Partial<{ format: "csv" | "json" }>;
+            path: { project_id: string };
+
+            body: Schemas.PersonRecord;
+        };
+        responses: { 200: unknown };
+    };
     export type get_Session_recordings_retrieve = {
         method: "GET";
         path: "/api/projects/{project_id}/session_recordings/{id}/";
@@ -20720,6 +20735,7 @@ export type EndpointByMethod = {
         "/api/projects/{project_id}/hog_flows/": Endpoints.post_Hog_flows_create;
         "/api/projects/{project_id}/hog_flows/{id}/run/": Endpoints.post_Hog_flows_run_create;
         "/api/projects/{project_id}/hog_flows/{id}/schedules/": Endpoints.post_Hog_flows_schedules_create;
+        "/api/projects/{project_id}/persons/batch_by_distinct_ids/": Endpoints.post_Persons_batch_by_distinct_ids_create;
         "/api/projects/{project_id}/tasks/": Endpoints.post_Tasks_create;
         "/api/projects/{project_id}/tasks/{id}/run/": Endpoints.post_Tasks_run_create;
         "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/": Endpoints.post_Tasks_runs_analyze_create;

@@ -38,7 +38,9 @@ import {
   getObjectKind,
   POSTHOG_OBJECT_ICON_COLOR,
 } from "@posthog/ui/utils/objectKinds";
+import { EditFlagInTaskPopover } from "./EditFlagInTaskPopover";
 import { ExperimentResultsSummary } from "./ExperimentResultsSummary";
+import { FlagAudienceCard } from "./FlagAudienceCard";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
 
 const CHART_ERROR_MESSAGE =
@@ -155,7 +157,13 @@ function FactChips({ facts }: { facts: string[] }) {
   );
 }
 
-function ObjectContent({ preview }: { preview: EvidenceCardData }) {
+function ObjectContent({
+  preview,
+  taskId,
+}: {
+  preview: EvidenceCardData;
+  taskId?: string;
+}) {
   // A dashboard is its metrics: render each tile's insight as a live chart
   // and skip the descriptive cards, which only restate what the charts show.
   if (preview.tiles && preview.tiles.length > 0) {
@@ -172,6 +180,23 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
     );
   }
   const stats = (preview.stats ?? []).filter((stat) => stat.value);
+  // The audience card already states reach, type, and variants, so the flag
+  // page skips the stat strip instead of repeating them in tiles.
+  if (preview.flagAudience) {
+    return (
+      <div className="flex flex-col gap-3">
+        <FlagAudienceCard
+          audience={preview.flagAudience}
+          action={
+            taskId && preview.title ? (
+              <EditFlagInTaskPopover taskId={taskId} flagKey={preview.title} />
+            ) : null
+          }
+        />
+        <PostHogObjectDetails preview={preview} />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-3">
       {stats.length > 0 ? (
@@ -218,6 +243,8 @@ export interface PostHogObjectViewProps {
   objectId: string;
   /** Shown while the preview loads or when the object has no live name. */
   fallbackName: string;
+  /** The task this object appears in; enables sending edits back to it. */
+  taskId?: string;
   url: string | null;
   /** Omitted when the page isn't backed by a run artifact (chip-opened). */
   occurrenceCount?: number;
@@ -230,6 +257,7 @@ export function PostHogObjectPageView({
   objectKind,
   objectId,
   fallbackName,
+  taskId,
   url,
   occurrenceCount,
   state,
@@ -362,7 +390,7 @@ export function PostHogObjectPageView({
               <Skeleton className="h-40 w-full rounded-lg" />
             </div>
           ) : preview ? (
-            <ObjectContent preview={preview} />
+            <ObjectContent preview={preview} taskId={taskId} />
           ) : (
             <UnavailableObject
               isError={state === "error"}
@@ -385,11 +413,13 @@ export function PostHogObjectPageView({
 export function PostHogObjectPage({
   metadata,
   fallbackName,
+  taskId,
 }: {
   /** Only kind + id when opened from an inline reference chip. */
   metadata: Pick<PostHogObjectArtifactMetadata, "object_kind" | "object_id"> &
     Partial<Omit<PostHogObjectArtifactMetadata, "object_kind" | "object_id">>;
   fallbackName: string;
+  taskId?: string;
 }) {
   const query = useAuthenticatedQuery(
     evidencePreviewQueryKey({
@@ -404,6 +434,10 @@ export function PostHogObjectPage({
     {
       staleTime: EVIDENCE_PREVIEW_STALE_TIME,
       refetchOnWindowFocus: false,
+      // The flag page now offers an edit action, so a cached preview can
+      // outlive the object: always refetch on remount so a read after the
+      // agent applies a change shows the new state.
+      refetchOnMount: "always",
       retry: 1,
     },
   );
@@ -424,6 +458,7 @@ export function PostHogObjectPage({
       objectKind={metadata.object_kind}
       objectId={metadata.object_id}
       fallbackName={fallbackName}
+      taskId={taskId}
       url={url}
       occurrenceCount={metadata.occurrence_count}
       state={state}

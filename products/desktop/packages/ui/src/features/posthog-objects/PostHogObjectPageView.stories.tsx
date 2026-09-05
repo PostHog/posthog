@@ -1,3 +1,4 @@
+import type { FlagAudience, FlagRule } from "@posthog/api-client/flag-audience";
 import type { EvidenceCardData } from "@posthog/ui/features/editor/evidencePreview";
 import { PostHogObjectPageView } from "@posthog/ui/features/posthog-objects/PostHogObjectPage";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -12,35 +13,99 @@ const DAYS = [
   "2026-08-16",
 ];
 
+const alex = {
+  label: "Alex Rivera",
+  secondary: "alex@example.com",
+  raw: "4dc8564d-1f2e-4b7a-9c3d-2a1b0c9d8e7f",
+  link: { kind: "person" as const, id: "4dc8564d-1f2e-4b7a-9c3d-2a1b0c9d8e7f" },
+};
+
+const betaTesters = {
+  label: "Beta testers",
+  raw: "142",
+  link: { kind: "cohort" as const, id: "142" },
+};
+
+const rule = (overrides: Partial<FlagRule>): FlagRule => ({
+  conditions: [],
+  share: 100,
+  result: { kind: "true" },
+  reachable: true,
+  isGroup: false,
+  ...overrides,
+});
+
+const audience = (overrides: Partial<FlagAudience>): FlagAudience => ({
+  headline: "On for everyone.",
+  disabled: false,
+  rules: [],
+  fallbackReachable: true,
+  variants: [],
+  bucketing: "person",
+  enrollmentKey: null,
+  holdout: null,
+  ...overrides,
+});
+
+const multivariateAudience = audience({
+  headline: "Split into 3 variants for Alex Rivera and Pro plan users.",
+  rules: [
+    rule({
+      conditions: [{ subject: "Person", operator: "is", values: [alex] }],
+      result: { kind: "variant", key: "test" },
+    }),
+    rule({
+      conditions: [
+        { subject: "plan", operator: "is", values: [{ label: "pro" }] },
+        { subject: "Cohort", operator: "in cohort", values: [betaTesters] },
+      ],
+      share: 25,
+      result: { kind: "split" },
+    }),
+    rule({
+      conditions: [
+        {
+          subject: "email",
+          operator: "ends with",
+          values: [{ label: "@example.com" }],
+        },
+      ],
+      result: { kind: "variant", key: "control" },
+    }),
+  ],
+  variants: [
+    { key: "control", percentage: 34, payload: null },
+    { key: "test", percentage: 33, payload: '{"prompt":"soft"}' },
+    { key: "aggressive", percentage: 33, payload: '{"prompt":"hard"}' },
+  ],
+});
+
+const configuration = {
+  title: "Configuration",
+  fields: [
+    { label: "Type", value: "Multivariate" },
+    { label: "Evaluation runtime", value: "All runtimes" },
+    { label: "Experience continuity", value: "On" },
+    { label: "Last called", value: "Aug 16" },
+    {
+      label: "Targeted IDs",
+      value: "4dc8564d-1f2e-4b7a-9c3d-2a1b0c9d8e7f",
+    },
+  ],
+};
+
 const flagPreview: EvidenceCardData = {
   title: "pi-harness",
   detail: "Cloud task harness rollout",
   status: { label: "Enabled", tone: "positive" },
   stats: [
-    { label: "Rollout", value: "100%" },
+    { label: "Reach", value: "Alex Rivera and Pro plan users" },
     { label: "Variants", value: "3" },
     { label: "Type", value: "Multivariate" },
-    { label: "Calls in 7 days", value: "1.2K" },
   ],
   spark: { points: [24, 32, 28, 46, 51, 63, 58], labels: DAYS, render: "line" },
-  sections: [
-    {
-      title: "Configuration",
-      fields: [
-        { label: "Type", value: "Multivariate" },
-        { label: "Release conditions", value: "2 conditions" },
-        { label: "Evaluation runtime", value: "Both client and server" },
-        { label: "Last called", value: "Aug 16" },
-      ],
-    },
-    {
-      title: "Release conditions",
-      fields: [
-        { label: "Set 1", value: "plan is pro · 25% rollout · Variant: test" },
-        { label: "Set 2", value: "75% rollout" },
-      ],
-    },
-  ],
+  flagAudience: multivariateAudience,
+  sections: [configuration],
 };
 
 const experimentPreview: EvidenceCardData = {
@@ -178,6 +243,7 @@ export const FeatureFlag: Story = {
     objectKind: "flag",
     objectId: "390",
     fallbackName: "pi-harness",
+    taskId: "task-1",
     url: "https://us.posthog.com/project/2/feature_flags/390",
     occurrenceCount: 4,
     state: "ready",

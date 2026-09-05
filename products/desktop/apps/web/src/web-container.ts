@@ -166,7 +166,7 @@ import {
 } from "@posthog/core/tasks/identifiers";
 import type { TaskDeletionService } from "@posthog/core/tasks/taskDeletionService";
 import { tasksModule } from "@posthog/core/tasks/tasks.module";
-import { setRootContainer } from "@posthog/di/container";
+import { resolveService, setRootContainer } from "@posthog/di/container";
 import { assertHostCapabilities } from "@posthog/di/hostCapabilities";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
@@ -252,6 +252,10 @@ import {
 } from "@posthog/ui/features/notifications/identifiers";
 import { notificationsUiModule } from "@posthog/ui/features/notifications/notifications.module";
 import { OnboardingGithubConnectClient } from "@posthog/ui/features/onboarding/githubConnectClientImpl";
+import {
+  AGENT_PROMPT_SENDER,
+  type AgentPromptSender,
+} from "@posthog/ui/features/sessions/agentPromptSender";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
 import { taskCreationEffects } from "@posthog/ui/features/task-detail/taskCreationEffectsImpl";
@@ -358,6 +362,7 @@ interface WebBindings {
   [CLOUD_TASK_SERVICE]: CloudTaskService;
   [CLOUD_TASK_AUTH]: ICloudTaskAuth;
   [SESSION_SERVICE]: SessionService;
+  [AGENT_PROMPT_SENDER]: AgentPromptSender;
   [SETUP_STORE]: ISetupStore;
   [GITHUB_ISSUE_CLIENT]: GitHubIssueClient;
   [HEDGEHOG_MODE_HOST]: HedgehogModeHost;
@@ -504,6 +509,18 @@ container
   .bind(SESSION_SERVICE)
   .toDynamicValue(() => getSessionService())
   .inSingletonScope();
+
+// Shared UI resolves AGENT_PROMPT_SENDER for send-to-agent actions
+// (sendPromptToAgent, the flag edit popover); route it through SessionService
+// like the desktop renderer does.
+container
+  .bind<AgentPromptSender>(AGENT_PROMPT_SENDER)
+  .toConstantValue(async (taskId, prompt) => {
+    await resolveService<SessionService>(SESSION_SERVICE).sendPrompt(
+      taskId,
+      prompt,
+    );
+  });
 
 // ── Feature flags (real posthog-js) ──
 // When posthog isn't initialized (no real VITE_POSTHOG_API_KEY), isEnabled

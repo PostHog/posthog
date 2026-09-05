@@ -26,6 +26,7 @@
     "/api/projects/{project_id}/integrations/{id}/",
     "/api/projects/{project_id}/persons/",
     "/api/projects/{project_id}/persons/{id}/",
+    "/api/projects/{project_id}/persons/batch_by_distinct_ids/",
     "/api/projects/{project_id}/session_recordings/{id}/",
     "/api/projects/{project_id}/surveys/{id}/",
     "/api/projects/{project_id}/surveys/{id}/stats/",
