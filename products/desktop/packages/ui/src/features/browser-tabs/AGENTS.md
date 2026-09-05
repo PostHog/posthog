@@ -111,6 +111,7 @@ differ. Desktop ships first.
 
 ### Closing
 - Closing the active tab focuses its neighbour.
+- Middle-clicking any tab closes it, including a pinned tab.
 - Closing the last tab of a **secondary** window closes the window. Closing the
   last tab of the **primary** window replaces it with a fresh `/activity` tab.
 
