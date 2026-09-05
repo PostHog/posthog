@@ -2868,6 +2868,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             return False
         return _is_mcp_client(request) or self._stages_draft()
 
+    def _merges_partial_conversion(self) -> bool:
+        # Only a PATCH of the workflow itself can carry part of a conversion. The custom actions
+        # revalidate a complete stored snapshot with partial=True as well — publish re-runs the draft,
+        # which is a full content snapshot — and merging live fields into one of those would put back
+        # what the snapshot leaves out, so a restored revision would not roll all the way back.
+        view = self.context.get("view")
+        return self.partial and getattr(view, "action", None) == "partial_update"
+
     def _stored_conversion_base(self, instance: Optional[HogFlow]) -> Optional[dict]:
         # The conversion a partial patch merges into: whichever copy this save is about to overwrite.
         # A draft write composes on the staged draft (the same rule the graph endpoint follows) — it
@@ -3122,7 +3130,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # The base is the copy this save overwrites — the staged draft for a draft write, live for a
             # live one (see _stored_conversion_base). Reading the wrong one would revert a staged goal,
             # or un-clear one a draft deliberately emptied.
-            stored_base = self._stored_conversion_base(instance) if self.partial else None
+            stored_base = self._stored_conversion_base(instance) if self._merges_partial_conversion() else None
             if stored_base is not None:
                 # Copy before merging: the compile loop below rewrites each event entry in place, and a
                 # carried-over entry is still the stored object. A staged edit that also touches metadata
