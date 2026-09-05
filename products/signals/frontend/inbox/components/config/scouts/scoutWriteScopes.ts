@@ -38,14 +38,14 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         scope: 'alert:write',
         group: 'Monitoring',
         label: 'Alerts',
-        description: 'Create, update, delete, and test insight alerts',
+        description: 'Create, update, and delete insight alerts',
     },
 ]
 
 /** What every scout can write, whatever its grant. Shown so the picker is the whole picture. */
 export const SCOUT_ALWAYS_GRANTED_ROWS: { label: string; description: string }[] = [
     { label: 'Notebooks', description: 'Every scout can write notebooks' },
-    { label: 'Inbox and memory', description: 'Its reports, findings, and its own notes' },
+    { label: 'Inbox and memory', description: "Its reports, findings, and the project's shared scout memory" },
 ]
 
 /** Short labels for the scopes a scout holds, for the settings header and the roster row. */

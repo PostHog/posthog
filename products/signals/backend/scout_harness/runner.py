@@ -265,6 +265,16 @@ async def arun_signals_scout(
     )
     if user_id is None:
         user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
+        if user_id is not None and _granted_write_scopes(config):
+            # The grant was approved for the person the runs act as. The team fallback is a member
+            # who never approved it, so this run holds only the fleet posture. Cleared in memory
+            # only: the runner never saves the config row, so the grant is back the moment the
+            # author's identity resolves again.
+            logger.info(
+                "signals_scout: withholding write access, acting user is the team fallback",
+                extra={"team_id": team_id, "skill_name": skill.name, "user_id": user_id},
+            )
+            config.write_scopes = []
     if user_id is None:
         logger.info(
             "signals_scout: skipping run, no active user to act as for team",

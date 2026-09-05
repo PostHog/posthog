@@ -19,10 +19,13 @@ export function ScoutNameCell({
     config,
     group,
     rollup,
+    compact = false,
 }: {
     config: SignalScoutConfig
     group: ScoutGroupKey
     rollup: ScoutRollup | undefined
+    /** The table's compact layout, where the name column is too narrow for the tag's labels. */
+    compact?: boolean
 }): JSX.Element {
     const subtitle = scoutSubtitle(config, rollup, new Date())
     return (
@@ -31,7 +34,7 @@ export function ScoutNameCell({
                 <Link to={urls.inboxScout(config.skill_name)} subtle className="truncate text-sm font-medium">
                     {prettifyScoutSkillName(config.skill_name)}
                 </Link>
-                <ScoutWriteAccessTag writeScopes={config.write_scopes} />
+                <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} compact={compact} />
                 {config.auto_pause_exempt && group === 'watching' && (
                     <Tooltip title="Exempt from auto-pause — this scout is supposed to stay quiet">
                         <LemonTag size="small">Quiet by design</LemonTag>

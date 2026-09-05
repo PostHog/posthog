@@ -55,12 +55,15 @@ export function ScoutWriteAccessSection({
                                 <div className="flex flex-wrap items-center gap-1">
                                     {heldLabels.length > 0 ? (
                                         heldLabels.map((label) => (
-                                            <LemonTag key={label} size="small" type="option">
+                                            <LemonTag key={label} size="small" type={config.emit ? 'option' : 'muted'}>
                                                 {label}
                                             </LemonTag>
                                         ))
                                     ) : (
                                         <span className="text-[11.5px] text-muted">Read only</span>
+                                    )}
+                                    {heldLabels.length > 0 && !config.emit && (
+                                        <span className="text-[11.5px] text-muted">Inactive during dry run</span>
                                     )}
                                 </div>
                             </div>

@@ -606,6 +606,10 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         assert "dashboards and their tiles" in granted
         assert "insight alerts" in granted
         assert "saved insights" not in granted
+        # The organization-wide reach is a fact about annotations only. Stating it for every grant
+        # would send a dashboard scout looking for sibling projects' objects that are not there.
+        assert "Annotations reach past this project" not in granted
+        assert "Annotations reach past this project" in _prompt(write_scopes=["annotation:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
@@ -1318,16 +1322,19 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "emit,expected_grant",
+    "emit,acting_user_resolves,expected_grant",
     [
-        pytest.param(True, ["dashboard:write"], id="live_run_holds_the_grant"),
+        pytest.param(True, True, ["dashboard:write"], id="live_run_holds_the_grant"),
         # Dry run is how a person previews a scout before trusting it, so a dry run that could
         # edit dashboards would do the thing they wanted to look at first.
-        pytest.param(False, [], id="dry_run_holds_no_grant"),
+        pytest.param(False, True, [], id="dry_run_holds_no_grant"),
+        # The grant was approved for the person the runs act as. When that identity no longer
+        # resolves, the team fallback is a member who never approved it and cannot revoke it.
+        pytest.param(True, False, [], id="team_fallback_holds_no_grant"),
     ],
 )
 async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
-    ateam, aerrors_skill, emit, expected_grant
+    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant
 ):
     # The grant is what the run's token carries, so a composition that loses it leaves a scout
     # unable to do the job it was granted for, and one that passes the column through unfiltered
@@ -1360,6 +1367,10 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
         patch(
             "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
             return_value=42,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_acting_user_id",
+            return_value=42 if acting_user_resolves else None,
         ),
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")

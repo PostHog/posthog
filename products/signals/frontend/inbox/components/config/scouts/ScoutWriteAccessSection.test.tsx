@@ -49,13 +49,22 @@ describe('ScoutWriteAccessSection', () => {
         return onUpdate
     }
 
-    it('shows what the scout holds without opening the section', () => {
+    it.each([
+        ['a live scout', true],
+        // A dry run never holds the grant, so a header that reads the same as a live scout's would
+        // promise writes the next run cannot make.
+        ['a dry-run scout', false],
+    ])('shows what the scout holds without opening the section, for %s', (_name, emit) => {
         render(
-            <ScoutWriteAccessSection config={{ ...CONFIG, write_scopes: ['dashboard:write'] }} onUpdate={jest.fn()} />
+            <ScoutWriteAccessSection
+                config={{ ...CONFIG, emit, write_scopes: ['dashboard:write'] }}
+                onUpdate={jest.fn()}
+            />
         )
 
         expect(screen.getByText('Dashboards')).toBeInTheDocument()
         expect(screen.queryByText('Read only')).not.toBeInTheDocument()
+        expect(screen.queryByText('Inactive during dry run') !== null).toBe(!emit)
     })
 
     it.each([

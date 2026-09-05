@@ -18,6 +18,7 @@ from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import OAuthApplication
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -1318,6 +1319,40 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         config.refresh_from_db()
         assert config.write_scopes == ["dashboard:write"]
+
+    def test_a_stored_object_is_not_a_grant_to_compare_against(self) -> None:
+        # The mint path treats a non-list column as no grant, so the gate must read it the same
+        # way. Iterating the object's keys would make a non-author's request for exactly those
+        # keys look unchanged, and the save would turn a value that grants nothing into a grant.
+        config = self._config(write_scopes={"dashboard:write": False})
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"write_scopes": ["dashboard:write"]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.write_scopes == {"dashboard:write": False}
+
+    def test_creating_a_scout_with_a_grant_records_it_in_the_activity_log(self) -> None:
+        # A creation diffs against nothing, so without this the log's first entry for a granted
+        # scout says nothing about its access and a later revoke has no "before" to point at.
+        self._authored_by(self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/configs/",
+            data={"skill_name": "signals-scout-hygiene", "write_scopes": ["dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        entry = ActivityLog.objects.filter(team_id=self.team.id, scope="SignalScoutConfig", activity="created").latest(
+            "created_at"
+        )
+        assert [(change["field"], change["action"], change["after"]) for change in entry.detail["changes"]] == [
+            ("write access", "created", ["dashboard:write"])
+        ]
 
     @parameterized.expand(
         [
