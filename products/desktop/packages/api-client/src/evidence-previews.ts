@@ -1434,12 +1434,42 @@ function asCount(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function describeCohortCriterion(criterion: QueryRecord): string | null {
+/** Cohort ids referenced by a cohort's criteria, so the caller can resolve their names. */
+export function referencedCohortIds(filters: unknown): string[] {
+  const ids = new Set<string>();
+  for (const group of criteriaGroups(filters)) {
+    for (const criterion of asRecords(group.values)) {
+      const id =
+        criterion.type === "cohort" ? conciseValue(criterion.value) : null;
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+function asRecords(value: unknown): QueryRecord[] {
+  return (Array.isArray(value) ? value : []).filter(isRecord);
+}
+
+function criteriaGroups(filters: unknown): QueryRecord[] {
+  const properties =
+    isRecord(filters) && isRecord(filters.properties)
+      ? filters.properties
+      : null;
+  return asRecords(properties?.values);
+}
+
+function describeCohortCriterion(
+  criterion: QueryRecord,
+  cohortNames: ReadonlyMap<string, string>,
+): string | null {
   const type = String(criterion.type ?? "");
   if (type === "behavioral") return describeBehavioralCriterion(criterion);
   const negated = criterion.negation === true;
-  if (type === "cohort")
-    return `Is ${negated ? "not " : ""}in cohort ${conciseValue(criterion.value) ?? "?"}`;
+  if (type === "cohort") {
+    const id = conciseValue(criterion.value) ?? "?";
+    return `Is ${negated ? "not " : ""}in cohort ${cohortNames.get(id) ?? id}`;
+  }
   if (type === "static-cohort")
     return `Is ${negated ? "not " : ""}in a static cohort`;
   if (type === "person" || type === "event" || type === "group") {
@@ -1470,19 +1500,16 @@ function describeCohortCriterion(criterion: QueryRecord): string | null {
  */
 export function cohortCriteriaSection(
   filters: unknown,
+  cohortNames: ReadonlyMap<string, string> = new Map(),
 ): EvidenceDetailSection[] {
-  const properties =
+  const groups = criteriaGroups(filters);
+  const outerAny =
     isRecord(filters) && isRecord(filters.properties)
-      ? filters.properties
-      : null;
-  const groups = (
-    Array.isArray(properties?.values) ? properties.values : []
-  ).filter(isRecord);
-  const outerAny = properties?.type === "OR";
+      ? filters.properties.type === "OR"
+      : false;
   const fields = groups.flatMap((group, index) => {
-    const criteria = (Array.isArray(group.values) ? group.values : [])
-      .filter(isRecord)
-      .map(describeCohortCriterion)
+    const criteria = asRecords(group.values)
+      .map((criterion) => describeCohortCriterion(criterion, cohortNames))
       .filter((line): line is string => line !== null);
     if (criteria.length === 0) return [];
     const joiner = group.type === "OR" ? " or " : " and ";
@@ -1495,7 +1522,10 @@ export function cohortCriteriaSection(
   return detailSection("Membership criteria", fields);
 }
 
-export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
+export function shapeCohortPreview(
+  cohort: Schemas.Cohort,
+  cohortNames: ReadonlyMap<string, string> = new Map(),
+): EvidencePreview {
   const detail =
     typeof cohort.count === "number"
       ? count(cohort.count, "person", "people")
@@ -1545,7 +1575,7 @@ export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
         ],
         ["Created", cohort.created_at ? formatDay(cohort.created_at) : null],
       ]),
-      ...cohortCriteriaSection(cohort.filters),
+      ...cohortCriteriaSection(cohort.filters, cohortNames),
     ],
   };
 }
