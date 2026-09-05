@@ -107,8 +107,9 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "environment_scope": {
                 "help_text": "What the environment filter resolved to: the exact environment name(s) it matches "
-                "(the caller's picks, comma-joined when several; by default the busiest production-marked "
-                "environment, falling back to the busiest persistent one), or 'persistent' (no persistent "
+                "(the caller's picks, comma-joined when several; by default every production-marked "
+                "environment, then every production-named one, then the busiest persistent one), or "
+                "'persistent' (no persistent "
                 "environment deployed in the window, so every non-transient one counts). Transient environments "
                 "(ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in "
                 "the scan window, so two different windows can resolve different scopes and are not always "

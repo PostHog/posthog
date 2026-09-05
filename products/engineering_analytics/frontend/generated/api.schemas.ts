@@ -266,7 +266,7 @@ export interface DoraOverviewApi {
     open_to_deploy_series: LeadTimeBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
-    /** What the environment filter resolved to: the exact environment name(s) it matches (the caller's picks, comma-joined when several; by default the busiest production-marked environment, falling back to the busiest persistent one), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+    /** What the environment filter resolved to: the exact environment name(s) it matches (the caller's picks, comma-joined when several; by default every production-marked environment, then every production-named one, then the busiest persistent one), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
     environment_scope: string
     /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
     environments: string[]
@@ -1741,7 +1741,7 @@ export type EngineeringAnalyticsDoraParams = {
      */
     date_to?: string
     /**
-     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to scope to the busiest environment GitHub marks production, falling back to the busiest persistent (non-transient) environment when none are marked production.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to scope to every environment GitHub marks production (every production-named one when none is marked), falling back to the busiest persistent (non-transient) environment.
      */
     environment?: string[]
     /**

@@ -346,39 +346,38 @@ class _DoraScan:
 def _resolve_environment_scope(
     environments_filter: list[str] | None, environments: list[tuple[str, bool]]
 ) -> _EnvironmentScope:
-    """Pick the deploy population: the caller's exact environment(s) when given; otherwise the
-    single busiest environment GitHub marks production; otherwise the busiest environment whose
-    NAME says production; otherwise the single busiest persistent environment, so a repo that
-    never sets the production flag still gets numbers instead of a false zero.
+    """Pick the deploy population: the caller's exact environment(s) when given; otherwise every
+    environment GitHub marks production; otherwise every environment whose NAME says production;
+    otherwise the single busiest persistent environment, so a repo that never sets the production
+    flag still gets numbers instead of a false zero.
     The name tier exists because the ``production_environment`` flag is optional and widely
     unset, and a dev or staging environment can deploy more often than production, which would
     put every default DORA figure on that environment.
-    Busiest-single, not every-matching: a multi-region repo deploys each merge to several
-    production and persistent environments (and to dev, package registries, ...), which would
-    multiply every deploy count and hand lead time to whichever region deploys first.
+    Every production environment, not the busiest one: the default question is "how long until
+    it is in production", and a multi-region repo runs production as several environments, so a
+    single-region scope silently drops the other regions. The cost is that deploy counts add up
+    across regions (one merge deployed to two regions is two deployments) and a PR's lead time
+    ends at whichever region deploys it first; the scope label names every region so the reader
+    can see that.
     'persistent' survives only when the window has no persistent environment at all. Transient
     environments never join a default scope: they are ephemeral per-PR previews, and on this
     repo they outnumber real deploys by an order of magnitude."""
     if environments_filter:
-        return _EnvironmentScope(
-            scope=", ".join(environments_filter),
-            predicate="d.environment IN {environments}",
-            values=environments_filter,
-        )
-    # ``environments`` arrives busiest-first, so the first match in each tier is the busiest match.
-    production = next((name for name, is_production in environments if is_production), None)
-    if production is not None:
-        return _single_environment_scope(production)
-    named = next((name for name, _ in environments if _PRODUCTION_NAME_PATTERN.match(name)), None)
-    if named is not None:
-        return _single_environment_scope(named)
+        return _exact_environment_scope(environments_filter)
+    # ``environments`` arrives busiest-first, so each tier keeps that order.
+    production = [name for name, is_production in environments if is_production]
+    if production:
+        return _exact_environment_scope(production)
+    named = [name for name, _ in environments if _PRODUCTION_NAME_PATTERN.match(name)]
+    if named:
+        return _exact_environment_scope(named)
     if environments:
-        return _single_environment_scope(environments[0][0])
+        return _exact_environment_scope([environments[0][0]])
     return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment", values=None)
 
 
-def _single_environment_scope(name: str) -> _EnvironmentScope:
-    return _EnvironmentScope(scope=name, predicate="d.environment IN {environments}", values=[name])
+def _exact_environment_scope(names: list[str]) -> _EnvironmentScope:
+    return _EnvironmentScope(scope=", ".join(names), predicate="d.environment IN {environments}", values=names)
 
 
 def _empty_overview(
@@ -643,8 +642,8 @@ def query_dora_overview(
         date_to_filter=_date_to_clause(date_to, "d.created_at"),
     )
     env_scope = _resolve_environment_scope(environments_filter, environments)
-    # The busiest-environment fallbacks bind the same placeholder as an explicit filter: either
-    # way ``values`` holds exactly the environment names the predicate matches.
+    # The default-scope tiers bind the same placeholder as an explicit filter: either way
+    # ``values`` holds exactly the environment names the predicate matches.
     if env_scope.values is not None:
         placeholders["environments"] = ast.Tuple(exprs=[ast.Constant(value=name) for name in env_scope.values])
 

@@ -1337,9 +1337,9 @@ class DoraOverview:
     # False when the deployments/deployment_statuses tables aren't synced for the selected repo.
     deploy_data_available: bool
     # What the environment filter resolved to: the exact environment name(s) it matches —
-    # the caller's picks (comma-joined when several), or by default the busiest environment
-    # GitHub marks production, falling back to the busiest persistent environment, so a
-    # multi-region repo doesn't multiply every count — or 'persistent' (no persistent
+    # the caller's picks (comma-joined when several), or by default every environment GitHub
+    # marks production (every production-named one when none is marked), falling back to the
+    # busiest persistent environment — or 'persistent' (no persistent
     # environment deployed in the window at all, so every non-transient one counts). Transient
     # environments (ephemeral per-PR previews) never join a default scope. The scope resolves
     # from deployments in the scan window, so two different windows can resolve different

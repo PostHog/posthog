@@ -3,6 +3,7 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team import Team
@@ -189,7 +190,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.deploy_data_available is True
-        assert result.environment_scope == "prod"  # the busiest (only) production-marked environment
+        assert result.environment_scope == "prod"  # the only production-marked environment
         assert result.environments == ["prod", "staging"]
         assert result.has_membership_data is False
         assert result.github_teams == []
@@ -446,21 +447,29 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert both.deployment_count == 2  # the multi-environment scope admits d1 and d4
         assert both.series_granularity == "week"  # the caller's override beats the window fit
 
-    def test_default_scope_picks_busiest_production_environment(self):
-        # Two production-marked regions: the default scope takes the busiest one, so a
-        # multi-region repo doesn't double-count every deploy and hand lead time to
-        # whichever region ships first.
+    @parameterized.expand([("production_flag", True), ("production_name", False)])
+    def test_default_scope_covers_every_production_environment(self, _name: str, production: bool):
+        # Two production regions, marked by the GitHub flag or only by name: the default scope
+        # takes both, so "how long to production" reads across the whole production estate and
+        # the quieter region isn't silently dropped. Staging deploys more often than either
+        # region and still stays out.
         curated = self._curated(
             self.team,
             deployment_rows=[
-                _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=True),
-                _deployment_row(2, "sha-b", "prod-us", "2026-01-13 09:30:00", production=True),
-                _deployment_row(3, "sha-c", "prod-eu", "2026-01-12 09:30:00", production=True),
+                _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=production),
+                _deployment_row(2, "sha-b", "prod-us", "2026-01-13 09:30:00", production=production),
+                _deployment_row(3, "sha-c", "prod-eu", "2026-01-12 09:30:00", production=production),
+                _deployment_row(4, "sha-d", "staging", "2026-01-12 09:00:00", production=False),
+                _deployment_row(5, "sha-e", "staging", "2026-01-13 09:00:00", production=False),
+                _deployment_row(6, "sha-f", "staging", "2026-01-14 09:00:00", production=False),
             ],
             status_rows=[
                 _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
                 _status_row(21, 2, "success", "prod-us", "2026-01-13 10:00:00"),
                 _status_row(31, 3, "success", "prod-eu", "2026-01-12 10:00:00"),
+                _status_row(41, 4, "success", "staging", "2026-01-12 09:30:00"),
+                _status_row(51, 5, "success", "staging", "2026-01-13 09:30:00"),
+                _status_row(61, 6, "success", "staging", "2026-01-14 09:30:00"),
             ],
             pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
         )
@@ -470,6 +479,6 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             date_to=datetime(2026, 1, 20, tzinfo=UTC),
         )
 
-        assert result.environment_scope == "prod-us"
-        assert result.environments == ["prod-us", "prod-eu"]
-        assert result.deployment_count == 2
+        assert result.environment_scope == "prod-us, prod-eu"
+        assert result.environments == ["staging", "prod-us", "prod-eu"]
+        assert result.deployment_count == 3

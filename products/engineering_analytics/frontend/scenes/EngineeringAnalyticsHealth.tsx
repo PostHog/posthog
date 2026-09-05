@@ -28,7 +28,7 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
         dora,
         doraLoading,
         doraFailed,
-        environments,
+        selectedEnvironments,
         githubTeam,
         granularity,
         boxPlotBuckets,
@@ -102,10 +102,10 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                         <LemonInputSelect
                             size="small"
                             mode="multiple"
-                            value={environments}
+                            value={selectedEnvironments}
                             onChange={setEnvironments}
                             options={environmentOptions}
-                            placeholder={`Default environment (${environmentScopeLabel})`}
+                            placeholder={`Default: ${environmentScopeLabel}`}
                             allowCustomValues={false}
                         />
                     </div>

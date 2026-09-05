@@ -57,7 +57,7 @@ function leadTimeSeries(stats: (number[] | null)[]): DoraOverviewApi['merge_to_d
 
 const DORA: DoraOverviewApi = {
     deploy_data_available: true,
-    environment_scope: 'prod-us',
+    environment_scope: 'prod-us, prod-eu',
     environments: ['prod-us', 'prod-eu', 'dev'],
     has_membership_data: true,
     github_teams: ['team-devex', 'team-ingestion', 'team-replay'],
