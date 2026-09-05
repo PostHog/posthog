@@ -350,6 +350,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
+    sync_type_fallback_reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why PostHog changed this table's sync type on its own, or null if it never did. Set when "
+            "a sync run proved the configured sync type can't work for the table, such as an "
+            "incremental sync on a table with no primary key."
+        ),
+    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -429,6 +438,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "sync_type_fallback_reason",
             "enabled_columns",
             "row_filters",
             "available_columns",
@@ -448,6 +458,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "latest_error",
             "status",
             "description",
+            "sync_type_fallback_reason",
             "available_columns",
             "source_column_metadata_available",
             "source",
@@ -639,6 +650,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
+        ret["sync_type_fallback_reason"] = instance.sync_type_fallback_reason
         return ret
 
     def _run_temporal_side_effect(self, callback: Callable[[], None]) -> None:
@@ -807,6 +819,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Only update sync_type if it was explicitly provided in the request
         if "sync_type" in data:
             validated_data["sync_type"] = sync_type
+            # A recorded fallback explains a sync type PostHog picked for the user. Once they pick
+            # one themselves, drop it so the UI stops explaining a decision they have replaced.
+            if instance.sync_type_config:
+                instance.sync_type_config.pop("sync_type_fallback_reason", None)
 
         # The sync type the schema will end up with: the new one if the request changes it, else the
         # existing one. Incremental-style config (incremental_field, incremental_field_type,

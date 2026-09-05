@@ -36752,6 +36752,11 @@ export namespace Schemas {
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
       /**
+         * Why PostHog changed this table's sync type on its own, or null if it never did. Set when a sync run proved the configured sync type can't work for the table, such as an incremental sync on a table with no primary key.
+         * @nullable
+         */
+      readonly sync_type_fallback_reason: string | null;
+      /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
@@ -63728,6 +63733,11 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Why PostHog changed this table's sync type on its own, or null if it never did. Set when a sync run proved the configured sync type can't work for the table, such as an incremental sync on a table with no primary key.
+         * @nullable
+         */
+      readonly sync_type_fallback_reason?: string | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
