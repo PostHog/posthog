@@ -177,6 +177,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 2)
 
     @freezegun.freeze_time("2025-03-31")
+    def test_drops_interactions_with_a_zero_viewport_width(self) -> None:
+        # ClickHouse divides x by viewport_width for the relative x, and returns inf when the width is 0.
+        self._create_heatmap_event("session_1", "click", viewport_width=0, x=5)
+        self._create_heatmap_event("session_2", "click", viewport_width=100, x=50)
+
+        response = self._get_heatmap({"date_from": "2023-03-08", "type": "click"})
+        assert [item["pointer_relative_x"] for item in response.data["results"]] == [0.5]
+
+    @freezegun.freeze_time("2025-03-31")
     def test_returns_below_the_fold_summary(self) -> None:
         # Non-fixed clicks against a 640px-tall viewport: one above the fold, two below it.
         self._create_heatmap_event("s1", "click", viewport_height=640, y=320, pointer_target_fixed=False)
