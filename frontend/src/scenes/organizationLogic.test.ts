@@ -1,10 +1,12 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
+
 import { initKeaTests } from '~/test/init'
 
-import { AppContext } from '../types'
+import { AppContext, AvailableFeature, BillingFeatureType, OrganizationType } from '../types'
 import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
@@ -58,6 +60,84 @@ describe('organizationLogic', () => {
             await expectLogic(logic).toMatchValues({
                 currentOrganization: { ...MOCK_DEFAULT_ORGANIZATION },
             })
+        })
+    })
+
+    describe('projectCreationForbiddenReason', () => {
+        const projectsFeature = (limit: number | null): BillingFeatureType => ({
+            key: AvailableFeature.ORGANIZATIONS_PROJECTS,
+            name: 'Projects',
+            limit,
+        })
+        const teamsOfLength = (count: number): OrganizationType['teams'] =>
+            Array.from({ length: count }, (_, index) => ({ ...MOCK_DEFAULT_TEAM, id: index + 1 }))
+        const buildOrg = (overrides: Partial<OrganizationType>): OrganizationType => ({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            ...overrides,
+        })
+
+        it.each<[string, OrganizationType, string | null]>([
+            [
+                'blocks an admin who reached the plan project limit',
+                buildOrg({
+                    membership_level: OrganizationMembershipLevel.Admin,
+                    teams: teamsOfLength(1),
+                    available_product_features: [projectsFeature(1)],
+                }),
+                'Your plan is limited to 1 project. Upgrade your plan to add more.',
+            ],
+            [
+                'pluralizes the limit in the reason',
+                buildOrg({
+                    membership_level: OrganizationMembershipLevel.Admin,
+                    teams: teamsOfLength(3),
+                    available_product_features: [projectsFeature(3)],
+                }),
+                'Your plan is limited to 3 projects. Upgrade your plan to add more.',
+            ],
+            [
+                'allows creation below the limit',
+                buildOrg({
+                    membership_level: OrganizationMembershipLevel.Admin,
+                    teams: teamsOfLength(1),
+                    available_product_features: [projectsFeature(6)],
+                }),
+                null,
+            ],
+            [
+                'allows creation on an unlimited plan',
+                buildOrg({
+                    membership_level: OrganizationMembershipLevel.Admin,
+                    teams: teamsOfLength(5),
+                    available_product_features: [projectsFeature(null)],
+                }),
+                null,
+            ],
+            [
+                'allows creation when the org has no projects entitlement',
+                buildOrg({
+                    membership_level: OrganizationMembershipLevel.Admin,
+                    teams: teamsOfLength(1),
+                    available_product_features: [],
+                }),
+                null,
+            ],
+            [
+                'requires admin rights before the plan limit',
+                buildOrg({
+                    membership_level: OrganizationMembershipLevel.Member,
+                    members_can_create_projects: false,
+                    teams: teamsOfLength(1),
+                    available_product_features: [projectsFeature(1)],
+                }),
+                'You need to be an organization admin or above to create new projects.',
+            ],
+        ])('%s', async (_description, organization, expected) => {
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, organization)
+            logic = organizationLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            expect(logic.values.projectCreationForbiddenReason).toBe(expected)
         })
     })
 
