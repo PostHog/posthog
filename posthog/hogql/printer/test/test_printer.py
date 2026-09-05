@@ -1819,6 +1819,40 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            # Quantile family: the -If, weighted, and exclusive/inclusive variants were rejected before.
+            ("quantileExactIf", "quantileExactIf(0.95)(event, event is not null)"),
+            ("quantileExactLow", "quantileExactLow(0.5)(event)"),
+            ("quantileExactHigh", "quantileExactHigh(0.5)(event)"),
+            ("quantileExactExclusive", "quantileExactExclusive(0.95)(event)"),
+            ("quantileExactInclusive", "quantileExactInclusive(0.95)(event)"),
+            ("quantileTiming", "quantileTiming(0.95)(event)"),
+            ("quantileTimingWeighted", "quantileTimingWeighted(0.95)(event, 1)"),
+            ("quantileTDigest", "quantileTDigest(0.95)(event)"),
+            ("quantileTDigestWeighted", "quantileTDigestWeighted(0.95)(event, 1)"),
+            ("quantileBFloat16", "quantileBFloat16(0.95)(event)"),
+            ("quantileDeterministic", "quantileDeterministic(0.95)(event, 1)"),
+        ]
+    )
+    def test_quantile_family_is_supported(self, name: str, expr: str) -> None:
+        # Guards against the whole quantile family being rejected as "Unsupported function call".
+        self.assertTrue(self._expr(expr).startswith(name))
+
+    @parameterized.expand(
+        [
+            # The closed widening never shipped: these argument counts were rejected before.
+            ("substring", "substring(event, 2)", "substring(events.event, 2)"),
+            ("substringUTF8", "substringUTF8(event, 2)", "substringUTF8(events.event, 2)"),
+            ("least", "least(1, 2, 3)", "least(1, 2, 3)"),
+            ("greatest", "greatest(1, 2, 3)", "greatest(1, 2, 3)"),
+            ("toDate", "toDate('2020-01-01', 'UTC')", "toDateOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"),
+        ]
+    )
+    def test_widened_function_arguments(self, _name: str, expr: str, expected: str) -> None:
+        # Guards the argument-count widening for substring, least/greatest, and toDate.
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
             ("toBool", "toBool(uuid)", "accurateCastOrNull(events.uuid, %(hogql_val_0)s)"),
             ("every", "every(uuid)", "accurateCastOrNull(min(events.uuid), 'Bool')"),
         ]

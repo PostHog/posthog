@@ -150,10 +150,12 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         name: HogQLFunctionMeta(
             "toDateOrNull",
             1,
-            1,
+            2,
             signatures=[
                 ((StringType(),), DateType()),
+                ((StringType(), StringType()), DateType()),
                 ((DateTimeType(),), DateType()),
+                ((DateTimeType(), StringType()), DateType()),
             ],
             overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
         )
