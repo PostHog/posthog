@@ -26,7 +26,8 @@ RUNNING IT
 
 Run `--mode verify` first, and again after a repair. It reports the cohorts that still hold
 surplus rows, and the index build fails on the first pair it reaches, so verify has to come back
-clean before the build starts.
+clean before the build starts. Verify exits non-zero while a surplus row is left, so a script
+that chains the steps stops before the build.
 
     python manage.py cohortpeople_dedup --mode verify
     python manage.py cohortpeople_dedup --mode repair
@@ -154,7 +155,7 @@ class Command(BaseCommand):
             "--mode",
             choices=["verify", "repair"],
             default="verify",
-            help="verify reports surplus rows and changes nothing; repair deletes them",
+            help="verify reports surplus rows, changes nothing, and exits non-zero if any remain; repair deletes them",
         )
         parser.add_argument(
             "--cohort-id",
@@ -212,3 +213,11 @@ class Command(BaseCommand):
             f"{mode}: {len(cohort_ids)} cohort(s) scanned, {affected} with surplus rows, "
             f"{surplus_total} surplus row(s) {'deleted' if repair else 'found'}"
         )
+
+        # Verify is the gate the index build waits on, so its result has to reach a caller that
+        # only reads the exit status. The count repair reports is work done, not a failure.
+        if not repair and surplus_total:
+            raise CommandError(
+                f"{surplus_total} surplus row(s) remain across {affected} cohort(s). "
+                "Run --mode repair before you build the unique index."
+            )

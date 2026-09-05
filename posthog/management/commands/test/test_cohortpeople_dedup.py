@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import pytest
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 import psycopg
 
@@ -69,13 +72,15 @@ def test_repair_keeps_one_row_per_person_at_the_highest_version(persons_conn):
         cur.execute(DROP_UNIQUE_INDEX)
 
 
-def test_verify_leaves_the_surplus_rows_in_place(persons_conn):
-    _add_member(persons_conn, 900, 11, 1)
-    _add_member(persons_conn, 900, 11, 2)
+@pytest.mark.parametrize("versions,gated", [([1, 2], True), ([1], False)])
+def test_verify_gates_on_surplus_rows_without_changing_them(persons_conn, versions, gated):
+    for version in versions:
+        _add_member(persons_conn, 900, 11, version)
 
-    call_command("cohortpeople_dedup", "--mode", "verify")
+    with pytest.raises(CommandError) if gated else nullcontext():
+        call_command("cohortpeople_dedup", "--mode", "verify")
 
-    assert _members(persons_conn, 900) == [(11, 1), (11, 2)]
+    assert _members(persons_conn, 900) == [(11, version) for version in versions]
 
 
 @pytest.mark.parametrize(
