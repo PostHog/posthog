@@ -6973,8 +6973,7 @@ export class PostHogAPIClient {
           : {};
         const email =
           typeof properties.email === "string" ? properties.email : null;
-        const name =
-          typeof person.name === "string" ? person.name : null;
+        const name = typeof person.name === "string" ? person.name : null;
         people.set(distinctId, {
           uuid,
           name: name || email || distinctId,

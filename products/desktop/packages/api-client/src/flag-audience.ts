@@ -272,7 +272,9 @@ function shapeCondition(
   if (property.type === "cohort") {
     return {
       subject: isGroup ? "Group" : "Person",
-      operator: OPERATORS[(operatorKey ?? "in") as Schemas.PropertyOperator] ?? "in cohort",
+      operator:
+        OPERATORS[(operatorKey ?? "in") as Schemas.PropertyOperator] ??
+        "in cohort",
       values,
     };
   }
@@ -289,7 +291,8 @@ function shapeCondition(
   if (isDistinctIdFilter(property)) {
     return {
       subject: "Person",
-      operator: OPERATORS[(operatorKey ?? "exact") as Schemas.PropertyOperator] ?? "is",
+      operator:
+        OPERATORS[(operatorKey ?? "exact") as Schemas.PropertyOperator] ?? "is",
       values,
     };
   }
@@ -522,7 +525,9 @@ export function shapeFlagAudience(
       disabled,
       rules,
       fallback,
-      fallbackReachable: !rules.some((rule) => catchAllRule(rule, deviceBucketed)),
+      fallbackReachable: !rules.some((rule) =>
+        catchAllRule(rule, deviceBucketed),
+      ),
       variants,
       bucketing,
       stability,
@@ -571,12 +576,7 @@ export function shapeFlagAudience(
   }
 
   const audiences = live.map((rule) =>
-    describeAudience(
-      rule,
-      groups[rules.indexOf(rule)],
-      people,
-      deviceBucketed,
-    ),
+    describeAudience(rule, groups[rules.indexOf(rule)], people, deviceBucketed),
   );
   const who = joinAudiences(audiences.map((audience) => audience.label));
   const headline = isRemoteConfig

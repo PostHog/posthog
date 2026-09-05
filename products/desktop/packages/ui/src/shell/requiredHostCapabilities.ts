@@ -8,11 +8,11 @@ import { HOST_CAPABILITIES } from "@posthog/platform/host-capabilities";
 import { SPEECH_SERVICE } from "@posthog/platform/speech";
 import { AUTH_SIDE_EFFECTS } from "@posthog/ui/features/auth/identifiers";
 import { REVIEW_HOST } from "@posthog/ui/features/code-review/reviewHost";
-import { AGENT_PROMPT_SENDER } from "@posthog/ui/features/sessions/agentPromptSender";
 import { CONNECTIVITY_CLIENT } from "@posthog/ui/features/connectivity/connectivityClient";
 import { FEATURE_FLAGS } from "@posthog/ui/features/feature-flags/identifiers";
 import { GIT_CACHE_KEY_PROVIDER } from "@posthog/ui/features/git-interaction/gitCacheProvider";
 import { SPEECH_NOTIFY_SETTINGS } from "@posthog/ui/features/notifications/identifiers";
+import { AGENT_PROMPT_SENDER } from "@posthog/ui/features/sessions/agentPromptSender";
 import { UPDATES_CLIENT } from "@posthog/ui/features/updates/updatesClient";
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 

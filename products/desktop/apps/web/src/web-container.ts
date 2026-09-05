@@ -119,10 +119,6 @@ import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
-import {
-  AGENT_PROMPT_SENDER,
-  type AgentPromptSender,
-} from "@posthog/ui/features/sessions/agentPromptSender";
 import { sessionsModule } from "@posthog/core/sessions/sessions.module";
 import {
   type GithubPrTitleClient,
@@ -256,6 +252,10 @@ import {
 } from "@posthog/ui/features/notifications/identifiers";
 import { notificationsUiModule } from "@posthog/ui/features/notifications/notifications.module";
 import { OnboardingGithubConnectClient } from "@posthog/ui/features/onboarding/githubConnectClientImpl";
+import {
+  AGENT_PROMPT_SENDER,
+  type AgentPromptSender,
+} from "@posthog/ui/features/sessions/agentPromptSender";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
 import { taskCreationEffects } from "@posthog/ui/features/task-detail/taskCreationEffectsImpl";

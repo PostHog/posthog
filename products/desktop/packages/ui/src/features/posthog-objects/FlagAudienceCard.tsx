@@ -29,9 +29,7 @@ function EntityChip({ value }: { value: FlagValue }) {
   const url = useEvidenceUrl(link?.kind ?? "person", link?.id ?? "");
   // Narrow panels clip the row, so the chip shrinks with an ellipsis and the
   // hover title carries the full label plus the secondary value.
-  const title = [value.label, value.secondary]
-    .filter(Boolean)
-    .join(" · ");
+  const title = [value.label, value.secondary].filter(Boolean).join(" · ");
   const body = (
     <>
       <span className="min-w-0 truncate">{value.label}</span>
@@ -177,7 +175,7 @@ function RuleRow({
 }) {
   return (
     <div
-      className={`@container grid grid-cols-[22px_1fr_auto] items-center gap-x-3 border-border border-b px-3 py-2.5 last:border-b-0 @max-[420px]:grid-cols-[22px_1fr] ${rule.reachable === false ? "opacity-50" : ""}`}
+      className={`@container grid @max-[420px]:grid-cols-[22px_1fr] grid-cols-[22px_1fr_auto] items-center gap-x-3 border-border border-b px-3 py-2.5 last:border-b-0 ${rule.reachable === false ? "opacity-50" : ""}`}
     >
       <span className="flex size-5 items-center justify-center rounded-md border border-border bg-muted font-semibold text-[11px] text-foreground">
         {index + 1}
@@ -206,7 +204,7 @@ function RuleRow({
           ))
         )}
       </div>
-      <div className="flex items-center justify-end gap-2.5 whitespace-nowrap @max-[420px]:col-start-2 @max-[420px]:justify-start">
+      <div className="@max-[420px]:col-start-2 flex items-center @max-[420px]:justify-start justify-end gap-2.5 whitespace-nowrap">
         {rule.share < 100 && (
           <span className="text-[11px] text-muted-foreground tabular-nums">
             {rule.share}% of matches

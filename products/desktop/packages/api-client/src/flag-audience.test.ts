@@ -8,7 +8,12 @@ import type { Schemas } from "./generated";
 
 // The shaper only reads the fields it shows; build minimal inputs and cast.
 function flagWith(filters: unknown): Schemas.FeatureFlag {
-  return { id: 1, key: "test-flag", active: true, filters } as unknown as Schemas.FeatureFlag;
+  return {
+    id: 1,
+    key: "test-flag",
+    active: true,
+    filters,
+  } as unknown as Schemas.FeatureFlag;
 }
 
 describe("flag audience shaping", () => {
@@ -19,7 +24,12 @@ describe("flag audience shaping", () => {
         groups: [
           {
             properties: [
-              { type: "cohort", key: "id", value: 7, cohort_name: "Power users" },
+              {
+                type: "cohort",
+                key: "id",
+                value: 7,
+                cohort_name: "Power users",
+              },
             ],
             rollout_percentage: 25,
             aggregation_group_type_index: null,
@@ -57,10 +67,7 @@ describe("flag audience shaping", () => {
       }),
     );
 
-    expect(audience.rules.map((rule) => rule.reachable)).toEqual([
-      true,
-      false,
-    ]);
+    expect(audience.rules.map((rule) => rule.reachable)).toEqual([true, false]);
     // The shadowed rule must not promise its variant in the summary.
     expect(audience.summary).not.toContain("b");
   });
@@ -76,7 +83,10 @@ describe("flag audience shaping", () => {
 
   it("keeps group-scope rules out of the guaranteed catch-all", () => {
     const audience = shapeFlagAudience(
-      flagWith({ aggregation_group_type_index: 0, groups: [{ rollout_percentage: 100 }] }),
+      flagWith({
+        aggregation_group_type_index: 0,
+        groups: [{ rollout_percentage: 100 }],
+      }),
     );
 
     expect(audience.rules[0].isGroup).toBe(true);
@@ -87,7 +97,10 @@ describe("flag audience shaping", () => {
 
   it("describes device bucketing and keeps its fallback reachable", () => {
     const audience = shapeFlagAudience(
-      flagWith({ bucketing_identifier: "device_id", groups: [{ rollout_percentage: 100 }] }),
+      flagWith({
+        bucketing_identifier: "device_id",
+        groups: [{ rollout_percentage: 100 }],
+      }),
     );
 
     expect(audience.fallbackReachable).toBe(true);
