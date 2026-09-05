@@ -2185,12 +2185,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.setIndex(rowIndex)
         },
         moveUp: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index - 1 + totalListCount) % totalListCount)
+            // Wrap on the rows the list actually renders, not totalListCount, so the
+            // highlighted index never lands outside the range scrollToRow accepts.
+            const { index, rowCount } = values
+            if (rowCount <= 0) {
+                return
+            }
+            actions.setIndex((index - 1 + rowCount) % rowCount)
         },
         moveDown: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index + 1) % totalListCount)
+            const { index, rowCount } = values
+            if (rowCount <= 0) {
+                return
+            }
+            actions.setIndex((index + 1) % rowCount)
         },
         selectSelected: () => {
             if (values.isExpandableButtonSelected) {

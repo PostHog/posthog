@@ -886,10 +886,13 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     const listRef = useListRef(null)
 
     useEffect(() => {
-        if (index >= 0 && listRef.current) {
+        // The highlighted index can outrun the rows the list renders (a shrinking
+        // result set leaves a stale index behind), so clamp against rowCount to
+        // keep scrollToRow inside range.
+        if (index >= 0 && index < rowCount && listRef.current) {
             listRef.current.scrollToRow({ index, align: 'smart' })
         }
-    }, [index, listRef])
+    }, [index, rowCount, listRef])
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
     const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
