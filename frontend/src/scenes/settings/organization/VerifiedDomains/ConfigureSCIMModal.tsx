@@ -143,6 +143,12 @@ export function ConfigureSCIMModal(): JSX.Element {
                                             </>
                                         )}
                                     </div>
+
+                                    <LemonBanner type="info">
+                                        Using a custom SAML app? When Okta asks for the unique identifier field for
+                                        users, set it to <code>userName</code> and map <code>userName</code> to the
+                                        user's email.
+                                    </LemonBanner>
                                 </>
                             )}
                         </>
