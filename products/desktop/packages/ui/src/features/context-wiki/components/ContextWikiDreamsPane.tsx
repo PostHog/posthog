@@ -16,12 +16,13 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner,
   Text,
 } from "@posthog/quill";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMemo, useState } from "react";
 import type { Components } from "react-markdown";
 import { useThemeStore } from "../../../shell/themeStore";
@@ -57,11 +58,7 @@ export function ContextWikiDreamsPane() {
   const selectedRun = dreams.find((dream) => dream.sha === effectiveSha);
 
   if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner className="size-5" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (error) {
@@ -148,7 +145,7 @@ function ActiveDreamListItem({ run }: { run: ContextWikiActiveDreamRun }) {
     <div className="flex flex-col gap-1 border-(--gray-5) border-b bg-(--gray-2) px-4 py-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Spinner className="size-3.5" />
+          <Spinner size="md" />
           <Text size="sm" weight="medium">
             {ACTIVE_DREAM_LABELS[run.run_status]}
           </Text>
@@ -259,9 +256,7 @@ function DreamDetail({ run }: { run: ContextWikiDreamRun }) {
       ) : null}
       <div className="flex flex-col gap-3 p-4">
         {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Spinner className="size-5" />
-          </div>
+          <LoadingState className="py-8" />
         ) : error ? (
           <div className="flex flex-col items-center gap-2 py-8 text-[13px] text-gray-10">
             <span>Couldn't load this run's changes: {error.message}</span>

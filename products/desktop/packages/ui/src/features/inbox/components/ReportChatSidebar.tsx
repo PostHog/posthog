@@ -7,7 +7,7 @@ import {
   isContentEmpty,
   textToContent,
 } from "@posthog/core/message-editor/content";
-import { Button, Spinner, Textarea } from "@posthog/quill";
+import { Button, Textarea } from "@posthog/quill";
 import type { InboxReportActionSurface } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
@@ -23,6 +23,7 @@ import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/repor
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -122,9 +123,7 @@ export function ReportChatSidebar({
           ) : tasksLoading ? (
             // Offering the starter before the task lookup resolves invites a
             // duplicate conversation on a report that already has one.
-            <div className="flex h-full items-center justify-center">
-              <Spinner />
-            </div>
+            <LoadingState />
           ) : (
             <ReportChatStarter
               report={report}
@@ -181,11 +180,7 @@ function ReportChatConversation({
   ]);
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return <EmbeddedSessionView task={task} />;

@@ -1,4 +1,5 @@
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
@@ -60,15 +61,7 @@ export function SessionInitializingView({
   }, []);
 
   if (!revealed) {
-    return (
-      <Flex
-        align="center"
-        justify="center"
-        className="absolute inset-0 bg-background"
-      >
-        <Spinner size={32} className="text-gray-9" />
-      </Flex>
-    );
+    return <LoadingState className="absolute inset-0 bg-background" />;
   }
 
   return (
@@ -84,7 +77,7 @@ export function SessionInitializingView({
       </div>
       <Flex direction="column" align="center" gap="2">
         <Flex align="center" gap="2">
-          <Spinner size={16} className="text-gray-9" />
+          <Spinner size="md" className="text-gray-9" />
           <Text className="font-medium text-base">{visibleHeading}</Text>
         </Flex>
         <Text color="gray" className="text-sm">

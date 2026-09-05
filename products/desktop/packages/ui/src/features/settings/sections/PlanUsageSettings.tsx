@@ -31,9 +31,10 @@ import { SettingsSubsection } from "@posthog/ui/features/settings/components/Set
 import { SpendAnalysisSection } from "@posthog/ui/features/usage/components/SpendAnalysisSection";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useTrackUsageViewed } from "@posthog/ui/features/usage/useTrackUsageViewed";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { getBillingUrl } from "@posthog/ui/utils/urls";
-import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Button, Callout, Flex, Text } from "@radix-ui/themes";
 import { type ReactNode, useEffect, useState } from "react";
 
 export function PlanUsageSettings() {
@@ -174,14 +175,7 @@ export function PlanUsageContent({
           )}
 
           {usageLoading ? (
-            <Flex
-              align="center"
-              justify="center"
-              p="4"
-              className="rounded-(--radius-3) border border-border bg-card"
-            >
-              <Spinner size="2" />
-            </Flex>
+            <LoadingState className="rounded-(--radius-3) border border-border bg-card p-4" />
           ) : meter.kind === "dollars" ? (
             <UsageMeter
               label={freeTier ? "Monthly free usage" : "Usage this period"}

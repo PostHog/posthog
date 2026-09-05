@@ -40,7 +40,7 @@ import { useTaskContextMenu } from "@posthog/ui/features/tasks/useTaskContextMen
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
-import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { logger } from "@posthog/ui/shell/logger";
@@ -502,7 +502,7 @@ function SidebarMenuComponent() {
           {sidebarData.isLoading ? (
             <SidebarItem
               depth={0}
-              icon={<DotsCircleSpinner size={12} className="text-gray-10" />}
+              icon={<Spinner size="sm" className="text-gray-10" />}
               label="Loading tasks..."
               disabled
             />

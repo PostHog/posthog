@@ -41,6 +41,7 @@ import { MarkdownRenderer } from "@posthog/ui/features/editor/components/Markdow
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   PageHeader,
   PageHeaderActions,
@@ -50,6 +51,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToSpacesContext } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import {
@@ -60,7 +62,6 @@ import {
   ScrollArea,
   SegmentedControl,
   Select,
-  Spinner,
   Text,
   TextArea,
 } from "@radix-ui/themes";
@@ -81,11 +82,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
 
   if (contextLayerEnabled && wikiPage.isLoading) {
-    return (
-      <Flex align="center" justify="center" className="h-full">
-        <Spinner size="2" />
-      </Flex>
-    );
+    return <LoadingState />;
   }
 
   if (contextLayerEnabled && wikiPage.data) {
@@ -248,11 +245,7 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
   }, [selectedVersionNumber, versions]);
 
   if (isLoadingLatest) {
-    return (
-      <Flex align="center" justify="center" className="h-full">
-        <Spinner size="2" />
-      </Flex>
-    );
+    return <LoadingState />;
   }
 
   if (latestError) {
@@ -321,7 +314,7 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
               live and not just stale cache. */}
           {isFetchingLatest && !isLoadingLatest ? (
             <Flex align="center" gap="1">
-              <Spinner size="1" />
+              <Spinner size="sm" />
               <Text className="text-[12px] text-gray-10">Refreshing…</Text>
             </Flex>
           ) : null}
@@ -386,7 +379,7 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
                 (hasInstructions ? !hasDraft : draft.trim().length === 0)
               }
             >
-              {isPublishing ? <Spinner size="1" /> : null}
+              {isPublishing ? <Spinner size="sm" /> : null}
               Save new version
             </Button>
           </Flex>
@@ -471,7 +464,7 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
         <GitBranchIcon size={15} className="text-muted-foreground" />
         <span className="font-medium text-[13px]">Repositories</span>
         {update.isPending ? (
-          <Spinner size="1" />
+          <Spinner size="sm" />
         ) : update.error ? (
           <span className="text-[12px] text-red-11">
             Couldn't save. Try again.

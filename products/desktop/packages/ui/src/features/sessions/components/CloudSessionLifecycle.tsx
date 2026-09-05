@@ -56,7 +56,7 @@ export function CloudStreamDisconnectedBanner({
 export function ConnectingToAgent({ spinning = true }: { spinning?: boolean }) {
   return (
     <>
-      <Spinner size={28} spinning={spinning} className="text-gray-9" />
+      <Spinner size="lg" spinning={spinning} className="text-gray-9" />
       <Text color="gray" className="text-base">
         Connecting to agent...
       </Text>

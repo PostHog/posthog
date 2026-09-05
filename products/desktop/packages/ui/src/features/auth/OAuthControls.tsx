@@ -1,5 +1,6 @@
 import type { CloudRegion } from "@posthog/shared";
-import { Callout, Spinner } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Callout } from "@radix-ui/themes";
 import { RegionSelect } from "./RegionSelect";
 import { useOAuthFlow } from "./useOAuthFlow";
 
@@ -60,7 +61,7 @@ export function OAuthControls({
           transition: "opacity 150ms ease, box-shadow 100ms ease",
         }}
       >
-        {isPending && <Spinner size="1" />}
+        {isPending && <Spinner size="sm" />}
         {isPending ? "Cancel" : "Sign in with PostHog"}
       </button>
 
