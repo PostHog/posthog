@@ -17,12 +17,13 @@ export interface PendingTaskPrompt {
    * whatever space is current. Absent means it was submitted unscoped.
    */
   channelId?: string;
+  submitted?: boolean;
   createdAt: number;
 }
 
 type PendingTaskPromptInput = Omit<
   PendingTaskPrompt,
-  "createdAt" | "interruptReason"
+  "createdAt" | "submitted"
 >;
 
 interface PendingTaskPromptStore {
@@ -32,6 +33,7 @@ interface PendingTaskPromptStore {
   set: (key: string, prompt: PendingTaskPromptInput) => void;
   get: (key: string) => PendingTaskPrompt | undefined;
   move: (fromKey: string, toKey: string) => void;
+  markSubmitted: (key: string) => void;
   clear: (key: string) => void;
 }
 
@@ -62,6 +64,14 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
           return { byKey: { ...rest, [toKey]: entry } };
         });
       },
+      markSubmitted: (key) =>
+        set((state) => {
+          const entry = state.byKey[key];
+          if (!entry || entry.submitted) return state;
+          return {
+            byKey: { ...state.byKey, [key]: { ...entry, submitted: true } },
+          };
+        }),
       clear: (key) =>
         set((state) => {
           if (!(key in state.byKey)) {
@@ -97,9 +107,13 @@ export const pendingTaskPromptStoreApi = {
   get: (key: string) => usePendingTaskPromptStore.getState().get(key),
   move: (fromKey: string, toKey: string) =>
     usePendingTaskPromptStore.getState().move(fromKey, toKey),
+  markSubmitted: (key: string) =>
+    usePendingTaskPromptStore.getState().markSubmitted(key),
   clear: (key: string) => usePendingTaskPromptStore.getState().clear(key),
-  getAllNewestFirst: (): RecoverablePendingPrompt[] =>
-    listPendingPromptsNewestFirst(usePendingTaskPromptStore.getState().byKey),
+  getRecoverableNewestFirst: (): RecoverablePendingPrompt[] =>
+    listPendingPromptsNewestFirst(
+      usePendingTaskPromptStore.getState().byKey,
+    ).filter(({ prompt }) => !prompt.submitted),
   whenHydrated: (): Promise<void> => {
     if (usePendingTaskPromptStore.getState()._hasHydrated) {
       return Promise.resolve();

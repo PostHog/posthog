@@ -547,7 +547,9 @@ export function useTaskCreation({
                 pendingTaskPromptStoreApi.clear(pendingTaskKey);
               }
               if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
+                // Cloud creation succeeds before the transcript arrives.
+                // SessionView clears the prompt when initialization ends.
+                pendingTaskPromptStoreApi.markSubmitted(createdTaskId);
               }
             }
             setAdditionalDirectoriesOverride(null);

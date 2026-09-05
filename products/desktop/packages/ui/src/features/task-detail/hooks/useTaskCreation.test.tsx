@@ -25,6 +25,7 @@ vi.mock("@posthog/di/react", () => ({
 }));
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
+    workspace: { getAll: { queryKey: () => ["workspaces"] } },
     additionalDirectories: {
       listDefaults: {
         queryOptions: () => ({
@@ -63,6 +64,9 @@ vi.mock("@posthog/ui/features/local-mcp/useLocalMcpCloudServers", () => ({
 }));
 vi.mock("../../../hooks/useConnectivity", () => ({
   useConnectivity: () => ({ isOnline: true }),
+}));
+vi.mock("../../billing/preflightCloudUsage", () => ({
+  assertCloudUsageAvailable: async () => true,
 }));
 vi.mock("../../../primitives/toast", () => ({
   toast: { error: vi.fn() },
@@ -133,14 +137,18 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-function renderTaskCreation(content: EditorContent) {
+function renderTaskCreation(
+  content: EditorContent,
+  workspaceMode: "local" | "cloud" = "local",
+) {
   return renderHook(
     () =>
       useTaskCreation({
         editorRef: editorHandle(content),
         sessionId: "session-1",
         selectedDirectory: "/repo",
-        workspaceMode: "local",
+        allowNoRepo: true,
+        workspaceMode,
         editorIsEmpty: false,
       }),
     { wrapper },
@@ -150,9 +158,32 @@ function renderTaskCreation(content: EditorContent) {
 describe("useTaskCreation prompt records", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    createTaskMock.mockReset();
     usePendingTaskPromptStore.setState({ byKey: {}, _hasHydrated: true });
     useTaskInputPrefillStore.setState({ prefill: {} });
   });
+
+  it.each(["local", "cloud"] as const)(
+    "keeps the submitted prompt visible after successful %s creation until the chat takes over",
+    async (workspaceMode) => {
+      const brief = textToContent("Check the build");
+      createTaskMock.mockImplementationOnce(async (_input, onTaskReady) => {
+        const output = { task: fakeTask(), workspace: null };
+        onTaskReady?.(output);
+        return { success: true, data: output };
+      });
+
+      const { result } = renderTaskCreation(brief, workspaceMode);
+      await act(async () => {
+        expect(await result.current.handleSubmit()).toBe(true);
+      });
+
+      expect(pendingTaskPromptStoreApi.get("task-1")?.contentXml).toBe(
+        contentToXml(brief).trim(),
+      );
+      expect(pendingTaskPromptStoreApi.getRecoverableNewestFirst()).toEqual([]);
+    },
+  );
 
   it("keeps the typed brief, not the kickoff preamble, in the recovery record after a late autoresearch failure", async () => {
     const brief = textToContent("Optimize the login flow");
