@@ -94,6 +94,16 @@ Find these in impact.com under **Settings > Technical > API**. Create a Read-Onl
             "403 Client Error: Forbidden for url: https://api.impact.com": "Your Impact.com token does not have access to this data. Check the token's permissions, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch` reads over the tracked session, whose `DEFAULT_RETRY` adapter already retries a
+        # 429 or 5xx three times. A response that still reaches us is an exhausted upstream blip —
+        # transient, not a PostHog bug — and Temporal retries the whole activity, so the sync
+        # self-recovers. `DEFAULT_RETRY.status_forcelist` classes 429 as transient too, so match it
+        # here as well or an exhausted rate limit still pages the team. `raise_for_status` derives
+        # the "429 Client Error"/"Server Error" prefixes from the status code alone, so they are
+        # stable to match on (see mailchimp/app_store_connect for the same pattern).
+        return {"429 Client Error", "Server Error"}
+
     def get_schemas(
         self,
         config: ImpactSourceConfig,
