@@ -803,6 +803,33 @@ class TestRepartitionActivity:
 
         assert schema.repartition_pending is None
 
+    def test_retries_inside_one_sync_run_burn_a_single_attempt(self, team):
+        # Temporal retries this activity up to MAX_REPARTITION_ATTEMPTS times inside one sync run. A
+        # hard-killed attempt records no outcome, so charging every retry let a single bad run spend
+        # the whole cap: the next run gave up and abandoned a table no later sync ever retried.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+        inputs = self._inputs(team, schema)
+
+        def killed_mid_rewrite(**kwargs):
+            raise KeyboardInterrupt("worker killed")
+
+        for _ in range(MAX_REPARTITION_ATTEMPTS):
+            with contextlib.suppress(BaseException):
+                self._run(inputs, AsyncMock(side_effect=killed_mid_rewrite))
+            schema.refresh_from_db()
+
+        pending = schema.repartition_pending
+        assert pending is not None and pending["attempts"] == 1
+
     def test_an_overlapping_attempt_charge_survives_another_attempts_refund(self, team):
         # Overlapping attempts must not erase each other's charge, or the cap never counts up and the
         # retry loop this change exists to stop comes back.
