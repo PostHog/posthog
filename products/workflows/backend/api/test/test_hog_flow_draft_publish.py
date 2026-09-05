@@ -467,6 +467,42 @@ class TestHogFlowDraftPublish(APIBaseTest):
         entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
         assert entry is not None and entry.activity == "published"
 
+    def test_publish_does_not_carry_live_conversion_fields_into_the_draft(self):
+        # The draft is a full content snapshot, so publish replaces the conversion wholesale. A live
+        # edit landing after the draft was staged must not survive the publish — otherwise a rollback
+        # keeps measuring over a window the restored snapshot never had.
+        flow_id = self._create_active_flow()
+        goal = {"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}
+        set_goal = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"events": [goal]}},
+            format="json",
+        )
+        assert set_goal.status_code == 200, set_goal.json()
+
+        flow = self._stage_draft(flow_id)
+        staged = flow.draft or {}
+        assert "window_minutes" not in staged["conversion"], staged["conversion"]
+
+        widen = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 60}},
+            format="json",
+        )
+        assert widen.status_code == 200, widen.json()
+        confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": confirm_token},
+        )
+        assert response.status_code == 200, response.json()
+
+        flow.refresh_from_db()
+        live = flow.conversion or {}
+        assert "window_minutes" not in live, live
+        assert len(live["events"]) == 1, live
+
     def test_publish_with_stale_token_after_draft_reedit_is_rejected_with_409(self):
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)

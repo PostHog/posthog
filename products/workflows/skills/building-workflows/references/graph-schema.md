@@ -201,6 +201,7 @@ A `delay` waits either a fixed span or until a date carried by the person or the
   - `events` — **event-based goals**, `[{ "filters": { "events": [{ "id": "<event>", "name": "<event>", "type": "events" }] } }]`.
   - `window_minutes` — minutes after entry (`null` = no window).
 - **An event goal goes in `events`, never in `filters`.** An event object stuffed into `filters` is invisible to the conversion matcher and breaks the conversion picker. Without a goal the `…conversion` exit is a silent no-op. Server compiles the bytecode.
+- **A `conversion` patch merges the three slots.** `filters`, `events` and `window_minutes` you leave out of a `workflows-update` keep their stored values, so a window-only edit keeps the goal instead of wiping it. Clear a slot by sending it empty (`filters: []`, `events: []`, `window_minutes: null`), and send `conversion: null` to drop the goal outright. Sending `filters` replaces only the property conditions, so an event goal in `events` survives it.
 
 ## Pre-submit checklist
 

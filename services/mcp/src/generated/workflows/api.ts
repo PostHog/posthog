@@ -176,7 +176,7 @@ export const HogFlowsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. A PATCH merges these three slots: one the request omits keeps its stored value. To clear a slot, send it empty (filters: [], events: [], window_minutes: null). Send conversion: null to drop the whole goal.'
             ),
         exit_condition: zod
             .enum([
@@ -566,7 +566,7 @@ export const HogFlowsPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. A PATCH merges these three slots: one the request omits keeps its stored value. To clear a slot, send it empty (filters: [], events: [], window_minutes: null). Send conversion: null to drop the whole goal.'
             ),
         exit_condition: zod
             .enum([

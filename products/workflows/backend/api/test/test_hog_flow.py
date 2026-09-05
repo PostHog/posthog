@@ -1055,6 +1055,299 @@ class TestHogFlowAPI(APIBaseTest):
         assert moved["bytecode"], moved
         assert "purchase" in moved["bytecode"]
 
+    def test_hog_flow_conversion_partial_patch_keeps_the_goal(self):
+        # DRF replaces a nested object rather than merging it, so a PATCH carrying only part of the
+        # conversion used to store an empty goal. The workflow kept measuring nothing, with a 200 and
+        # no error to say so.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {
+            "filters": [],
+            "window_minutes": 60,
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        conversion = response.json()["conversion"]
+        assert conversion["window_minutes"] == 120
+        assert len(conversion["events"]) == 1, conversion
+
+    @parameterized.expand([("event_goal",), ("action_goal",)])
+    def test_hog_flow_conversion_partial_patch_keeps_a_legacy_goal(self, goal_shape):
+        # Rows written before the conversion.events slot existed hold the goal as an object in the
+        # property slot. A window-only patch dropped it, so the merge relocates that shape the way the
+        # write path does instead of leaving it behind. The goal names either events or a saved action,
+        # and the property slot takes neither, so both shapes have to move.
+        if goal_shape == "action_goal":
+            action = Action.objects.create(
+                team=self.team, name="Completed checkout", steps_json=[{"event": "checkout"}]
+            )
+            legacy_obj = {
+                "events": [],
+                "actions": [{"id": str(action.id), "type": "actions", "order": 0}],
+                "source": "events",
+            }
+        else:
+            legacy_obj = {
+                "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
+                "source": "events",
+            }
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.conversion = {"filters": legacy_obj, "window_minutes": 60}
+        flow.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        conversion = response.json()["conversion"]
+        assert conversion["window_minutes"] == 120
+        assert len(conversion["events"]) == 1, conversion
+        moved = conversion["events"][0]["filters"]
+        assert moved["events"] == legacy_obj["events"], conversion
+        assert moved.get("actions", []) == legacy_obj.get("actions", []), conversion
+        # Compiled where it landed, so the carried-over goal still matches instead of only being stored.
+        assert moved["bytecode"], conversion
+        assert conversion["filters"] == [], conversion
+
+    def test_hog_flow_conversion_legacy_goal_clears_when_the_patch_replaces_filters(self):
+        # A legacy goal is read back from the property slot, so replacing that slot is how a caller
+        # clears it. Relocating it into `events` on the way through would keep it measuring behind a
+        # field the caller just emptied, and a GET would not show where it went.
+        event_obj = {
+            "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
+            "source": "events",
+        }
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.conversion = {"filters": event_obj, "window_minutes": 60}
+        flow.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"filters": []}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        conversion = response.json()["conversion"]
+        assert conversion["events"] == [], conversion
+        assert conversion["filters"] == [], conversion
+        # The rest of the goal is still merged: only the slot the caller replaced is dropped.
+        assert conversion["window_minutes"] == 60, conversion
+
+    def test_hog_flow_conversion_goal_only_patch_keeps_the_window(self):
+        # The mirror of the case above: an edit to the goal must not drop the window.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {
+            "filters": [],
+            "window_minutes": 60,
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        flow_id = created.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "conversion": {
+                    "events": [{"filters": {"events": [{"id": "signup", "name": "signup", "type": "events"}]}}]
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["conversion"]["window_minutes"] == 60, response.json()["conversion"]
+
+    def test_hog_flow_conversion_staged_patch_does_not_resurrect_a_cleared_goal(self):
+        # A staged draft that deliberately emptied the goal is the base for the next staged edit, so the
+        # merge must not reach past it to the live goal and bring the deleted one back.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {
+            "filters": [],
+            "window_minutes": 60,
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        flow_id = created.json()["id"]
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.draft = {"conversion": {"filters": [], "window_minutes": 60, "events": []}}
+        flow.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120}},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == 200, response.json()
+        flow.refresh_from_db()
+        assert flow.draft["conversion"]["events"] == [], flow.draft["conversion"]
+        assert flow.draft["conversion"]["window_minutes"] == 120, flow.draft["conversion"]
+
+    def test_hog_flow_conversion_second_staged_patch_keeps_the_staged_goal(self):
+        # A staged edit composes on the draft, so a second window-only patch has to read the goal the
+        # first one staged. Reading live instead would stage an empty goal and the workflow would
+        # publish measuring nothing.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {
+            "filters": [],
+            "window_minutes": 60,
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+
+        first = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120}},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert first.status_code == 200, first.json()
+        flow = HogFlow.objects.get(id=flow_id)
+        staged = flow.draft or {}
+        assert len(staged["conversion"]["events"]) == 1, staged["conversion"]
+
+        second = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 180}},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert second.status_code == 200, second.json()
+        flow.refresh_from_db()
+        staged = flow.draft or {}
+        assert staged["conversion"]["window_minutes"] == 180, staged["conversion"]
+        assert len(staged["conversion"]["events"]) == 1, staged["conversion"]
+
+    def test_hog_flow_conversion_live_patch_keeps_the_goal_when_a_draft_exists(self):
+        # A patch without stage_draft lands on the live row even when the workflow holds a draft, so the
+        # merge base is live. An unrelated staged draft must not stop the live goal being carried over.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {
+            "filters": [],
+            "window_minutes": 60,
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        flow_id = created.json()["id"]
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.draft = {"name": "staged rename"}
+        flow.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        flow.refresh_from_db()
+        live = flow.conversion or {}
+        assert live["window_minutes"] == 120, live
+        assert len(live["events"]) == 1, live
+
+    def test_hog_flow_conversion_staged_patch_leaves_the_live_goal_alone(self):
+        # A staged edit that also renames the workflow saves the live row for the rename. The goal it
+        # carried over must not ride along: it is compiled on the way through, and the live workflow
+        # would start matching on the recompile before anyone published the draft.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        flow = HogFlow.objects.get(id=flow_id)
+        # The conversion backfill relocates a goal without compiling it, so a stored goal can carry no
+        # bytecode — the shape where a recompile is visibly different from what is stored.
+        stored_conversion = {
+            "filters": [],
+            "window_minutes": 60,
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        flow.conversion = stored_conversion
+        flow.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120}, "name": "Renamed"},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == 200, response.json()
+        flow.refresh_from_db()
+        assert flow.name == "Renamed"
+        assert flow.conversion == stored_conversion, flow.conversion
+        staged = flow.draft or {}
+        assert staged["conversion"]["window_minutes"] == 120, staged["conversion"]
+        assert len(staged["conversion"]["events"]) == 1, staged["conversion"]
+
+    def test_hog_flow_conversion_goal_can_still_be_cleared_explicitly(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {
+            "filters": [],
+            "window_minutes": 60,
+            "events": [{"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events"}]}}],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        flow_id = created.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"window_minutes": 120, "events": []}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["conversion"]["events"] == []
+
     def test_hog_flow_conversion_client_supplied_bytecode_is_ignored(self):
         # Top-level conversion bytecode is read-only: the matcher executes it, so a client must not
         # be able to persist bytecode that didn't come from server-side compilation of filters.
