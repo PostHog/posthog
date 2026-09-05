@@ -1842,6 +1842,30 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
 
+    def test_parse_datetime_best_effort_or_null_alias(self) -> None:
+        # parseDateTimeBestEffortOrNull is an accepted ClickHouse-name alias of parseDateTimeBestEffort;
+        # an unregistered spelling raises a QueryError and fails materialization. Both route through
+        # parseDateTime64BestEffortOrNull, so the printed SQL of the two spellings must match.
+        self.assertEqual(
+            self._expr("parseDateTimeBestEffortOrNull(properties.foo)"),
+            self._expr("parseDateTimeBestEffort(properties.foo)"),
+        )
+        # The bare call agrees even when the alias is only in the registry, because both route
+        # through the same ClickHouse function. The divergence is in the name-based conversion
+        # logic: toDate() picks its non-null overload from the inner call's inferred type, and
+        # tumble() wraps a nullable-DateTime first argument in assumeNotNull(toDateTime(...)) only
+        # for names in ADD_OR_NULL_DATETIME_FUNCTIONS. If the alias is dropped from either, these
+        # print SQL ClickHouse rejects (toDateOrNull over Nullable(DateTime64); tumble over a
+        # nullable value), so assert the wrapped forms match the base spelling.
+        self.assertEqual(
+            self._expr("toDate(parseDateTimeBestEffortOrNull(properties.foo))"),
+            self._expr("toDate(parseDateTimeBestEffort(properties.foo))"),
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTimeBestEffortOrNull(properties.foo), toIntervalDay(1))"),
+            self._expr("tumble(parseDateTimeBestEffort(properties.foo), toIntervalDay(1))"),
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")

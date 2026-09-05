@@ -30,6 +30,7 @@ ADD_OR_NULL_DATETIME_FUNCTIONS = (
     "toDateTimeUS",
     "parseDateTime",
     "parseDateTimeBestEffort",
+    "parseDateTimeBestEffortOrNull",
 )
 
 # Functions where the first argument needs to be DateTime and not DateTime64

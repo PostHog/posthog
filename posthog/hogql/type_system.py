@@ -1240,7 +1240,14 @@ def _infer_generic_function_type(
     if normalized_name in {"todate", "to_date", "_todate"}:
         return ast.DateType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
-    if normalized_name in {"todatetime", "todatetime64", "todatetimeus", "parsedatetime", "parsedatetimebesteffort"}:
+    if normalized_name in {
+        "todatetime",
+        "todatetime64",
+        "todatetimeus",
+        "parsedatetime",
+        "parsedatetimebesteffort",
+        "parsedatetimebesteffortornull",
+    }:
         return ast.DateTimeType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
     if normalized_name.startswith("tointerval"):
@@ -1472,6 +1479,7 @@ def _conversion_nullable(
         "todecimal",
         "parsedatetime",
         "parsedatetimebesteffort",
+        "parsedatetimebesteffortornull",
     }
 
 
