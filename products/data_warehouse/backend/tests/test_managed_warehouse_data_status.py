@@ -134,7 +134,9 @@ class TestDatasetStatus(SimpleTestCase):
             self._partition(partition_key="1_2026-07-12", granularity=Granularity.DAY),
         ]
 
-        status = dataset_status(dataset="events", backfill=self._backfill(), partitions=partitions)
+        status = dataset_status(
+            dataset="events", backfill=self._backfill(), partitions=partitions, settings_tab_visible=True
+        )
 
         # March through June is the historical range on 2026-07-13; only two months are done.
         assert status["completed_partitions"] == 2
@@ -146,7 +148,9 @@ class TestDatasetStatus(SimpleTestCase):
             self._partition(partition_key=f"1_2026-0{month}", granularity=Granularity.MONTH) for month in (3, 4, 5, 6)
         ]
 
-        status = dataset_status(dataset="events", backfill=self._backfill(), partitions=partitions)
+        status = dataset_status(
+            dataset="events", backfill=self._backfill(), partitions=partitions, settings_tab_visible=True
+        )
 
         assert status["readiness_state"] == "up_to_date"
         assert status["completed_partitions"] == 4
@@ -154,7 +158,9 @@ class TestDatasetStatus(SimpleTestCase):
     def test_persons_history_is_a_single_full_export(self) -> None:
         partitions = [self._partition(partition_key="1", granularity=Granularity.FULL, dataset="persons")]
 
-        status = dataset_status(dataset="persons", backfill=self._backfill(), partitions=partitions)
+        status = dataset_status(
+            dataset="persons", backfill=self._backfill(), partitions=partitions, settings_tab_visible=True
+        )
 
         assert status["total_partitions"] == 1
         assert status["readiness_state"] == "up_to_date"
@@ -167,17 +173,43 @@ class TestDatasetStatus(SimpleTestCase):
             ),
         ]
 
-        status = dataset_status(dataset="events", backfill=self._backfill(), partitions=partitions)
+        status = dataset_status(
+            dataset="events", backfill=self._backfill(), partitions=partitions, settings_tab_visible=True
+        )
 
         assert status["readiness_state"] == "needs_attention"
         assert status["current_partition"] == "1_2026-04"
 
     def test_unknown_history_range_is_still_waiting(self) -> None:
         # The scheduler caches earliest_event_date on first sight; until then there is no denominator.
-        status = dataset_status(dataset="events", backfill=self._backfill(earliest_event_date=None), partitions=[])
+        status = dataset_status(
+            dataset="events",
+            backfill=self._backfill(earliest_event_date=None),
+            partitions=[],
+            settings_tab_visible=True,
+        )
 
         assert status["readiness_state"] == "waiting"
         assert status["total_partitions"] is None
+
+    @parameterized.expand(
+        [
+            ("settings_tab_visible", True, "Settings tab"),
+            ("settings_tab_hidden", False, "Contact PostHog support"),
+        ]
+    )
+    def test_not_configured_detail_matches_settings_tab_access(
+        self, _name: str, settings_tab_visible: bool, expected_snippet: str
+    ) -> None:
+        # A team without the scene flag cannot open the Settings tab, so the detail must not send it there.
+        status = dataset_status(
+            dataset="events", backfill=None, partitions=[], settings_tab_visible=settings_tab_visible
+        )
+
+        assert status["readiness_state"] == "not_configured"
+        assert expected_snippet in status["detail"]
+        if not settings_tab_visible:
+            assert "Settings tab" not in status["detail"]
 
 
 def _table(
