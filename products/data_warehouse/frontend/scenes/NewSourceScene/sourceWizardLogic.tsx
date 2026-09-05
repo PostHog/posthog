@@ -1055,6 +1055,7 @@ export interface sourceWizardLogicActions {
             | 'FullStory'
             | 'FusionAuth'
             | 'G2'
+            | 'GainsightCs'
             | 'GainsightPx'
             | 'Gcore'
             | 'GcpApigee'

@@ -466,6 +466,7 @@ from .fulcrum.source import FulcrumSource
 from .fullstory.source import FullStorySource
 from .fusionauth.source import FusionAuthSource
 from .g2.source import G2Source
+from .gainsight_cs.source import GainsightCsSource
 from .gainsight_px.source import GainsightPxSource
 from .gcore.source import GcoreSource
 from .gcp_apigee.source import GcpApigeeSource
