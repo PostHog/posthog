@@ -1,5 +1,6 @@
 # From django channels https://github.com/django/channels/blob/b6dc8c127d7bda3f5e5ae205332b1388818540c5/channels/db.py#L16
 
+import contextvars
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from time import time
@@ -8,11 +9,35 @@ from typing import Any, Optional, ParamSpec, TypeVar, Union, overload
 from django.conf import settings
 from django.db import close_old_connections
 
+import asgiref.sync
 from asgiref.sync import SyncToAsync
 from prometheus_client import Histogram
 from structlog import get_logger
 
 logger = get_logger(__name__)
+
+
+def _restore_context(context: contextvars.Context) -> None:
+    """Replacement for `asgiref.sync._restore_context` that survives an uncomparable value.
+
+    asgiref compares each contextvar with the value in the copied context to decide if it must
+    copy the value back. A mapping with no `__eq__` of its own is compared by `Mapping.__eq__`,
+    which iterates the mapping, so another thread that mutates that mapping at the same moment
+    makes the comparison raise a RuntimeError. asgiref compares in a `finally` block, so the
+    RuntimeError replaces the result of the wrapped function and fails the caller. The
+    comparison only decides if the copy is necessary, so copy when it cannot complete.
+    """
+    for cvar in context:
+        cvalue = context.get(cvar)
+        try:
+            changed = cvar.get() != cvalue
+        except (LookupError, RuntimeError):
+            changed = True
+        if changed:
+            cvar.set(cvalue)
+
+
+asgiref.sync._restore_context = _restore_context
 
 # Prometheus metric to track database_sync_to_async execution time
 DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
