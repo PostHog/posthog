@@ -1,7 +1,7 @@
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models, transaction
 from django.db.models.expressions import F
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -33,6 +33,17 @@ def effective_project_id_expr() -> Coalesce:
     Returns a new expression per call, so callers never share one instance across querysets.
     """
     return Coalesce(F("project_id"), F("team_id"), output_field=models.BigIntegerField())
+
+
+def effective_project_id_value(project_id: int) -> Cast:
+    """The value to compare `effective_project_id_expr()` against, cast to `bigint`.
+
+    The driver sends a small integer as `smallint`, and the `int8_ops` GIN operator class holds no
+    cross-type operator, so an uncast value makes the project scope unindexable in
+    `index_propdef_proj_name_trgm` and `index_eventdef_proj_name_trgm`. Postgres then reads every
+    trigram match across all teams. B-tree indexes accept either form, so this is safe everywhere.
+    """
+    return Cast(models.Value(project_id), output_field=models.BigIntegerField())
 
 
 class PropertyFormat(models.TextChoices):
@@ -143,6 +154,17 @@ class PropertyDefinition(UUIDTModel):
                 F("name"),
                 condition=models.Q(name__startswith="$feature/"),
                 name="index_propdef_feature_flag",
+            ),
+            # The "did you mean" lookup in `posthog/hogql/taxonomy_validation.py` matches `name`
+            # with the pg_trgm `%` operator inside one project. The trigram GIN index above carries
+            # no project column, so on its own it makes Postgres read every matching name across all
+            # teams. Leading with the project expression keeps that read inside the project. The
+            # expression must stay identical to `effective_project_id_expr()`, and the compared
+            # value must arrive as `bigint` (see `effective_project_id_value`).
+            GinIndex(
+                OpClass(Coalesce(F("project_id"), F("team_id")), name="int8_ops"),
+                OpClass(F("name"), name="gin_trgm_ops"),
+                name="index_propdef_proj_name_trgm",
             ),
         ]
         constraints = [

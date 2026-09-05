@@ -16,7 +16,10 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
 
-from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+from products.event_definitions.backend.models.property_definition import (
+    effective_project_id_expr,
+    effective_project_id_value,
+)
 
 logger = getLogger(__name__)
 
@@ -129,7 +132,7 @@ def validate_taxonomy_references(
                     "Event",
                     visitor.event_literals,
                     EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
-                        effective_project_id=team.project_id
+                        effective_project_id=effective_project_id_value(team.project_id)
                     ),
                 )
             )
@@ -144,7 +147,8 @@ def validate_taxonomy_references(
                         "Property",
                         property_references,
                         PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
-                            effective_project_id=team.project_id, type=PropertyDefinition.Type.EVENT
+                            effective_project_id=effective_project_id_value(team.project_id),
+                            type=PropertyDefinition.Type.EVENT,
                         ),
                     )
                 )
@@ -271,10 +275,10 @@ def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
 def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
     """Read the names most similar to any of `names`, ranked and capped by Postgres.
 
-    `name__trigram_similar` is the pg_trgm `%` operator, which the GIN trigram indexes
-    `index_event_definition_name` and `index_property_definition_name` answer directly. Postgres
-    still intersects that match with the project scope, so this call is bounded by what it returns,
-    not by what it reads.
+    `name__trigram_similar` is the pg_trgm `%` operator. The project-scoped trigram indexes
+    `index_eventdef_proj_name_trgm` and `index_propdef_proj_name_trgm` answer the project scope and
+    the match together, so Postgres reads only the names of this project, not every match across
+    all teams.
 
     The `$`-prefixed form of each name is matched exactly as well, and sorts ahead of the ranked
     candidates. A caller who typed a name without its `$` therefore keeps that suggestion however
