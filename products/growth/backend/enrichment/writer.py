@@ -87,6 +87,8 @@ def _fit_record_writes(fit: IcpFitResult) -> tuple[dict[str, Any], list[str]]:
                 "low_confidence": fit.low_confidence,
                 "agency_flag": fit.agency_flag,
                 "nonprofit_flag": fit.nonprofit_flag,
+                "wizard_ai_sdk": fit.wizard_ai_sdk,
+                "ai_pilled_source": fit.ai_pilled_source,
             }.items()
             if value is not None
         }

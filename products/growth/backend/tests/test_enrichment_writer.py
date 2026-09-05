@@ -98,7 +98,7 @@ class TestEnrichmentWriter(BaseTest):
         # The two families never share a key.
         assert record.data["icp_score"] == 9
         assert record.data["icp_fit_score"] == 72
-        assert record.data["icp_fit_version"] == "v0.5"
+        assert record.data["icp_fit_version"] == "v0.6"
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "lists-1"
         assert record.data["icp_fit_components"]["capital"] == 30
@@ -112,8 +112,24 @@ class TestEnrichmentWriter(BaseTest):
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties["icp_score"] == 9
         assert properties["icp_fit_score"] == 72
-        assert properties["icp_fit_version"] == "v0.5"
+        assert properties["icp_fit_version"] == "v0.6"
         assert properties["icp_fit_status"] == "scored"
+
+    def test_fit_flags_record_wizard_evidence_and_ai_pilled_source(self):
+        pha_client = MagicMock()
+        write_organization_enrichment(
+            organization_id=str(self.organization.id),
+            fields=None,
+            pha_client=pha_client,
+            fit=_fit(wizard_ai_sdk=True, ai_pilled_source="both"),
+        )
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_fit_flags"]["wizard_ai_sdk"] is True
+        assert record.data["icp_fit_flags"]["ai_pilled_source"] == "both"
+        properties = pha_client.group_identify.call_args.kwargs["properties"]
+        assert "wizard_ai_sdk" not in properties
+        assert "ai_pilled_source" not in properties
 
     def test_fit_only_write_carries_no_field_or_clay_keys(self):
         # The fit backfill passes fields=None and no clay score: only icp_fit_* keys move.
@@ -156,7 +172,7 @@ class TestEnrichmentWriter(BaseTest):
             "work_email": True,
             "icp_score": 6,
             "icp_fit_status": "insufficient_data",
-            "icp_fit_version": "v0.5",
+            "icp_fit_version": "v0.6",
             "icp_fit_lists_version": "lists-1",
         }
         # Group properties cannot be deleted, so only the status key is projected: pairing
@@ -212,7 +228,7 @@ class TestEnrichmentWriter(BaseTest):
         )
         pha_client.set.assert_called_once_with(
             distinct_id="signer",
-            properties={"icp_fit_score": 55, "icp_fit_version": "v0.5", "icp_fit_status": "scored"},
+            properties={"icp_fit_score": 55, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
         )
 
         pha_client.reset_mock()
