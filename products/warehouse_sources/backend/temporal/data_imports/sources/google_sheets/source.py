@@ -70,6 +70,11 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             # text). So the sheet/worksheet vanishing mid-read bypasses the `SpreadsheetNotFound` branch
             # above and would be retried forever. The 404 is deterministic — retrying cannot recover.
             "Requested entity was not found": "Import failed: the Google Sheet or worksheet could not be found. It may have been deleted or moved, or is no longer shared with our service account. Please check the spreadsheet URL and its sharing settings.",
+            # The Sheets API rejects a header read on a worksheet with no columns (an empty sheet, or one
+            # resized to zero columns) with a stable 400 "Unable to parse range". The read paths guard this
+            # and treat the sheet as headerless, but if it surfaces from another call it is deterministic —
+            # retrying cannot recover, so name the fix.
+            "Unable to parse range": "Import failed: this worksheet has no columns to read. Add a header row with at least one column, then resync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
