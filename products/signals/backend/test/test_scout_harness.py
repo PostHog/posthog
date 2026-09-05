@@ -570,6 +570,51 @@ class TestBusinessKnowledgePromptSection(SimpleTestCase):
         assert "business-knowledge-document-window-retrieve" not in unmaintained
 
 
+class TestWriteAccessPromptSection(SimpleTestCase):
+    # Each channel assembles its own tail list, so the gate can be lost on one channel alone.
+    @parameterized.expand(
+        [
+            ("signal_channel", []),
+            ("report_channel", ["emit_report", "edit_report"]),
+        ]
+    )
+    def test_section_names_only_the_objects_the_token_can_write(self, _name: str, allowed_tools: list[str]) -> None:
+        # Both failure modes cost a run: naming an object the scout was not granted earns it a
+        # refused tool call, and omitting the section leaves a scout granted write access still
+        # only describing the fix someone asked it to make.
+        def _prompt(*, write_scopes: list[str]) -> str:
+            return build_run_prompt(
+                LoadedSkill(
+                    name="signals-scout-hygiene",
+                    version=1,
+                    body="tidy",
+                    description="d",
+                    allowed_tools=allowed_tools,
+                    files=[],
+                    skill_id="skill-1",
+                    origin="custom",
+                    authors=[],
+                ),
+                run_id="00000000-0000-0000-0000-000000000abc",
+                team_id=1,
+                started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+                write_scopes=write_scopes,
+            )
+
+        granted = _prompt(write_scopes=["dashboard:write", "alert:write"])
+        assert "# Write access" in granted
+        assert "dashboards and their tiles" in granted
+        assert "insight alerts" in granted
+        assert "saved insights" not in granted
+        # The organization-wide reach is a fact about annotations only. Stating it for every grant
+        # would send a dashboard scout looking for sibling projects' objects that are not there.
+        assert "Annotations reach past this project" not in granted
+        assert "Annotations reach past this project" in _prompt(write_scopes=["annotation:write"])
+
+        ungranted = _prompt(write_scopes=[])
+        assert "# Write access" not in ungranted
+
+
 class TestPromptBuilder(BaseTest):
     def test_renders_identity_bootstrap_and_universal_sections(self) -> None:
         skill = LLMSkill.objects.create(
@@ -1272,6 +1317,82 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
     assert captured["mcp_builtin_agent_key"] == "scout"
     assert captured.get("mcp_credential_owner_id") is None
     assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes",
+    [
+        pytest.param(
+            True,
+            True,
+            ["dashboard:write"],
+            {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write"]},
+            id="live_run_holds_the_grant",
+        ),
+        # Dry run is how a person previews a scout before trusting it, so a dry run that could
+        # edit dashboards would do the thing they wanted to look at first.
+        pytest.param(False, True, [], "signals_scout", id="dry_run_holds_no_grant"),
+        # The grant was approved for the person the runs act as. When that identity no longer
+        # resolves, the team fallback is a member who never approved it and cannot revoke it.
+        pytest.param(True, False, [], "signals_scout", id="team_fallback_holds_no_grant"),
+    ],
+)
+async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
+    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes
+):
+    # The grant is what the run's token carries, so a composition that loses it leaves a scout
+    # unable to do the job it was granted for, and one that passes the column through unfiltered
+    # would let a stored scope the allowlist has since dropped reach the token.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            emit=emit,
+            write_scopes=["dashboard:write", "feature_flag:write"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_acting_user_id",
+            return_value=42 if acting_user_resolves else None,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # A scout without a grant is dispatched as the plain preset string. The posture dict is the
+    # newer wire shape, and a sandbox worker one deploy behind reads it as a list of its keys,
+    # which mints a token with no scout scopes at all. Only a scout that holds a grant pays that
+    # compatibility cost.
+    assert captured["context"].posthog_mcp_scopes == expected_mcp_scopes
+    # Stamped at run creation, because the config's grant can be widened or revoked afterwards and
+    # would otherwise rewrite what past runs are recorded as having been able to change.
+    metadata = await database_sync_to_async(
+        lambda: SignalScoutRun.objects.unscoped().filter(team_id=ateam.id).latest("created_at").metadata or {},
+        thread_sensitive=False,
+    )()
+    assert metadata.get("write_scopes", []) == expected_grant
 
 
 @pytest.mark.asyncio

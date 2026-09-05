@@ -618,6 +618,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -744,6 +747,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -851,6 +857,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.append_evidence !== undefined) {
+            body['append_evidence'] = params.append_evidence
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
@@ -1474,6 +1483,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -1600,6 +1612,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1635,6 +1650,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.append_evidence !== undefined) {
+            body['append_evidence'] = params.append_evidence
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers

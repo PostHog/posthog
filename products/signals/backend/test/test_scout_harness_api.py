@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
@@ -18,8 +18,9 @@ from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import OAuthApplication
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import (
@@ -1193,6 +1194,227 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
         assert config.structured_output_schema is None
 
 
+class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
+    def _detail_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
+
+    def _config(self, **kwargs) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-hygiene", **kwargs)
+
+    def _own_the_scout(self, user: User) -> None:
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-hygiene", user=user
+        )
+
+    def _authored_by(self, user: User) -> None:
+        LLMSkill.objects.create(team=self.team, name="signals-scout-hygiene", description="", body="", created_by=user)
+
+    def _other_member(self) -> User:
+        return User.objects.create_and_join(self.organization, "other@example.com", None)
+
+    def _become_admin(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+        return raw
+
+    def test_patch_persists_a_grant_and_read_surfaces_it(self) -> None:
+        # Wiring guard for the serializer matrix below: the viewset routes `write_scopes` through
+        # the update serializer, and the read shape hands it back so the settings UI can show it.
+        self._become_admin()
+        config = self._config()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["insight:write", "dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["write_scopes"] == ["dashboard:write", "insight:write"]
+        config.refresh_from_db()
+        assert config.write_scopes == ["dashboard:write", "insight:write"]
+
+    def test_patch_rejects_a_scope_outside_the_allowlist(self) -> None:
+        # The whole point of the field is that it can only ever carry the reviewed set, so a
+        # rejection names the grantable values rather than only the refusal.
+        self._become_admin()
+        config = self._config()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["feature_flag:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "dashboard:write" in str(response.json())
+        config.refresh_from_db()
+        assert config.write_scopes == []
+
+    @parameterized.expand(
+        [
+            # A member who neither authored the scout nor administers the project must not widen
+            # what the scout's runs can change in this project.
+            ("plain_member", False, False, False, status.HTTP_403_FORBIDDEN),
+            # Any skill editor can rewrite a skill's owner list, so being on it must not be enough:
+            # otherwise a member appoints themselves an owner and grants the scout from there.
+            ("skill_owner_only", True, False, False, status.HTTP_403_FORBIDDEN),
+            # The runs act as whoever authored the scout body, so that person may widen them.
+            ("scout_author", False, True, False, status.HTTP_200_OK),
+            ("project_admin", False, False, True, status.HTTP_200_OK),
+        ]
+    )
+    def test_granting_write_access_requires_the_acting_user_or_an_admin(
+        self, _name: str, is_owner: bool, is_author: bool, is_admin: bool, expected: int
+    ) -> None:
+        config = self._config()
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_owner:
+            self._own_the_scout(self.user)
+        if is_admin:
+            self._become_admin()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        assert config.write_scopes == (["dashboard:write"] if expected == status.HTTP_200_OK else [])
+
+    def test_a_non_author_may_still_edit_other_fields_and_resend_the_grant(self) -> None:
+        # Clients resend whole config objects, so an unchanged `write_scopes` must not turn an
+        # ordinary schedule edit into a permission error.
+        config = self._config(write_scopes=["dashboard:write"])
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["dashboard:write"], "run_interval_minutes": 720},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.run_interval_minutes == 720
+
+    def test_revoking_write_access_needs_the_same_claim(self) -> None:
+        # Narrowing is safe, but the refusal keeps one rule to state: a member who cannot grant
+        # cannot rewrite the field at all, so nobody can flip a scout's access behind its author.
+        config = self._config(write_scopes=["dashboard:write"])
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"write_scopes": []}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.write_scopes == ["dashboard:write"]
+
+    def test_a_stored_object_is_not_a_grant_to_compare_against(self) -> None:
+        # The mint path treats a non-list column as no grant, so the gate must read it the same
+        # way. Iterating the object's keys would make a non-author's request for exactly those
+        # keys look unchanged, and the save would turn a value that grants nothing into a grant.
+        config = self._config(write_scopes={"dashboard:write": False})
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"write_scopes": ["dashboard:write"]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.write_scopes == {"dashboard:write": False}
+
+    def test_creating_a_scout_with_a_grant_records_it_in_the_activity_log(self) -> None:
+        # A creation diffs against nothing, so without this the log's first entry for a granted
+        # scout says nothing about its access and a later revoke has no "before" to point at.
+        self._authored_by(self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/configs/",
+            data={"skill_name": "signals-scout-hygiene", "write_scopes": ["dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        entry = ActivityLog.objects.filter(team_id=self.team.id, scope="SignalScoutConfig", activity="created").latest(
+            "created_at"
+        )
+        assert entry.detail is not None
+        assert [(change["field"], change["action"], change["after"]) for change in entry.detail["changes"]] == [
+            ("write access", "created", ["dashboard:write"])
+        ]
+
+    @parameterized.expand(
+        [
+            # A key minted with only the config scope must not turn into `dashboard:write` on the
+            # scout's next run; the person narrowed that credential on purpose.
+            ("narrow_key_cannot_grant", ["signal_scout:write"], [], ["dashboard:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "key_carrying_the_scope_can_grant",
+                ["signal_scout:write", "dashboard:write"],
+                [],
+                ["dashboard:write"],
+                status.HTTP_200_OK,
+            ),
+            # Revoking adds nothing to the credential, so the narrow key may still do it.
+            ("narrow_key_can_revoke", ["signal_scout:write"], ["dashboard:write"], [], status.HTTP_200_OK),
+        ]
+    )
+    def test_a_scoped_api_key_must_carry_each_scope_it_grants(
+        self, _name: str, key_scopes: list[str], current: list[str], requested: list[str], expected: int
+    ) -> None:
+        self._become_admin()
+        config = self._config(write_scopes=current)
+        raw = self._personal_api_key(key_scopes)
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": requested},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        assert config.write_scopes == (requested if expected == status.HTTP_200_OK else current)
+
+
+class TestWriteScopesValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_is_read_only", [], True, []),
+            ("allowlisted_pair", ["insight:write", "dashboard:write"], True, ["dashboard:write", "insight:write"]),
+            # Sorted and deduped, so resending the same set in another order is not a change and
+            # never shows up in the activity log as one.
+            ("deduped_and_sorted", ["alert:write", "alert:write"], True, ["alert:write"]),
+            ("ungrantable_scope", ["feature_flag:write"], False, None),
+            # A read scope grants nothing but would read as a grant in the settings UI.
+            ("read_scope", ["dashboard:read"], False, None),
+            ("internal_scope", ["signal_scout_report:write"], False, None),
+        ]
+    )
+    def test_write_scopes_validation(
+        self, _name: str, scopes: list[str], valid: bool, expected: list[str] | None
+    ) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"write_scopes": scopes}, partial=True)
+        assert serializer.is_valid() is valid, serializer.errors
+        if valid:
+            assert serializer.validated_data["write_scopes"] == expected
+        else:
+            assert "write_scopes" in serializer.errors
+
+
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
     _FLAG_PATH = "products.signals.backend.scout_harness.serializers.scout_model_config_enabled"
 
@@ -1405,6 +1627,27 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert row.expires_at is None
+        assert row.content == "v"
+
+    @parameterized.expand(
+        [
+            # The agent writes the expiry from a clock it can only guess at, so it often omits the
+            # UTC offset or gives the date alone. Both read as a valid instant in the project's
+            # timezone. Each used to be refused at the client boundary, which cost the whole write.
+            ("no_offset", "2035-10-05T09:30:00", datetime(2035, 10, 5, 9, 30, tzinfo=UTC)),
+            ("bare_date", "2035-10-05", datetime(2035, 10, 5, 0, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_remember_honors_an_expiry_that_names_no_offset(
+        self, _name: str, expires_at: str, expected: datetime
+    ) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").expires_at == expected
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -1621,8 +1864,6 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             # Same reasoning for the pipeline family: it is an allowlist, not a free-form prefix,
             # so a stage that reads no notes cannot be addressed.
             ("unknown_pipeline_audience", {"content": "note", "skill_name": "pipeline:implementation"}),
-            # A note born expired would never be seen by anyone.
-            ("past_expiry", {"content": "note", "expires_at": "2020-01-01T00:00:00Z"}),
             ("blank_content", {"content": "   ", "skill_name": ""}),
         ]
     )
@@ -1630,6 +1871,25 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         response = self.client.post(self._list_url(), data=body, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScoutNote.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [
+            # A note born expired would never be seen by anyone, so the expiry goes and the note
+            # stays. Same stance for a value no clock can read.
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "next Friday"),
+        ]
+    )
+    def test_create_drops_invalid_expiry_without_losing_the_note(self, _name: str, expires_at: str) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "watch checkout", "expires_at": expires_at},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        note = SignalScoutNote.objects.get(team=self.team)
+        assert note.expires_at is None
+        assert note.content == "watch checkout"
 
     def test_notes_do_not_leak_across_teams(self) -> None:
         # Cross-team rows go through `all_teams`: the fail-closed `objects` manager is pinned

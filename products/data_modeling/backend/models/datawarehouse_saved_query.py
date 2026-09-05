@@ -72,8 +72,9 @@ def validate_saved_query_name(value: str) -> None:
         )
 
 
-class V1SchedulingPathReached(Exception):
-    """Raised when a saved query cannot be scheduled through v2."""
+class NoSchedulableDagError(Exception):
+    """Raised when no DAG can schedule a saved query: none is on v2, and there is no node to
+    bootstrap one from."""
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -85,6 +86,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         COMPLETED = "Completed"
         FAILED = "Failed"
         RUNNING = "Running"
+        SKIPPED = "Skipped"
 
     class Origin(models.TextChoices):
         """Possible origin of this SavedQuery"""
@@ -303,7 +305,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     transaction.on_commit(self._start_immediate_materialization)
                 return
 
-            raise V1SchedulingPathReached(f"Saved query {self.id} has no v2 schedule")
+            raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The query is fine — the requested frequency is not. Surface it to the caller
             # instead of silently disabling materialization.
@@ -346,7 +348,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     def revert_materialization(self):
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-        from products.data_warehouse.backend.facade.api import delete_saved_query_schedule
 
         self.sync_frequency_interval = None
         self.last_run_at = None
@@ -354,24 +355,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.status = None
         self.is_materialized = False
 
-        should_delete_saved_query_schedule: bool = False
-        try:
-            with transaction.atomic():
-                # delete the materialized table reference
-                if self.table is not None:
-                    self.table.soft_delete()
-                    self.table_id = None
+        with transaction.atomic():
+            # delete the materialized table reference
+            if self.table is not None:
+                self.table.soft_delete()
+                self.table_id = None
 
-                should_delete_saved_query_schedule = True
-                self.save()
-                DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
-        finally:
-            if should_delete_saved_query_schedule:
-                delete_saved_query_schedule(self)
+            self.save()
+            DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
 
         # A reverted matview must also leave its cadence tier, or it would keep being
-        # materialized on tiered v2. Best-effort like the schedule delete above — the
-        # revert itself already succeeded.
+        # materialized on tiered v2. Best-effort — the revert itself already succeeded.
         try:
             apply_saved_query_frequency_target(self, None)
         except Exception as e:

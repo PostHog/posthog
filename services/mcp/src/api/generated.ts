@@ -18734,6 +18734,315 @@ export namespace Schemas {
       token: string;
     }
 
+    export interface ContentAutopilotError {
+      /** Stable machine-readable error code. */
+      error_code: string;
+      /** Error explanation suitable for the review workspace. */
+      message: string;
+    }
+
+    /**
+     * * `poor_ctr` - Poor click-through rate
+     * * `content_gap` - Content gap
+     * * `organic_decline` - Organic decline
+     * * `ai_visibility_gap` - AI visibility gap
+     * * `site_hygiene` - Site hygiene
+     */
+    export type OpportunityKindEnum = typeof OpportunityKindEnum[keyof typeof OpportunityKindEnum];
+
+
+    export const OpportunityKindEnum = {
+      PoorCtr: 'poor_ctr',
+      ContentGap: 'content_gap',
+      OrganicDecline: 'organic_decline',
+      AiVisibilityGap: 'ai_visibility_gap',
+      SiteHygiene: 'site_hygiene',
+    } as const;
+
+    export interface ContentAutopilotEvidence {
+      /** Reason the opportunity was selected.
+       *
+       * * `poor_ctr` - Poor click-through rate
+       * * `content_gap` - Content gap
+       * * `organic_decline` - Organic decline
+       * * `ai_visibility_gap` - AI visibility gap
+       * * `site_hygiene` - Site hygiene */
+      opportunity_kind: OpportunityKindEnum;
+      /** Plain-language explanation of the supporting evidence. */
+      explanation: string;
+      /** Page supported by this evidence. */
+      page_url?: string;
+      /** Search query supported by this evidence. */
+      query?: string;
+    }
+
+    export interface ContentAutopilotFrontmatterEntry {
+      /** Frontmatter field name. */
+      key: string;
+      /** Serialized frontmatter value. */
+      value: string;
+    }
+
+    export interface ContentAutopilotPackage {
+      /** Repository-relative Markdown or MDX file path. */
+      file_path: string;
+      /** Content title. */
+      title: string;
+      /** Search description or summary. */
+      description: string;
+      /** URL slug. */
+      slug: string;
+      /** Ordered frontmatter entries. */
+      frontmatter: ContentAutopilotFrontmatterEntry[];
+      /** Validated same-origin internal links included in the content. */
+      internal_links: string[];
+      /** Portable source notes included with the export. */
+      source_notes: string[];
+    }
+
+    export interface ContentAutopilotExportResponse {
+      /** Suggested export filename. */
+      filename: string;
+      /** Validated Markdown content. */
+      markdown: string;
+      /** Structured JSON package for a CMS adapter. */
+      content_package: ContentAutopilotPackage;
+    }
+
+    /**
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement
+     */
+    export type ContentAutopilotProposalProposalTypeEnum = typeof ContentAutopilotProposalProposalTypeEnum[keyof typeof ContentAutopilotProposalProposalTypeEnum];
+
+
+    export const ContentAutopilotProposalProposalTypeEnum = {
+      NewContent: 'new_content',
+      PageImprovement: 'page_improvement',
+    } as const;
+
+    /**
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `rejected` - Rejected
+     * * `exported` - Exported
+     * * `failed` - Failed
+     */
+    export type ContentAutopilotProposalLifecycleStatusEnum = typeof ContentAutopilotProposalLifecycleStatusEnum[keyof typeof ContentAutopilotProposalLifecycleStatusEnum];
+
+
+    export const ContentAutopilotProposalLifecycleStatusEnum = {
+      Generating: 'generating',
+      ReadyForReview: 'ready_for_review',
+      Rejected: 'rejected',
+      Exported: 'exported',
+      Failed: 'failed',
+    } as const;
+
+    export interface ContentAutopilotValidationCheck {
+      /** Stable identifier for the validation gate. */
+      check_key: string;
+      /** Human-readable validation name. */
+      label: string;
+      /** Whether the proposal passed this validation. */
+      passed: boolean;
+      /** Validation result and any action needed. */
+      message: string;
+      /** Whether failure prevents export. */
+      blocking: boolean;
+    }
+
+    export interface ContentAutopilotValidationReport {
+      /** Whether every blocking validation passed. */
+      passed: boolean;
+      /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
+      checks: ContentAutopilotValidationCheck[];
+    }
+
+    export interface ContentAutopilotProposal {
+      readonly id: string;
+      /** Run that generated this proposal. */
+      readonly run_id: string;
+      /** New article or bounded page improvement.
+       *
+       * * `new_content` - New content
+       * * `page_improvement` - Page improvement */
+      readonly proposal_type: ContentAutopilotProposalProposalTypeEnum;
+      /** Review and export lifecycle status.
+       *
+       * * `generating` - Generating
+       * * `ready_for_review` - Ready for review
+       * * `rejected` - Rejected
+       * * `exported` - Exported
+       * * `failed` - Failed */
+      readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnum;
+      /** Review title for this proposal. */
+      readonly title: string;
+      /** Primary query or topic targeted by this proposal. */
+      readonly target_query: string;
+      /** Existing or intended public URL. */
+      readonly target_url: string;
+      /** Performance evidence for this proposal. */
+      evidence: ContentAutopilotEvidence[];
+      /** Blocking and advisory validation results. */
+      validation_report: ContentAutopilotValidationReport;
+      /** Structured package that accompanies the exported Markdown. */
+      content_package: ContentAutopilotPackage;
+      /** Existing content for page-improvement diffs. */
+      readonly original_markdown: string;
+      /** Full proposed Markdown after edits. */
+      readonly proposed_markdown: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface ContentAutopilotProposalEditRequest {
+      /**
+         * Edited Markdown to save for review.
+         * @maxLength 500000
+         */
+      proposed_markdown: string;
+      /** Updated structured package to save with the proposal. */
+      content_package: ContentAutopilotPackage;
+    }
+
+    export interface ContentAutopilotProposalList {
+      readonly id: string;
+      readonly run_id: string;
+      readonly proposal_type: ContentAutopilotProposalProposalTypeEnum;
+      readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnum;
+      readonly title: string;
+      readonly target_query: string;
+      /** Performance evidence for this proposal. */
+      evidence: ContentAutopilotEvidence[];
+      /** Blocking and advisory validation results. */
+      validation_report: ContentAutopilotValidationReport;
+      /** Repository-relative export path. */
+      readonly file_path: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `completed` - Completed
+     * * `canceled` - Canceled
+     * * `failed` - Failed
+     */
+    export type ContentAutopilotRunRunStatusEnum = typeof ContentAutopilotRunRunStatusEnum[keyof typeof ContentAutopilotRunRunStatusEnum];
+
+
+    export const ContentAutopilotRunRunStatusEnum = {
+      Pending: 'pending',
+      Generating: 'generating',
+      ReadyForReview: 'ready_for_review',
+      Completed: 'completed',
+      Canceled: 'canceled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `standard` - Standard
+     * * `lower` - Lower
+     */
+    export type ContentAutopilotSnapshotConfidenceEnum = typeof ContentAutopilotSnapshotConfidenceEnum[keyof typeof ContentAutopilotSnapshotConfidenceEnum];
+
+
+    export const ContentAutopilotSnapshotConfidenceEnum = {
+      Standard: 'standard',
+      Lower: 'lower',
+    } as const;
+
+    export interface ContentAutopilotSnapshot {
+      /** Site domain used for the run. */
+      domain?: string;
+      /** Confidence level based on the available data sources.
+       *
+       * * `standard` - Standard
+       * * `lower` - Lower */
+      confidence?: ContentAutopilotSnapshotConfidenceEnum;
+      /** Public sources authorized for this run. */
+      source_urls?: string[];
+      /** Site paths authorized for this run. */
+      content_boundaries?: string[];
+      /** Editorial rules captured for this run. */
+      brand_rules?: string[];
+    }
+
+    export interface ContentAutopilotRun {
+      readonly id: string;
+      /** Site profile used by this run. */
+      readonly profile_id: string;
+      /** Current durable workflow status.
+       *
+       * * `pending` - Pending
+       * * `generating` - Generating
+       * * `ready_for_review` - Ready for review
+       * * `completed` - Completed
+       * * `canceled` - Canceled
+       * * `failed` - Failed */
+      readonly run_status: ContentAutopilotRunRunStatusEnum;
+      /** Immutable inputs captured at run start. */
+      input_snapshot: ContentAutopilotSnapshot;
+      /** Inspectable workflow errors from this run. */
+      errors: ContentAutopilotError[];
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** @nullable */
+      readonly completed_at: string | null;
+    }
+
+    export interface ContentAutopilotRunStartRequest {
+      /** Site profile to research. */
+      profile_id: string;
+    }
+
+    export interface ContentAutopilotSiteDiscoveryRequest {
+      /** Public site URL to inspect for onboarding defaults. */
+      domain: string;
+    }
+
+    export interface ContentAutopilotSiteDiscoveryResponse {
+      /** Site name inferred from the homepage or hostname. */
+      name: string;
+      /** Normalized site origin. */
+      domain: string;
+      /** Detected sitemap URLs or an editable conventional suggestion. */
+      source_urls: string[];
+      /** Editable same-origin path boundaries. */
+      content_boundaries: string[];
+      /** Whether at least one sitemap was verified. */
+      sitemap_detected: boolean;
+      /** Non-blocking discovery warnings. */
+      warnings: string[];
+    }
+
+    export interface ContentAutopilotSiteProfile {
+      readonly id: string;
+      /**
+         * Name used to identify this site in the workspace.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Authorized site origin for this profile.
+         * @maxLength 2048
+         */
+      domain: string;
+      /** Public sitemap and factual source URLs used to build the site profile. */
+      source_urls: string[];
+      /** Same-origin URL path prefixes allowed for research. */
+      content_boundaries: string[];
+      /** Brand, terminology, and editorial rules applied to every proposal. */
+      brand_rules: string[];
+      /** Whether to use connected Google Search Console data. */
+      search_console_enabled?: boolean;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     /**
      * * `utf-8` - utf-8
      * * `base64` - base64
@@ -22484,6 +22793,7 @@ export namespace Schemas {
      * * `Completed` - Completed
      * * `Failed` - Failed
      * * `Running` - Running
+     * * `Skipped` - Skipped
      */
     export type DataWarehouseSavedQueryStatusEnum = typeof DataWarehouseSavedQueryStatusEnum[keyof typeof DataWarehouseSavedQueryStatusEnum];
 
@@ -22494,6 +22804,7 @@ export namespace Schemas {
       Completed: 'Completed',
       Failed: 'Failed',
       Running: 'Running',
+      Skipped: 'Skipped',
     } as const;
 
     /**
@@ -22554,13 +22865,6 @@ export namespace Schemas {
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds: SyncFrequencyBounds;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
-      /** The status of when this SavedQuery last ran.
-       *
-       * * `Cancelled` - Cancelled
-       * * `Modified` - Modified
-       * * `Completed` - Completed
-       * * `Failed` - Failed
-       * * `Running` - Running */
       readonly status: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -22722,13 +23026,6 @@ export namespace Schemas {
       /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
       readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryMinimalColumnsItem[];
-      /** The status of when this SavedQuery last ran.
-       *
-       * * `Cancelled` - Cancelled
-       * * `Modified` - Modified
-       * * `Completed` - Completed
-       * * `Failed` - Failed
-       * * `Running` - Running */
       readonly status: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -24432,6 +24729,7 @@ export namespace Schemas {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
+     * * `Tenjin` - Tenjin
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25766,6 +26064,7 @@ export namespace Schemas {
       Medusa: 'Medusa',
       Membrain: 'Membrain',
       RecallAI: 'RecallAI',
+      Tenjin: 'Tenjin',
     } as const;
 
     /**
@@ -27113,7 +27412,8 @@ export namespace Schemas {
        * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI */
+       * * `RecallAI` - RecallAI
+       * * `Tenjin` - Tenjin */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -29144,7 +29444,8 @@ export namespace Schemas {
        * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI */
+       * * `RecallAI` - RecallAI
+       * * `Tenjin` - Tenjin */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -29370,10 +29671,12 @@ export namespace Schemas {
       open_to_deploy_series: LeadTimeBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
-      /** What the environment filter resolved to: the exact environment name(s) it matches (the caller's picks, comma-joined when several; by default the busiest production-marked environment, falling back to the busiest persistent one), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+      /** Display label for the selected environments, comma-separated, 'persistent' when no persistent environments were discovered. Use selected_environments for exact names. */
       environment_scope: string;
-      /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
+      /** Distinct persistent environments from the metric scan window or the 30 days before its end, whichever starts earlier, most-deployed first. Transient environments are omitted. */
       environments: string[];
+      /** Exact environment names used for these metrics. Defaults to all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment. Explicit filters are trimmed and deduplicated. DRF rejects blank or unknown names; real transient names are allowed. */
+      selected_environments: string[];
       /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
       has_membership_data: boolean;
       /** Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options. Empty when membership isn't synced. */
@@ -29905,6 +30208,19 @@ export namespace Schemas {
     }
 
     /**
+     * One observation backing an authored report — becomes a bound signal row on the report.
+     */
+    export interface ReportEvidence {
+      /**
+         * Prose for this observation. Embedded and rendered to the safety/research surfaces.
+         * @maxLength 4000
+         */
+      description: string;
+      /** Stable id for this observation within the report (lets a later edit address it). */
+      source_id: string;
+    }
+
+    /**
      * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
      *
      * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
@@ -29997,6 +30313,12 @@ export namespace Schemas {
          */
       append_note?: string | null;
       /**
+         * Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report.
+         * @maxItems 50
+         * @nullable
+         */
+      append_evidence?: ReportEvidence[] | null;
+      /**
          * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
          * @maxItems 10
          */
@@ -30023,6 +30345,8 @@ export namespace Schemas {
       updated_fields: string[];
       /** Whether a note artefact was appended. */
       note_appended: boolean;
+      /** How many observations this edit added to the report's evidence rail; 0 if none. */
+      evidence_appended: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /**
@@ -30375,21 +30699,6 @@ export namespace Schemas {
          * @nullable
          */
       remediation: string | null;
-    }
-
-    /**
-     * One observation backing an authored report — becomes a bound signal row on the report.
-     */
-    export interface ReportEvidence {
-      /** Prose for this observation. Embedded and rendered to the safety/research surfaces. */
-      description: string;
-      /** Stable id for this observation within the report (lets a later edit address it). */
-      source_id: string;
-      /**
-         * Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.
-         * @minimum 0
-         */
-      weight?: number;
     }
 
     /**
@@ -33009,7 +33318,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -33019,11 +33328,13 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
+      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
     };
 
     /**
@@ -33237,7 +33548,7 @@ export namespace Schemas {
        * * `boolean` - Boolean (Pass/Fail)
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -37892,7 +38203,8 @@ export namespace Schemas {
        * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI */
+       * * `RecallAI` - RecallAI
+       * * `Tenjin` - Tenjin */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -39260,7 +39572,8 @@ export namespace Schemas {
        * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI */
+       * * `RecallAI` - RecallAI
+       * * `Tenjin` - Tenjin */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -54776,6 +55089,33 @@ export namespace Schemas {
       results: CommunitySkillList[];
     }
 
+    export interface PaginatedContentAutopilotProposalListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotProposalList[];
+    }
+
+    export interface PaginatedContentAutopilotRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotRun[];
+    }
+
+    export interface PaginatedContentAutopilotSiteProfileList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotSiteProfile[];
+    }
+
     export interface PaginatedConversationMinimalList {
       count: number;
       /** @nullable */
@@ -56434,6 +56774,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `ai` - AI draft
+     * * `template` - Template
+     * * `scratch` - From scratch
+     */
+    export type ScannerCreationMethodEnum = typeof ScannerCreationMethodEnum[keyof typeof ScannerCreationMethodEnum];
+
+
+    export const ScannerCreationMethodEnum = {
+      Ai: 'ai',
+      Template: 'template',
+      Scratch: 'scratch',
+    } as const;
+
+    /**
      * * `google` - Google
      */
     export type ScannerProviderEnum = typeof ScannerProviderEnum[keyof typeof ScannerProviderEnum];
@@ -56471,6 +56825,12 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+       *
+       * * `ai` - AI draft
+       * * `template` - Template
+       * * `scratch` - From scratch */
+      creation_method?: ScannerCreationMethodEnum | null;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -61434,6 +61794,30 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    export interface PatchedContentAutopilotSiteProfile {
+      readonly id?: string;
+      /**
+         * Name used to identify this site in the workspace.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Authorized site origin for this profile.
+         * @maxLength 2048
+         */
+      domain?: string;
+      /** Public sitemap and factual source URLs used to build the site profile. */
+      source_urls?: string[];
+      /** Same-origin URL path prefixes allowed for research. */
+      content_boundaries?: string[];
+      /** Brand, terminology, and editorial rules applied to every proposal. */
+      brand_rules?: string[];
+      /** Whether to use connected Google Search Console data. */
+      search_console_enabled?: boolean;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export type PatchedConversationMessagesItem = { [key: string]: unknown };
 
     export type PatchedConversationPendingApprovalsItem = { [key: string]: unknown };
@@ -62075,13 +62459,6 @@ export namespace Schemas {
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds?: SyncFrequencyBounds;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
-      /** The status of when this SavedQuery last ran.
-       *
-       * * `Cancelled` - Cancelled
-       * * `Modified` - Modified
-       * * `Completed` - Completed
-       * * `Failed` - Failed
-       * * `Running` - Running */
       readonly status?: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -62753,7 +63130,7 @@ export namespace Schemas {
       prompt: string;
     } | {
       /**
-         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -62763,11 +63140,13 @@ export namespace Schemas {
     };
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
+      /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      true_is_failure?: boolean;
     };
 
     /**
@@ -62838,7 +63217,7 @@ export namespace Schemas {
        * * `boolean` - Boolean (Pass/Fail)
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -66495,6 +66874,12 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+       *
+       * * `ai` - AI draft
+       * * `template` - Template
+       * * `scratch` - From scratch */
+      creation_method?: ScannerCreationMethodEnum | null;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -67097,6 +67482,11 @@ export namespace Schemas {
          * @maxItems 100
          */
       mcp_gateway_server_ids?: string[];
+      /**
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 4
+         */
+      write_scopes?: string[];
     }
 
     /**
@@ -77043,6 +77433,14 @@ export namespace Schemas {
     }
 
     /**
+     * Body of the `resume_schedules` action.
+     */
+    export interface SavedQueryResumeSchedulesRequest {
+      /** Ids of the saved queries to resume. An id is ignored when it is not in this project, has been deleted, or you cannot edit it. */
+      view_ids: string[];
+    }
+
+    /**
      * Body of the `run` action.
      */
     export interface SavedQueryRun {
@@ -77128,6 +77526,11 @@ export namespace Schemas {
          * @maxItems 100
          */
       mcp_gateway_server_ids?: string[];
+      /**
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 4
+         */
+      write_scopes?: string[];
     }
 
     /**
@@ -77268,6 +77671,11 @@ export namespace Schemas {
          * @maxItems 100
          */
       readonly mcp_gateway_server_ids: readonly string[];
+      /**
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 4
+         */
+      readonly write_scopes: readonly string[];
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -77413,6 +77821,11 @@ export namespace Schemas {
        * * `fleet_overview` - fleet_overview
        * * `recent_signals` - recent_signals */
       chat_type: ChatTypeEnum;
+      /**
+         * Optional id of a suggestion from this project's scout suggestion batch. The chat then opens on that draft instead of scanning from scratch. `author_scout` only.
+         * @maxLength 64
+         */
+      suggestion_id?: string;
     }
 
     /**
@@ -77534,7 +77947,7 @@ export namespace Schemas {
          */
       skill_name?: string;
       /**
-         * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted.
+         * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost.
          * @nullable
          */
       expires_at?: string | null;
@@ -78443,6 +78856,11 @@ export namespace Schemas {
          */
       mcp_gateway_server_ids?: string[];
       /**
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 4
+         */
+      write_scopes?: string[];
+      /**
          * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
          */
@@ -78469,6 +78887,11 @@ export namespace Schemas {
       files?: LLMSkillFileInput[];
       /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
       config?: SignalScoutConfigOptions;
+      /**
+         * Optional id of the suggestion this scout was created from. The suggestion then stops being offered on this project. An id this project's batch does not hold is ignored.
+         * @maxLength 64
+         */
+      suggestion_id?: string;
     }
 
     export interface SignalScoutSkillSummary {
@@ -78555,7 +78978,7 @@ export namespace Schemas {
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunDetailMetadata = {
       harness_prompt_version?: string;
@@ -78567,6 +78990,7 @@ export namespace Schemas {
       runtime_adapter?: string;
       reasoning_effort?: string;
       network_access?: string;
+      write_scopes?: string[];
       triggered_by?: string;
       derived?: SignalScoutRunDetailMetadataDerived;
       [key: string]: unknown;
@@ -78637,7 +79061,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunDetailMetadata;
     }
 
@@ -78651,7 +79075,7 @@ export namespace Schemas {
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunSummaryMetadata = {
       harness_prompt_version?: string;
@@ -78663,6 +79087,7 @@ export namespace Schemas {
       runtime_adapter?: string;
       reasoning_effort?: string;
       network_access?: string;
+      write_scopes?: string[];
       triggered_by?: string;
       derived?: SignalScoutRunSummaryMetadataDerived;
       [key: string]: unknown;
@@ -78733,7 +79158,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
     }
 
@@ -80355,7 +80780,8 @@ export namespace Schemas {
        * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI */
+       * * `RecallAI` - RecallAI
+       * * `Tenjin` - Tenjin */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -81739,7 +82165,8 @@ export namespace Schemas {
        * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI */
+       * * `RecallAI` - RecallAI
+       * * `Tenjin` - Tenjin */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -83105,7 +83532,8 @@ export namespace Schemas {
        * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
-       * * `RecallAI` - RecallAI */
+       * * `RecallAI` - RecallAI
+       * * `Tenjin` - Tenjin */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -84945,6 +85373,11 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+      /**
+         * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
+         * @maxLength 4000
+         */
+      signal_report_discussion_question?: string;
       /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
       naming_source?: string;
       /**
@@ -86881,7 +87314,7 @@ export namespace Schemas {
 
     export interface TestHogRequest {
       /**
-         * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+         * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
          * @minLength 1
          */
       source: string;
@@ -86929,7 +87362,7 @@ export namespace Schemas {
       /** First 200 characters of output from the sampled unit. */
       output_preview: string;
       /**
-         * True = pass, False = fail, null = N/A or error.
+         * Raw boolean result, or null when the evaluation returns N/A or raises an error.
          * @nullable
          */
       result: boolean | null;
@@ -94341,7 +94774,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to scope to the busiest environment GitHub marks production, falling back to the busiest persistent (non-transient) environment when none are marked production.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to include all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment when none match. Explicit names are trimmed, deduplicated, and validated against the source, including transient environments. Blank or unknown names are rejected with a 400 response.
      */
     environment?: string[];
     /**
@@ -102072,6 +102505,51 @@ export namespace Schemas {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number;
+    };
+
+    export type WebAnalyticsContentAutopilotProfilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WebAnalyticsContentAutopilotProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return proposals for this site profile.
+     */
+    profile_id?: string;
+    /**
+     * Only return proposals from this content run.
+     */
+    run_id?: string;
+    };
+
+    export type WebAnalyticsContentAutopilotRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return runs for this site profile.
+     */
+    profile_id?: string;
     };
 
     export type WebAnalyticsFilterPresetsListParams = {

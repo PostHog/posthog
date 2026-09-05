@@ -492,9 +492,7 @@ function RootLayout() {
           tasks={visualTaskOrder}
           activeTaskId={activeTaskId}
           allTasks={tasks ?? []}
-          isOnNewTask={
-            view.type === "task-input" || view.type === "task-pending"
-          }
+          isOnNewTask={view.type === "task-input"}
           onNavigateToTask={openTask}
           onNewTask={openTaskInput}
         />
