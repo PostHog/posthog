@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
     API_VERSION_2_5,
     API_VERSION_3_0,
+    API_VERSION_4_0,
     endpoints_for_version,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -33,8 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
-    supported_versions = (API_VERSION_2_5, API_VERSION_3_0)
-    default_version = API_VERSION_3_0
+    supported_versions = (API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0)
+    default_version = API_VERSION_4_0
     api_docs_url = "https://openweathermap.org/api"
 
     @property
