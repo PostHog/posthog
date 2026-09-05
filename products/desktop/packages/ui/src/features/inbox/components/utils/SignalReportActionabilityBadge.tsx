@@ -17,7 +17,7 @@ const ACTIONABILITY_STYLE: Record<
     variant: "warning",
     label: "Needs input",
     tooltip:
-      "Actionable, but it needs your input first to decide how to resolve it: business context, trade-offs, or a choice between several valid approaches.",
+      "Actionable, but it needs your input first to decide how to resolve it: business context, trade-offs, or a choice between several valid approaches. Use the Discuss button to answer.",
   },
   not_actionable: {
     variant: "default",
