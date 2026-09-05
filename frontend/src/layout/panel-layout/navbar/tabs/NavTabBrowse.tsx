@@ -452,7 +452,6 @@ export function NavTabBrowse(): JSX.Element {
                             <span className="text-xs text-tertiary px-2 py-1 block">No tools shown</span>
                         ) : (
                             <ProjectTree
-                                panelName="custom-products"
                                 root={!uiCustomizationEnabled && isEditMode ? 'products://' : 'custom-products://'}
                                 onItemClicked={(item) => {
                                     // In edit mode a row click toggles a checkbox, which is not navigation
