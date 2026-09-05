@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     HogLanguage,
+    HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLNotice,
@@ -84,6 +86,7 @@ def get_hogql_metadata(
         )
 
     heuristic_warnings: list[HogQLNotice] = []
+    heuristic_notices: list[HogQLNotice] = []
     context: Optional[HogQLContext] = None
 
     try:
@@ -115,51 +118,78 @@ def get_hogql_metadata(
             else:
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
+            # The heuristics compare the expanded query with the text, so an injected filter is reported as such
+            as_written_ast: ast.SelectQuery | ast.SelectSetQuery | None = None
+            without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None
             if not hogql_ast:
-                hogql_ast = parse_select(query.query)
-                finder = find_placeholders(hogql_ast)
-                if finder.has_filters:
-                    hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
-                if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
-                    hogql_ast = replace_variables(
-                        hogql_ast, list(query.variables.values()) if query.variables else [], team
+                as_written_ast = parse_select(query.query)
+                expanded_ast = _expand_query(as_written_ast, query, query.filters, team, database)
+                hogql_ast = expanded_ast
+                filters = query.filters
+                if filters and find_placeholders(as_written_ast).has_filters:
+                    written_ast = as_written_ast
+                    without_test_accounts = (
+                        (
+                            lambda: _expand_query(
+                                written_ast,
+                                query,
+                                filters.model_copy(update={"filterTestAccounts": False}),
+                                team,
+                                database,
+                            )
+                        )
+                        if filters.filterTestAccounts
+                        else (lambda: expanded_ast)
                     )
-                    hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
-            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names
 
-            if not printed_sql or not prepared_ast:
-                direct_adapter = get_adapter(source.direct_engine) if source else None
-                direct_dialect: HogQLDialect = (
-                    direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
-                )
-                if source and direct_dialect == "trino":
-                    from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the Trino backend only for Trino connections
-                        find_unsupported_pure_trino_features,
+            try:
+                if not printed_sql or not prepared_ast:
+                    direct_adapter = get_adapter(source.direct_engine) if source else None
+                    direct_dialect: HogQLDialect = (
+                        direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
+                    )
+                    if source and direct_dialect == "trino":
+                        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the Trino backend only for Trino connections
+                            find_unsupported_pure_trino_features,
+                        )
+
+                        # Execution rejects these regardless of Django expansion, so surface the
+                        # same error at edit time.
+                        find_unsupported_pure_trino_features(hogql_ast)
+                        # Direct queries cannot join PostHog person tables, so the team's
+                        # person-on-events mode has no effect; print with the one mode the Trino
+                        # dialect accepts. A direct database exposes no event or person properties,
+                        # so property restrictions cannot apply either.
+                        context.modifiers = context.modifiers.model_copy(
+                            update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+                        )
+                        context.restricted_properties = set()
+                    printed_sql, prepared_ast = prepare_and_print_ast(
+                        clone_expr(hogql_ast),
+                        context=context,
+                        dialect=direct_dialect if source else "clickhouse",
                     )
 
-                    # Execution rejects these regardless of Django expansion, so surface the
-                    # same error at edit time.
-                    find_unsupported_pure_trino_features(hogql_ast)
-                    # Direct queries cannot join PostHog person tables, so the team's
-                    # person-on-events mode has no effect; print with the one mode the Trino
-                    # dialect accepts. A direct database exposes no event or person properties,
-                    # so property restrictions cannot apply either.
-                    context.modifiers = context.modifiers.model_copy(
-                        update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+                if prepared_ast:
+                    response.ch_table_names = get_table_names(prepared_ast)
+            finally:
+                # In a finally so a query that fails to print still gets the advice that does not
+                # need it to print. Printing is also what builds the database the events scan check
+                # resolves table names through, so this cannot move above it.
+                # Advisory: a failure here must not mark a valid query invalid.
+                try:
+                    heuristic_result = run_metadata_heuristics(
+                        hogql_ast, team, context.database, as_written_ast, without_test_accounts
                     )
-                    context.restricted_properties = set()
-                printed_sql, prepared_ast = prepare_and_print_ast(
-                    clone_expr(hogql_ast),
-                    context=context,
-                    dialect=direct_dialect if source else "clickhouse",
-                )
-
-            if prepared_ast:
-                response.ch_table_names = get_table_names(prepared_ast)
+                except Exception:
+                    logger.exception("hogql_metadata_heuristics_failed", team_id=team.pk)
+                else:
+                    heuristic_warnings.extend(heuristic_result.warnings)
+                    heuristic_notices.extend(heuristic_result.notices)
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
@@ -188,7 +218,7 @@ def get_hogql_metadata(
     finally:
         if context is not None:
             response.warnings = [*context.warnings, *heuristic_warnings]
-            response.notices = context.notices
+            response.notices = [*context.notices, *heuristic_notices]
             if response.errors:
                 response.errors = [*context.errors, *response.errors]
             else:
@@ -203,6 +233,25 @@ def get_hogql_metadata(
                 err.end -= 2
 
     return response
+
+
+def _expand_query(
+    as_written: ast.SelectQuery | ast.SelectSetQuery,
+    query: HogQLMetadata,
+    filters: HogQLFilters | None,
+    team: Team,
+    database: Optional[Database],
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """The query as it runs: `{filters}`, variables and placeholders applied. The replacements clone, so
+    `as_written` is left as parsed."""
+    expanded: ast.SelectQuery | ast.SelectSetQuery = as_written
+    finder = find_placeholders(as_written)
+    if finder.has_filters:
+        expanded = replace_filters(expanded, filters, team, database=database)
+    if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
+        expanded = replace_variables(expanded, list(query.variables.values()) if query.variables else [], team)
+        expanded = cast(ast.SelectQuery, replace_placeholders(expanded, query.globals))
+    return expanded
 
 
 def _index_usage_enabled(team: Team) -> bool:
@@ -319,7 +368,8 @@ def enrich_hogql_validation_error(
     lines: list[str] = [original_detail]
 
     for notice in [*metadata.errors, *metadata.warnings, *metadata.notices]:
-        if notice.fix and notice.fix not in lines:
+        # `ai_prompt:` fixes are instructions for the assistant, not text for an error detail
+        if notice.fix and not notice.fix.startswith("ai_prompt:") and notice.fix not in lines:
             lines.append(f"Hint: {notice.fix}")
 
     if metadata.table_names:

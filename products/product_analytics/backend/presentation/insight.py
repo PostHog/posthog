@@ -586,6 +586,12 @@ class InsightFilterOverrideContext(BaseModel):
     )
 
 
+class InsightWarnings(RootModel):
+    """Warnings raised while running the query behind this insight, in the same shape the query API returns."""
+
+    root: list[schema.DataWarehouseSyncWarning | schema.AccessControlFilterWarning | schema.EventsScanWarning]
+
+
 @extend_schema_serializer(deprecate_fields=["dashboards"])
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
@@ -640,6 +646,15 @@ class InsightSerializer(InsightBasicSerializer):
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
+    warnings = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Warnings raised the last time this insight ran, such as a data warehouse source that failed to "
+            "sync or a SQL query that reads the events table without a filter the sort key can use. "
+            "Null on shared insights."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
@@ -686,6 +701,7 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "resolved_date_range",
+            "warnings",
             "_create_in_folder",
             "alerts",
             "filter_override_context",
@@ -1143,6 +1159,13 @@ class InsightSerializer(InsightBasicSerializer):
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
 
+    @extend_schema_field(InsightWarnings)  # type: ignore[arg-type]
+    def get_warnings(self, insight: Insight):
+        # Warehouse warnings name sources and schemas, which the query API withholds from anonymous viewers
+        if self.context.get("is_shared"):
+            return None
+        return self.insight_result(insight).warnings
+
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if insight.alertable_query_kind is None:
@@ -1332,6 +1355,7 @@ class InsightSerializer(InsightBasicSerializer):
                     query_status=cached_response.get("query_status"),
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
+                    warnings=cached_response.get("warnings"),
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()

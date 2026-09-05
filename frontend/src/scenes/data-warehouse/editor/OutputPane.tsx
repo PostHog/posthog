@@ -22,6 +22,7 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
+import { eventsScanWarningMessages } from 'lib/components/Cards/InsightCard/eventsScanWarning'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -1074,6 +1075,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     }
     const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
     const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
+    const scanWarningMessages = eventsScanWarningMessages(warnings)
     return (
         <>
             {syncWarnings.length > 0 && (
@@ -1115,6 +1117,20 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                             {warning.message}
                         </div>
                     ))}
+                </LemonBanner>
+            )}
+            {scanWarningMessages.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-events-scan-warnings"
+                >
+                    This query scans events without one or more recommended limits:
+                    <ul className="list-disc pl-5">
+                        {scanWarningMessages.map((message) => (
+                            <li key={message}>{message}</li>
+                        ))}
+                    </ul>
                 </LemonBanner>
             )}
         </>

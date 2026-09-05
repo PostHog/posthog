@@ -586,6 +586,31 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+/**
+ * Why the events table cannot be pruned: a property filter with no event name filter reads every
+ * event in the date range; no timestamp bound reads the whole history.
+ */
+export type EventsScanWarningReason = 'property_filter_without_event' | 'no_event_filter' | 'no_time_bound'
+
+/**
+ * What put the unprunable filter into the query that runs: the SQL text, the "filter out internal and test
+ * users" setting, the insight or dashboard filters, or something that could not be told apart.
+ */
+export type EventsScanWarningSource = 'query' | 'test_account_filters' | 'filters' | 'unknown'
+
+export interface EventsScanWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'events_scan'
+    reason: EventsScanWarningReason
+    source: EventsScanWarningSource
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Start offset of the `events` reference in the query text, when known */
+    start?: integer
+    /** End offset of the `events` reference in the query text, when known */
+    end?: integer
+}
+
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
     results: T
     /** Input query string */
@@ -603,9 +628,10 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
-     * Also carries access control warnings when a system-table query filters out objects the user can't access.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access,
+     * and events scan warnings when a SQL query reads the events table without a filter the sort key can use.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | EventsScanWarning)[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2672,7 +2698,7 @@ export interface AnalyticsQueryResponseBase {
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | EventsScanWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }

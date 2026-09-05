@@ -343,6 +343,16 @@ function CustomSqlField(): JSX.Element {
                                     </ul>
                                 </LemonBanner>
                             )}
+                            {customSqlPreview.scanWarnings.length > 0 && (
+                                <LemonBanner type="warning" className="mb-2">
+                                    This query scans events without one or more recommended limits:
+                                    <ul className="list-disc pl-5">
+                                        {customSqlPreview.scanWarnings.map((warning, index) => (
+                                            <li key={index}>{warning.message}</li>
+                                        ))}
+                                    </ul>
+                                </LemonBanner>
+                            )}
                             {customSqlPreviewVerdict === 'pass' ? (
                                 <LemonBanner type="success">
                                     The query returned no rows. This check would pass.

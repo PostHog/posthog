@@ -262,6 +262,7 @@ const insightActionsMapping: Record<
     columns: () => null,
     types: () => null,
     resolved_date_range: () => null,
+    warnings: () => null,
 }
 
 function summarizeQueryChanges(query: InsightQueryNode | HogQLQuery): ChangeMapping {

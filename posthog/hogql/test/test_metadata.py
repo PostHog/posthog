@@ -14,17 +14,19 @@ from posthog.schema import (
     HogLanguage,
     HogQLMetadata,
     HogQLMetadataResponse,
+    HogQLNotice,
     HogQLQuery,
     HogQLQueryModifiers,
     SessionTableVersion,
 )
 
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.events_scan import EVENT_FILTER_ADVICE
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
-from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -38,6 +40,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     # that ClickhouseTestMixin defaults to (CLASS_DATA_LEVEL_SETUP = False) only adds
     # ~100ms of org/team/user creation to every test.
     CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The events scan check ships behind a per-team flag, off everywhere until it is rolled out
+        scan_flag = patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=True)
+        scan_flag.start()
+        self.addCleanup(scan_flag.stop)
 
     def _expr(self, query: str, table: str = "events", debug=True) -> HogQLMetadataResponse:
         return get_hogql_metadata(
@@ -214,6 +223,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Did you mean: event", metadata.errors[0].message)
         self.assertIsNone(metadata.errors[0].fix)
 
+    @staticmethod
+    def _taxonomy_warnings(metadata: HogQLMetadataResponse) -> list[HogQLNotice]:
+        # Unbounded test queries also get events scan warnings; these tests are about the taxonomy ones
+        return [warning for warning in metadata.warnings if "taxonomy" in warning.message]
+
     def test_metadata_warns_for_unknown_event_literal(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
@@ -221,12 +235,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(metadata.isValid)
         self.assertEqual(len(metadata.errors), 0)
-        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(len(self._taxonomy_warnings(metadata)), 1)
         self.assertEqual(
-            metadata.warnings[0].message,
+            self._taxonomy_warnings(metadata)[0].message,
             "Event 'purchase' was not found in this project taxonomy.",
         )
-        self.assertIsNone(metadata.warnings[0].fix)
+        self.assertIsNone(self._taxonomy_warnings(metadata)[0].fix)
 
     def test_metadata_suggests_similar_event_literal(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
@@ -234,12 +248,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._select("SELECT count() FROM events WHERE event = 'pageview'")
 
         self.assertTrue(metadata.isValid)
-        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(len(self._taxonomy_warnings(metadata)), 1)
         self.assertEqual(
-            metadata.warnings[0].message,
+            self._taxonomy_warnings(metadata)[0].message,
             "Event 'pageview' was not found in this project taxonomy. Did you mean '$pageview'?",
         )
-        self.assertEqual(metadata.warnings[0].fix, "'$pageview'")
+        self.assertEqual(self._taxonomy_warnings(metadata)[0].fix, "'$pageview'")
 
     def test_metadata_does_not_warn_for_known_event_literal(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
@@ -247,7 +261,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
 
         self.assertTrue(metadata.isValid)
-        self.assertEqual(metadata.warnings, [])
+        self.assertEqual(self._taxonomy_warnings(metadata), [])
 
     def test_metadata_warns_for_unknown_event_in_literal(self):
         EventDefinition.objects.create(team=self.team, name="signed_up")
@@ -268,12 +282,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(metadata.isValid)
         self.assertEqual(len(metadata.errors), 0)
-        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(len(self._taxonomy_warnings(metadata)), 1)
         self.assertEqual(
-            metadata.warnings[0].message,
+            self._taxonomy_warnings(metadata)[0].message,
             "Property 'country_code' was not found in this project taxonomy. Did you mean '$geoip_country_code'?",
         )
-        self.assertEqual(metadata.warnings[0].fix, "properties.$geoip_country_code")
+        self.assertEqual(self._taxonomy_warnings(metadata)[0].fix, "properties.$geoip_country_code")
 
     def test_metadata_warns_for_unknown_property_array_access(self):
         PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
@@ -282,8 +296,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(metadata.isValid)
         self.assertEqual(len(metadata.errors), 0)
-        self.assertEqual(len(metadata.warnings), 1)
-        self.assertEqual(metadata.warnings[0].fix, "'$geoip_country_code'")
+        self.assertEqual(len(self._taxonomy_warnings(metadata)), 1)
+        self.assertEqual(self._taxonomy_warnings(metadata)[0].fix, "'$geoip_country_code'")
 
     def test_metadata_does_not_warn_for_known_property_access(self):
         PropertyDefinition.objects.create(team=self.team, name="country_code")
@@ -291,7 +305,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._select("SELECT properties.country_code FROM events")
 
         self.assertTrue(metadata.isValid)
-        self.assertEqual(metadata.warnings, [])
+        self.assertEqual(self._taxonomy_warnings(metadata), [])
 
     @parameterized.expand([("event",), ("property",)])
     def test_metadata_scopes_taxonomy_to_the_project(self, kind: str) -> None:
@@ -386,7 +400,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="$pageview")
 
         query = "SELECT count() FROM events WHERE event = 'pagevisit'"
-        warning = self._select(query).warnings[0]
+        warning = self._taxonomy_warnings(self._select(query))[0]
 
         # Apply the fix exactly as the editor quick-fix does: replace [start, end] with fix.
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
@@ -396,7 +410,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
 
         query = "SELECT properties.country_code FROM events"
-        warning = self._select(query).warnings[0]
+        warning = self._taxonomy_warnings(self._select(query))[0]
 
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
         self.assertEqual(replaced, "SELECT properties.$geoip_country_code FROM events")
@@ -405,7 +419,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="o'brien")
 
         query = "SELECT count() FROM events WHERE event = 'obrien'"
-        warning = self._select(query).warnings[0]
+        warning = self._taxonomy_warnings(self._select(query))[0]
 
         # A suggested name containing a quote must be escaped so the quick-fix stays valid HogQL.
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
@@ -416,7 +430,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="my prop")
 
         query = "SELECT properties.myprop FROM events"
-        warning = self._select(query).warnings[0]
+        warning = self._taxonomy_warnings(self._select(query))[0]
 
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
         self.assertEqual(replaced, "SELECT properties.`my prop` FROM events")
@@ -1194,7 +1208,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertTrue(any("very similar to 1 other subquery" in warning.message for warning in metadata.warnings))
-        self.assertTrue(all(warning.fix is None for warning in metadata.warnings))
+        self.assertTrue(all(warning.fix is None for warning in metadata.warnings if "very similar" in warning.message))
 
     def test_metadata_warns_about_similar_subquery_in_plural(self):
         metadata = self._select(
@@ -1219,7 +1233,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertTrue(any("very similar to 2 other subqueries" in warning.message for warning in metadata.warnings))
-        self.assertTrue(all(warning.fix is None for warning in metadata.warnings))
+        self.assertTrue(all(warning.fix is None for warning in metadata.warnings if "very similar" in warning.message))
 
     def test_metadata_does_not_warn_for_distinct_subquery_sources(self):
         metadata = self._select(
@@ -1238,3 +1252,46 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(any("very similar" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_warns_when_events_are_read_without_a_usable_filter(self):
+        EventProperty.objects.create(team=self.team, event="paid", property="plan")
+
+        query = "SELECT count() FROM events WHERE properties.plan = 'pro'"
+        metadata = self._select(query)
+
+        self.assertEqual(len(metadata.warnings), 2)
+        property_warning, time_warning = metadata.warnings
+        self.assertIn("filtering by event name is the most effective", property_warning.message)
+        self.assertIn("properties.plan IS NOT NULL", property_warning.message)
+        self.assertTrue(property_warning.fix and property_warning.fix.startswith("ai_prompt:"))
+        self.assertEqual(query[property_warning.start : property_warning.end], "events")
+        self.assertIn("no timestamp filter", time_warning.message)
+
+        all_events = self._select(
+            "SELECT event, count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event"
+        )
+        self.assertEqual([warning.message for warning in all_events.warnings].count(EVENT_FILTER_ADVICE), 1)
+        self.assertNotIn(EVENT_FILTER_ADVICE, [notice.message for notice in all_events.notices])
+
+    def test_metadata_warns_about_a_limited_read_of_events(self):
+        # A row limit caps the result, not the read: measured at about 1.7 GiB for `LIMIT 101` on a
+        # large team, because every stream reads a granule of every column before it can stop
+        preview = self._select("SELECT * FROM events LIMIT 100")
+
+        self.assertIn(EVENT_FILTER_ADVICE, [warning.message for warning in preview.warnings])
+
+    def test_metadata_says_nothing_about_scans_until_the_team_has_the_flag(self):
+        with patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=False):
+            metadata = self._select("SELECT count() FROM events WHERE properties.plan = 'pro'")
+
+        self.assertEqual(metadata.warnings, [])
+
+    def test_metadata_stays_valid_when_a_heuristic_raises(self):
+        with patch(
+            "posthog.hogql.metadata_heuristics.attributed_events_scans", side_effect=ValueError("boom")
+        ) as broken:
+            metadata = self._select("SELECT count() FROM events WHERE properties.plan = 'pro'")
+
+        self.assertTrue(broken.called)
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])

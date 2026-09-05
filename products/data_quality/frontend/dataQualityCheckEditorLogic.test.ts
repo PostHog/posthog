@@ -345,9 +345,11 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(refresh).toEqual('force_blocking')
     })
 
-    it('carries warehouse-sync warnings onto the preview so a pass is not shown as final', async () => {
+    it('separates the warnings that undermine a pass from the ones about query cost', async () => {
         // A query over a source whose last sync failed can still return zero rows, which would
-        // otherwise read as a confident pass over data the platform already knows is behind.
+        // otherwise read as a confident pass over data the platform already knows is behind. An
+        // events scan says the query is expensive, not that its result is incomplete, so the two
+        // must not share a banner.
         ;(performQuery as jest.Mock).mockResolvedValue({
             columns: [],
             results: [],
@@ -360,6 +362,12 @@ describe('dataQualityCheckEditorLogic', () => {
                     source_type: 'Stripe',
                     status: 'Failed',
                     message: 'The Stripe charges sync last failed, so this data may be behind.',
+                },
+                {
+                    type: 'events_scan',
+                    reason: 'no_time_bound',
+                    source: 'query',
+                    message: 'This query has no timestamp filter on events, so it reads your whole event history.',
                 },
             ],
         })
@@ -376,6 +384,9 @@ describe('dataQualityCheckEditorLogic', () => {
                 type: 'warehouse_sync',
                 message: 'The Stripe charges sync last failed, so this data may be behind.',
             }),
+        ])
+        expect(logic.values.customSqlPreview?.scanWarnings).toEqual([
+            expect.objectContaining({ type: 'events_scan', reason: 'no_time_bound' }),
         ])
     })
 

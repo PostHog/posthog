@@ -74,6 +74,7 @@ import { useDashboardVisualizationOptions } from './dashboardVisualizationOption
 import type { DashboardSqlVisualizationPersistence } from './dashboardVisualizationOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
+import { eventsScanWarningMessage } from './eventsScanWarning'
 import { InsightCardProps } from './InsightCard'
 import { insightCardCaptureTarget } from './insightCardImageCapture'
 import { InsightDetails } from './InsightDetails'
@@ -161,9 +162,8 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query, savingSqlVisualization, sqlVisualizationVersion } = useValues(
-        insightDataLogic(insightLogicProps)
-    )
+    const { exportContext, insightData, insightDataRaw, query, savingSqlVisualization, sqlVisualizationVersion } =
+        useValues(insightDataLogic(insightLogicProps))
     const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
@@ -218,6 +218,12 @@ export function InsightMeta({
     const dataRetentionWarning =
         showsDataRetentionWarning && retentionPeriodLabel
             ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
+            : null
+    // A fresh response wins over the model the tile was loaded with, even when it carries no warnings,
+    // so the icon clears once the query is fixed. Shared and exported views get no icon, like the retention one.
+    const eventsScanWarning =
+        placement !== DashboardPlacement.Public && placement !== DashboardPlacement.Export
+            ? eventsScanWarningMessage(insightDataRaw ? insightData.warnings : insight.warnings)
             : null
     const topHeadingProps = {
         query: insight.query,
@@ -458,6 +464,7 @@ export function InsightMeta({
                         compact={showCompactTile}
                         showDescription={tile?.show_description !== false}
                         dataRetentionWarning={dataRetentionWarning}
+                        eventsScanWarning={eventsScanWarning}
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
@@ -783,6 +790,7 @@ export function InsightMetaContent({
     showDescription,
     infoPopover,
     dataRetentionWarning,
+    eventsScanWarning,
 }: {
     title: string
     fallbackTitle?: string
@@ -795,15 +803,25 @@ export function InsightMetaContent({
     showDescription?: boolean
     infoPopover?: JSX.Element | null
     dataRetentionWarning?: string | null
+    eventsScanWarning?: string | null
 }): JSX.Element {
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
             <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
         </Tooltip>
     ) : null
+    const eventsScanIndicator = eventsScanWarning ? (
+        <Tooltip title={eventsScanWarning}>
+            <IconWarning
+                className="ml-1.5 text-base shrink-0 text-warning"
+                data-attr="insight-card-events-scan-warning"
+            />
+        </Tooltip>
+    ) : null
+    const hasIndicator = !!(infoPopover || dataRetentionIndicator || eventsScanIndicator)
     const titleContent = (
         <>
-            <span className={clsx('text-primary', (infoPopover || dataRetentionIndicator) && 'truncate')}>
+            <span className={clsx('text-primary', hasIndicator && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -819,7 +837,7 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx((infoPopover || dataRetentionIndicator) && 'inline-flex items-center overflow-visible')}
+            className={clsx(hasIndicator && 'inline-flex items-center overflow-visible')}
         >
             {link ? (
                 <Link to={link} className="max-w-full truncate">
@@ -829,6 +847,7 @@ export function InsightMetaContent({
                 titleContent
             )}
             {dataRetentionIndicator}
+            {eventsScanIndicator}
             {infoPopover}
         </h4>
     )
