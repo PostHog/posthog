@@ -51,6 +51,12 @@ class ApolloSource(ResumableSource[ApolloSourceConfig, ApolloResumeConfig]):
             "403 Client Error: Forbidden for url: https://api.apollo.io": "Apollo denied access. API access requires a paid Apollo plan, and some endpoints need a master API key.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # fetch_page exhausts its Retry-After backoff on a 429, then re-raises so Temporal
+        # retries the activity from saved page state. The import self-recovers, so log the
+        # rate limit at warning instead of raising an error tracking issue.
+        return {"Apollo API error (retryable)"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
