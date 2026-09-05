@@ -4,12 +4,13 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 import requests
 from parameterized import parameterized
 
 from products.mcp_registry.backend.models import MCPRegistryServer, MCPRegistryTool
-from products.mcp_registry.backend.probe import ProbeOutcome, apply_probe_outcome, shallow_probe
+from products.mcp_registry.backend.probe import ProbeOutcome, apply_probe_outcome, probe_stalest_servers, shallow_probe
 
 
 def _response(status_code: int, body: dict | None = None, text: str = "", headers: dict | None = None) -> Mock:
@@ -91,6 +92,60 @@ class TestShallowProbe(SimpleTestCase):
         assert [tool["name"] for tool in outcome.tools] == ["create_issue"]
         # The session handle from initialize must be echoed on the follow-up calls.
         assert mock_request.call_args.kwargs["headers"]["mcp-session-id"] == "session-1"
+
+
+class TestProbeStalestServers(BaseTest):
+    def _server(self, name: str, **kwargs: object) -> MCPRegistryServer:
+        return MCPRegistryServer.objects.create(
+            display_name=name, canonical_url=f"https://{name}.example.com/mcp", **kwargs
+        )
+
+    @patch("products.mcp_registry.backend.probe.shallow_probe")
+    def test_never_probed_servers_go_before_already_probed_ones(self, mock_probe: Mock) -> None:
+        # Postgres sorts NULL last on an ascending column, so without nulls_first every run
+        # re-probes the servers that already have a timestamp and the index never converges.
+        mock_probe.return_value = ProbeOutcome(liveness="alive_open", auth_method="none")
+        already_probed = self._server("probed", last_probed_at=timezone.now())
+        never_probed = self._server("fresh")
+
+        probe_stalest_servers(batch_size=1, concurrency=1)
+
+        never_probed.refresh_from_db()
+        already_probed.refresh_from_db()
+        assert never_probed.last_probed_at is not None
+        assert already_probed.liveness == "unprobed"
+
+    @patch("products.mcp_registry.backend.probe.shallow_probe")
+    def test_each_server_receives_its_own_outcome(self, mock_probe: Mock) -> None:
+        # Probes resolve out of order across threads, so an outcome could land on the wrong row.
+        mock_probe.side_effect = lambda url: ProbeOutcome(
+            liveness="alive_open" if "alive" in url else "dead", detail=url
+        )
+        alive = self._server("alive")
+        dead = self._server("dead")
+
+        assert probe_stalest_servers(batch_size=10, concurrency=4) == 2
+
+        alive.refresh_from_db()
+        dead.refresh_from_db()
+        assert (alive.liveness, dead.liveness) == ("alive_open", "dead")
+        assert alive.probe_detail.startswith("https://alive.")
+
+    @patch("products.mcp_registry.backend.probe.shallow_probe")
+    def test_one_raising_probe_does_not_abandon_the_batch(self, mock_probe: Mock) -> None:
+        def probe(url: str) -> ProbeOutcome:
+            if "boom" in url:
+                raise RuntimeError("unexpected")
+            return ProbeOutcome(liveness="alive_open", auth_method="none")
+
+        mock_probe.side_effect = probe
+        self._server("boom")
+        survivor = self._server("fine")
+
+        assert probe_stalest_servers(batch_size=10, concurrency=4) == 1
+
+        survivor.refresh_from_db()
+        assert survivor.liveness == "alive_open"
 
 
 class TestApplyProbeOutcome(BaseTest):
