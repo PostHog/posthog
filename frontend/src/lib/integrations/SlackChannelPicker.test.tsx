@@ -67,18 +67,24 @@ async function dropASearch(container: HTMLElement): Promise<void> {
 describe('SlackChannelPicker', () => {
     let channelsRequestSearchQueries: (string | null)[] = []
     let channelIdLookups: string[] = []
+    // A test that must observe the by-id lookup mid-flight sets this so the mock waits to respond.
+    let holdChannelIdLookup: Promise<void> | null = null
 
     beforeEach(() => {
         channelsRequestSearchQueries = []
         channelIdLookups = []
+        holdChannelIdLookup = null
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/channels': ({ request }) => {
+                '/api/environments/:team_id/integrations/:id/channels': async ({ request }) => {
                     const url = new URL(request.url)
                     const search = url.searchParams.get('search')
                     const channelId = url.searchParams.get('channel_id')
                     if (channelId) {
                         channelIdLookups.push(channelId)
+                        if (holdChannelIdLookup) {
+                            await holdChannelIdLookup
+                        }
                         const match =
                             CHANNELS.find((c) => c.id === channelId) ??
                             (OFF_PAGE_CHANNEL.id === channelId ? OFF_PAGE_CHANNEL : null)
@@ -321,6 +327,10 @@ describe('SlackChannelPicker', () => {
         { settles: 'a channel', pastedId: OFF_PAGE_CHANNEL.id, reportsDroppedSearch: false },
         { settles: 'nothing', pastedId: 'CNOSUCHCHAN', reportsDroppedSearch: true },
     ])('pasting an id that settles on $settles, then clicking away', async ({ pastedId, reportsDroppedSearch }) => {
+        let releaseChannelIdLookup: () => void = () => {}
+        holdChannelIdLookup = new Promise<void>((resolve) => {
+            releaseChannelIdLookup = resolve
+        })
         const onChange = jest.fn()
         const { container } = render(
             <Provider>
@@ -333,8 +343,9 @@ describe('SlackChannelPicker', () => {
         await userEvent.paste(pastedId)
         await userEvent.click(document.body)
 
-        // The lookup is still in flight here, so neither outcome may show the message yet.
+        // The lookup is held in flight here, so neither outcome may show the message yet.
         expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
+        releaseChannelIdLookup()
 
         if (reportsDroppedSearch) {
             expect(
