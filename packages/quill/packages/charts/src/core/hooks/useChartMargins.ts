@@ -91,7 +91,7 @@ interface CategoryLabelWidths {
 }
 
 function categoryLabelWidths(
-    labels: string[],
+    labels: string[] = [],
     xTickFormatter: ((value: string, index: number) => string | null) | undefined,
     maxCategoryLabelWidth = 0
 ): CategoryLabelWidths {
@@ -140,7 +140,7 @@ function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number
 
 export function useChartMargins({
     series,
-    labels,
+    labels = [],
     hideXAxis,
     hideYAxis,
     xAxisLabel,
