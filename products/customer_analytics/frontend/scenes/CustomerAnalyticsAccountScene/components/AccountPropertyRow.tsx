@@ -24,6 +24,7 @@ export interface AccountPropertyRowProps {
     editing?: boolean
     saving?: boolean
     availableMembers?: AccountRelationshipMember[]
+    membersLoading?: boolean
     onEdit: () => void
     onCancel: () => void
     onSaveCustomProperty: (property: AccountCustomProperty, value: AccountCustomPropertyValue) => void
@@ -35,13 +36,15 @@ export function AccountPropertyRow({
     editing = false,
     saving = false,
     availableMembers = [],
+    membersLoading = false,
     onEdit,
     onCancel,
     onSaveCustomProperty,
     onSaveRelationship,
 }: AccountPropertyRowProps): JSX.Element {
     const editable =
-        property.kind === 'custom' ? isCustomPropertyEditable(property.provenance) : property.editable !== false
+        property.editable !== false &&
+        (property.kind === 'relationship' || isCustomPropertyEditable(property.provenance))
     const provenance =
         property.kind === 'custom' && property.provenance !== 'manual' ? PROVENANCE[property.provenance] : null
 
@@ -83,6 +86,7 @@ export function AccountPropertyRow({
                             definition={property.definition}
                             members={property.members}
                             availableMembers={availableMembers}
+                            membersLoading={membersLoading}
                             saving={saving}
                             onSave={(memberIds) => onSaveRelationship(property, memberIds)}
                             onCancel={onCancel}

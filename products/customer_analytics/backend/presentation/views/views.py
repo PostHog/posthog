@@ -2223,8 +2223,10 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         values = api.list_active_custom_property_values(self.team_id, account_id)
         return Response(CustomPropertyValueSerializer(values, many=True).data)
 
-    @extend_schema(request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer})
-    def create(self, request: Request, *args, **kwargs) -> Response:
+    @extend_schema(
+        request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer, 204: None}
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         account_id = self._accessible_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2232,6 +2234,14 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         write.is_valid(raise_exception=True)
 
         try:
+            if write.validated_data["value"] is None:
+                api.clear_custom_property_value(
+                    team_id=self.team_id,
+                    account_id=account_id,
+                    definition_id=write.validated_data["definition"],
+                    actor=cast(User, request.user),
+                )
+                return Response(status=status.HTTP_204_NO_CONTENT)
             value = api.set_custom_property_value(
                 team_id=self.team_id,
                 account_id=account_id,

@@ -240,9 +240,9 @@ export const AccountsCustomPropertyValuesCreateParams = () => zod.object({
 export const AccountsCustomPropertyValuesCreateBody = () => zod.object({
     definition: zod.string().describe('UUID of the custom property definition whose value to set for this account.'),
     value: zod
-        .union([zod.string(), zod.number(), zod.boolean()])
+        .union([zod.string(), zod.number(), zod.boolean(), zod.null()])
         .describe(
-            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, an HTTP or HTTPS URL for link properties, or text for text properties."
+            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. Null clears the current value while preserving its history."
         ),
 })
 

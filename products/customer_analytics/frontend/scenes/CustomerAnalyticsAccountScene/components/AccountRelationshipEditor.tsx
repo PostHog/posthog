@@ -10,6 +10,7 @@ export interface AccountRelationshipEditorProps {
     definition: AccountRelationshipDefinitionApi
     members: AccountRelationshipMember[]
     availableMembers: AccountRelationshipMember[]
+    membersLoading?: boolean
     saving?: boolean
     onSave: (memberIds: number[]) => void
     onCancel: () => void
@@ -19,6 +20,7 @@ export function AccountRelationshipEditor({
     definition,
     members,
     availableMembers,
+    membersLoading = false,
     saving = false,
     onSave,
     onCancel,
@@ -43,6 +45,7 @@ export function AccountRelationshipEditor({
     return (
         <div className="flex flex-col gap-2 w-full">
             <LemonInputSelect<number>
+                loading={membersLoading}
                 mode={definition.is_single_holder === false ? 'multiple' : 'single'}
                 value={draftMemberIds}
                 onChange={setDraftMemberIds}
@@ -63,12 +66,19 @@ export function AccountRelationshipEditor({
                     size="xsmall"
                     status="danger"
                     onClick={confirmClear}
-                    disabledReason={members.length === 0 ? 'This relationship is unassigned' : undefined}
+                    disabledReason={
+                        saving ? 'Saving' : members.length === 0 ? 'This relationship is unassigned' : undefined
+                    }
                     data-attr="account-relationship-clear"
                 >
                     Clear value
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={onCancel} data-attr="account-relationship-cancel">
+                <LemonButton
+                    size="xsmall"
+                    onClick={onCancel}
+                    disabledReason={saving ? 'Saving' : undefined}
+                    data-attr="account-relationship-cancel"
+                >
                     Cancel
                 </LemonButton>
                 <LemonButton

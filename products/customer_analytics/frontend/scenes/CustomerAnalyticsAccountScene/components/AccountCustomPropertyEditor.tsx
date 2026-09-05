@@ -35,6 +35,9 @@ export function AccountCustomPropertyEditor({
     const canSave = !isNumeric || (numericDraft !== undefined && Number.isFinite(numericDraft))
 
     const save = (): void => {
+        if (saving) {
+            return
+        }
         if (typeof draft === 'boolean') {
             onSave(draft)
         } else if (isNumeric && numericDraft !== undefined && Number.isFinite(numericDraft)) {
@@ -91,6 +94,7 @@ export function AccountCustomPropertyEditor({
         <div className="flex flex-col gap-2 w-full">
             {definition.display_type === 'boolean' ? (
                 <LemonSwitch
+                    disabled={saving}
                     checked={draft === true}
                     onChange={setDraft}
                     size="small"
@@ -99,6 +103,7 @@ export function AccountCustomPropertyEditor({
                 />
             ) : definition.display_type === 'select' ? (
                 <LemonSelect
+                    disabledReason={saving ? 'Saving' : undefined}
                     value={typeof draft === 'string' ? draft : ''}
                     onChange={(next) => setDraft(next ?? '')}
                     options={(definition.options ?? []).map((option) => ({ value: option.label, label: option.label }))}
@@ -108,6 +113,7 @@ export function AccountCustomPropertyEditor({
                 />
             ) : isNumeric ? (
                 <LemonInput
+                    disabled={saving}
                     type="number"
                     value={numericDraft}
                     onChange={(next) => setDraft(next === undefined ? '' : String(next))}
@@ -121,6 +127,7 @@ export function AccountCustomPropertyEditor({
             ) : (
                 <LemonInput
                     type={definition.display_type === 'link' ? 'url' : 'text'}
+                    disabled={saving}
                     value={typeof draft === 'string' ? draft : ''}
                     onChange={setDraft}
                     onPressEnter={save}
@@ -135,12 +142,17 @@ export function AccountCustomPropertyEditor({
                     size="xsmall"
                     status="danger"
                     onClick={confirmClear}
-                    disabledReason={value === null ? 'This property has no value' : undefined}
+                    disabledReason={saving ? 'Saving' : value === null ? 'This property has no value' : undefined}
                     data-attr="account-property-clear"
                 >
                     Clear value
                 </LemonButton>
-                <LemonButton size="xsmall" onClick={onCancel} data-attr="account-property-cancel">
+                <LemonButton
+                    size="xsmall"
+                    onClick={onCancel}
+                    disabledReason={saving ? 'Saving' : undefined}
+                    data-attr="account-property-cancel"
+                >
                     Cancel
                 </LemonButton>
                 <LemonButton
