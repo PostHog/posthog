@@ -784,6 +784,7 @@ _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE = {
     "QUERY_CACHE_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
     "REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET": "no reader found in this codebase",
     "VIDEO_SEGMENT_CLUSTERING_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+    "WIZARD_RUN_ARTIFACTS_S3_BUCKET": "read via posthog.storage.object_storage (boto3) by the Wizard Temporal worker, through products/wizard/backend/logic/artifacts/service.py",
 }
 
 
