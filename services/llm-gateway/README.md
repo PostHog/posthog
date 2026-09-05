@@ -175,6 +175,33 @@ When unset, no organization is sent and OpenAI infers the org from the API key.
 The `organization` field is also in `FORBIDDEN_REQUEST_PARAMS`, so caller-supplied
 values are stripped — only the gateway-configured organization reaches OpenAI.
 
+A configured organization the API key has no access to fails every OpenAI call
+with `invalid_organization`. See [Credential rejections](#credential-rejections)
+for what the caller gets back.
+
+## Credential rejections
+
+When a provider refuses the gateway's own credentials — an organization the API
+key cannot use, or a revoked key — the gateway replaces the upstream message
+with its own, keeping the upstream status:
+
+```json
+{
+  "error": {
+    "message": "PostHog's openai credentials were rejected. This is a problem with the PostHog gateway, not a usage limit on your account. Retries fail until PostHog fixes it.",
+    "type": "provider_credentials_rejected",
+    "code": "provider_credentials_rejected"
+  }
+}
+```
+
+The upstream wording ("You do not have access to the organization tied to the
+API key") describes the caller's own account, so clients and people reading it
+cannot tell it from a spend limit. The original message stays in the logs and in
+error tracking. The failure is also counted as
+`error_type="provider_credentials_rejected"` on `PROVIDER_ERRORS`, so a burst is
+alertable on its own.
+
 ## Bedrock provider
 
 AWS Bedrock is available as an alternative provider for the Anthropic endpoints.

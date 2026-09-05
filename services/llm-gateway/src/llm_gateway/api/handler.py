@@ -180,6 +180,111 @@ class ProviderError(HTTPException):
     """
 
 
+# Provider replies that mean the gateway's own upstream credentials were refused. Caller
+# authentication happens before these handlers, and the request sanitizer removes headers that
+# could override gateway credentials.
+_CREDENTIAL_REJECTION_CODES: tuple[str, ...] = (
+    "invalid_organization",
+    "invalid_api_key",
+    "unrecognizedclientexception",
+)
+# Fallback for providers that leave the error code empty. Matched case-insensitively.
+_CREDENTIAL_REJECTION_SIGNATURES: tuple[str, ...] = (
+    "organization tied to the api key",
+    "no such organization",
+    "incorrect api key provided",
+)
+# Also the client-facing error type and code, so callers can branch on one stable string.
+CREDENTIAL_REJECTION_ERROR_TYPE = "provider_credentials_rejected"
+
+
+def _provider_error_codes(code: Any, body: Any) -> set[str]:
+    codes = {code.lower()} if isinstance(code, str) else set()
+    if not isinstance(body, dict):
+        return codes
+
+    error_bodies = [body]
+    for error_key in ("error", "Error"):
+        error = body.get(error_key)
+        if isinstance(error, dict):
+            error_bodies.append(error)
+
+    for error in error_bodies:
+        for code_key in ("code", "Code", "type", "Type"):
+            nested_code = error.get(code_key)
+            if isinstance(nested_code, str):
+                codes.add(nested_code.lower())
+    return codes
+
+
+def _is_credential_rejection(status_code: int, code: Any, message: str, body: Any = None) -> bool:
+    # litellm maps an upstream 401 onto several exception classes and does not always keep the
+    # provider's status, so accept the 400 it falls back to as well as the 401/403 it sent.
+    if status_code not in (400, 401, 403):
+        return False
+    # Caller authentication completes before the provider call. After request headers are stripped
+    # below, any 401 caught here can only reject a gateway-owned provider credential.
+    if status_code == 401:
+        return True
+    if _provider_error_codes(code, body).intersection(_CREDENTIAL_REJECTION_CODES):
+        return True
+    lowered = message.lower()
+    # The prose signatures are unquoted, so a caller-selected model name echoed into a 400 body can
+    # contain one and pose as a credential rejection. Trust them only on the 401 or 403 the provider
+    # sends directly, where the caller cannot place the string. A real rejection that litellm
+    # downgrades to a 400 still carries its code on the exception or quoted in the body, so the two
+    # checks above already catch it.
+    if status_code == 400:
+        return False
+    return any(signature in lowered for signature in _CREDENTIAL_REJECTION_SIGNATURES)
+
+
+def provider_credential_rejection_error(
+    status_code: int,
+    code: Any,
+    message: str,
+    provider: str,
+    body: Any = None,
+) -> ProviderError | None:
+    if not _is_credential_rejection(status_code, code, message, body):
+        return None
+    return ProviderError(
+        status_code=status_code,
+        detail={
+            "error": {
+                "message": (
+                    f"PostHog's {provider} credentials were rejected. This is a problem with the "
+                    "PostHog gateway, not a usage limit on your account. Retries fail until PostHog fixes it."
+                ),
+                "type": CREDENTIAL_REJECTION_ERROR_TYPE,
+                "code": CREDENTIAL_REJECTION_ERROR_TYPE,
+            }
+        },
+    )
+
+
+def classify_provider_failure(e: Exception, provider: str) -> tuple[str, ProviderError]:
+    """The metrics label and the client-facing error for one upstream provider failure.
+
+    A credential rejection gets gateway-owned copy instead of the upstream message. The raw text
+    ("You do not have access to the organization tied to the API key") reads like an account or
+    billing problem on the caller's side, so a person who sees it cannot tell it from a usage
+    limit, and neither can a client that classifies errors by message. The upstream message stays
+    in the logs and in error tracking.
+    """
+    status_code = getattr(e, "status_code", 500)
+    message = getattr(e, "message", str(e))
+    code = getattr(e, "code", None)
+    body = getattr(e, "body", None)
+    credential_error = provider_credential_rejection_error(status_code, code, message, provider, body)
+    if credential_error is not None:
+        return CREDENTIAL_REJECTION_ERROR_TYPE, credential_error
+    return type(e).__name__, ProviderError(
+        status_code=status_code,
+        detail={"error": {"message": message, "type": getattr(e, "type", "internal_error"), "code": code}},
+    )
+
+
 def _raise_unsupported_model(model: str) -> None:
     raise HTTPException(
         status_code=400,
@@ -205,7 +310,18 @@ def _raise_if_unsupported_model(model: str) -> None:
 
 # LLM routing/auth params — never accept from user input (request redirection, key exfiltration).
 FORBIDDEN_REQUEST_PARAMS = frozenset(
-    {"api_key", "api_base", "base_url", "api_version", "organization", "model_list", "fallbacks", "custom_llm_provider"}
+    {
+        "api_key",
+        "api_base",
+        "base_url",
+        "api_version",
+        "organization",
+        "model_list",
+        "fallbacks",
+        "custom_llm_provider",
+        "headers",
+        "extra_headers",
+    }
 )
 
 
@@ -291,7 +407,8 @@ async def handle_llm_request(
     except HTTPException:
         raise
     except Exception as e:
-        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
+        error_type, provider_error = classify_provider_failure(e, provider_config.name)
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=error_type, product=product).inc()
         capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
         status_code = getattr(e, "status_code", 500)
         logger.exception(
@@ -299,21 +416,12 @@ async def handle_llm_request(
             endpoint=provider_config.endpoint_name,
             streaming=False,
             status_code=status_code,
-            error_type=type(e).__name__,
+            error_type=error_type,
             error_message=getattr(e, "message", str(e)),
             provider_error_type=getattr(e, "type", None),
             provider_error_code=getattr(e, "code", None),
         )
-        raise ProviderError(
-            status_code=status_code,
-            detail={
-                "error": {
-                    "message": getattr(e, "message", str(e)),
-                    "type": getattr(e, "type", "internal_error"),
-                    "code": getattr(e, "code", None),
-                }
-            },
-        ) from e
+        raise provider_error from e
     finally:
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
 
@@ -359,7 +467,8 @@ async def _handle_streaming_request(
         ) from None
     except Exception as e:
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
-        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
+        error_type, provider_error = classify_provider_failure(e, provider_config.name)
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=error_type, product=product).inc()
         capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
         status_code = getattr(e, "status_code", 500)
         logger.exception(
@@ -367,7 +476,7 @@ async def _handle_streaming_request(
             endpoint=provider_config.endpoint_name,
             streaming=True,
             status_code=status_code,
-            error_type=type(e).__name__,
+            error_type=error_type,
             error_message=getattr(e, "message", str(e)),
             provider_error_type=getattr(e, "type", None),
             provider_error_code=getattr(e, "code", None),
@@ -386,16 +495,7 @@ async def _handle_streaming_request(
             streaming="true",
             product=product,
         ).observe(time.monotonic() - start_time)
-        raise ProviderError(
-            status_code=status_code,
-            detail={
-                "error": {
-                    "message": getattr(e, "message", str(e)),
-                    "type": getattr(e, "type", "internal_error"),
-                    "code": getattr(e, "code", None),
-                }
-            },
-        ) from e
+        raise provider_error from e
 
     async def stream_generator() -> AsyncGenerator[bytes]:
         ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()

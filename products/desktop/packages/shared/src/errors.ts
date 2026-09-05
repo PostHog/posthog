@@ -101,6 +101,28 @@ const ORG_LIMIT_PATTERNS = [
   "user sustained rate limit exceeded",
 ] as const;
 
+/**
+ * The LLM gateway refused the request because PostHog's own upstream provider
+ * credentials were rejected (`provider_credentials_rejected`), not because the
+ * caller ran out of credits. The raw provider wording reads like an account
+ * problem, so without this the failure is indistinguishable from a usage limit.
+ * The provider codes and prose are kept as a fallback for a gateway that has not
+ * shipped the typed classification yet, and mirror the gateway's rejection
+ * signals (_CREDENTIAL_REJECTION_CODES / _CREDENTIAL_REJECTION_SIGNATURES in
+ * services/llm-gateway/src/llm_gateway/api/handler.py). A revoked or mistyped key
+ * fails with `invalid_api_key` / "incorrect api key provided", as routine an
+ * event as an organization mismatch.
+ */
+const PROVIDER_CREDENTIAL_PATTERNS = [
+  "provider_credentials_rejected",
+  "credentials were rejected",
+  "invalid_organization",
+  "invalid_api_key",
+  "organization tied to the api key",
+  "no such organization",
+  "incorrect api key provided",
+] as const;
+
 const FATAL_SESSION_ERROR_PATTERNS = [
   "internal error",
   "process exited",
@@ -155,6 +177,16 @@ export function isRateLimitError(
   );
 }
 
+export function isProviderCredentialError(
+  errorMessage: string,
+  errorDetails?: string,
+): boolean {
+  return (
+    includesAny(errorMessage, PROVIDER_CREDENTIAL_PATTERNS) ||
+    includesAny(errorDetails, PROVIDER_CREDENTIAL_PATTERNS)
+  );
+}
+
 export function classifyGatewayLimitError(
   errorMessage: string,
   errorDetails?: string,
@@ -198,6 +230,7 @@ export function isTurnEndedWithoutResponseError(
 
 export type PromptFailureKind =
   | "usage_limit"
+  | "provider_credentials"
   | "transient"
   | "authentication"
   | "fatal_session"
@@ -216,6 +249,16 @@ export function classifyPromptFailure(
   errorType?: string,
 ): PromptFailure {
   const message = getErrorMessage(error) || String(error);
+  // Checked before the limit patterns: a rejected gateway credential is not the caller's
+  // limit, and retrying it only repeats the same refusal.
+  if (isProviderCredentialError(message, errorDetails)) {
+    return {
+      kind: "provider_credentials",
+      message,
+      retryable: false,
+      limitCause: null,
+    };
+  }
   const limitCause = classifyGatewayLimitError(message, errorDetails);
   if (limitCause !== null || isRateLimitError(message, errorDetails)) {
     return {
@@ -276,6 +319,7 @@ export function isFatalSessionError(
   errorDetails?: string,
 ): boolean {
   if (isRateLimitError(errorMessage, errorDetails)) return false;
+  if (isProviderCredentialError(errorMessage, errorDetails)) return false;
   if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) return false;
   if (isTransientUpstreamError(errorMessage, errorDetails)) return false;
   if (classifyGatewayLimitError(errorMessage, errorDetails) !== null) {

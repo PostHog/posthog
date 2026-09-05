@@ -36,6 +36,7 @@ import {
   isJsonRpcRequest,
   isJsonRpcResponse,
   isPersistedOptionSupported,
+  isProviderCredentialError,
   isRateLimitError,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
@@ -172,6 +173,15 @@ const MAX_HOST_ENDED_RESUBSCRIBES = 3;
  */
 const LOCAL_SILENCE_WARN_AFTER_MS = 60_000;
 const LOCAL_SILENCE_CHECK_INTERVAL_MS = 30_000;
+const PROVIDER_CREDENTIAL_ERROR_MESSAGE =
+  "The AI provider rejected PostHog's credentials. This is not your usage limit, and retrying will not help until PostHog fixes it.";
+
+class ProviderCredentialPromptError extends Error {
+  constructor(cause: unknown) {
+    super(PROVIDER_CREDENTIAL_ERROR_MESSAGE, { cause });
+    this.name = "ProviderCredentialPromptError";
+  }
+}
 
 /** Short label for a log line: `session/update:agent_message_chunk`, `response`. */
 function describeAcpMethod(acpMsg: AcpMessage): string {
@@ -4419,9 +4429,16 @@ export class SessionService {
         promptLength: promptText.length,
         error,
       });
-      this.d.toast.error("Couldn't send the queued message", {
-        description: "Your message is still queued. Use Steer to try again.",
-      });
+      if (error instanceof ProviderCredentialPromptError) {
+        this.d.toast.error("AI provider credentials rejected", {
+          description:
+            "Your message is still queued. Retry after PostHog fixes the problem.",
+        });
+      } else {
+        this.d.toast.error("Couldn't send the queued message", {
+          description: "Your message is still queued. Use Steer to try again.",
+        });
+      }
       throw error;
     }
   }
@@ -4548,6 +4565,18 @@ export class SessionService {
           "The model ended this turn without a response. Your session is unaffected — please send the message again.",
           { cause: error },
         );
+      }
+
+      // The gateway refused the call because PostHog's own provider credentials were
+      // rejected. Nothing the user can change, and the raw provider wording reads like
+      // a usage limit, so name the cause instead of surfacing it.
+      if (isProviderCredentialError(errorMessage, errorDetails)) {
+        this.d.log.error("Gateway provider credentials rejected", {
+          taskRunId: session.taskRunId,
+          errorMessage,
+          errorDetails,
+        });
+        throw new ProviderCredentialPromptError(error);
       }
 
       // A provider request that timed out, dropped, or was refused leaves the
