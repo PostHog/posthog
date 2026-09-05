@@ -215,7 +215,17 @@ function WebhookConfigurationSection({
             <Form logic={webhookTabLogic} props={formLogicProps} formKey="webhookFieldInputs" enableFormOnSubmit>
                 <div className="space-y-3 ph-no-capture">
                     {webhookFields.map((field: SourceFieldConfig) =>
-                        sourceFieldToElement(field, sourceConfig, webhookFieldInputs[field.name], true)
+                        // Webhook secrets live in the webhook's own inputs, not the source job_inputs. A source
+                        // connection change never resets them, so pass webhook context to drop that caveat.
+                        sourceFieldToElement(
+                            field,
+                            sourceConfig,
+                            webhookFieldInputs[field.name],
+                            true,
+                            undefined,
+                            undefined,
+                            'webhook'
+                        )
                     )}
                     <LemonButton type="primary" htmlType="submit" loading={isWebhookFieldInputsSubmitting}>
                         Save changes
