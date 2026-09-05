@@ -4,7 +4,13 @@ import 'react-data-grid/lib/styles.css'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
+import DataGrid, {
+    CellClickArgs,
+    CellMouseEvent,
+    DataGridProps,
+    RenderHeaderCellProps,
+    SortColumn,
+} from 'react-data-grid'
 
 import {
     IconCode,
@@ -29,6 +35,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -1188,6 +1195,24 @@ const Content = ({
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
+
+    // Right-click a results cell to copy its value. Unlike the LemonTable feature (which reads DOM
+    // text), react-data-grid hands us the raw row value, so datetimes/numbers copy accurately.
+    const handleGridCellContextMenu = useCallback(
+        (args: CellClickArgs<any, any>, event: CellMouseEvent) => {
+            const value = args.column.key === '__details' ? undefined : args.row[args.column.key]
+            if (value === null || value === undefined || value === '') {
+                closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
+                return
+            }
+            event.preventGridDefault()
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, String(value))
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
+
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
             return rows
@@ -1336,7 +1361,9 @@ const Content = ({
                             rows={sortedRows}
                             sortColumns={sortColumns}
                             onSortColumnsChange={setSortColumns}
+                            onCellContextMenu={handleGridCellContextMenu}
                         />
+                        {copyMenu}
                     </TabScroller>
                 )}
             </div>
