@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -17,7 +17,7 @@ import { SelectableCard } from '../components/SelectableCard'
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { exposureConfigToFilter, filterToExposureConfig, getExposureTargetingProperties } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
 type ExposureCriteriaModalProps = {
@@ -39,6 +39,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
     const isCustom = !isActivation && !!exposureCriteria?.exposure_config
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationCard = activationEventEnabled || isActivation
+    const targetingProperties = getExposureTargetingProperties(exposureCriteria?.exposure_config)
 
     return (
         <LemonModal
@@ -127,7 +128,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         <>
                             If you can't rely on the <LemonTag>{resolvedExposureEvent}</LemonTag> event, you can select
                             a custom event to signal that users reached the part of your app where the experiment runs.
-                            You can also filter out users you would like to exclude from the analysis.
+                            To limit who enters the experiment, for example by country, set a release condition on the
+                            feature flag instead.
                         </>
                     }
                     selected={isCustom}
@@ -149,7 +151,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                 />
             </div>
             {isCustom && exposureCriteria?.exposure_config && (
-                <div className="mb-4">
+                <div className="mb-4 space-y-2">
                     <ActionFilter
                         bordered
                         filters={exposureConfigToFilter(exposureCriteria.exposure_config)}
@@ -172,6 +174,13 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
+                    {targetingProperties.length > 0 && (
+                        <LemonBanner type="warning">
+                            This filter uses a person, cohort, or group property. Those describe who a user is, not the
+                            event that marks a user as exposed. To limit who enters the experiment, for example by
+                            country, set a release condition on the feature flag instead.
+                        </LemonBanner>
+                    )}
                 </div>
             )}
             {isActivation && exposureCriteria?.activation_config && (
