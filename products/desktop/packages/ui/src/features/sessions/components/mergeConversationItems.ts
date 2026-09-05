@@ -37,6 +37,41 @@ function hasShadowContext(content: string): boolean {
   return hasChannelContext(content) || hasCustomInstructions(content);
 }
 
+function reconcileInitialPromptEcho(
+  items: ConversationItem[],
+): ConversationItem[] {
+  let initial: UserMessageItem | undefined;
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (
+      item.type === "session_update" &&
+      item.update.sessionUpdate === "progress_group"
+    ) {
+      continue;
+    }
+    if (item.type !== "user_message") return items;
+    if (!initial) {
+      if (hasShadowContext(item.content)) return items;
+      initial = item;
+      continue;
+    }
+    if (
+      !hasShadowContext(item.content) ||
+      strippedUserContent(initial.content) !== strippedUserContent(item.content)
+    ) {
+      return items;
+    }
+    // The stored startup transcript can contain both the bare request and its
+    // context-bearing echo even after the in-memory optimistic row is gone.
+    return items
+      .filter((_, itemIndex) => itemIndex !== index)
+      .map((entry) =>
+        entry === initial ? { ...item, id: initial.id } : entry,
+      );
+  }
+  return items;
+}
+
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
 // visible above setup progress. Follow-up optimistics render at the tail, but
 // before trailing progress cards, to match where the streamed `session/prompt`
@@ -49,6 +84,9 @@ export function mergeConversationItems({
   optimisticItems,
   isCloud,
 }: MergeConversationItemsArgs): ConversationItem[] {
+  if (isCloud) {
+    conversationItems = reconcileInitialPromptEcho(conversationItems);
+  }
   if (optimisticItems.length === 0) {
     return conversationItems;
   }
