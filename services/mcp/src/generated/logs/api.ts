@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -5751,6 +5751,161 @@ export const LogsCountRangesCreateBody = () => zod.object({
         .describe('The bucketed-count query to execute.'),
 })
 
+/**
+ * Values of one facet narrowed to those containing a substring.
+ *
+ * Separate from facet_values because it is the one facet request that cannot be shared: the
+ * search applies before the row limit, so it has to run against a single key to reach matches
+ * ranked below that key's top values. The searched facet's own filter is excluded, so typing
+ * in a facet does not narrow it to the value already selected there.
+ */
+export const LogsFacetSearchCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LogsFacetSearchCreateBody = () => zod.object({
+    query: zod
+        .object({
+            facetField: zod
+                .union([
+                    zod
+                        .enum(['severity_text', 'service_name'])
+                        .describe('\* `severity_text` - severity_text\n\* `service_name` - service_name'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Top-level column whose values to search. Provide exactly one of facetField, facetResourceAttribute or facetAttribute.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                ),
+            facetResourceAttribute: zod
+                .string()
+                .nullish()
+                .describe(
+                    "Resource attribute key whose values to search (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute."
+                ),
+            facetAttribute: zod
+                .string()
+                .nullish()
+                .describe(
+                    "Log attribute key whose values to search (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute."
+                ),
+            facetSearch: zod
+                .string()
+                .describe(
+                    'Case-insensitive substring the returned values must contain. Applied before the row limit, so a match ranked below the top values still comes back. Distinct from searchTerm, which searches log bodies.'
+                ),
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Filter by log severity levels (ignored when searching severity_text).'),
+            serviceNames: zod
+                .array(zod.string())
+                .optional()
+                .describe('Filter by service names (ignored when searching service_name).'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .optional()
+                .describe(
+                    "Property filters for the query. The searched facet's own filter is excluded, so typing in one facet doesn't narrow it to the value already selected there."
+                ),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
+        })
+        .describe('The facet value search to execute.'),
+})
+
+/**
+ * Values and cross-filtered counts for one facet, or for several attribute keys at once.
+ *
+ * The plural key lists exist because attribute facets all read the same rollup with the same
+ * WHERE, so a rail full of them costs one query instead of one per facet. What they give up is
+ * the per-facet part: a key's own filter is not excluded, so a facet carrying one goes on a
+ * single-target field. To filter one facet's values, use facet_search.
+ */
 export const LogsFacetValuesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -5771,19 +5926,31 @@ export const LogsFacetValuesCreateBody = () => zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    'Top-level column to facet on. One of the three single-target fields, or one of the plural key lists, is required. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
                 ),
             facetResourceAttribute: zod
                 .string()
                 .nullish()
                 .describe(
-                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Its own log_resource_attribute filter is excluded so counts reflect the other active filters. Use facetResourceAttributes instead to fetch several keys in one query, or the facet_search endpoint to filter one key's values."
                 ),
             facetAttribute: zod
                 .string()
                 .nullish()
                 .describe(
-                    "Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter."
+                    "Log attribute key to facet on (e.g. 'log.iostream'). Counts honour severity, service and resource-attribute filters, but not body search or other log-attribute filters. Use facetAttributes instead to fetch several keys in one query."
+                ),
+            facetResourceAttributes: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Resource attribute keys to fetch together in one query, which is far cheaper than a request per key. Unlike the single-target fields these share one filter set: no key's own filter is excluded, so a key carrying its own filter belongs on facetResourceAttribute."
+                ),
+            facetAttributes: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Log attribute keys to fetch together in one query. Shares the filter set described on facetResourceAttributes.'
                 ),
             dateRange: zod
                 .object({
@@ -5815,12 +5982,6 @@ export const LogsFacetValuesCreateBody = () => zod.object({
                 .optional()
                 .describe('Filter by service names (ignored when faceting on service_name).'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
-            facetSearch: zod
-                .string()
-                .optional()
-                .describe(
-                    "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies."
-                ),
             filterGroup: zod
                 .array(
                     zod.object({

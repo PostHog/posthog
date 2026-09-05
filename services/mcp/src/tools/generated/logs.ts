@@ -594,6 +594,33 @@ const logsCountRanges = (): ToolBase<ReturnType<typeof LogsCountRangesSchema>, S
     },
 })
 
+const LogsFacetSearchCreateSchema = () => {
+    const LogsFacetSearchCreateBody = orvalSchemas.LogsFacetSearchCreateBody()
+    return LogsFacetSearchCreateBody
+}
+
+const logsFacetSearchCreate = (): ToolBase<
+    ReturnType<typeof LogsFacetSearchCreateSchema>,
+    Schemas._LogsFacetSearchResponse
+> => ({
+    name: 'logs-facet-search-create',
+    schema: LogsFacetSearchCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsFacetSearchCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._LogsFacetSearchResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/facet_search/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
 const LogsFacetValuesCreateSchema = () => {
     const LogsFacetValuesCreateBody = orvalSchemas.LogsFacetValuesCreateBody()
     return LogsFacetValuesCreateBody
@@ -779,6 +806,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
+    'logs-facet-search-create': logsFacetSearchCreate,
     'logs-facet-values-create': logsFacetValuesCreate,
     'logs-patterns': logsPatterns,
     'logs-patterns-diff': logsPatternsDiff,

@@ -1572,22 +1572,77 @@ export const FacetFieldEnumApi = {
     ServiceName: 'service_name',
 } as const
 
-export interface _LogsFacetValuesBodyApi {
-    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
+export interface _LogsFacetSearchBodyApi {
+    /** Top-level column whose values to search. Provide exactly one of facetField, facetResourceAttribute or facetAttribute.
      *
      * * `severity_text` - severity_text
      * * `service_name` - service_name */
     facetField?: FacetFieldEnumApi | null
     /**
-     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+     * Resource attribute key whose values to search (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute.
      * @nullable
      */
     facetResourceAttribute?: string | null
     /**
-     * Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter.
+     * Log attribute key whose values to search (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute.
      * @nullable
      */
     facetAttribute?: string | null
+    /** Case-insensitive substring the returned values must contain. Applied before the row limit, so a match ranked below the top values still comes back. Distinct from searchTerm, which searches log bodies. */
+    facetSearch: string
+    /** Date range. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels (ignored when searching severity_text). */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names (ignored when searching service_name). */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. The searched facet's own filter is excluded, so typing in one facet doesn't narrow it to the value already selected there. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
+}
+
+export interface _LogsFacetSearchRequestApi {
+    /** The facet value search to execute. */
+    query: _LogsFacetSearchBodyApi
+}
+
+export interface _LogFacetValueApi {
+    /** The facet value (e.g. a severity level or service name). */
+    value: string
+    /** Number of matching log records, with all active filters applied except this facet's own selection. */
+    count: number
+}
+
+export interface _LogsFacetSearchResponseApi {
+    /** Matching values with cross-filtered counts, ordered by count descending. A flat list, because the request names exactly one facet. */
+    results: _LogFacetValueApi[]
+}
+
+export interface _LogsFacetValuesBodyApi {
+    /** Top-level column to facet on. One of the three single-target fields, or one of the plural key lists, is required. Its own filter is excluded so counts reflect the other active filters.
+     *
+     * * `severity_text` - severity_text
+     * * `service_name` - service_name */
+    facetField?: FacetFieldEnumApi | null
+    /**
+     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Its own log_resource_attribute filter is excluded so counts reflect the other active filters. Use facetResourceAttributes instead to fetch several keys in one query, or the facet_search endpoint to filter one key's values.
+     * @nullable
+     */
+    facetResourceAttribute?: string | null
+    /**
+     * Log attribute key to facet on (e.g. 'log.iostream'). Counts honour severity, service and resource-attribute filters, but not body search or other log-attribute filters. Use facetAttributes instead to fetch several keys in one query.
+     * @nullable
+     */
+    facetAttribute?: string | null
+    /** Resource attribute keys to fetch together in one query, which is far cheaper than a request per key. Unlike the single-target fields these share one filter set: no key's own filter is excluded, so a key carrying its own filter belongs on facetResourceAttribute. */
+    facetResourceAttributes?: string[]
+    /** Log attribute keys to fetch together in one query. Shares the filter set described on facetResourceAttributes. */
+    facetAttributes?: string[]
     /** Date range. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels (ignored when faceting on severity_text). */
@@ -1596,8 +1651,6 @@ export interface _LogsFacetValuesBodyApi {
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
-    /** Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies. */
-    facetSearch?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
     /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
@@ -1611,16 +1664,25 @@ export interface _LogsFacetValuesRequestApi {
     query: _LogsFacetValuesBodyApi
 }
 
-export interface _LogFacetValueApi {
-    /** The facet value (e.g. a severity level or service name). */
-    value: string
-    /** Number of matching log records, with all active filters applied except this facet's own selection. */
-    count: number
+export interface _LogFacetValuesEntryApi {
+    /** The attribute key these values belong to. */
+    key: string
+    /** Facet values with cross-filtered counts, ordered by count descending. Empty when the key has no matching values in the requested window. */
+    values: _LogFacetValueApi[]
+}
+
+export interface _LogsFacetValuesResultsApi {
+    /** Values for the requested column facet, ordered by count descending. Empty unless facetField was requested. */
+    facetField: _LogFacetValueApi[]
+    /** One entry per requested resource attribute key, in the order requested. */
+    facetResourceAttributes: _LogFacetValuesEntryApi[]
+    /** One entry per requested log attribute key, in the order requested. */
+    facetAttributes: _LogFacetValuesEntryApi[]
 }
 
 export interface _LogsFacetValuesResponseApi {
-    /** Facet values with cross-filtered counts, ordered by count descending. */
-    results: _LogFacetValueApi[]
+    /** Facet values grouped by target kind, mirroring the fields the request asked for. */
+    results: _LogsFacetValuesResultsApi
 }
 
 /**

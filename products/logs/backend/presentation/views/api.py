@@ -26,6 +26,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -53,7 +54,11 @@ from products.logs.backend.group_by_query_runner import (
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
-from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
+from products.logs.backend.log_facet_values_query_runner import (
+    FACET_FIELDS,
+    MAX_BATCH_FACETS,
+    LogFacetValuesQueryRunner,
+)
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import (
     MAX_CUSTOM_COLUMNS,
@@ -410,9 +415,33 @@ class _LogFacetValueSerializer(serializers.Serializer):
     )
 
 
+class _LogFacetValuesEntrySerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The attribute key these values belong to.")
+    values = _LogFacetValueSerializer(
+        many=True,
+        help_text="Facet values with cross-filtered counts, ordered by count descending. "
+        "Empty when the key has no matching values in the requested window.",
+    )
+
+
+class _LogsFacetValuesResultsSerializer(serializers.Serializer):
+    facetField = _LogFacetValueSerializer(
+        many=True,
+        help_text="Values for the requested column facet, ordered by count descending. Empty unless facetField was requested.",
+    )
+    facetResourceAttributes = _LogFacetValuesEntrySerializer(
+        many=True,
+        help_text="One entry per requested resource attribute key, in the order requested.",
+    )
+    facetAttributes = _LogFacetValuesEntrySerializer(
+        many=True,
+        help_text="One entry per requested log attribute key, in the order requested.",
+    )
+
+
 class _LogsFacetValuesResponseSerializer(serializers.Serializer):
-    results = _LogFacetValueSerializer(
-        many=True, help_text="Facet values with cross-filtered counts, ordered by count descending."
+    results = _LogsFacetValuesResultsSerializer(
+        help_text="Facet values grouped by target kind, mirroring the fields the request asked for."
     )
 
 
@@ -421,22 +450,37 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         choices=["severity_text", "service_name"],
         required=False,
         allow_null=True,
-        help_text="Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or "
-        "facetAttribute. Its own filter is excluded so counts reflect the other active filters.",
+        help_text="Top-level column to facet on. One of the three single-target fields, or one of the plural "
+        "key lists, is required. Its own filter is excluded so counts reflect the other active filters.",
     )
     facetResourceAttribute = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of "
-        "facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded "
-        "so counts reflect the other active filters.",
+        help_text="Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Its own log_resource_attribute "
+        "filter is excluded so counts reflect the other active filters. Use facetResourceAttributes instead to "
+        "fetch several keys in one query, or the facet_search endpoint to filter one key's values.",
     )
     facetAttribute = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, "
-        "facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute "
-        "filters, but not body search, other log-attribute filters, or this facet's own filter.",
+        help_text="Log attribute key to facet on (e.g. 'log.iostream'). Counts honour severity, service and "
+        "resource-attribute filters, but not body search or other log-attribute filters. Use facetAttributes "
+        "instead to fetch several keys in one query.",
+    )
+    facetResourceAttributes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Resource attribute keys to fetch together in one query, which is far cheaper than a request "
+        "per key. Unlike the single-target fields these share one filter set: no key's own filter is excluded, "
+        "so a key carrying its own filter belongs on facetResourceAttribute.",
+    )
+    facetAttributes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Log attribute keys to fetch together in one query. Shares the filter set described on "
+        "facetResourceAttributes.",
     )
     dateRange = _DateRangeSerializer(required=False, help_text="Date range. Defaults to last hour.")
     severityLevels = serializers.ListField(
@@ -452,11 +496,6 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         help_text="Filter by service names (ignored when faceting on service_name).",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
-    facetSearch = serializers.CharField(
-        required=False,
-        help_text="Type-ahead filter over the faceted field's own values (case-insensitive substring match). "
-        "Distinct from searchTerm, which searches log bodies.",
-    )
     filterGroup = serializers.ListField(
         child=_LogPropertyFilterSerializer(),
         required=False,
@@ -469,6 +508,69 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
 
 class _LogsFacetValuesRequestSerializer(serializers.Serializer):
     query = _LogsFacetValuesBodySerializer(help_text="The facet values query to execute.")
+
+
+class _LogsFacetSearchResponseSerializer(serializers.Serializer):
+    results = _LogFacetValueSerializer(
+        many=True,
+        help_text="Matching values with cross-filtered counts, ordered by count descending. A flat list, "
+        "because the request names exactly one facet.",
+    )
+
+
+class _LogsFacetSearchBodySerializer(serializers.Serializer):
+    facetField = serializers.ChoiceField(
+        choices=["severity_text", "service_name"],
+        required=False,
+        allow_null=True,
+        help_text="Top-level column whose values to search. Provide exactly one of facetField, "
+        "facetResourceAttribute or facetAttribute.",
+    )
+    facetResourceAttribute = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Resource attribute key whose values to search (e.g. 'k8s.namespace.name'). Provide exactly "
+        "one of facetField, facetResourceAttribute or facetAttribute.",
+    )
+    facetAttribute = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Log attribute key whose values to search (e.g. 'log.iostream'). Provide exactly one of "
+        "facetField, facetResourceAttribute or facetAttribute.",
+    )
+    facetSearch = serializers.CharField(
+        required=True,
+        help_text="Case-insensitive substring the returned values must contain. Applied before the row limit, "
+        "so a match ranked below the top values still comes back. Distinct from searchTerm, which searches "
+        "log bodies.",
+    )
+    dateRange = _DateRangeSerializer(required=False, help_text="Date range. Defaults to last hour.")
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels (ignored when searching severity_text).",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names (ignored when searching service_name).",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters for the query. The searched facet's own filter is excluded, so typing in "
+        "one facet doesn't narrow it to the value already selected there.",
+    )
+    personId = _person_scope_field("counts")
+    sessionId = _session_scope_field("counts")
+
+
+class _LogsFacetSearchRequestSerializer(serializers.Serializer):
+    query = _LogsFacetSearchBodySerializer(help_text="The facet value search to execute.")
 
 
 class _LogsCountRangesBodySerializer(serializers.Serializer):
@@ -1166,6 +1268,18 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
     )
 
 
+@frozen
+class _SingleFacetTarget:
+    """The one facet a request names.
+
+    The attribute targets are one-key lists because that is what the runner takes.
+    """
+
+    facet_field: str | None
+    resource_keys: list[str]
+    attribute_keys: list[str]
+
+
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
@@ -1392,25 +1506,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         return Response(response.results, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_LogsFacetValuesRequestSerializer, responses={200: _LogsFacetValuesResponseSerializer})
-    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
-    def facet_values(self, request: Request, *args, **kwargs) -> Response:
-        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
-        self._require_dict_query(query_data)
-
-        facet_field = query_data.get("facetField")
-        facet_resource_attribute = query_data.get("facetResourceAttribute")
-        facet_attribute = query_data.get("facetAttribute")
-        if sum(1 for target in (facet_field, facet_resource_attribute, facet_attribute) if target) != 1:
-            raise ParseError("Provide exactly one of facetField, facetResourceAttribute or facetAttribute")
-        if facet_field and facet_field not in FACET_FIELDS:
-            raise ParseError(f"facetField must be one of {sorted(FACET_FIELDS)}")
-
+    def _facet_scope_query(self, query_data: dict) -> LogsQuery:
+        """The filters a facet request shares with every other logs query."""
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
-
-        query = LogsQuery(
+        return LogsQuery(
             dateRange=date_range,
             severityLevels=query_data.get("severityLevels", []),
             serviceNames=query_data.get("serviceNames", []),
@@ -1420,13 +1520,72 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sessionId=query_data.get("sessionId", None),
         )
 
+    def _single_facet_target(self, query_data: dict) -> _SingleFacetTarget:
+        """The one facet a request names."""
+        facet_field = query_data.get("facetField")
+        facet_resource_attribute = query_data.get("facetResourceAttribute")
+        facet_attribute = query_data.get("facetAttribute")
+        if sum(1 for target in (facet_field, facet_resource_attribute, facet_attribute) if target) != 1:
+            raise ParseError("Provide exactly one of facetField, facetResourceAttribute or facetAttribute")
+        if facet_field and facet_field not in FACET_FIELDS:
+            raise ParseError(f"facetField must be one of {sorted(FACET_FIELDS)}")
+        return _SingleFacetTarget(
+            facet_field=facet_field or None,
+            resource_keys=[str(facet_resource_attribute)] if facet_resource_attribute else [],
+            attribute_keys=[str(facet_attribute)] if facet_attribute else [],
+        )
+
+    @extend_schema(request=_LogsFacetValuesRequestSerializer, responses={200: _LogsFacetValuesResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def facet_values(self, request: Request, *args, **kwargs) -> Response:
+        """Values and cross-filtered counts for one facet, or for several attribute keys at once.
+
+        The plural key lists exist because attribute facets all read the same rollup with the same
+        WHERE, so a rail full of them costs one query instead of one per facet. What they give up is
+        the per-facet part: a key's own filter is not excluded, so a facet carrying one goes on a
+        single-target field. To filter one facet's values, use facet_search.
+        """
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        self._require_dict_query(query_data)
+
+        facet_field = query_data.get("facetField")
+        facet_resource_attribute = query_data.get("facetResourceAttribute")
+        facet_attribute = query_data.get("facetAttribute")
+        resource_keys = query_data.get("facetResourceAttributes") or []
+        attribute_keys = query_data.get("facetAttributes") or []
+        if not isinstance(resource_keys, list) or not isinstance(attribute_keys, list):
+            raise ParseError("facetResourceAttributes and facetAttributes must be lists")
+
+        single_targets = sum(1 for target in (facet_field, facet_resource_attribute, facet_attribute) if target)
+        batched_keys = len(resource_keys) + len(attribute_keys)
+        if single_targets and batched_keys:
+            raise ParseError(
+                "Provide either a single facet target or the plural key lists, not both — they apply different filters"
+            )
+        if not single_targets and not batched_keys:
+            raise ParseError(
+                "Provide one of facetField, facetResourceAttribute, facetAttribute, "
+                "facetResourceAttributes or facetAttributes"
+            )
+        if batched_keys > MAX_BATCH_FACETS:
+            raise ParseError(f"At most {MAX_BATCH_FACETS} keys may be requested at once")
+
+        # The runner takes key lists only. A singular field becomes a one-key list that excludes its
+        # own filter, which is the behaviour that field promises.
+        if single_targets:
+            target = self._single_facet_target(query_data)
+            facet_field = target.facet_field
+            resource_keys = target.resource_keys
+            attribute_keys = target.attribute_keys
+
         runner = LogFacetValuesQueryRunner(
             team=self.team,
-            query=query,
-            facet_field=facet_field or None,
-            facet_resource_attribute=facet_resource_attribute or None,
-            facet_attribute=facet_attribute or None,
-            facet_search=query_data.get("facetSearch"),
+            query=self._facet_scope_query(query_data),
+            facet_field=facet_field,
+            facet_resource_attributes=[str(key) for key in resource_keys],
+            facet_attributes=[str(key) for key in attribute_keys],
+            exclude_own_filter=bool(single_targets),
         )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
@@ -1434,6 +1593,45 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_LogsFacetSearchRequestSerializer, responses={200: _LogsFacetSearchResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def facet_search(self, request: Request, *args, **kwargs) -> Response:
+        """Values of one facet narrowed to those containing a substring.
+
+        Separate from facet_values because it is the one facet request that cannot be shared: the
+        search applies before the row limit, so it has to run against a single key to reach matches
+        ranked below that key's top values. The searched facet's own filter is excluded, so typing
+        in a facet does not narrow it to the value already selected there.
+        """
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        self._require_dict_query(query_data)
+
+        facet_search = query_data.get("facetSearch")
+        if not isinstance(facet_search, str) or not facet_search.strip():
+            raise ParseError("facetSearch is required and must be a non-empty string")
+        target = self._single_facet_target(query_data)
+
+        runner = LogFacetValuesQueryRunner(
+            team=self.team,
+            query=self._facet_scope_query(query_data),
+            facet_field=target.facet_field,
+            facet_resource_attributes=target.resource_keys,
+            facet_attributes=target.attribute_keys,
+            exclude_own_filter=True,
+            facet_search=facet_search,
+        )
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        # Flat, not grouped: the request named one facet, so the caller has nothing to disambiguate.
+        results = response.results
+        entries = results["facetResourceAttributes"] + results["facetAttributes"]
+        values = results["facetField"] if target.facet_field else (entries[0]["values"] if entries else [])
+        return Response({"results": values}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
