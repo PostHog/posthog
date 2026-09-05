@@ -992,6 +992,18 @@ from = [
     "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
+# warehouse_sources' shadow-scheduler parity test asserts its ported due-time math
+# equals data_warehouse's real Temporal schedule builder bit-for-bit, so it imports
+# the function under test directly rather than duplicating it behind a facade.
+
+[[interfaces]]
+expose = [
+    "backend\\.logic\\.data_load\\.service\\.get_sync_schedule",
+]
+from = [
+    "products.data_warehouse",
+]
+
 # TODO: Experiments-specific temporary interface
 # Remove this block once all ViewSets are migrated to products/experiments/backend/presentation/views.py
 

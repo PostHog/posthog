@@ -277,6 +277,8 @@ rules:
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QueueJob
+                              |QueueSchedulerDecision
+                              |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
@@ -647,6 +649,8 @@ rules:
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QueueJob
+                        |QueueSchedulerDecision
+                        |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
