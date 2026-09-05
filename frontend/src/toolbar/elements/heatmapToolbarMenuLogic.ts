@@ -264,6 +264,11 @@ export function computeAreaBounds(element: HTMLElement): HeatmapBoundsFilter {
 // a page and can't miss rows that shifted across page boundaries between scans
 const ELEMENT_STATS_AUTO_LOAD_LIMIT = 50000
 
+// one press of "Load all" covers at most this many pages. Each page re-runs the matcher over every
+// row loaded so far, so an uncapped run on a busy site grows its own cost with each page. The button
+// comes back when the cap is reached, so a longer range takes another press rather than a hung tab.
+export const LOAD_ALL_MAX_PAGES = 20
+
 export type ClickmapProcessingTrigger = 'initial' | 'auto-load' | 'pagination' | 'refresh' | 'toggle'
 
 interface ElementProcessingCache {
@@ -376,6 +381,7 @@ export interface heatmapToolbarMenuLogicValues {
         url: string | null
     } | null
     loadedElementStatsCount: number
+    loadAllPagesLoaded: number
     loadingAllElementStats: boolean
     matchLinksByHref: boolean
     processedElements: CountedHTMLElement[]
@@ -807,6 +813,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             {
                 getElementStatsSuccess: (_, { elementStats }) => elementStats.next !== null,
                 getElementStatsFailure: () => true, // so at least someone can recover from transient errors
+            },
+        ],
+        loadAllPagesLoaded: [
+            0,
+            {
+                startLoadingAllElementStats: () => 0,
+                getElementStatsSuccess: (state) => state + 1,
             },
         ],
         loadingAllElementStats: [
@@ -1438,7 +1451,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 values.heatmapEnabled &&
                 values.clickmapsEnabled
             ) {
-                actions.getElementStats(elementStats.next)
+                if (values.loadAllPagesLoaded >= LOAD_ALL_MAX_PAGES) {
+                    actions.stopLoadingAllElementStats()
+                } else {
+                    actions.getElementStats(elementStats.next)
+                }
             }
         },
 

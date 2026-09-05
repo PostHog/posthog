@@ -358,7 +358,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     tooltip={
                                         loadingAllElementStats
                                             ? 'Stop after the page being loaded now. What loaded so far stays on the heatmap.'
-                                            : 'Loads every remaining page of click data. A long date range or a busy site can take a while.'
+                                            : 'Loads page after page of click data. A long date range or a busy site can take a while, and can need more than one run.'
                                     }
                                     disabledReason={
                                         canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'

@@ -8,6 +8,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ElementsEventType } from '~/toolbar/types'
 
 import {
+    LOAD_ALL_MAX_PAGES,
     buildElementStatsProperties,
     computeAreaCandidates,
     dedupeByChainIdentity,
@@ -428,6 +429,35 @@ describe('heatmapToolbarMenuLogic', () => {
             expect(page).toHaveBeenCalledTimes(2)
             expect(logic.values.loadingAllElementStats).toBe(false)
         })
+
+        it('ends a run at the page cap, so one press cannot page forever', async () => {
+            // every page reports another page, so only the cap can end the run
+            jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: 'http://localhost/api/element/stats?offset=100', previous: null },
+            } as any)
+            const page = jest.spyOn(toolbarApi.elementStats, 'page').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: 'http://localhost/api/element/stats?offset=200', previous: null },
+            } as any)
+
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
+                'getElementStatsSuccess',
+                'getElementStatsSuccess',
+            ])
+            // the run outlasts the action history expectLogic can match against, so watch the value
+            logic.actions.startLoadingAllElementStats()
+            const deadline = Date.now() + 15000
+            while (logic.values.loadingAllElementStats && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 50))
+            }
+
+            expect(page).toHaveBeenCalledTimes(LOAD_ALL_MAX_PAGES)
+            expect(logic.values.loadingAllElementStats).toBe(false)
+            // every page waits out the loader's debounce, so the whole run outlasts the default timeout
+        }, 20000)
 
         it('ends the run when the page navigates', async () => {
             // every page reports another page, so only the navigation can end the run
