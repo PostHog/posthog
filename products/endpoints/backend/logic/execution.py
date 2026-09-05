@@ -855,7 +855,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 strategy.clean_response_sentinels(result.data)
 
             try:
-                strategy.transform_materialized_response(result.data, saved_query)
+                strategy.transform_materialized_response(result.data, saved_query, materialized_at)
             except MaterializedSeriesMismatchError:
                 # Series drift: query was likely edited after materialization. Trigger a refresh
                 # so future materialized reads succeed; the caller serves this request inline.
