@@ -47,6 +47,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import EventsPred
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.settings import TEST
 
 if TYPE_CHECKING:
@@ -345,6 +346,32 @@ class _ShortCircuitBlockerFinder(TraversingVisitor):
             super().visit_call(node)
 
 
+@frozen
+class _PushdownPlan:
+    """The predicate split and inner LIMIT computed before any mutation of the query."""
+
+    events_table_type: ast.TableType | ast.TableAliasType
+    inner_where: ast.Expr | None
+    inner_prewhere: ast.Expr | None
+    new_where: ast.Expr | None
+    new_prewhere: ast.Expr | None
+    inner_limit: ast.Constant
+
+
+@frozen
+class _HoistedRewrite:
+    """The rewritten outer expressions and the built subquery, ready to commit onto the query."""
+
+    new_alias: str
+    subquery_ref: ast.SelectQueryAliasType
+    new_select: list[ast.Expr]
+    new_where: ast.Expr | None
+    new_having: ast.Expr | None
+    new_qualify: ast.Expr | None
+    join_constraints: list[tuple[ast.JoinExpr, ast.Expr]]
+    events_subquery: ast.SelectQuery
+
+
 class EventsPredicatePushdownTransform(TraversingVisitor):
     """Pushes events WHERE/PREWHERE predicates into a pre-filtering subquery:
     `FROM events` -> `FROM (SELECT <needed cols> FROM events WHERE <predicates>) AS events`.
@@ -382,9 +409,43 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
                 logger.debug("events_predicate_pushdown_declined", reason=decline_reason)
 
     def _apply_pushdown(self, node: ast.SelectQuery) -> str | None:
-        """Apply predicate pushdown to an eligible query. Returns a decline reason, or None if applied."""
+        """Apply predicate pushdown to an eligible query. Returns a decline reason, or None if applied.
+
+        Split into three phases so each stays simple and nothing on `node` is mutated until the commit: the plan
+        splits predicates and computes the inner LIMIT, the hoist clones the rewritten outer expressions and builds
+        the subquery, and only then does the commit install them. A raise anywhere before the commit leaves the
+        query unchanged."""
         assert node.select_from is not None
 
+        shape_reason = self._reject_pushdown_shape(node)
+        if shape_reason is not None:
+            return shape_reason
+
+        plan = self._plan_pushdown(node)
+        if isinstance(plan, str):
+            return plan
+
+        rewrite = self._hoist_outer_references(node, plan)
+        if isinstance(rewrite, str):
+            return rewrite
+
+        # Commit: install the rewritten outer expressions and swap the events table for the subquery.
+        node.select = rewrite.new_select
+        node.where = rewrite.new_where
+        node.having = rewrite.new_having
+        node.qualify = rewrite.new_qualify
+        for join_expr, rewritten in rewrite.join_constraints:
+            assert join_expr.constraint is not None
+            join_expr.constraint.expr = rewritten
+        node.prewhere = plan.new_prewhere
+        node.select_from.table = rewrite.events_subquery
+        node.select_from.alias = rewrite.new_alias
+        node.select_from.type = rewrite.subquery_ref
+        return None
+
+    def _reject_pushdown_shape(self, node: ast.SelectQuery) -> str | None:
+        """Decline shapes the hoister cannot rewrite, before any work. Returns a decline reason, or None."""
+        assert node.select_from is not None
         # The hoister rewrites events references in the select list, residual predicates, HAVING/QUALIFY, and join
         # constraints — but the printer also prints column-CTE bodies and WINDOW clauses. An events reference there
         # would survive un-rewritten and point at a column the pre-filtering subquery doesn't project (ClickHouse:
@@ -393,14 +454,19 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             return "has_ctes"
         if node.window_exprs:
             return "has_window_exprs"
+        if not isinstance(node.select_from.type, (ast.TableType, ast.TableAliasType)):
+            return "from_not_table_type"
+        return None
+
+    def _plan_pushdown(self, node: ast.SelectQuery) -> "_PushdownPlan | str":
+        """Split the predicates and compute the inner LIMIT without mutating the query. Returns a decline reason,
+        or a plan. Assumes `_reject_pushdown_shape` already passed, so the FROM type is a table type."""
+        assert node.select_from is not None
+        events_table_type = cast("ast.TableType | ast.TableAliasType", node.select_from.type)
 
         joined_aliases = self._collect_joined_aliases(node)
         if not joined_aliases:
             return "no_safe_joined_aliases"
-
-        events_table_type = node.select_from.type
-        if not isinstance(events_table_type, (ast.TableType, ast.TableAliasType)):
-            return "from_not_table_type"
 
         # Classify a WHERE field that resolves to an alias by what the alias references (e.g. `f(session.x) AS
         # event` must not be pushed by name).
@@ -435,9 +501,6 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if inner_from_where is None and inner_from_prewhere is None:
             return "no_pushable_predicates"
 
-        inner_where = self._prepare_inner_predicate(inner_from_where, select_aliases)
-        inner_prewhere = self._prepare_inner_predicate(inner_from_prewhere, select_aliases)
-
         # The optimization only pays off when a LIMIT can short-circuit the events read. Predicates + an inner
         # LIMIT beat the flat query for every column type; predicates-only regresses for the raw blob, and
         # ORDER BY blocks the inner LIMIT. So push the inner LIMIT when result-equivalent, else decline.
@@ -445,24 +508,32 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if inner_limit is None:
             return "no_short_circuitable_limit"
 
-        # Hoist the events leaves the outer query still references into the pre-filtering subquery, rewriting each
-        # outer reference to read the subquery column. Build the subquery's type/ref first so the rewritten
-        # references can point at it; nothing on `node` is mutated until every check below passes.
+        return _PushdownPlan(
+            events_table_type=events_table_type,
+            inner_where=self._prepare_inner_predicate(inner_from_where, select_aliases),
+            inner_prewhere=self._prepare_inner_predicate(inner_from_prewhere, select_aliases),
+            new_where=new_where,
+            new_prewhere=new_prewhere,
+            inner_limit=inner_limit,
+        )
+
+    def _hoist_outer_references(self, node: ast.SelectQuery, plan: "_PushdownPlan") -> "_HoistedRewrite | str":
+        """Hoist the events leaves the outer query still references into the pre-filtering subquery, rewriting each
+        outer reference to read the subquery column. Build the subquery's type/ref first so the rewritten references
+        can point at it. Clones throughout, so nothing on `node` is mutated. Returns a decline reason, or the
+        rewritten outer expressions and the built subquery."""
+        assert node.select_from is not None
+
         new_alias = node.select_from.alias or "events"
-        subquery_type = ast.SelectQueryType(columns={}, tables={new_alias: events_table_type})
+        subquery_type = ast.SelectQueryType(columns={}, tables={new_alias: plan.events_table_type})
         subquery_ref = ast.SelectQueryAliasType(alias=new_alias, select_query_type=subquery_type)
-        hoister = EventsSubexprHoister(events_table_type, subquery_ref, self.context)
+        hoister = EventsSubexprHoister(plan.events_table_type, subquery_ref, self.context)
 
         new_select = [cast(ast.Expr, hoister.visit(column)) for column in node.select]
-        new_where = cast(ast.Expr, hoister.visit(new_where)) if new_where is not None else None
+        new_where = cast(ast.Expr, hoister.visit(plan.new_where)) if plan.new_where is not None else None
         new_having = cast(ast.Expr, hoister.visit(node.having)) if node.having is not None else None
         new_qualify = cast(ast.Expr, hoister.visit(node.qualify)) if node.qualify is not None else None
-        rewritten_join_constraints: list[tuple[ast.JoinExpr, ast.Expr]] = []
-        join = node.select_from.next_join
-        while join is not None:
-            if join.constraint is not None and join.constraint.expr is not None:
-                rewritten_join_constraints.append((join, cast(ast.Expr, hoister.visit(join.constraint.expr))))
-            join = join.next_join
+        join_constraints = self._hoist_join_constraints(node, hoister)
 
         if hoister.blocked:
             return "non_direct_outer_reference"
@@ -470,24 +541,39 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             return "no_collectable_columns"
 
         events_subquery = self._build_subquery(
-            hoister, events_table_type, inner_where, inner_prewhere, alias=node.select_from.alias, limit=inner_limit
+            hoister,
+            plan.events_table_type,
+            plan.inner_where,
+            plan.inner_prewhere,
+            alias=node.select_from.alias,
+            limit=plan.inner_limit,
         )
         if events_subquery is None:
             return "subquery_build_failed"
 
-        # Commit: install the rewritten outer expressions and swap the events table for the subquery.
-        node.select = new_select
-        node.where = new_where
-        node.having = new_having
-        node.qualify = new_qualify
-        for join_expr, rewritten in rewritten_join_constraints:
-            assert join_expr.constraint is not None
-            join_expr.constraint.expr = rewritten
-        node.prewhere = new_prewhere
-        node.select_from.table = events_subquery
-        node.select_from.alias = new_alias
-        node.select_from.type = subquery_ref
-        return None
+        return _HoistedRewrite(
+            new_alias=new_alias,
+            subquery_ref=subquery_ref,
+            new_select=new_select,
+            new_where=new_where,
+            new_having=new_having,
+            new_qualify=new_qualify,
+            join_constraints=join_constraints,
+            events_subquery=events_subquery,
+        )
+
+    def _hoist_join_constraints(
+        self, node: ast.SelectQuery, hoister: "EventsSubexprHoister"
+    ) -> list[tuple[ast.JoinExpr, ast.Expr]]:
+        """Rewrite each join constraint's events references, pairing every join with its rewritten constraint."""
+        assert node.select_from is not None
+        rewritten: list[tuple[ast.JoinExpr, ast.Expr]] = []
+        join = node.select_from.next_join
+        while join is not None:
+            if join.constraint is not None and join.constraint.expr is not None:
+                rewritten.append((join, cast(ast.Expr, hoister.visit(join.constraint.expr))))
+            join = join.next_join
+        return rewritten
 
     def _should_apply_pushdown(self, node: ast.SelectQuery) -> bool:
         """Eligible when the query selects FROM events directly (no SAMPLE), has a WHERE/PREWHERE, has joins,
