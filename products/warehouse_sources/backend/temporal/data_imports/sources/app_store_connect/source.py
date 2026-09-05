@@ -12,6 +12,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_ANALYTICS_REPORT_UNAVAILABLE_ERROR,
     APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
     AppStoreConnectResumeConfig,
@@ -65,9 +66,9 @@ class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStor
 
 An Account Holder or Admin creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
 
-Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the Finance, Sales, or Admin role. Leave it blank if you only want app, review and build data.
+Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the Admin or Finance role, or a Sales key that has access to reports. Leave the vendor number blank if you only want app, review and build data.
 
-The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report."""
+The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report. A Finance key, or a Sales key with access to reports, can download the reports Apple already started, but it cannot start a new one, so a table whose report was never started stays empty."""
         restatement_note = restatement_caption()
         if restatement_note:
             caption = f"{caption}\n\n{restatement_note}"
@@ -152,6 +153,9 @@ The analytics tables need a key with the Admin role. Apple lets only an Admin ke
             APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR: APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
             # A 403 on the create where the app's ongoing request had stopped for inactivity.
             APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR: APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+            # Apple generates this stream's report for no app, so the table can never gain a row.
+            # Without this the sync completes green and empty on every schedule.
+            APP_STORE_CONNECT_ANALYTICS_REPORT_UNAVAILABLE_ERROR: APP_STORE_CONNECT_ANALYTICS_REPORT_UNAVAILABLE_ERROR,
             # A 403 on a read. The key's role genuinely can't read this table.
             APP_STORE_CONNECT_READ_FORBIDDEN_ERROR: APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
             # Any 403 that didn't come through the custom raises still fails fast with the read message.
