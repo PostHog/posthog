@@ -430,6 +430,7 @@ export function ChannelItemsPane({
           drag={pinDrag.drag}
           x={pinDrag.previewX}
           y={pinDrag.previewY}
+          currentUserUuid={currentUser?.uuid}
         />
       ) : null}
       <EditListItemAppearanceDialog

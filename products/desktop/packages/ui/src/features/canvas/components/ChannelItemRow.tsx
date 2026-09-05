@@ -1,5 +1,8 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
-import { presenceTier } from "@posthog/core/canvas/presence";
+import {
+  presenceTier,
+  shouldShowUserPresence,
+} from "@posthog/core/canvas/presence";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -17,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
@@ -191,6 +195,7 @@ function RowPresence({
 }) {
   const author = rowAuthor(item);
   if (!author) return null;
+  if (!shouldShowUserPresence(author.user.uuid, currentUserUuid)) return null;
   if (presenceTier(item.ts, Date.now()) === "idle") return null;
   return (
     <ActiveRowPresence
@@ -268,6 +273,7 @@ export function ChannelItemRowView({
   isActive,
   isSelected = false,
   showPinBadge = true,
+  currentUserUuid,
   draggable = false,
   currentUserUuid,
   onClick,
@@ -281,6 +287,7 @@ export function ChannelItemRowView({
   isActive: boolean;
   isSelected?: boolean;
   showPinBadge?: boolean;
+  currentUserUuid?: string;
   draggable?: boolean;
   currentUserUuid?: string;
   onClick?: (e: React.MouseEvent) => void;
@@ -390,7 +397,8 @@ export function ChannelItemRow({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const handoffMounted = useMountedOnceOpened(handoffOpen);
-  const currentUser = useCurrentUser();
+  const client = useOptionalAuthenticatedClient();
+  const currentUser = useCurrentUser({ client });
   const canHandoff =
     item.kind === "task" &&
     item.task != null &&
@@ -495,6 +503,7 @@ export function ChannelItemRow({
         isActive={isActive}
         isSelected={isSelected}
         showPinBadge={showPinBadge}
+        currentUserUuid={currentUser.data?.uuid}
         draggable
         currentUserUuid={currentUser.data?.uuid}
         onDragStart={handleDragStart}

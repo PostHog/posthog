@@ -1,4 +1,8 @@
-import type { Task, UserBasic } from "@posthog/shared/domain-types";
+import type {
+  ChannelRecentTaskAuthor,
+  Task,
+  UserBasic,
+} from "@posthog/shared/domain-types";
 
 /**
  * How long an item counts as "someone is here right now". Within this window of
@@ -15,6 +19,13 @@ export const PRESENCE_LIVE_WINDOW_MS = 3 * 60_000;
 export const PRESENCE_RECENT_WINDOW_MS = 2 * 60 * 60_000;
 
 export type PresenceTier = "live" | "recent" | "idle";
+
+export function shouldShowUserPresence(
+  userUuid: string | null | undefined,
+  currentUserUuid: string | null | undefined,
+): boolean {
+  return Boolean(userUuid && currentUserUuid && userUuid !== currentUserUuid);
+}
 
 export interface PresenceWindows {
   liveWindowMs?: number;
@@ -80,41 +91,41 @@ export interface ChannelPresence {
   liveUuids: ReadonlySet<string>;
 }
 
-type ChannelActivityTask = Pick<
-  Task,
-  "created_by" | "last_activity_at" | "channel"
->;
-
 interface PresenceByChannelOptions extends PresenceWindows {
   now: number;
   /** How many faces a channel keeps — the freshest, once sorted. */
   limit: number;
+  currentUserUuid?: string;
 }
 
 /**
- * The recently-active people in each channel, keyed by channel id, built from a
- * flat page of tasks across all channels. A task with no channel, no author, or
- * an unparseable timestamp is skipped; a channel with nobody recent is absent
- * from the map entirely.
+ * The recently-active people in each channel, keyed by channel id, built from
+ * the server's recent-author response. A record with an unparseable timestamp
+ * is skipped; a channel with nobody recent is absent from the map entirely.
  *
  * Tasks are sorted most-recent first here, so the result never depends on the
  * order the caller fetched them in.
  */
 export function presenceByChannel(
-  tasks: readonly ChannelActivityTask[],
-  { now, limit, liveWindowMs, recentWindowMs }: PresenceByChannelOptions,
+  authors: readonly ChannelRecentTaskAuthor[],
+  {
+    now,
+    limit,
+    currentUserUuid,
+    liveWindowMs,
+    recentWindowMs,
+  }: PresenceByChannelOptions,
 ): Map<string, ChannelPresence> {
-  const dated = tasks
-    .map((task) => ({
-      channel: task.channel ?? null,
-      author: task.created_by ?? null,
-      ts: task.last_activity_at
-        ? Date.parse(task.last_activity_at)
-        : Number.NaN,
+  const dated = authors
+    .map((author) => ({
+      channel: author.channel_id,
+      author: author.user,
+      ts: Date.parse(author.last_activity_at),
     }))
     .filter(
       (t): t is { channel: string; author: UserBasic; ts: number } =>
-        t.channel != null && t.author != null && !Number.isNaN(t.ts),
+        shouldShowUserPresence(t.author.uuid, currentUserUuid) &&
+        !Number.isNaN(t.ts),
     )
     .sort((a, b) => b.ts - a.ts);
 
@@ -136,8 +147,7 @@ export function presenceByChannel(
       entry.people.push(author);
     }
     // Only after the author is on the list, so a live mark never names a face
-    // the cap dropped. The first task per author is their most recent (sorted),
-    // so this decides liveness on that one.
+    // the cap dropped. The first record per author is their most recent.
     if (tier === "live") entry.liveUuids.add(author.uuid);
   }
 

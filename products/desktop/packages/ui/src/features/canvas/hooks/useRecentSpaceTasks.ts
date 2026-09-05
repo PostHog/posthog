@@ -7,8 +7,13 @@ import {
   liveUuidsFromTasks,
   NO_LIVE_UUIDS,
   presenceByChannel,
+  shouldShowUserPresence,
 } from "@posthog/core/canvas/presence";
-import type { Task, UserBasic } from "@posthog/shared/domain-types";
+import type {
+  ChannelRecentTaskAuthor,
+  Task,
+  UserBasic,
+} from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
@@ -319,6 +324,7 @@ export function useSpaceOverview(
   spaceId: string,
   createdBy: UserBasic | null,
   peopleLimit: number,
+  currentUserUuid?: string,
 ): SpaceOverview {
   const client = useOptionalAuthenticatedClient();
   const archivedTaskIds = useArchivedTaskIds();
@@ -335,15 +341,19 @@ export function useSpaceOverview(
     if (!data) return NO_OVERVIEW;
     const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
     return {
-      people: spacePeople(live, createdBy, peopleLimit),
-      liveUuids: liveUuidsFromTasks(live, now),
+      people: currentUserUuid
+        ? spacePeople(live, createdBy, peopleLimit, currentUserUuid)
+        : [],
+      liveUuids: currentUserUuid
+        ? liveUuidsFromTasks(live, now)
+        : NO_LIVE_UUIDS,
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the
       // server's total, which excludes archived tasks — bar any this device has
       // archived and not yet mirrored.
       total: data.tasks.length < TREE_FETCH_LIMIT ? live.length : data.count,
     };
-  }, [data, archivedTaskIds, createdBy, peopleLimit, now]);
+  }, [data, archivedTaskIds, createdBy, peopleLimit, currentUserUuid, now]);
 }
 
 /**
@@ -359,11 +369,18 @@ export function spacePeople(
   tasks: Pick<Task, "created_by">[],
   createdBy: UserBasic | null,
   limit: number,
+  currentUserUuid?: string,
 ): UserBasic[] {
   const people: UserBasic[] = [];
   const seen = new Set<string>();
   const add = (user: UserBasic | null | undefined) => {
-    if (!user || seen.has(user.uuid) || people.length >= limit) return;
+    if (
+      !user ||
+      !shouldShowUserPresence(user.uuid, currentUserUuid) ||
+      seen.has(user.uuid) ||
+      people.length >= limit
+    )
+      return;
     seen.add(user.uuid);
     people.push(user);
   };
@@ -374,19 +391,6 @@ export function spacePeople(
 
 /** Faces a collapsed space row shows — kept small so the row stays a glance. */
 const SPACE_PRESENCE_LIMIT = 3;
-/**
- * One page of the team's most recently active tasks across every space, which
- * the whole list's presence is aggregated from. Full task records are heavy, so
- * this is a short page polled slowly — presence here is "recently active", not
- * a live cursor, so a minute of lag is invisible.
- *
- * The page is a global cut, so it is also a bound on what can show: a space
- * whose newest activity sits below this many newer tasks elsewhere shows no
- * faces even inside the recent window. The task list has no date filter to ask
- * for "the last two hours" instead, so the fix for a team that outruns this is a
- * slim per-channel participants field on the server, not a bigger page here.
- */
-const SPACE_PRESENCE_FETCH_LIMIT = 100;
 const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000;
 
 const NO_PRESENCE: ReadonlyMap<string, ChannelPresence> = new Map();
@@ -411,17 +415,15 @@ function samePresence(a: ChannelPresence, b: ChannelPresence): boolean {
  * don't change, so a memoized space row only re-renders when its own presence
  * does.
  */
-export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
+export function useSpacePresence(
+  currentUserUuid?: string,
+): ReadonlyMap<string, ChannelPresence> {
   const client = useOptionalAuthenticatedClient();
-  const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
     queryKey: ["space-presence"],
-    queryFn: async (): Promise<SpaceTaskPage> => {
+    queryFn: async (): Promise<ChannelRecentTaskAuthor[]> => {
       if (!client) throw new Error("Not authenticated");
-      return (await client.getTasksPage({
-        limit: SPACE_PRESENCE_FETCH_LIMIT,
-        ordering: "-last_activity_at",
-      })) as SpaceTaskPage;
+      return client.getRecentTaskAuthors();
     },
     enabled: !!client,
     refetchInterval: SPACE_PRESENCE_POLL_INTERVAL_MS,
@@ -440,9 +442,12 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
   // it returns, which costs one small object per space ever seen.
   const cache = useRef(new Map<string, ChannelPresence>());
   return useMemo(() => {
-    if (!data) return NO_PRESENCE;
-    const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
-    const fresh = presenceByChannel(live, { now, limit: SPACE_PRESENCE_LIMIT });
+    if (!currentUserUuid) return NO_PRESENCE;
+    const fresh = presenceByChannel(data ?? [], {
+      now,
+      limit: SPACE_PRESENCE_LIMIT,
+      currentUserUuid,
+    });
     const stable = new Map<string, ChannelPresence>();
     for (const [channelId, next] of fresh) {
       const prev = cache.current.get(channelId);
@@ -451,5 +456,5 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
       stable.set(channelId, kept);
     }
     return stable;
-  }, [data, archivedTaskIds, now]);
+  }, [data, currentUserUuid, now]);
 }
