@@ -125,7 +125,7 @@ export function TableView(): JSX.Element {
                 {
                     title: 'Upstream',
                     key: 'upstream_count',
-                    tooltip: 'Total number of upstream nodes',
+                    tooltip: "Upstream models in the data model graph. Insights and dashboards aren't counted.",
                     render: (_, node: DataModelingNode) => (
                         <NodeDependencyCount count={node.upstream_count} loading={nodesLoading} />
                     ),
@@ -133,7 +133,7 @@ export function TableView(): JSX.Element {
                 {
                     title: 'Downstream',
                     key: 'downstream_count',
-                    tooltip: 'Total number of downstream nodes',
+                    tooltip: "Downstream models in the data model graph. Insights and dashboards aren't counted.",
                     render: (_, node: DataModelingNode) => (
                         <NodeDependencyCount count={node.downstream_count} loading={nodesLoading} />
                     ),
