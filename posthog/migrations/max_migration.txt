@@ -1,1 +1,1 @@
-1342_drop_cimd_blocklist_table
+1343_alter_oauthapplication_client_secret

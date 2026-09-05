@@ -14,13 +14,14 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
-from oauth2_provider.generators import generate_client_id
+from oauth2_provider.generators import generate_client_id, generate_client_secret
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
     AbstractGrant,
     AbstractIDToken,
     AbstractRefreshToken,
+    ClientSecretField,
 )
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.validators import AllowedURIValidator
@@ -86,6 +87,16 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     # generated opaque value.
     client_id: models.CharField = models.CharField(
         max_length=2048, unique=True, default=generate_client_id, db_index=True
+    )
+
+    # Overrides the abstract base's db_index=True. The secret is hashed on save, and
+    # every auth path loads the application by client_id, so no query can use the index.
+    client_secret: ClientSecretField = ClientSecretField(
+        max_length=255,
+        blank=True,
+        default=generate_client_secret,
+        db_index=False,
+        help_text="Hashed on Save. Copy it now if this is a new secret.",
     )
 
     # NOTE: By default an application should be linked to the organization that created it.
