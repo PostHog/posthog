@@ -5252,6 +5252,28 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
+    // `upload_artifact` writes a run artifact behind a PostHog login, so offering it beside
+    // the Slack route makes the agent choose, and it picks the one that never reaches the
+    // thread. A run that cannot deliver into Slack keeps the offer as its only way out.
+    it.each([
+      { delivery: "canvas_file" as const, offered: false },
+      { delivery: "message" as const, offered: false },
+      { delivery: "none" as const, offered: true },
+      { delivery: null, offered: true },
+    ])(
+      "offers upload_artifact only when Slack cannot take the file: $delivery",
+      ({ delivery, offered }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(
+          prompt.includes("## Delivering non-code files (artifacts)"),
+        ).toBe(offered);
+      },
+    );
+
     // Charts need only the rollout flag, while canvas/file also needs Slack scopes still in
     // review, so the chart offer has to be independent of the delivery mode in both
     // directions: present on a message-only workspace, absent on a canvas_file one whose
