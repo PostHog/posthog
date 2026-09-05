@@ -303,7 +303,6 @@ describe("evidence preview shaping", () => {
       title: "Configuration",
       fields: expect.arrayContaining([
         { label: "Type", value: "Multivariate" },
-        { label: "Release conditions", value: "1 condition" },
       ]),
     });
   });
@@ -330,15 +329,19 @@ describe("evidence preview shaping", () => {
       },
     } as unknown as Schemas.FeatureFlag);
 
-    expect(preview.sections).toContainEqual({
-      title: "Release conditions",
-      fields: [
-        {
-          label: "Set 1",
-          value: "plan exact pro · 25% rollout · Variant: test",
-        },
-      ],
-    });
+    expect(preview.flagAudience?.rules).toEqual([
+      {
+        conditions: [
+          {
+            subject: "plan",
+            operator: "is",
+            values: [{ label: "pro", literal: true }],
+          },
+        ],
+        share: 25,
+        result: { kind: "variant", key: "test" },
+      },
+    ]);
   });
 
   it("shows a disabled flag without a name as just the state", () => {
