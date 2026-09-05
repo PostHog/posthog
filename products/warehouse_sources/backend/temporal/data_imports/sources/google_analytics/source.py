@@ -1,7 +1,7 @@
 from typing import Optional, cast
 
 import requests
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -13,6 +13,7 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -185,6 +186,22 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
         try:
             get_property_metadata(session, property_id)
+        except (requests.Timeout, TransportError) as e:
+            # An unbounded slow Google response hangs past the gateway limit, which gives the user a
+            # bare server error that never reaches error tracking. get_property_metadata bounds two
+            # outbound calls: the OAuth token refresh that AuthorizedSession runs before the metadata
+            # GET (the credentials start with no token, so every check refreshes), and the GET itself.
+            # A GET timeout raises requests.Timeout; google-auth wraps a refresh-leg timeout as
+            # TransportError, so catch both here. A non-timeout transport failure (DNS, connection
+            # reset) is not a timeout, so it keeps the generic message below.
+            if isinstance(e, TransportError) and not isinstance(e.__cause__, requests.Timeout):
+                return False, f"Failed to read Google Analytics property metadata: {e}"
+            capture_exception(e, {"team_id": team_id, "property_id": property_id})
+            return (
+                False,
+                f"Google Analytics did not respond in time while checking property '{property_id}'. "
+                "This is usually temporary — please try again in a moment.",
+            )
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
