@@ -23,7 +23,7 @@ function wrapListener(listener: ListenerFunction): ListenerFunction {
 export function testListenerDefinitions<L extends Logic = Logic>(
     input: LogicInput<L>['listeners']
 ): LogicInput<L>['listeners'] {
-    return (logic: L) => {
+    return ((logic: L) => {
         const listeners = (typeof input === 'function' ? input(logic) : input) as Record<
             string,
             ListenerFunction | ListenerFunction[]
@@ -34,7 +34,7 @@ export function testListenerDefinitions<L extends Logic = Logic>(
                 Array.isArray(listener) ? listener.map((item) => wrapListener(item)) : wrapListener(listener),
             ])
         )
-    }
+    }) as LogicInput<L>['listeners']
 }
 
 export function testListeners(listenersBuilder: ListenersBuilder): ListenersBuilder {
