@@ -17,7 +17,7 @@ import jwt
 import requests
 import structlog
 from requests import JSONDecodeError
-from rest_framework.exceptions import NotAuthenticated
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
@@ -32,7 +32,9 @@ from posthog.models.team.event_retention import (
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
+from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
+from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -724,6 +726,59 @@ class BillingManager:
             # Forward the end-user's IP so billing can attach it to activity-log records.
             headers["X-PostHog-Actor-IP"] = self.ip_address
         return headers
+
+    def public_api_headers(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, str]:
+        """Headers for billing's /api/v2/billing/ routes: the PostHog-minted access token carrying the
+        caller's grants, plus the end-user IP as on every other call."""
+        headers = {"Authorization": f"Bearer {mint_billing_access_token(organization, grants, self.license)}"}
+        if self.ip_address:
+            headers["X-PostHog-Actor-IP"] = self.ip_address
+        return headers
+
+    def _public_get(
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        path: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """One read of billing's public API routes, with the envelope removed. Billing's own refusals
+        come back as the matching DRF errors, so the caller sees why."""
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{path}",
+            headers=self.public_api_headers(organization, grants),
+            params=params or None,
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
+        if res.status_code == 403:
+            raise PermissionDenied(res.json().get("detail", "You do not have access to Billing for this organization."))
+        if res.status_code == 404:
+            raise NotFound(res.json().get("detail", "Not found."))
+        handle_billing_service_error(res, valid_codes=(200,))
+        data = res.json()
+        data.pop("status", None)
+        data.pop("customer_id", None)
+        return data
+
+    def get_public_subscription(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._public_get(organization, grants, "subscription/")
+
+    def get_public_features(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._public_get(organization, grants, "features/")
+
+    def get_public_products(
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        *,
+        include_plans: bool = False,
+        product_key: str | None = None,
+    ) -> dict[str, Any]:
+        path = f"products/{product_key}/" if product_key else "products/"
+        return self._public_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
+
+    def get_public_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._public_get(organization, grants, "usage/")
 
     def get_invoices(self, organization: Organization, status: str | None):
         res = requests.get(

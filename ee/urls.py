@@ -22,7 +22,7 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, license, subscription
+from .api import authentication, billing, billing_public, conversation, core_memory, license, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
@@ -37,6 +37,9 @@ def extend_api_router() -> None:
     from ee.api import hands_free, max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
+    organizations_router.register(
+        r"billing", billing_public.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
+    )
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
