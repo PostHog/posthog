@@ -4,13 +4,13 @@ use crate::metric_record::KafkaMetricRow;
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use crate::trace_record::KafkaTraceRow;
 use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
-use anyhow::anyhow;
 use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
 use chrono::Utc;
+use common_kafka::error::error_code_tag;
 use health::HealthHandle;
 use metrics::{counter, gauge};
-use rdkafka::error::KafkaError;
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
@@ -18,6 +18,44 @@ use rdkafka::ClientConfig;
 use std::result::Result::Ok;
 use std::time::Duration;
 use tracing::log::{debug, info};
+
+#[derive(Debug, thiserror::Error)]
+pub enum SinkError {
+    #[error("avro encoding failed: {0}")]
+    Avro(#[from] apache_avro::Error),
+
+    #[error("kafka rejected the batch as too large: {0}")]
+    MessageTooLarge(KafkaError),
+
+    #[error("kafka error: {0}")]
+    Kafka(KafkaError),
+
+    #[error("kafka delivery report was cancelled")]
+    DeliveryCancelled,
+}
+
+impl From<KafkaError> for SinkError {
+    fn from(err: KafkaError) -> Self {
+        match err.rdkafka_error_code() {
+            Some(RDKafkaErrorCode::MessageSizeTooLarge) => Self::MessageTooLarge(err),
+            _ => Self::Kafka(err),
+        }
+    }
+}
+
+impl SinkError {
+    /// Metric label, drawn from the vocabulary every producer tags errors with.
+    pub fn reason(&self) -> &'static str {
+        match self {
+            Self::Avro(_) => "avro_encode",
+            Self::MessageTooLarge(_) => "message_size_too_large",
+            Self::Kafka(err) => err
+                .rdkafka_error_code()
+                .map_or("kafka_other", error_code_tag),
+            Self::DeliveryCancelled => "delivery_cancelled",
+        }
+    }
+}
 
 struct KafkaContext {
     liveness: HealthHandle,
@@ -344,7 +382,7 @@ impl KafkaSink {
         uncompressed_bytes: u64,
         records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), SinkError> {
         let schema = Schema::parse_str(avro_schema_str)?;
         let mut writer = Writer::with_codec(
             &schema,
@@ -406,11 +444,11 @@ impl KafkaSink {
                     })
             }),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
+            Err((err, _)) => Err(SinkError::from(err)),
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 
-        drop(future.await?);
+        drop(future.await.map_err(|_| SinkError::DeliveryCancelled)?);
 
         Ok(())
     }
@@ -421,7 +459,7 @@ impl KafkaSink {
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), SinkError> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -460,7 +498,7 @@ impl KafkaSink {
         rows: Vec<KafkaTraceRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), SinkError> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -490,7 +528,7 @@ impl KafkaSink {
         rows: Vec<KafkaMetricRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), SinkError> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -512,5 +550,28 @@ impl KafkaSink {
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_size_too_large_is_classified_as_too_large() {
+        let err = SinkError::from(KafkaError::MessageProduction(
+            RDKafkaErrorCode::MessageSizeTooLarge,
+        ));
+
+        assert!(matches!(err, SinkError::MessageTooLarge(_)));
+        assert_eq!(err.reason(), "message_size_too_large");
+    }
+
+    #[test]
+    fn other_produce_errors_stay_generic() {
+        let err = SinkError::from(KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull));
+
+        assert!(matches!(err, SinkError::Kafka(_)));
+        assert_eq!(err.reason(), "queue_full");
     }
 }

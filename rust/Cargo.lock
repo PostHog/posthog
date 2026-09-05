@@ -2259,6 +2259,7 @@ dependencies = [
  "common-alloc",
  "common-compression",
  "common-continuous-profiling",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "flate2",

@@ -10,6 +10,7 @@ use axum::{
 };
 use bytes::Bytes;
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
+use metrics::counter;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -19,9 +20,9 @@ use serde_json::{json, Value};
 use std::fs::File;
 use std::io::Write;
 
-use crate::kafka::KafkaSink;
+use crate::kafka::{KafkaSink, SinkError};
 
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, warn};
 
 // `patch_otel_json` normalises an OTLP/JSON payload so it can be deserialized by
 // upstream `opentelemetry-proto`'s generated types. This is a workaround layer
@@ -351,6 +352,39 @@ pub(crate) fn decode_body_if_gzip_magic(
     }
 }
 
+/// Turn a sink failure into the response the sender sees. A batch Kafka refuses as too large is
+/// the sender's to fix, so it gets a 413 and a warning rather than a 500 and an error.
+pub(crate) fn sink_rejection(
+    err: SinkError,
+    signal: Signal,
+) -> (StatusCode, Json<serde_json::Value>) {
+    counter!(
+        "capture_logs_sink_errors_total",
+        "reason" => err.reason(),
+        "signal" => signal.as_str()
+    )
+    .increment(1);
+
+    match &err {
+        SinkError::MessageTooLarge(_) => {
+            warn!("Batch too large for Kafka ({}): {err}", signal.as_str());
+            (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({
+                    "error": "Batch exceeds the maximum message size we accept. Send smaller batches."
+                })),
+            )
+        }
+        _ => {
+            error!("Failed to send {} to Kafka: {err}", signal.as_str());
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal server error"})),
+            )
+        }
+    }
+}
+
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     content_type = %headers.get("content-type")
@@ -444,14 +478,9 @@ pub async fn export_logs_http(
         .write(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
-        error!("Failed to send logs to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Internal server error")})),
-        ));
-    } else {
-        debug!("Successfully sent {} logs to Kafka", row_count);
+        return Err(sink_rejection(e, Signal::Logs));
     }
+    debug!("Successfully sent {} logs to Kafka", row_count);
 
     // Return empty JSON object per OTLP spec
     Ok(Json(json!({})))
@@ -592,14 +621,9 @@ pub async fn export_traces_http(
         .write_traces(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
-        error!("Failed to send traces to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Internal server error"})),
-        ));
-    } else {
-        debug!("Successfully sent {} traces to Kafka", row_count);
+        return Err(sink_rejection(e, Signal::Traces));
     }
+    debug!("Successfully sent {} traces to Kafka", row_count);
 
     Ok(Json(json!({})))
 }
@@ -729,17 +753,12 @@ pub async fn export_metrics_http(
         .write_metrics(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
-        error!("Failed to send metrics to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Internal server error"})),
-        ));
-    } else {
-        debug!(
-            "Successfully sent {} metric data points to Kafka",
-            row_count
-        );
+        return Err(sink_rejection(e, Signal::Metrics));
     }
+    debug!(
+        "Successfully sent {} metric data points to Kafka",
+        row_count
+    );
 
     Ok(Json(json!({})))
 }
@@ -748,6 +767,7 @@ pub async fn export_metrics_http(
 mod tests {
     use super::*;
     use flate2::{write::GzEncoder, Compression};
+    use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 
     fn gzip(data: &[u8]) -> Bytes {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -780,5 +800,25 @@ mod tests {
         let err = decode_body_if_gzip_magic(body, 1024).unwrap_err();
 
         assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn sink_rejection_answers_an_oversized_batch_with_413() {
+        let err = SinkError::MessageTooLarge(KafkaError::MessageProduction(
+            RDKafkaErrorCode::MessageSizeTooLarge,
+        ));
+
+        let (status, _) = sink_rejection(err, Signal::Logs);
+
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn sink_rejection_answers_other_kafka_errors_with_500() {
+        let err = SinkError::Kafka(KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull));
+
+        let (status, _) = sink_rejection(err, Signal::Metrics);
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
