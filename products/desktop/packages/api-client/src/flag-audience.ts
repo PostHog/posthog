@@ -2,7 +2,7 @@ import type { Schemas } from "./generated";
 
 /**
  * Who a feature flag reaches, shaped for reading rather than editing: a
- * headline sentence, the rules as a first-match-wins table where every row
+ * headline sentence, the rules as a first-match-wins list where every row
  * ends in its result, and the variant split when the flag has one.
  */
 export interface FlagAudience {
@@ -12,15 +12,11 @@ export interface FlagAudience {
   summary: string;
   disabled: boolean;
   rules: FlagRule[];
-  /** What a check returns when no rule matches. */
-  fallback: FlagResult;
-  /** False when a reachable rule already matches everyone, so the fallback row is hidden. */
+  /** False when a reachable rule already matches everyone, so the "Everyone else" row is hidden. */
   fallbackReachable: boolean;
   variants: FlagVariant[];
-  /** What a check buckets on, which decides the variant-assignment hash key. */
-  bucketing: "distinct_id" | "device_id";
-  /** The bucketing key as display text: "the distinct ID", "the device ID", "the group key". */
-  stability: string;
+  /** What the evaluator hashes on for rollouts and variant assignment. */
+  bucketing: "person" | "device" | "group";
   /** Person property checked before the rules for early access flags; null when off. */
   enrollmentKey: string | null;
   /** Experiment holdout checked before the rules; null when the flag has none. */
@@ -60,8 +56,8 @@ export interface FlagValue {
   secondary?: string;
   /** The raw id behind a resolved label. */
   raw?: string;
+  /** Set when the value is a person or cohort the card can open; absent for literals. */
   link?: { kind: "person" | "cohort"; id: string };
-  literal: boolean;
 }
 
 export interface FlagVariant {
@@ -120,56 +116,88 @@ const OPERATORS: Record<Schemas.PropertyOperator, string> = {
 };
 
 type Property = Record<string, unknown>;
+type People = Map<string, ResolvedPerson>;
 
 function isRecord(value: unknown): value is Property {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function asString(value: unknown): string | null {
-  if (typeof value === "string" && value) return value;
+  if (typeof value === "string") return value || null;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   if (typeof value === "boolean") return String(value);
   return null;
+}
+
+function asList(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return value === undefined || value === null ? [] : [value];
 }
 
 function isDistinctIdFilter(property: Property): boolean {
   return property.type === "person" && property.key === "distinct_id";
 }
 
-/** Distinct ids a flag targets directly, so the caller can resolve them to people. */
-export function targetedDistinctIds(flag: Schemas.FeatureFlag): string[] {
-  return collectDistinctIds(flag, () => true);
+function operatorLabel(
+  operator: unknown,
+  fallback: Schemas.PropertyOperator,
+): string {
+  const key = asString(operator);
+  return OPERATORS[(key ?? fallback) as Schemas.PropertyOperator] ?? key ?? "";
+}
+
+interface ConditionGroup {
+  properties: Property[];
+  rollout: number;
+  variant: string | null;
+  isGroup: boolean;
+  /** "person" or "group:<index>"; rules only shadow later rules of the same aggregation. */
+  aggregation: string;
+}
+
+function conditionGroups(flag: Schemas.FeatureFlag): ConditionGroup[] {
+  const filters = isRecord(flag.filters) ? flag.filters : {};
+  return asList(filters.groups)
+    .filter(isRecord)
+    .map((group) => {
+      // An explicit null means person-level aggregation; only an absent field
+      // inherits the flag-level group index.
+      const index =
+        group.aggregation_group_type_index !== undefined
+          ? group.aggregation_group_type_index
+          : filters.aggregation_group_type_index;
+      const isGroup = typeof index === "number";
+      return {
+        properties: asList(group.properties).filter(isRecord),
+        rollout:
+          typeof group.rollout_percentage === "number"
+            ? group.rollout_percentage
+            : 100,
+        variant: asString(group.variant),
+        isGroup,
+        aggregation: isGroup ? `group:${index}` : "person",
+      };
+    });
 }
 
 /**
- * Distinct ids a flag positively targets, so the caller can label them as
- * targeted. Excludes negative conditions such as `is not`, whose ids the rule
- * rejects; person-name resolution still uses the full list.
+ * Distinct ids a flag targets, so the caller can resolve them to people.
+ * `positiveOnly` drops negative operators such as `is not`, whose ids the
+ * rule rejects rather than targets.
  */
-export function positivelyTargetedDistinctIds(
+export function targetedDistinctIds(
   flag: Schemas.FeatureFlag,
+  positiveOnly = false,
 ): string[] {
-  return collectDistinctIds(
-    flag,
-    (operator) => operator === undefined || operator === "exact",
-  );
-}
-
-function collectDistinctIds(
-  flag: Schemas.FeatureFlag,
-  include: (operator: string | undefined) => boolean,
-): string[] {
-  const groups = conditionGroups(flag);
   const ids = new Set<string>();
-  for (const group of groups) {
+  for (const group of conditionGroups(flag)) {
     for (const property of group.properties) {
       if (!isDistinctIdFilter(property)) continue;
-      const operator = asString(property.operator) ?? undefined;
-      if (!include(operator)) continue;
-      const values = Array.isArray(property.value)
-        ? property.value
-        : [property.value];
-      for (const value of values) {
+      const operator = property.operator;
+      if (positiveOnly && operator !== undefined && operator !== "exact") {
+        continue;
+      }
+      for (const value of asList(property.value)) {
         const id = asString(value);
         if (id) ids.add(id);
       }
@@ -178,134 +206,55 @@ function collectDistinctIds(
   return [...ids];
 }
 
-interface ConditionGroup {
-  properties: Property[];
-  rollout: number;
-  variant: string | null;
-  isGroup: boolean;
-  /** The resolved aggregation index: a number for group targeting, null for person. */
-  aggregationIndex: number | null;
-}
-
-function conditionGroups(flag: Schemas.FeatureFlag): ConditionGroup[] {
-  const filters = isRecord(flag.filters) ? flag.filters : {};
-  const groups = Array.isArray(filters.groups) ? filters.groups : [];
-  const flagLevelGroupIndex = filters.aggregation_group_type_index;
-  return groups.filter(isRecord).map((group) => {
-    const rollout =
-      typeof group.rollout_percentage === "number"
-        ? group.rollout_percentage
-        : 100;
-    // An explicit null means person-level aggregation; only an absent field
-    // inherits the flag-level group index. `??` would collapse that null into
-    // the flag-level value and mislabel person rules as group rules.
-    const groupIndex =
-      group.aggregation_group_type_index !== undefined
-        ? group.aggregation_group_type_index
-        : flagLevelGroupIndex;
-    return {
-      properties: Array.isArray(group.properties)
-        ? group.properties.filter(isRecord)
-        : [],
-      rollout,
-      variant: asString(group.variant),
-      isGroup: typeof groupIndex === "number",
-      aggregationIndex: typeof groupIndex === "number" ? groupIndex : null,
-    };
-  });
-}
-
-function shapeValues(
-  property: Property,
-  people: Map<string, ResolvedPerson>,
-): FlagValue[] {
-  if (property.type === "cohort") {
-    const id = asString(property.value) ?? "";
-    const name = asString(property.cohort_name);
-    return [
-      {
-        label: name ?? `Cohort ${id}`,
-        raw: name ? id : undefined,
-        link: id ? { kind: "cohort", id } : undefined,
-        literal: false,
-      },
-    ];
-  }
-  const raw = Array.isArray(property.value)
-    ? property.value
-    : property.value === undefined || property.value === null
-      ? []
-      : [property.value];
-  const distinctId = isDistinctIdFilter(property);
-  return raw.flatMap((entry): FlagValue[] => {
-    const value = asString(entry);
-    if (!value) return [];
-    if (distinctId) {
-      const person = people.get(value);
-      if (person) {
-        return [
-          {
-            label: person.name,
-            secondary:
-              person.email && person.email !== person.name
-                ? person.email
-                : undefined,
-            raw: value,
-            link: { kind: "person", id: person.uuid },
-            literal: false,
-          },
-        ];
-      }
-      return [{ label: value, literal: true }];
-    }
-    return [{ label: value, literal: true }];
-  });
-}
-
 function shapeCondition(
   property: Property,
   isGroup: boolean,
-  people: Map<string, ResolvedPerson>,
+  people: People,
 ): FlagCondition | null {
-  const operatorKey = asString(property.operator);
-  const values = shapeValues(property, people);
   if (property.type === "cohort") {
+    const id = asString(property.value) ?? "";
+    const name = asString(property.cohort_name);
     return {
       subject: isGroup ? "Group" : "Person",
-      operator:
-        OPERATORS[(operatorKey ?? "in") as Schemas.PropertyOperator] ??
-        "in cohort",
-      values,
+      operator: operatorLabel(property.operator, "in"),
+      values: [
+        {
+          label: name ?? `Cohort ${id}`,
+          raw: id,
+          link: id ? { kind: "cohort", id } : undefined,
+        },
+      ],
     };
   }
+  const distinctId = isDistinctIdFilter(property);
+  const values = asList(property.value).flatMap((entry): FlagValue[] => {
+    const value = asString(entry);
+    if (!value) return [];
+    const person = distinctId ? people.get(value) : undefined;
+    if (!person) return [{ label: value }];
+    return [
+      {
+        label: person.name,
+        secondary:
+          person.email && person.email !== person.name
+            ? person.email
+            : undefined,
+        raw: value,
+        link: { kind: "person", id: person.uuid },
+      },
+    ];
+  });
   if (property.type === "flag") {
     return {
       subject: "Flag",
       operator: OPERATORS.flag_evaluates_to,
-      values: [
-        { label: asString(property.key) ?? "", literal: true },
-        ...values,
-      ],
+      values: [{ label: asString(property.key) ?? "" }, ...values],
     };
   }
-  if (isDistinctIdFilter(property)) {
-    return {
-      subject: "Person",
-      operator:
-        OPERATORS[(operatorKey ?? "exact") as Schemas.PropertyOperator] ?? "is",
-      values,
-    };
-  }
+  const operator = operatorLabel(property.operator, "exact");
+  if (distinctId) return { subject: "Person", operator, values };
   const key = asString(property.key);
-  if (!key) return null;
-  return {
-    subject: key,
-    operator:
-      OPERATORS[(operatorKey ?? "exact") as Schemas.PropertyOperator] ??
-      operatorKey ??
-      "is",
-    values,
-  };
+  return key ? { subject: key, operator, values } : null;
 }
 
 interface Audience {
@@ -319,276 +268,137 @@ interface Audience {
 function describeAudience(
   rule: FlagRule,
   group: ConditionGroup,
-  people: Map<string, ResolvedPerson>,
-  deviceBucketed: boolean,
+  people: People,
+  bucketing: FlagAudience["bucketing"],
 ): Audience {
-  const noun = group.isGroup ? "groups" : "people";
   const share = rule.share < 100 ? `${rule.share}% of ` : "";
+  const noun = group.isGroup ? "groups" : "people";
   if (rule.conditions.length === 0) {
-    if (rule.share < 100) {
-      return { label: `${rule.share}% of ${noun}`, plural: true };
-    }
+    if (share) return { label: `${share}${noun}`, plural: true };
     // A group rule still needs a group key, and a device-bucketed rule still
     // needs a device ID, so "everyone" would overstate who matches.
-    if (rule.isGroup) {
-      return { label: "every group", plural: true };
-    }
-    if (deviceBucketed) {
-      return { label: "every device", plural: true };
-    }
-    // "everyone" takes a singular verb in the summary sentence.
+    if (group.isGroup) return { label: "every group", plural: true };
+    if (bucketing === "device") return { label: "every device", plural: true };
     return { label: "everyone", plural: false };
   }
+  const [condition] = rule.conditions;
+  const [property] = group.properties;
   if (rule.conditions.length === 1 && group.properties.length === 1) {
-    const [condition] = rule.conditions;
-    const [property] = group.properties;
-    if (
-      property &&
-      isDistinctIdFilter(property) &&
-      condition.operator === "is"
-    ) {
-      const n = condition.values.length;
-      if (n === 1) {
-        const person = people.get(condition.values[0].raw ?? "");
-        const who = person ? person.name : "one person";
-        // The rollout is a per-identifier hash: a named person is either in
-        // or out, never a fraction, so the share stays on the rule row.
-        return {
-          label: who,
-          plural: false,
-          sentence:
-            rule.share < 100
-              ? `${who} is targeted, and the ${rule.share}% rollout hash decides.`
-              : undefined,
-        };
-      }
-      return { label: `${share}${n} people`, plural: true };
+    if (isDistinctIdFilter(property) && condition.operator === "is") {
+      const count = condition.values.length;
+      if (count > 1) return { label: `${share}${count} people`, plural: true };
+      const who =
+        people.get(condition.values[0]?.raw ?? "")?.name ?? "one person";
+      // The rollout hashes the identifier: a named person is either in or
+      // out, never a fraction, so the share stays on the rule row.
+      return {
+        label: who,
+        plural: false,
+        sentence: share
+          ? `${who} is targeted, and the ${rule.share}% rollout hash decides.`
+          : undefined,
+      };
     }
-    if (property?.type === "cohort" && condition.operator === "in cohort") {
+    if (property.type === "cohort" && condition.operator === "in cohort") {
       return {
         label: `${share}${condition.values[0]?.label ?? "a cohort"}`,
         plural: true,
       };
     }
   }
-  const conditions =
+  const count =
     rule.conditions.length === 1
       ? "one condition"
       : `${rule.conditions.length} conditions`;
-  return { label: `${share}${noun} matching ${conditions}`, plural: true };
+  return { label: `${share}${noun} matching ${count}`, plural: true };
 }
 
+const RESULT_WORDS = {
+  true: "true",
+  false: "false",
+  split: "a variant",
+  payload: "the payload",
+};
+
 function describeResult(result: FlagResult): string {
-  switch (result.kind) {
-    case "true":
-      return "true";
-    case "false":
-      return "false";
-    case "variant":
-      return result.key;
-    case "split":
-      return "a variant";
-    case "payload":
-      return "the payload";
-  }
+  return result.kind === "variant" ? result.key : RESULT_WORDS[result.kind];
 }
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function joinAudiences(labels: string[]): string {
-  if (labels.length <= 1) return labels[0] ?? "everyone";
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
-  return `${labels.length} audiences`;
-}
+type Shape = Omit<FlagAudience, "headline" | "summary">;
 
-/**
- * A reachable rule with no conditions at 100% matches every evaluable check,
- * leaving nobody for the fallback. Group rules still need a group key and
- * device-bucketed rules still need a device ID, so those keep the fallback.
- */
-function catchAllRule(rule: FlagRule, deviceBucketed: boolean): boolean {
-  return (
-    rule.reachable &&
-    rule.conditions.length === 0 &&
-    rule.share === 100 &&
-    !rule.isGroup &&
-    !deviceBucketed
-  );
-}
-
-export function shapeFlagAudience(
-  flag: Schemas.FeatureFlag,
-  people: Map<string, ResolvedPerson> = new Map(),
-): FlagAudience {
-  const filters = isRecord(flag.filters) ? flag.filters : {};
-  const multivariate = isRecord(filters.multivariate)
-    ? filters.multivariate
-    : null;
-  const payloads = isRecord(filters.payloads) ? filters.payloads : {};
-  const variants: FlagVariant[] = Array.isArray(multivariate?.variants)
-    ? multivariate.variants.filter(isRecord).flatMap((variant) => {
-        const key = asString(variant.key);
-        if (!key) return [];
-        return [
-          {
-            key,
-            percentage:
-              typeof variant.rollout_percentage === "number"
-                ? variant.rollout_percentage
-                : 0,
-            payload: asString(payloads[key]),
-          },
-        ];
-      })
-    : [];
-  const isRemoteConfig = flag.is_remote_configuration === true;
-  const disabled = flag.active === false;
-  const groups = conditionGroups(flag);
-  const deviceBucketed = filters.bucketing_identifier === "device_id";
-  // The variant hash key follows the bucketing identifier: device id when set,
-  // the group key for group-aggregated rules, otherwise the distinct ID.
-  const stability = deviceBucketed
-    ? "the device ID"
-    : groups.some((group) => group.isGroup)
-      ? "the group key"
-      : "the distinct ID";
-  const bucketing: FlagAudience["bucketing"] = deviceBucketed
-    ? "device_id"
-    : "distinct_id";
-
-  const matchResult = (variant: string | null): FlagResult => {
-    if (isRemoteConfig) return { kind: "payload" };
-    if (variant) return { kind: "variant", key: variant };
-    if (variants.length > 0) return { kind: "split" };
-    return { kind: "true" };
-  };
-
-  const holdoutRecord = isRecord(filters.holdout) ? filters.holdout : null;
-  const holdout: FlagAudience["holdout"] = holdoutRecord
-    ? {
-        id: asString(holdoutRecord.id) ?? "",
-        exclusionPercentage: Math.min(
-          Math.max(
-            typeof holdoutRecord.exclusion_percentage === "number"
-              ? holdoutRecord.exclusion_percentage
-              : 0,
-            0,
-          ),
-          100,
-        ),
-      }
-    : null;
-
-  // Early access flags check the enrollment person property before any rule:
-  // a true value returns true immediately, any other present value returns
-  // false, and an absent value falls through to the rules below.
-  const enrollmentKey =
-    filters.feature_enrollment === true
-      ? `$feature_enrollment/${flag.key}`
-      : null;
-
-  const rules: FlagRule[] = groups.map((group) => ({
-    conditions: group.properties.flatMap((property) => {
-      const condition = shapeCondition(property, group.isGroup, people);
-      return condition ? [condition] : [];
-    }),
-    share: group.rollout,
-    result: matchResult(group.variant),
-    reachable: true,
-    isGroup: group.isGroup,
-  }));
-  // The evaluator checks condition sets in declaration order and returns on
-  // the first match, so an empty condition set at 100% shadows every later
-  // set of the same aggregation. Mirrors the web flag page's own warning.
-  const shadowedAggregations = new Set<string>();
-  groups.forEach((group, index) => {
-    const aggregation =
-      typeof group.aggregationIndex === "number"
-        ? `group:${group.aggregationIndex}`
-        : "person";
-    if (shadowedAggregations.has(aggregation)) {
-      rules[index].reachable = false;
-      return;
-    }
-    if (rules[index].conditions.length === 0 && group.rollout >= 100) {
-      shadowedAggregations.add(aggregation);
-    }
-  });
-  const fallback: FlagResult = { kind: "false" };
-
-  if (disabled) {
+function describeFlag(
+  shape: Shape,
+  groups: ConditionGroup[],
+  people: People,
+  remoteConfig: boolean,
+): Pick<FlagAudience, "headline" | "summary"> {
+  if (shape.disabled) {
     return {
       headline: "Off for everyone.",
       summary: "The flag is disabled, so every check returns false.",
-      disabled,
-      rules,
-      fallback,
-      fallbackReachable: !rules.some((rule) =>
-        catchAllRule(rule, deviceBucketed),
-      ),
-      variants,
-      bucketing,
-      stability,
-      enrollmentKey,
-      holdout,
     };
   }
-
-  if (rules.length === 0) {
-    // The evaluator skips the condition loop on empty groups and returns
-    // false, so clearing targeting turns the flag off for everybody.
+  // The evaluator skips the condition loop on empty groups and returns false,
+  // so clearing targeting turns the flag off for everybody.
+  if (shape.rules.length === 0) {
     return {
-      headline: isRemoteConfig
-        ? "Sends a payload to nobody."
-        : "On for nobody.",
+      headline: remoteConfig ? "Sends a payload to nobody." : "On for nobody.",
       summary:
         "The flag has no release conditions, so every check returns false.",
-      disabled,
-      rules,
-      fallback,
-      fallbackReachable: true,
-      variants,
-      bucketing,
-      stability,
-      enrollmentKey,
-      holdout,
     };
   }
-
-  const live = rules.filter((rule) => rule.share > 0 && rule.reachable);
+  const live = shape.rules.filter((rule) => rule.share > 0 && rule.reachable);
   if (live.length === 0) {
     return {
       headline: "On for nobody yet.",
       summary:
         "Rules are defined, but rollout is 0%, so every check returns false.",
-      disabled,
-      rules,
-      fallback,
-      fallbackReachable: true,
-      variants,
-      bucketing,
-      stability,
-      enrollmentKey,
-      holdout,
     };
   }
 
   const audiences = live.map((rule) =>
-    describeAudience(rule, groups[rules.indexOf(rule)], people, deviceBucketed),
+    describeAudience(
+      rule,
+      groups[shape.rules.indexOf(rule)],
+      people,
+      shape.bucketing,
+    ),
   );
-  const who = joinAudiences(audiences.map((audience) => audience.label));
-  const headline = isRemoteConfig
+  const labels = audiences.map((audience) => audience.label);
+  const who =
+    labels.length === 1
+      ? labels[0]
+      : labels.length === 2
+        ? `${labels[0]} and ${labels[1]}`
+        : `${labels.length} audiences`;
+  const headline = remoteConfig
     ? `Sends a payload to ${who}.`
-    : variants.length > 0
-      ? `Split into ${variants.length} variants for ${who}.`
+    : shape.variants.length > 0
+      ? `Split into ${shape.variants.length} variants for ${who}.`
       : `On for ${who}.`;
 
-  const sentences = live.slice(0, 2).map((rule, index) => {
-    const audience = audiences[index];
-    if (audience.sentence) return audience.sentence;
-    return `${capitalize(audience.label)} ${audience.plural ? "get" : "gets"} ${describeResult(rule.result)}.`;
+  // The evaluator resolves enrollment and the holdout before the rules, so
+  // those sentences come first.
+  const sentences: string[] = [];
+  if (shape.enrollmentKey) {
+    sentences.push(
+      `${shape.enrollmentKey} overrides these rules: a true value always gets true, and any other value gets false.`,
+    );
+  } else if (shape.holdout) {
+    sentences.push(
+      `${shape.holdout.exclusionPercentage}% of people are held out for experiment ${shape.holdout.id} and get holdout-${shape.holdout.id}.`,
+    );
+  }
+  live.slice(0, 2).forEach((rule, index) => {
+    const { label, plural, sentence } = audiences[index];
+    sentences.push(
+      sentence ??
+        `${capitalize(label)} ${plural ? "get" : "gets"} ${describeResult(rule.result)}.`,
+    );
   });
   if (live.length > 2) {
     const more = live.length - 2;
@@ -596,49 +406,115 @@ export function shapeFlagAudience(
       `${more} more ${more === 1 ? "rule applies" : "rules apply"}.`,
     );
   }
-  const fallbackReachable = !rules.some((rule) =>
-    catchAllRule(rule, deviceBucketed),
-  );
-  // The evaluator resolves enrollment and the holdout before the rules, so
-  // those sentences come first.
-  const overrideSentences: string[] = [];
-  if (enrollmentKey) {
-    overrideSentences.push(
-      `${enrollmentKey} overrides these rules: a true value always gets true, and any other value gets false.`,
-    );
-  } else if (holdout) {
-    overrideSentences.push(
-      `${holdout.exclusionPercentage}% of people are held out for experiment ${holdout.id} and get holdout-${holdout.id}.`,
+  if (shape.fallbackReachable && !shape.enrollmentKey) {
+    sentences.push(
+      shape.bucketing === "person"
+        ? "Everyone else gets false."
+        : "A check without its bucketing key still gets false.",
     );
   }
-  const allSentences = [...overrideSentences, ...sentences];
-  if (fallbackReachable && !enrollmentKey) {
-    allSentences.push(
-      deviceBucketed || rules.some((rule) => rule.isGroup)
-        ? "A check without its bucketing key still gets false."
-        : "Everyone else gets false.",
-    );
-  }
+  return { headline, summary: sentences.join(" ") };
+}
 
-  return {
-    headline,
-    summary: allSentences.join(" "),
-    disabled,
+export function shapeFlagAudience(
+  flag: Schemas.FeatureFlag,
+  people: People = new Map(),
+): FlagAudience {
+  const filters = isRecord(flag.filters) ? flag.filters : {};
+  const payloads = isRecord(filters.payloads) ? filters.payloads : {};
+  const multivariate = isRecord(filters.multivariate)
+    ? filters.multivariate
+    : {};
+  const variants = asList(multivariate.variants)
+    .filter(isRecord)
+    .flatMap((variant): FlagVariant[] => {
+      const key = asString(variant.key);
+      if (!key) return [];
+      const percentage = variant.rollout_percentage;
+      return [
+        {
+          key,
+          percentage: typeof percentage === "number" ? percentage : 0,
+          payload: asString(payloads[key]),
+        },
+      ];
+    });
+  const remoteConfig = flag.is_remote_configuration === true;
+  const groups = conditionGroups(flag);
+  const deviceBucketed = filters.bucketing_identifier === "device_id";
+  const bucketing: FlagAudience["bucketing"] = deviceBucketed
+    ? "device"
+    : groups.some((group) => group.isGroup)
+      ? "group"
+      : "person";
+  const resultFor = (variant: string | null): FlagResult => {
+    if (remoteConfig) return { kind: "payload" };
+    if (variant) return { kind: "variant", key: variant };
+    return variants.length > 0 ? { kind: "split" } : { kind: "true" };
+  };
+
+  // The evaluator checks condition sets in order and returns on the first
+  // match, so an empty set at 100% shadows every later set of the same
+  // aggregation. Mirrors the web flag page's own warning.
+  const shadowed = new Set<string>();
+  const rules = groups.map((group): FlagRule => {
+    const reachable = !shadowed.has(group.aggregation);
+    const conditions = group.properties.flatMap(
+      (property) => shapeCondition(property, group.isGroup, people) ?? [],
+    );
+    if (conditions.length === 0 && group.rollout >= 100) {
+      shadowed.add(group.aggregation);
+    }
+    return {
+      conditions,
+      share: group.rollout,
+      result: resultFor(group.variant),
+      reachable,
+      isGroup: group.isGroup,
+    };
+  });
+  // A reachable catch-all leaves nobody for the fallback. Group rules still
+  // need a group key and device-bucketed rules a device ID, so those keep it.
+  const catchAll =
+    !deviceBucketed &&
+    rules.some(
+      (rule) =>
+        rule.reachable &&
+        !rule.isGroup &&
+        rule.conditions.length === 0 &&
+        rule.share === 100,
+    );
+
+  const holdoutRecord = isRecord(filters.holdout) ? filters.holdout : null;
+  const exclusion = holdoutRecord?.exclusion_percentage;
+  const shape: Shape = {
+    disabled: flag.active === false,
     rules,
-    fallback,
-    fallbackReachable,
+    fallbackReachable: !catchAll,
     variants,
     bucketing,
-    stability,
-    enrollmentKey,
-    holdout,
+    // Early access flags check the enrollment person property before any
+    // rule: true returns true, any other present value returns false.
+    enrollmentKey:
+      filters.feature_enrollment === true
+        ? `$feature_enrollment/${flag.key}`
+        : null,
+    holdout: holdoutRecord
+      ? {
+          id: asString(holdoutRecord.id) ?? "",
+          exclusionPercentage: Math.min(
+            Math.max(typeof exclusion === "number" ? exclusion : 0, 0),
+            100,
+          ),
+        }
+      : null,
   };
+  return { ...shape, ...describeFlag(shape, groups, people, remoteConfig) };
 }
 
 /** Short "Reach" label for the stat strip: "1 person", "25% of a cohort", "Everyone". */
 export function flagReachLabel(audience: FlagAudience): string {
   if (audience.disabled) return "Nobody";
   const match = audience.headline.match(/(?:for|to) (.+)\.$/);
-  if (!match) return "Everyone";
-  return capitalize(match[1]);
+  return match ? capitalize(match[1]) : "Everyone";
 }

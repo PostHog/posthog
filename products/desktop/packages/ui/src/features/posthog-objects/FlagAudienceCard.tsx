@@ -9,7 +9,6 @@ import {
 } from "@phosphor-icons/react";
 import type {
   FlagAudience,
-  FlagCondition,
   FlagResult,
   FlagRule,
   FlagValue,
@@ -34,19 +33,81 @@ function variantColor(variants: FlagVariant[], key: string): string {
   return VARIANT_COLORS[Math.max(index, 0) % VARIANT_COLORS.length];
 }
 
-/** The width of the step gutter; the connector line is centered in it. */
-const GUTTER = "grid-cols-[28px_minmax(0,1fr)_auto]";
+const HASH_KEY: Record<FlagAudience["bucketing"], string> = {
+  person: "the distinct ID",
+  device: "the device ID",
+  group: "the group key",
+};
 
-function EntityChip({ value }: { value: FlagValue }) {
+/** Gutter, conditions, result. The connector line is centered in the gutter. */
+const COLUMNS = "grid-cols-[28px_minmax(0,1fr)_auto]";
+const CHIP =
+  "inline-flex max-w-full items-center gap-1 rounded border border-border bg-card px-1.5 text-xs leading-[18px]";
+const PILL =
+  "inline-flex h-5 items-center gap-1.5 rounded border border-border bg-card px-1.5 font-semibold text-xs";
+
+function Eyebrow({ children }: { children: ReactNode }) {
+  return (
+    <Text
+      variant="muted"
+      className="block font-semibold text-[11px] uppercase tracking-wider"
+    >
+      {children}
+    </Text>
+  );
+}
+
+function Dot({
+  color,
+  className = "size-2",
+}: {
+  color: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`shrink-0 rounded-full ${className}`}
+      style={{ background: color }}
+    />
+  );
+}
+
+function SplitBar({
+  variants,
+  className,
+}: {
+  variants: FlagVariant[];
+  className: string;
+}) {
+  return (
+    <span className={`flex gap-px overflow-hidden rounded-full ${className}`}>
+      {variants.map((variant) => (
+        <span
+          key={variant.key}
+          className="h-full"
+          title={`${variant.key} · ${variant.percentage}%`}
+          style={{
+            width: `${variant.percentage}%`,
+            background: variantColor(variants, variant.key),
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function ValueChip({ value }: { value: FlagValue }) {
   const link = value.link;
-  const url = useEvidenceUrl(link?.kind ?? "person", link?.id ?? "");
+  const evidenceUrl = useEvidenceUrl(link?.kind ?? "person", link?.id ?? "");
+  const url = link ? evidenceUrl : null;
   const Icon = link?.kind === "cohort" ? UsersThreeIcon : UserIcon;
   // Narrow panels clip the row, so the chip shrinks with an ellipsis and the
   // hover title carries the full label plus the secondary value.
   const title = [value.label, value.secondary].filter(Boolean).join(" · ");
+  const className = `${CHIP} ${link ? "font-medium" : "font-mono"}`;
   const body = (
     <>
-      <Icon size={11} className="shrink-0 text-muted-foreground" />
+      {link && <Icon size={11} className="shrink-0 text-muted-foreground" />}
       <span className="min-w-0 truncate">{value.label}</span>
       {value.secondary && (
         <span className="min-w-0 truncate font-normal text-muted-foreground">
@@ -61,11 +122,9 @@ function EntityChip({ value }: { value: FlagValue }) {
       )}
     </>
   );
-  const className =
-    "inline-flex max-w-full items-center gap-1 rounded border border-border bg-card px-1.5 font-medium text-foreground text-xs leading-[18px]";
   if (!url) {
     return (
-      <span className={className} title={title || value.raw}>
+      <span className={className} title={title}>
         {body}
       </span>
     );
@@ -74,42 +133,11 @@ function EntityChip({ value }: { value: FlagValue }) {
     <button
       type="button"
       className={`${className} cursor-pointer transition-colors hover:bg-muted`}
-      title={title || value.raw}
+      title={title}
       onClick={() => openExternalUrl(url)}
     >
       {body}
     </button>
-  );
-}
-
-function ValueChip({ value }: { value: FlagValue }) {
-  if (value.link) return <EntityChip value={value} />;
-  return (
-    <span
-      className={`inline-flex max-w-full items-center truncate rounded border border-border bg-card px-1.5 text-xs leading-[18px] ${value.literal ? "font-mono" : "font-medium"}`}
-      title={value.label}
-    >
-      {value.label}
-    </span>
-  );
-}
-
-function ConditionLine({
-  condition,
-  first,
-}: {
-  condition: FlagCondition;
-  first: boolean;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-      {!first && <span className="text-muted-foreground">and</span>}
-      <span className="font-medium text-foreground">{condition.subject}</span>
-      <span className="text-muted-foreground">{condition.operator}</span>
-      {condition.values.map((value, index) => (
-        <ValueChip key={`${value.label}:${index}`} value={value} />
-      ))}
-    </div>
   );
 }
 
@@ -120,67 +148,31 @@ function ResultPill({
   result: FlagResult;
   variants: FlagVariant[];
 }) {
-  const base =
-    "inline-flex h-5 items-center gap-1.5 rounded border px-1.5 font-semibold text-xs";
-  switch (result.kind) {
-    case "true":
-      return (
-        <span
-          className={`${base} border-border bg-card font-mono text-(--green-11)`}
-        >
-          true
-        </span>
-      );
-    case "false":
-      return (
-        <span
-          className={`${base} border-border bg-card font-mono text-muted-foreground`}
-        >
-          false
-        </span>
-      );
-    case "payload":
-      return (
-        <span className={`${base} border-border bg-card text-foreground`}>
-          payload
-        </span>
-      );
-    case "variant":
-      return (
-        <span
-          className={`${base} border-border bg-card font-mono text-foreground`}
-        >
-          <span
-            className="size-2 shrink-0 rounded-full"
-            style={{ background: variantColor(variants, result.key) }}
-          />
-          {result.key}
-        </span>
-      );
-    case "split":
-      return (
-        <span
-          className={`${base} border-border bg-card text-foreground`}
-          title={variants
-            .map((variant) => `${variant.key} ${variant.percentage}%`)
-            .join(" · ")}
-        >
-          <span className="flex h-2 w-7 gap-px overflow-hidden rounded-full">
-            {variants.map((variant) => (
-              <span
-                key={variant.key}
-                className="h-full"
-                style={{
-                  width: `${variant.percentage}%`,
-                  background: variantColor(variants, variant.key),
-                }}
-              />
-            ))}
-          </span>
-          {variants.length} variants
-        </span>
-      );
+  if (result.kind === "split") {
+    return (
+      <span
+        className={PILL}
+        title={variants.map((v) => `${v.key} ${v.percentage}%`).join(" · ")}
+      >
+        <SplitBar variants={variants} className="h-2 w-7" />
+        {variants.length} variants
+      </span>
+    );
   }
+  const tone = {
+    true: "font-mono text-(--green-11)",
+    false: "font-mono text-muted-foreground",
+    variant: "font-mono",
+    payload: "",
+  }[result.kind];
+  return (
+    <span className={`${PILL} ${tone}`}>
+      {result.kind === "variant" && (
+        <Dot color={variantColor(variants, result.key)} />
+      )}
+      {result.kind === "variant" ? result.key : result.kind}
+    </span>
+  );
 }
 
 /** A tiny meter next to a partial rollout, so the share is read at a glance. */
@@ -202,35 +194,33 @@ function ShareMeter({ share }: { share: number }) {
 }
 
 /**
- * One row of the evaluation flow. The gutter draws the connector line and a
- * marker; `position` trims the line at the top and bottom of the flow.
+ * One step of the evaluation flow. Steps are siblings in one list, so CSS
+ * trims the connector line at the first and last step.
  */
-function FlowRow({
+function Step({
   marker,
-  position,
   muted,
-  children,
   result,
+  children,
 }: {
   marker: ReactNode;
-  position: "first" | "middle" | "last" | "only";
   muted?: boolean;
-  children: ReactNode;
   result?: ReactNode;
+  children: ReactNode;
 }) {
-  const lineTop =
-    position === "first" || position === "only" ? "top-1/2" : "top-0";
-  const lineBottom =
-    position === "last" || position === "only" ? "bottom-1/2" : "bottom-0";
   return (
     <div
-      className={`@container relative grid ${GUTTER} @max-[560px]:grid-cols-[28px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-3 py-3 ${muted ? "text-muted-foreground" : ""}`}
+      className={`group @container relative grid ${COLUMNS} @max-[560px]:grid-cols-[28px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-3 py-3 ${muted ? "text-muted-foreground" : ""}`}
     >
       <span
         aria-hidden
-        className={`absolute left-[25px] ${lineTop} ${lineBottom} w-px bg-border`}
+        className="absolute top-0 bottom-0 left-[25px] w-px bg-border group-first:top-1/2 group-last:bottom-1/2"
       />
-      <span className="relative z-10 flex justify-center">{marker}</span>
+      <span
+        className={`relative z-10 flex size-6 items-center justify-center justify-self-center rounded-full border border-border bg-card font-semibold text-[11px] tabular-nums shadow-xs ${muted ? "border-dashed" : ""}`}
+      >
+        {marker}
+      </span>
       <div className="flex min-w-0 flex-col gap-1.5 text-[13px]">
         {children}
       </div>
@@ -243,176 +233,62 @@ function FlowRow({
   );
 }
 
-function StepMarker({
-  children,
-  tone = "default",
-}: {
-  children: ReactNode;
-  tone?: "default" | "muted";
-}) {
-  const tones = {
-    default: "border-border bg-card text-foreground",
-    muted: "border-dashed border-border bg-card text-muted-foreground",
-  };
-  return (
-    <span
-      className={`flex size-6 items-center justify-center rounded-full border font-semibold text-[11px] tabular-nums shadow-xs ${tones[tone]}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function RuleRow({
+function RuleStep({
   index,
   rule,
-  variants,
-  bucketing,
-  position,
+  audience,
 }: {
   index: number;
   rule: FlagRule;
-  variants: FlagVariant[];
-  bucketing: FlagAudience["bucketing"];
-  position: "first" | "middle" | "last" | "only";
+  audience: FlagAudience;
 }) {
-  const unreachable = rule.reachable === false;
   const everyone = rule.isGroup
     ? "Every group"
-    : bucketing === "device_id"
+    : audience.bucketing === "device"
       ? "Every device"
       : "Everyone";
   return (
-    <FlowRow
-      marker={
-        <StepMarker tone={unreachable ? "muted" : "default"}>
-          {index + 1}
-        </StepMarker>
-      }
-      position={position}
-      muted={unreachable}
+    <Step
+      marker={index + 1}
+      muted={!rule.reachable}
       result={
         <>
-          {rule.share < 100 && !unreachable && (
+          {rule.share < 100 && rule.reachable && (
             <ShareMeter share={rule.share} />
           )}
-          <span className={unreachable ? "opacity-50" : ""}>
-            <ResultPill result={rule.result} variants={variants} />
+          <span className={rule.reachable ? "" : "opacity-50"}>
+            <ResultPill result={rule.result} variants={audience.variants} />
           </span>
         </>
       }
     >
-      {unreachable && (
-        <span className="text-[11px] text-muted-foreground">
+      {!rule.reachable && (
+        <span className="text-[11px]">
           Never reached. An earlier rule already matches everyone.
         </span>
       )}
-      {rule.conditions.length === 0 ? (
+      {rule.conditions.length === 0 && (
         <span className="font-medium">{everyone}</span>
-      ) : (
-        rule.conditions.map((condition, conditionIndex) => (
-          <ConditionLine
-            key={`${condition.subject}:${conditionIndex}`}
-            condition={condition}
-            first={conditionIndex === 0}
-          />
-        ))
       )}
-    </FlowRow>
-  );
-}
-
-function VariantsSection({
-  variants,
-  stability,
-  holdout,
-}: {
-  variants: FlagVariant[];
-  stability: FlagAudience["stability"];
-  holdout: FlagAudience["holdout"];
-}) {
-  return (
-    <div className="mt-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <Text
-          variant="muted"
-          className="block font-semibold text-[11px] uppercase tracking-wider"
+      {rule.conditions.map((condition, conditionIndex) => (
+        <div
+          key={`${condition.subject}:${conditionIndex}`}
+          className="flex flex-wrap items-center gap-x-1.5 gap-y-1"
         >
-          Variant split
-        </Text>
-        <Text variant="muted" className="text-xs">
-          Assigned by a stable hash of {stability}
-        </Text>
-      </div>
-      <div className="mt-2.5 flex h-2.5 gap-0.5 overflow-hidden rounded-full">
-        {variants.map((variant) => (
-          <span
-            key={variant.key}
-            className="h-full first:rounded-l-full last:rounded-r-full"
-            title={`${variant.key} · ${variant.percentage}%`}
-            style={{
-              width: `${variant.percentage}%`,
-              background: variantColor(variants, variant.key),
-            }}
-          />
-        ))}
-      </div>
-      <div className="mt-3 grid @[560px]:grid-cols-2 gap-x-6 gap-y-2">
-        {variants.map((variant) => (
-          <div
-            key={variant.key}
-            className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 text-[13px]"
-          >
-            <span
-              className="size-2.5 rounded-full"
-              style={{ background: variantColor(variants, variant.key) }}
-            />
-            <span className="flex min-w-0 items-baseline gap-2">
-              <span className="font-mono font-semibold text-xs">
-                {variant.key}
-              </span>
-              {variant.payload && (
-                <code
-                  title={variant.payload}
-                  className="min-w-0 truncate rounded bg-muted px-1 font-mono text-[11px] text-muted-foreground"
-                >
-                  {variant.payload}
-                </code>
-              )}
-            </span>
-            <span className="font-semibold tabular-nums">
-              {variant.percentage}%
-            </span>
-          </div>
-        ))}
-      </div>
-      {holdout && (
-        <Text variant="muted" className="mt-2.5 block text-xs">
-          {holdout.exclusionPercentage}% of people receive{" "}
-          <span className="font-mono">holdout-{holdout.id}</span> instead of a
-          variant.
-        </Text>
-      )}
-    </div>
+          {conditionIndex > 0 && (
+            <span className="text-muted-foreground">and</span>
+          )}
+          <span className="font-medium text-foreground">
+            {condition.subject}
+          </span>
+          <span className="text-muted-foreground">{condition.operator}</span>
+          {condition.values.map((value, valueIndex) => (
+            <ValueChip key={`${value.label}:${valueIndex}`} value={value} />
+          ))}
+        </div>
+      ))}
+    </Step>
   );
-}
-
-/** Rules have no id; conditions plus position keep keys stable across refetches. */
-function ruleKey(rule: FlagRule, index: number): string {
-  const conditions = rule.conditions
-    .map((condition) => `${condition.subject} ${condition.operator}`)
-    .join("|");
-  return `${index}:${conditions}`;
-}
-
-function flowPosition(
-  index: number,
-  total: number,
-): "first" | "middle" | "last" | "only" {
-  if (total === 1) return "only";
-  if (index === 0) return "first";
-  if (index === total - 1) return "last";
-  return "middle";
 }
 
 /**
@@ -428,36 +304,17 @@ export function FlagAudienceCard({
   /** Rendered beside the eyebrow; the page passes the edit-in-task control. */
   action?: ReactNode;
 }) {
-  // Pre-checks and the fallback are steps in the same flow as the rules, so
-  // they share one index space for the connector line.
-  const preChecks = [
-    audience.enrollmentKey ? "enrollment" : null,
-    audience.holdout ? "holdout" : null,
-  ].filter((step): step is "enrollment" | "holdout" => step !== null);
-  const stepCount =
-    preChecks.length +
-    audience.rules.length +
-    (audience.fallbackReachable ? 1 : 0);
-  let step = 0;
-  const nextPosition = () => flowPosition(step++, stepCount);
-
+  const { holdout, variants } = audience;
   return (
     <Card size="sm" className="overflow-hidden">
       <CardContent className="p-0">
-        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-5 pt-4 pb-4">
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-5 py-4">
           <div className="min-w-0 flex-1 basis-64">
-            <Text
-              variant="muted"
-              className="block font-semibold text-[11px] uppercase tracking-wider"
-            >
-              Who gets this
-            </Text>
+            <Eyebrow>Who gets this</Eyebrow>
             <div className="mt-1.5 flex items-start gap-2.5">
-              <span
-                aria-hidden
-                className={`mt-2 size-2.5 shrink-0 rounded-full ${
-                  audience.disabled ? "bg-(--gray-8)" : "bg-(--green-9)"
-                }`}
+              <Dot
+                color={audience.disabled ? "var(--gray-8)" : "var(--green-9)"}
+                className="mt-2 size-2.5"
               />
               <h2 className="font-semibold text-foreground text-xl leading-tight tracking-tight">
                 {audience.headline}
@@ -473,9 +330,7 @@ export function FlagAudienceCard({
         {audience.disabled && (
           <div className="flex items-center gap-2.5 border-border border-t bg-muted px-5 py-2.5 text-[12.5px] text-muted-foreground">
             <PowerIcon size={14} className="shrink-0" />
-            <span>
-              The flag is off. The rules below apply when the flag is turned on.
-            </span>
+            The flag is off. The rules below apply when the flag is turned on.
           </div>
         )}
 
@@ -483,7 +338,7 @@ export function FlagAudienceCard({
           className={`border-border border-t ${audience.disabled ? "opacity-70" : ""}`}
         >
           <div
-            className={`grid ${GUTTER} gap-x-3 bg-muted px-3 py-1.5 font-medium text-[11px] text-muted-foreground`}
+            className={`grid ${COLUMNS} gap-x-3 bg-muted px-3 py-1.5 font-medium text-[11px] text-muted-foreground`}
           >
             <span />
             <span>Rules, checked in order. The first match decides.</span>
@@ -491,13 +346,8 @@ export function FlagAudienceCard({
           </div>
           <div className="divide-y divide-border">
             {audience.enrollmentKey && (
-              <FlowRow
-                marker={
-                  <StepMarker>
-                    <KeyIcon size={12} />
-                  </StepMarker>
-                }
-                position={nextPosition()}
+              <Step
+                marker={<KeyIcon size={12} />}
                 result={
                   <span className="text-[11px] text-muted-foreground">
                     true → true, anything else → false
@@ -515,21 +365,16 @@ export function FlagAudienceCard({
                     person property first
                   </span>
                 </span>
-              </FlowRow>
+              </Step>
             )}
-            {audience.holdout && (
-              <FlowRow
-                marker={
-                  <StepMarker>
-                    <FlaskIcon size={12} />
-                  </StepMarker>
-                }
-                position={nextPosition()}
+            {holdout && (
+              <Step
+                marker={<FlaskIcon size={12} />}
                 result={
                   <>
-                    <ShareMeter share={audience.holdout.exclusionPercentage} />
-                    <span className="inline-flex h-5 items-center rounded border border-border bg-card px-1.5 font-mono font-semibold text-xs">
-                      holdout-{audience.holdout.id}
+                    <ShareMeter share={holdout.exclusionPercentage} />
+                    <span className={`${PILL} font-mono`}>
+                      holdout-{holdout.id}
                     </span>
                   </>
                 }
@@ -538,62 +383,84 @@ export function FlagAudienceCard({
                   <span className="font-medium">Holdout</span>
                   <span className="text-muted-foreground">
                     {" "}
-                    for experiment {audience.holdout.id}, decided before the
-                    rules
+                    for experiment {holdout.id}, decided before the rules
                   </span>
                 </span>
-              </FlowRow>
+              </Step>
             )}
             {audience.rules.map((rule, index) => (
-              <RuleRow
-                key={ruleKey(rule, index)}
+              <RuleStep
+                key={`${index}:${rule.conditions.map((c) => c.subject).join("|")}`}
                 index={index}
                 rule={rule}
-                variants={audience.variants}
-                bucketing={audience.bucketing}
-                position={nextPosition()}
+                audience={audience}
               />
             ))}
             {audience.rules.length === 0 && (
-              <div
-                className={`grid ${GUTTER} gap-x-3 px-3 py-3 text-[13px] text-muted-foreground`}
-              >
-                <span />
-                <span>
-                  No rules yet. Add a release condition to turn the flag on for
-                  someone.
-                </span>
-              </div>
+              <Step marker={null} muted>
+                No rules yet. Add a release condition to turn the flag on for
+                someone.
+              </Step>
             )}
             {audience.fallbackReachable && (
-              <FlowRow
-                marker={
-                  <StepMarker tone="muted">
-                    <ArrowElbowDownRightIcon size={12} />
-                  </StepMarker>
-                }
-                position={nextPosition()}
+              <Step
+                marker={<ArrowElbowDownRightIcon size={12} />}
                 muted
                 result={
-                  <ResultPill
-                    result={audience.fallback}
-                    variants={audience.variants}
-                  />
+                  <ResultPill result={{ kind: "false" }} variants={variants} />
                 }
               >
-                <span>Everyone else</span>
-              </FlowRow>
+                Everyone else
+              </Step>
             )}
           </div>
         </div>
 
-        {audience.variants.length > 0 && (
-          <div className="@container border-border border-t px-5 pb-5">
-            <VariantsSection
-              variants={audience.variants}
-              stability={audience.stability}
-              holdout={audience.holdout}
-            />
+        {variants.length > 0 && (
+          <div className="@container border-border border-t px-5 py-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <Eyebrow>Variant split</Eyebrow>
+              <Text variant="muted" className="text-xs">
+                Assigned by a stable hash of {HASH_KEY[audience.bucketing]}
+              </Text>
+            </div>
+            <SplitBar variants={variants} className="mt-2.5 h-2.5" />
+            <div className="mt-3 grid @[560px]:grid-cols-2 gap-x-6 gap-y-2">
+              {variants.map((variant) => (
+                <div
+                  key={variant.key}
+                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 text-[13px]"
+                >
+                  <Dot
+                    color={variantColor(variants, variant.key)}
+                    className="size-2.5"
+                  />
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="font-mono font-semibold text-xs">
+                      {variant.key}
+                    </span>
+                    {variant.payload && (
+                      <code
+                        title={variant.payload}
+                        className="min-w-0 truncate rounded bg-muted px-1 font-mono text-[11px] text-muted-foreground"
+                      >
+                        {variant.payload}
+                      </code>
+                    )}
+                  </span>
+                  <span className="font-semibold tabular-nums">
+                    {variant.percentage}%
+                  </span>
+                </div>
+              ))}
+            </div>
+            {holdout && (
+              <Text variant="muted" className="mt-2.5 block text-xs">
+                {holdout.exclusionPercentage}% of people receive{" "}
+                <span className="font-mono">holdout-{holdout.id}</span> instead
+                of a variant.
+              </Text>
+            )}
           </div>
         )}
       </CardContent>

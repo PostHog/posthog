@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  positivelyTargetedDistinctIds,
-  shapeFlagAudience,
-  targetedDistinctIds,
-} from "./flag-audience";
+import { shapeFlagAudience, targetedDistinctIds } from "./flag-audience";
 import type { Schemas } from "./generated";
 
 // The shaper only reads the fields it shows; build minimal inputs and cast.
@@ -92,7 +88,7 @@ describe("flag audience shaping", () => {
     expect(audience.rules[0].isGroup).toBe(true);
     expect(audience.fallbackReachable).toBe(true);
     expect(audience.headline).toBe("On for every group.");
-    expect(audience.stability).toBe("the group key");
+    expect(audience.bucketing).toBe("group");
   });
 
   it("describes device bucketing and keeps its fallback reachable", () => {
@@ -105,7 +101,7 @@ describe("flag audience shaping", () => {
 
     expect(audience.fallbackReachable).toBe(true);
     expect(audience.headline).toBe("On for every device.");
-    expect(audience.stability).toBe("the device ID");
+    expect(audience.bucketing).toBe("device");
   });
 
   it("states the enrollment override for early access flags", () => {
@@ -185,7 +181,7 @@ describe("flag audience shaping", () => {
     // Person-name resolution still collects the excluded id, but the
     // targeted-ids field must not claim the rule targets it.
     expect(targetedDistinctIds(flag)).toEqual(["bot-1"]);
-    expect(positivelyTargetedDistinctIds(flag)).toEqual([]);
+    expect(targetedDistinctIds(flag, true)).toEqual([]);
   });
 
   it("renders a readable label for operators that only reach flags through the API", () => {

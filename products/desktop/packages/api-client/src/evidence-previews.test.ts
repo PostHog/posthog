@@ -335,7 +335,7 @@ describe("evidence preview shaping", () => {
           {
             subject: "plan",
             operator: "is",
-            values: [{ label: "pro", literal: true }],
+            values: [{ label: "pro" }],
           },
         ],
         share: 25,
