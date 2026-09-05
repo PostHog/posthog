@@ -7448,6 +7448,42 @@ snapshots:
         hash: v1.k794b7964.1e60b96137099008eb0586a688a6e9778957d2bb22080717cb1b7e85b33914f2.H3lVsEdpIITF7t9xS2eRvSgLFij4FdBV7N9hWskoruE
     scenes-app-inbox-scoutsroster--roster-legacy--light:
         hash: v1.k794b7964.43141512a651be54956bfc83ec43a719e32a20cd95f8ab36b618f5f13f2805d8.tFKedkNF5pBnGvjkTk0vkCgNHb1L3PZDdBe3T3gKlc8
+    scenes-app-inbox-scoutsuggestionsstrip--collapsed--dark:
+        hash: v1.k794b7964.9431b0f49a5502a5693259cb15c53fdc8b9ccf22849fde671cc117d78ab81f3a.n96ExMnzHsoBi-Pzrgelqj9hqL4xSc8OpD7QWL02uWI
+    scenes-app-inbox-scoutsuggestionsstrip--collapsed--light:
+        hash: v1.k794b7964.524c8aa93e0feaeb73292c42a4e09a47b478b38390ac06af73fbe31b7e1ca1ec.v632nnbKCGANg2mx7LwpL-Fy2pYefM0E6w64y5z_JLY
+    scenes-app-inbox-scoutsuggestionsstrip--empty-fleet--dark:
+        hash: v1.k794b7964.aa2c2112814769c9a73d9b17e8a4f5a65d20d12c4a3eb3d1dc8368cd5b79003e.Q7gGGZavfedBQJAr-_1xqWv4yLCOFue-swc8QJ0YvAY
+    scenes-app-inbox-scoutsuggestionsstrip--empty-fleet--light:
+        hash: v1.k794b7964.e1601c331606821945e1d9edc36d15c14bc802b61f20630de2c22ad5e2db86c9.TKbpv7gwF7BsmV1jKWpqszbvqXCPg7WRDQI9DtzilWg
+    scenes-app-inbox-scoutsuggestionsstrip--fresh--dark:
+        hash: v1.k794b7964.025e249cf99cd58afd28c27b498b5aa63893795cffe2a202bbd505a90305f178.w4q-5TkvRAsJ0twNnbYKfwdSzthw2rG__mD9mmuWez0
+    scenes-app-inbox-scoutsuggestionsstrip--fresh--light:
+        hash: v1.k794b7964.d1d61649f83e0a4e654a248652508334744eb365b102f6fbe5402c91db4bf597.FzlEPy11MSMg1mb29-SpMmPlk27oFRpmImz8-8q0x8Q
+    scenes-app-inbox-scoutsuggestionsstrip--last-scan-failed--dark:
+        hash: v1.k794b7964.84fc93e2d3c983c6a5376e0791610d5d7c175eddf4b1b0d38e8911c527abe64f.hoQvI4Io7H0NYjWHA1EnADsb1j2E4xfuWDJYBXUhKeI
+    scenes-app-inbox-scoutsuggestionsstrip--last-scan-failed--light:
+        hash: v1.k794b7964.c89125e7d79b3d8b200ea9e7f1184b2f9b130fd77c27e4d99349efcab5f25bef.v42_Rw_nFrqqiXB8w_K8HUvNXwY8Ya5hyw3-lnNt8HA
+    scenes-app-inbox-scoutsuggestionsstrip--narrow--dark:
+        hash: v1.k794b7964.19feb834d24ba87ef59338e26f92a86a4f5a95bc91168e17de6117680d05ce5d.pTh6SWq4vFFh2foaE_4N95GSvl1kmiG1k2BZr_YMEdA
+    scenes-app-inbox-scoutsuggestionsstrip--narrow--light:
+        hash: v1.k794b7964.1e21bf9514a62d0c875594f482df6f2709b55134f25ad65eb5116b6315b1b7b4.K6KZHvEue8jQ9F-I0SUR9GgFMPD9Z218e4gcXsfPcqU
+    scenes-app-inbox-scoutsuggestionsstrip--never-generated--dark:
+        hash: v1.k794b7964.93f5297e0efc7eb2b3c3f65a27a4a0ed3244dc410d9433f90b48e4ea39d93987.clN4SMFV45IqYWkUU9vH1HgupFEFXIBzn3Ejum0d4q0
+    scenes-app-inbox-scoutsuggestionsstrip--never-generated--light:
+        hash: v1.k794b7964.42ff6f1076df4cda1912e9d4da32c776e98c58ec2526dd7f1b3dcc8a2de17cbc.4amW1-ua55bSo0F7aZPgnuOXpTAdbvkhym1WzOkKfFM
+    scenes-app-inbox-scoutsuggestionsstrip--nothing-left--dark:
+        hash: v1.k794b7964.4bca4c8d2bf4fdc2ab4010ae1903be8a2244023972129e4190ca6e9c08ec6568.V2__hYR_JWIqKzFZePVc63NdnTF23nDtJLwiqFwgPlU
+    scenes-app-inbox-scoutsuggestionsstrip--nothing-left--light:
+        hash: v1.k794b7964.3820117f26fba2e6ed35651118de53657944447a2d4580d6fac343d84128bb5b.87vV-RofQ_1ZA3X_ODe97BVmlKHVhq79Y2LbWuwiZxM
+    scenes-app-inbox-scoutsuggestionsstrip--single-card--dark:
+        hash: v1.k794b7964.4d5c0231716b6cad6a9088686a42b0d1c327d741a184db9d9bf47360d936dbb9.KBYF0nvsalBWo1FkSKwcr56qgjlQM4HzIdidtJhf5to
+    scenes-app-inbox-scoutsuggestionsstrip--single-card--light:
+        hash: v1.k794b7964.c2a5937757b97e8cf9e8bced51ff2657bda26ede5c10b1038685c6dbb5caa1d6.CMvAxngQ_3HulQO7oIvTVD8noOEx2Y2bVYBx2rxkDac
+    scenes-app-inbox-scoutsuggestionsstrip--stale--dark:
+        hash: v1.k794b7964.c8d0dcd6f2b06411a6856f5961ab93da09c1882be99dd859825a18d0ccbc7274.zidFHAbkvlJnvLwpmoKxWucwPQsPh8HSxqU9Ibp65uo
+    scenes-app-inbox-scoutsuggestionsstrip--stale--light:
+        hash: v1.k794b7964.e1201b72cabe1284f7ca9cf869bdcbfe7b4693e9a3bb4be068b0a7147ed0de0c.JaNzh5U52QhSM2Cvfu0VIjAp_T4Si1IAQ9rHeubHAjU
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--dark:
         hash: v1.k794b7964.6bb86cc044462ca9b5d59151d279fb763b8ffc1918c913a4ba5786e9714a9675.F8GMUyNcVBI5ASlEgXgZaNW4sL-8zvLioKKu0JVua34
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--light:
