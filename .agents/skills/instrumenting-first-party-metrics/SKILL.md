@@ -18,7 +18,14 @@ Never invent env vars or hand-roll OTel providers — every environment below al
 | PostHog-owned standalone service / script / other repo | SDK per public docs: `posthog.metrics.count/gauge/histogram`                                           | OTLP env vars per docs (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=<host>/i/v1/metrics`, Bearer project token) |
 
 > [!WARNING]
-> **In a Temporal worker the OTel fallback is not a fallback — it is silence.** `OTEL_METRICS_EXPORT_URL`/`_TOKEN` are set on the web deployment, not on the worker deployments, so `OtelInstrumentFactory` binds a no-op meter there and every twin is dropped. No metric recorded through the factory from a worker activity has ever reached the Metrics product, while SDK-path metrics from the same pods do. The `prometheus_client` half of a twin does not cover for it either: the worker pods' scraped endpoint carries the Temporal SDK's own metrics, not the Python registry. From a worker, use the SDK path or the Temporal metric meter.
+> **In a Temporal worker the OTel fallback is not a fallback — it is silence.** `OTEL_METRICS_EXPORT_URL`/`_TOKEN` are set on the web deployment, not on the worker deployments, so `OtelInstrumentFactory` binds a no-op meter there and every twin is dropped.
+> No metric recorded through the factory from a worker activity has ever reached the Metrics product, while SDK-path metrics from the same pods do.
+> From a worker, use the SDK path or the Temporal metric meter.
+>
+> Do not assume the `prometheus_client` half of a twin covers for the dropped twin, and do not drop the instrument either.
+> `create_worker` starts `CombinedMetricsServer` by default (`enable_combined_metrics_server=True`, from `TEMPORAL_COMBINED_METRICS_SERVER_ENABLED`), and that server serves the Python registry next to the Temporal SDK's own metrics on the worker's metrics port.
+> So the registry is exported by default, but it reaches Grafana only if the combined server is still enabled and the deployment scrapes that endpoint.
+> Both are deployment configuration outside this repository, so confirm them before you rely on a `prometheus_client` instrument as a worker's only sink.
 
 ## Step 2 — check the version gate (don't assume)
 
