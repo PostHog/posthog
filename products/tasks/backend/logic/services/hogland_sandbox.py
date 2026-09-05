@@ -196,7 +196,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
     # through the PostHog LLM gateway instead — avoids AWS Bedrock Marketplace
     # model-access and SigV4 header-signing issues, and keeps gateway-based AI
     # observability attribution (matching the Modal backend).
-    disable_direct_bedrock = True
+    should_unset_bedrock_env = True
 
     def __init__(self, box: Hogbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = box.id
