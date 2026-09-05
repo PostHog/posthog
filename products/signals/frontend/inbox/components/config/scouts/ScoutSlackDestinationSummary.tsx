@@ -6,6 +6,9 @@ import type { IntegrationType } from '~/types'
 
 import type { SignalScoutSlackDestinationApi } from 'products/signals/frontend/generated/api.schemas'
 
+/** Why the next run cannot deliver to the saved target, or `null` when nothing is wrong. */
+type DestinationFault = 'disconnected' | 'reconnect' | null
+
 /**
  * A picker value carries the channel name after a pipe. A destination saved through the API can
  * hold a bare channel id instead, which names nothing a reader recognizes, so it falls back to the
@@ -14,6 +17,29 @@ import type { SignalScoutSlackDestinationApi } from 'products/signals/frontend/g
 function channelLabel(channel: string): string {
     const name = slackChannelDisplayName(channel)
     return name === channel ? 'Slack channel' : name
+}
+
+/**
+ * Whether the workspace behind a saved destination can still deliver. Both faults come from the
+ * integration list, which loads while the section is closed, so neither costs a request. The
+ * picker's own health checks only run once the section opens, and a report that never arrives is
+ * exactly what a reader must not have to open the section to find out about.
+ */
+function destinationFault(
+    destination: SignalScoutSlackDestinationApi | null | undefined,
+    workspaces: IntegrationType[],
+    loading: boolean
+): DestinationFault {
+    if (loading) {
+        return null
+    }
+    const workspace = workspaces.find((candidate) => candidate.id === destination?.integration_id)
+    if (!workspace) {
+        return 'disconnected'
+    }
+    // The API records a refresh failure here, which is how a revoked or expired token surfaces
+    // without asking Slack again.
+    return workspace.errors ? 'reconnect' : null
 }
 
 /**
@@ -43,9 +69,7 @@ export function ScoutSlackDestinationSummary({
         return <span className="text-[11.5px] text-muted">{workspaces.length > 0 ? 'Off' : 'Not connected'}</span>
     }
 
-    // A destination whose workspace was disconnected still names a target, and every run then fails
-    // to deliver. Only the resolved list can tell, so this waits for it rather than guessing.
-    const disconnected = !loading && !workspaces.some((workspace) => workspace.id === destination?.integration_id)
+    const fault = destinationFault(destination, workspaces, loading)
 
     return (
         <>
@@ -65,9 +89,14 @@ export function ScoutSlackDestinationSummary({
                     Threaded
                 </LemonTag>
             ) : null}
-            {disconnected ? (
+            {fault === 'disconnected' ? (
                 <LemonTag size="small" type="warning">
                     Disconnected
+                </LemonTag>
+            ) : null}
+            {fault === 'reconnect' ? (
+                <LemonTag size="small" type="danger">
+                    Reconnect
                 </LemonTag>
             ) : null}
         </>

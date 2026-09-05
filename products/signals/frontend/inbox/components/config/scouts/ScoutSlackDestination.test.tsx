@@ -11,6 +11,7 @@ import type { SignalScoutSlackDestinationApi } from 'products/signals/frontend/g
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 
 const SLACK_WORKSPACE = { id: 1, kind: 'slack', display_name: 'PostHog' } as IntegrationType
+const BROKEN_WORKSPACE = { ...SLACK_WORKSPACE, errors: 'TOKEN_REFRESH_FAILED' } as IntegrationType
 
 describe('ScoutSlackDestination', () => {
     let workspaces: IntegrationType[] = []
@@ -86,6 +87,20 @@ describe('ScoutSlackDestination', () => {
             expect(screen.queryByText(/Post each scout run/)).not.toBeInTheDocument()
         }
     )
+
+    // The picker's health checks only run once the panel opens, so without this a workspace whose
+    // token was revoked reads as a live channel and every run silently fails to deliver.
+    it('reports a workspace that can no longer authenticate, with the section closed', async () => {
+        workspaces = [BROKEN_WORKSPACE]
+
+        render(
+            <ScoutSlackDestination destination={{ integration_id: 1, channel: 'C123|#alerts' }} onChange={jest.fn()} />
+        )
+
+        expect(await screen.findByText('Reconnect')).toBeInTheDocument()
+        expect(screen.getByText('#alerts')).toBeInTheDocument()
+        expect(screen.queryByText('Disconnected')).not.toBeInTheDocument()
+    })
 
     it('opens the picker from the header', async () => {
         render(<ScoutSlackDestination destination={undefined} onChange={jest.fn()} />)
