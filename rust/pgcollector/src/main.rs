@@ -3,6 +3,7 @@ mod collectors;
 mod config;
 mod http;
 mod logs;
+mod ownership;
 mod pg;
 mod scheduler;
 mod sink;
@@ -33,6 +34,15 @@ struct Cli {
     /// Run every collector once against every server, print row counts, exit (no sink writes)
     #[arg(long)]
     once: bool,
+    /// Print which team owns a SQL statement (per [ownership]) as JSON, then exit
+    #[arg(long, value_name = "SQL")]
+    attribute: Option<String>,
+    /// Server id the --attribute statement runs on ([ownership] database rules match on it)
+    #[arg(long, default_value = "")]
+    server: String,
+    /// Database the --attribute statement runs in
+    #[arg(long, default_value = "posthog")]
+    datname: String,
     /// Parse a Postgres log file with --log-line-prefix and print what was classified, then exit
     #[arg(long)]
     parse_log: Option<PathBuf>,
@@ -100,6 +110,10 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(sql) = &cli.attribute {
+        return attribute(&cfg, &cli.server, &cli.datname, sql);
+    }
+
     let sink: Arc<dyn sink::Sink> = if cli.once {
         Arc::new(sink::StdoutSink)
     } else {
@@ -117,6 +131,26 @@ async fn main() -> Result<()> {
     }
 
     scheduler::run(Arc::new(cfg), Arc::new(registry), sink, ready, cli.once).await
+}
+
+fn attribute(cfg: &config::Config, server: &str, datname: &str, sql: &str) -> Result<()> {
+    let own = ownership::Ownership::load(&cfg.ownership)?;
+    let ex = ownership::extract(sql);
+    let attr = own.attribute(server, datname, &ex);
+    let out = serde_json::json!({
+        "team": attr.team,
+        "rotation": own.rotation(&attr.team),
+        "slack_channel": own.slack_channel(&attr.team),
+        "method": attr.method,
+        "reason": attr.reason,
+        "primary_table": attr.primary_table,
+        "tables": attr.tables,
+        "parser": attr.parser,
+        "catalog_only": ex.catalog_only(),
+        "tables_known": own.table_count(),
+    });
+    println!("{}", serde_json::to_string_pretty(&out)?);
+    Ok(())
 }
 
 fn parse_log(path: &std::path::Path, prefix: &str) -> Result<()> {
