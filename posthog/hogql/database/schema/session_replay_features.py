@@ -76,6 +76,16 @@ class SessionReplayFeaturesTable(Table):
         "console_error_after_click_count": IntegerDatabaseField(name="console_error_after_click_count", nullable=False),
         "network_request_count": IntegerDatabaseField(name="network_request_count", nullable=False),
         "network_failed_request_count": IntegerDatabaseField(name="network_failed_request_count", nullable=False),
+        "network_4xx_count": IntegerDatabaseField(
+            name="network_4xx_count",
+            nullable=False,
+            description="Number of network requests in the session that returned a 4xx status code.",
+        ),
+        "network_5xx_count": IntegerDatabaseField(
+            name="network_5xx_count",
+            nullable=False,
+            description="Number of network requests in the session that returned a 5xx status code.",
+        ),
         "network_request_duration_sum": FloatDatabaseField(
             name="network_request_duration_sum",
             nullable=False,

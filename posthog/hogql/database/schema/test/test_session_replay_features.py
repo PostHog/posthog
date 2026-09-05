@@ -48,6 +48,8 @@ class TestSessionReplayFeaturesTable(BaseTest):
             ("rage_click_count", IntegerDatabaseField),
             ("mouse_distance_traveled", FloatDatabaseField),
             ("max_idle_gap_ms", FloatDatabaseField),
+            ("network_4xx_count", IntegerDatabaseField),
+            ("network_5xx_count", IntegerDatabaseField),
             ("is_deleted", IntegerDatabaseField),
         ]
     )
