@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
-import { EFFORT_LEVELS } from "@posthog/shared/domain-types";
+import { EFFORT_LEVELS, SERVICE_TIERS } from "@posthog/shared/domain-types";
 import { Command } from "commander";
 import { z } from "zod/v4";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
@@ -50,6 +50,7 @@ const envSchema = z.object({
   POSTHOG_CODE_REASONING_EFFORT: z
     .enum(["off", "minimal", ...EFFORT_LEVELS])
     .optional(),
+  POSTHOG_CODE_SERVICE_TIER: z.enum(SERVICE_TIERS).optional(),
   POSTHOG_CODE_CONTEXT_WINDOW: z.enum(["200k", "1m"]).optional(),
   POSTHOG_CODE_FAST_MODE: z
     .enum(["true", "false"])
@@ -287,6 +288,7 @@ program
       runtimeAdapter: env.POSTHOG_CODE_RUNTIME_ADAPTER,
       model: env.POSTHOG_CODE_MODEL,
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,
+      serviceTier: env.POSTHOG_CODE_SERVICE_TIER,
       contextWindow: env.POSTHOG_CODE_CONTEXT_WINDOW,
       fastMode: env.POSTHOG_CODE_FAST_MODE,
     };

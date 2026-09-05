@@ -624,6 +624,7 @@ class TestModalSandboxAgentServer:
             provider="openai",
             model="gpt-5.3-codex",
             reasoning_effort="high",
+            service_tier="flex",
             context_window="1m",
             fast_mode=True,
             initial_permission_mode="plan",
@@ -637,6 +638,7 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
+        assert "POSTHOG_CODE_SERVICE_TIER=flex" in command
         assert "POSTHOG_CODE_CONTEXT_WINDOW=1m" in command
         assert "POSTHOG_CODE_FAST_MODE=true" in command
         assert "POSTHOG_CODE_INITIAL_PERMISSION_MODE=plan" in command

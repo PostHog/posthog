@@ -622,6 +622,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 model=agent_runtime.model,
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
+                service_tier=agent_runtime.service_tier,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             charts_enabled = await database_sync_to_async(_team_report_charts_enabled, thread_sensitive=False)(

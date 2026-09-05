@@ -543,6 +543,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            service_tier=ctx.service_tier,
             context_window=ctx.context_window,
             fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,

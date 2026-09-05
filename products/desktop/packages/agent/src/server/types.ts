@@ -1,5 +1,5 @@
 import type { Adapter, McpServerConnection } from "@posthog/shared";
-import type { EffortLevel } from "@posthog/shared/domain-types";
+import type { EffortLevel, ServiceTier } from "@posthog/shared/domain-types";
 import type { AgentMode } from "../types";
 import type { RtkSavingsSummary } from "./rtk-savings";
 
@@ -60,6 +60,12 @@ export interface AgentServerConfig {
   runtimeAdapter?: Adapter;
   model?: string;
   reasoningEffort?: EffortLevel | "off" | "minimal";
+  /**
+   * Codex-only OpenAI service tier for the run's turns. "flex" is the cheaper,
+   * slower queue; "priority" the faster one; "default" pins standard routing.
+   * Codex omits a tier its model catalogue doesn't advertise for the model.
+   */
+  serviceTier?: ServiceTier;
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;
   resolveRtkSavings?: () => Promise<RtkSavingsSummary | null>;

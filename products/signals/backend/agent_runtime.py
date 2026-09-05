@@ -15,7 +15,7 @@ Payload shape (`team_configs` maps team id — or the `*` wildcard — to per-st
         "2": {
           "steps": {
             "research": {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "xhigh"},
-            "repo_selection": {"runtime_adapter": "codex", "model": "gpt-5.5"},
+            "repo_selection": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": "flex"},
             "*": {"model": "claude-sonnet-4-6"}
           }
         },
@@ -33,10 +33,16 @@ fields are taken as a set so a Codex runtime never pairs with a Claude model):
     → default (agent-server Claude runtime)
 
 A resolved override threads through `CustomPromptSandboxContext`
-(runtime_adapter/model/reasoning_effort) → `Task.create_and_run` → the run state → the agent server
-(see `products/tasks` RuntimeAdapter). A step config may set only `model` (swap the model within the
-default Claude runtime) or `runtime_adapter` + `model` together (switch the whole harness, e.g.
-Codex). Missing fields stay `None` (agent-server default).
+(runtime_adapter/model/reasoning_effort/service_tier) → `Task.create_and_run` → the run state → the
+agent server (see `products/tasks` RuntimeAdapter). A step config may set only `model` (swap the
+model within the default Claude runtime) or `runtime_adapter` + `model` together (switch the whole
+harness, e.g. Codex). Missing fields stay `None` (agent-server default).
+
+`service_tier` is the OpenAI request tier for Codex steps — `"flex"` buys the cheaper, slower queue,
+`"priority"` the faster one. It is resolved per step like the rest, but it is NOT part of the atomic
+routing triple: an unsupported tier can only change queueing, never mis-route a request, and Codex
+omits any tier its model catalogue does not advertise (it logs the omission and sends the request
+untiered). The claude adapter ignores it.
 """
 
 from __future__ import annotations
@@ -79,6 +85,7 @@ class AgentRuntime:
     runtime_adapter: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
+    service_tier: str | None = None
 
 
 DEFAULT_RUNTIME = AgentRuntime()
@@ -125,6 +132,7 @@ def _parse_runtime(step_block: object) -> AgentRuntime:
         runtime_adapter=_str_or_none("runtime_adapter"),
         model=_str_or_none("model"),
         reasoning_effort=_str_or_none("reasoning_effort"),
+        service_tier=_str_or_none("service_tier"),
     )
 
 

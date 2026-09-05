@@ -918,6 +918,7 @@ class Task(DeletedMetaFields, models.Model):
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -1101,6 +1102,12 @@ class Task(DeletedMetaFields, models.Model):
         if reasoning_effort:
             extra_state["reasoning_effort"] = reasoning_effort
 
+        # Codex-only: the OpenAI service tier the run's turns request. Carried in run state rather
+        # than a column because, like `fast_mode`, it is a per-run routing choice and not part of
+        # the task's identity.
+        if service_tier:
+            extra_state["service_tier"] = service_tier
+
         # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
         # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
         if ai_stage:
@@ -1251,6 +1258,7 @@ class Task(DeletedMetaFields, models.Model):
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -1298,6 +1306,7 @@ class Task(DeletedMetaFields, models.Model):
             runtime_adapter=runtime_adapter,
             model=model,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             initial_permission_mode=initial_permission_mode,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
