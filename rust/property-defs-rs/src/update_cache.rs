@@ -49,10 +49,21 @@ struct SubCacheEntry<K: Eq + Hash + Clone, V: Clone> {
 }
 
 impl<K: Eq + Hash + Clone, V: Clone> SubCacheEntry<K, V> {
+    // Called after a peek found the key. quick_cache `replace` succeeds only on
+    // a resident key, so a counted replacement always fired `on_evict`. If a
+    // concurrent remove landed between the peek and this call, the replace
+    // fails and the value goes in as a fresh entry instead.
     fn replace(&self, key: K, value: V) -> InsertOutcome {
-        self.replacements.increment(1);
-        self.cache.insert(key, value);
-        InsertOutcome::Replaced
+        match self.cache.replace(key, value, false) {
+            Ok(()) => {
+                self.replacements.increment(1);
+                InsertOutcome::Replaced
+            }
+            Err((key, value)) => {
+                self.cache.insert(key, value);
+                InsertOutcome::Inserted
+            }
+        }
     }
 }
 
@@ -289,6 +300,11 @@ impl Cache {
     // shard write lock and fires `on_evict`, so a no-op re-insert (the read
     // filter refreshing a type the cache already holds, or a racing producer)
     // would cost lock time and inflate the eviction counter for nothing.
+    //
+    // The peek and the write are separate lock acquisitions. A concurrent
+    // producer can insert the same new key in between, which makes the second
+    // write an uncounted replacement. That race is the one already measured by
+    // DUPLICATES_IN_BATCH and is far too rare to move the replacement counter.
     pub fn insert(&self, key: Update) -> InsertOutcome {
         match key {
             Update::Event(def) => {
