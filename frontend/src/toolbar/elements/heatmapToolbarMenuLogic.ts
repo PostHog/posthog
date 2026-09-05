@@ -400,7 +400,6 @@ export interface heatmapToolbarMenuLogicValues {
         processed: number
         total: number
     } | null
-    samplingFactor: number
     scrollDepthPosthogJsError: 'disabled' | 'version' | null
     wantedDataAttributes: string[]
     windowHeight: number
@@ -574,9 +573,6 @@ export interface heatmapToolbarMenuLogicActions {
         processed: number
         total: number
     }
-    setSamplingFactor: (samplingFactor: number) => {
-        samplingFactor: number
-    }
     startAreaSelection: () => {
         value: true
     }
@@ -703,7 +699,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         enableHeatmap: true,
         disableHeatmap: true,
         toggleClickmapsEnabled: (enabled: boolean) => ({ enabled }),
-        setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
         startLoadingAllElementStats: true,
         stopLoadingAllElementStats: true,
@@ -851,13 +846,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 toggleClickmapsEnabled: (_, { enabled }) => enabled,
             },
         ],
-        samplingFactor: [
-            1,
-            { persist: true },
-            {
-                setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
-            },
-        ],
         elementMetrics: [
             new Map<HTMLElement, { visible: boolean }>(),
             {
@@ -940,7 +928,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                   date_from: values.commonFilters.date_from,
                                   date_to: values.commonFilters.date_to,
                                   paginate_response: true,
-                                  sampling_factor: values.samplingFactor,
                                   limit: limit ?? ELEMENT_STATS_PAGE_LIMIT,
                                   // the matchers only read the configured data attributes from each
                                   // element's attributes map, so let the server drop the rest
@@ -1400,10 +1387,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setCommonFilters: () => {
             actions.loadAllEnabled()
         },
-        setSamplingFactor: () => {
-            actions.maybeLoadClickmap()
-        },
-
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
                 actions.maybeLoadClickmap()
