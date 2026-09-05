@@ -147,15 +147,25 @@ export function NativeAlertEditor({ inline = false }: { inline?: boolean }): JSX
                             <LemonLabel>Deliver to</LemonLabel>
                             {draft.destinations.map((destination, index) => (
                                 <div key={index} className="flex items-start gap-2 p-3 border rounded">
-                                    <SlackDestinationPicker
-                                        className="flex-1"
-                                        integrationId={destination.integrationId}
-                                        channel={destination.channel}
-                                        onIntegrationChange={(integrationId) =>
-                                            updateDestination(index, { integrationId, channel: null })
-                                        }
-                                        onChannelChange={(channel) => updateDestination(index, { channel })}
-                                    />
+                                    <div className="flex-1 flex flex-col gap-2">
+                                        <SlackDestinationPicker
+                                            integrationId={destination.integrationId}
+                                            channel={destination.channel}
+                                            onIntegrationChange={(integrationId) =>
+                                                updateDestination(index, { integrationId, channel: null })
+                                            }
+                                            onChannelChange={(channel) => updateDestination(index, { channel })}
+                                        />
+                                        <LemonCheckbox
+                                            size="small"
+                                            checked={destination.replyBroadcast}
+                                            onChange={(replyBroadcast) => updateDestination(index, { replyBroadcast })}
+                                            label={
+                                                <span className="text-secondary">Also post updates to the channel</span>
+                                            }
+                                            data-attr="error-tracking-alert-reply-broadcast"
+                                        />
+                                    </div>
                                     {draft.destinations.length > 1 && (
                                         <LemonButton
                                             icon={<IconTrash />}

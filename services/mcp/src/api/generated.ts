@@ -31618,6 +31618,8 @@ export namespace Schemas {
       channel: string;
       /** Human-readable Slack channel name, stored for display only. */
       channel_name?: string;
+      /** Also post each thread reply to the channel, so people who do not follow the thread see every update. */
+      reply_broadcast?: boolean;
     }
 
     export interface ErrorTrackingAlertDestination {

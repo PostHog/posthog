@@ -73,7 +73,7 @@ class TestErrorTrackingAlerts(APIBaseTest):
         destination = created["destinations"][0]
         assert destination["channel_type"] == "slack"
         assert destination["integration_id"] == integration.id
-        assert destination["config"] == {"channel": "C0123"}
+        assert destination["config"] == {"channel": "C0123", "reply_broadcast": False}
 
         alert_id = created["id"]
         update = self.client.patch(
@@ -166,7 +166,7 @@ class TestErrorTrackingAlerts(APIBaseTest):
         assert update.status_code == 200, update.json()
         destinations = update.json()["destinations"]
         assert len(destinations) == 1
-        assert destinations[0]["config"] == {"channel": "C0456"}
+        assert destinations[0]["config"] == {"channel": "C0456", "reply_broadcast": False}
         assert destinations[0]["id"] != old_destination_id
         assert ErrorTrackingAlertDestination.objects.for_team(self.team.id).count() == 1
 
@@ -249,7 +249,7 @@ class TestErrorTrackingAlerts(APIBaseTest):
         destination = {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C0123"}}
 
         # A destination differing only in display-only config keys is still the same target.
-        renamed = {**destination, "config": {"channel": "C0123", "channel_name": "#alerts"}}
+        renamed = {**destination, "config": {"channel": "C0123", "channel_name": "#alerts", "reply_broadcast": True}}
         for duplicates in ([destination, destination], [destination, renamed]):
             create = self.client.post(
                 f"/api/projects/{self.team.id}/error_tracking/alerts/",
