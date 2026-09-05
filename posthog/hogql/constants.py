@@ -196,6 +196,16 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # [minIf(..., notNullIn(...))]` (THERE_IS_NO_COLUMN). Same bug class as #64487; disabling the rewrite avoids it
     # without touching NULL semantics (unlike transform_null_in).
     optimize_min_inequality_conjunction_chain_length: Optional[int] = 4294967295
+    # Materialized CTEs (`WITH x AS MATERIALIZED (...)`) are experimental, and ClickHouse plans them
+    # incorrectly over Distributed tables, which is what all PostHog tables are. A materialized CTE
+    # that another materialized CTE reads, or that the query references twice, fails with code 49
+    # LOGICAL_ERROR ("Reading from materialized CTE ... DelayedPortsProcessor gate is missing", or
+    # "CTE ... does not have query tree, but was not planned yet"). Code 49 is not user safe, so a
+    # person who writes MATERIALIZED in the SQL editor gets a generic internal error. With the
+    # setting off ClickHouse ignores the keyword and inlines the CTE, as it did before the feature.
+    # https://github.com/ClickHouse/ClickHouse/issues/113184
+    # https://github.com/ClickHouse/ClickHouse/issues/117951
+    enable_materialized_cte: Optional[bool] = False
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
