@@ -103,6 +103,30 @@ function isExcludedFile(filePath, excludedPatterns = CONFIG.excludedPatterns) {
     return excludedPatterns.some((pattern) => fileMatchesPattern(filePath, pattern))
 }
 
+// Bounded retry with backoff for the shared GitHub request path. GitHub returns
+// transient 5xx responses under load; a single one used to fail the whole job
+// and drop reviewer assignment. Retry only on 5xx (server-side, transient); 4xx
+// and network throws pass straight through, since each call site already handles
+// them and neither is fixed by waiting.
+const RETRY = { attempts: 4, baseDelayMs: 500 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function githubFetch(url, options = {}, { retry = RETRY, sleepFn = sleep, fetchFn = fetch } = {}) {
+    for (let attempt = 1; ; attempt++) {
+        const response = await fetchFn(url, options)
+        if (response.status < 500 || attempt >= retry.attempts) {
+            return response
+        }
+        const delayMs = retry.baseDelayMs * 2 ** (attempt - 1)
+        console.warn(
+            `⚠️  GitHub ${response.status} ${response.statusText} (attempt ${attempt}/${retry.attempts}), ` +
+                `retrying in ${delayMs}ms`
+        )
+        await sleepFn(delayMs)
+    }
+}
+
 function getNextPageUrl(linkHeader) {
     if (!linkHeader) {
         return null
@@ -119,12 +143,16 @@ function getNextPageUrl(linkHeader) {
 }
 
 async function getChangedFiles() {
-    const { BASE_SHA, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY } = process.env
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
     const allFiles = []
-    let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/compare/${BASE_SHA}...${HEAD_SHA}?per_page=100`
+    // The PR-scoped files endpoint resolves the diff server-side, so it can't
+    // 404 on a stale base/head SHA pair the way the compare endpoint did. The
+    // per-file fields (filename/additions/deletions) match, so downstream
+    // filtering is unchanged.
+    let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100`
 
     while (url) {
-        const response = await fetch(url, {
+        const response = await githubFetch(url, {
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
                 Accept: 'application/vnd.github.v3+json',
@@ -136,8 +164,8 @@ async function getChangedFiles() {
             throw new Error(`GitHub API error: ${response.status} ${response.statusText}\n${errorText}`)
         }
 
-        const data = await response.json()
-        for (const file of data.files || []) {
+        const files = await response.json()
+        for (const file of files || []) {
             allFiles.push({
                 filename: file.filename,
                 // Binary files and pure renames report null counts; treat as 0.
@@ -371,7 +399,7 @@ async function assignReviewers(teams, users) {
     console.info('Assigning reviewers with payload:', JSON.stringify(payload, null, 2))
 
     const post = (body) =>
-        fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`, {
+        githubFetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`, {
             method: 'POST',
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
@@ -443,7 +471,7 @@ async function applyTeamLabels(labels) {
     console.info(`Applying team labels: ${labels.join(', ')}`)
 
     try {
-        const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
+        const response = await githubFetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
             method: 'POST',
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
@@ -469,7 +497,7 @@ async function findExistingComment(marker) {
     let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100`
 
     while (url) {
-        const response = await fetch(url, {
+        const response = await githubFetch(url, {
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
                 Accept: 'application/vnd.github.v3+json',
@@ -504,7 +532,7 @@ async function upsertReviewerComment(body) {
             : `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments`
 
         const method = existing ? 'PATCH' : 'POST'
-        const response = await fetch(url, {
+        const response = await githubFetch(url, {
             method,
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
@@ -534,10 +562,8 @@ async function upsertReviewerComment(body) {
 }
 
 async function main() {
-    const { BASE_SHA, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
     const requiredEnvVars = {
-        BASE_SHA,
-        HEAD_SHA,
         GITHUB_TOKEN,
         GITHUB_REPOSITORY,
         PR_NUMBER,
@@ -613,4 +639,5 @@ module.exports = {
     classifyOwners,
     buildReviewerComment,
     fileMatchesPattern,
+    githubFetch,
 }

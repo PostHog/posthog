@@ -14,6 +14,7 @@ const {
     classifyOwners,
     buildReviewerComment,
     fileMatchesPattern,
+    githubFetch,
 } = require('./assign-reviewers')
 
 const file = (filename, additions = 0, deletions = 0) => ({
@@ -329,6 +330,53 @@ test('buildReviewerComment: explains the reviewer cap when an owner was capped o
     const cappedDemoted = [{ ...demoted[0], reason: 'capped' }]
     const body = buildReviewerComment(requested, cappedDemoted)
     assert.ok(body.includes('the reviewer list was getting long'))
+})
+
+// A retry config that keeps the tests fast, plus a no-op sleep so no real time passes.
+const fastRetry = { attempts: 4, baseDelayMs: 1 }
+const noSleep = () => Promise.resolve()
+const response = (status) => ({ status, statusText: `status ${status}`, ok: status >= 200 && status < 300 })
+
+test('githubFetch: returns a 2xx response without retrying', async () => {
+    let calls = 0
+    const fetchFn = () => {
+        calls++
+        return Promise.resolve(response(200))
+    }
+    const r = await githubFetch('url', {}, { retry: fastRetry, sleepFn: noSleep, fetchFn })
+    assert.equal(r.status, 200)
+    assert.equal(calls, 1)
+})
+
+test('githubFetch: retries a transient 5xx and returns the eventual success', async () => {
+    const statuses = [500, 503, 200]
+    let calls = 0
+    const fetchFn = () => Promise.resolve(response(statuses[calls++]))
+    const r = await githubFetch('url', {}, { retry: fastRetry, sleepFn: noSleep, fetchFn })
+    assert.equal(r.status, 200)
+    assert.equal(calls, 3)
+})
+
+test('githubFetch: stops after the attempt cap and returns the last 5xx', async () => {
+    let calls = 0
+    const fetchFn = () => {
+        calls++
+        return Promise.resolve(response(500))
+    }
+    const r = await githubFetch('url', {}, { retry: fastRetry, sleepFn: noSleep, fetchFn })
+    assert.equal(r.status, 500)
+    assert.equal(calls, fastRetry.attempts)
+})
+
+test('githubFetch: never retries a 4xx', async () => {
+    let calls = 0
+    const fetchFn = () => {
+        calls++
+        return Promise.resolve(response(422))
+    }
+    const r = await githubFetch('url', {}, { retry: fastRetry, sleepFn: noSleep, fetchFn })
+    assert.equal(r.status, 422)
+    assert.equal(calls, 1)
 })
 
 test('buildReviewerComment: truncates long pattern lists', () => {
