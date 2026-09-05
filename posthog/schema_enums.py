@@ -2661,6 +2661,8 @@ class ExternalDataSourceType(StrEnum):
     MEMBRAIN = "Membrain"
     RECALL_AI = "RecallAI"
     TENJIN = "Tenjin"
+    FOLK = "Folk"
+    CYBERSOURCE = "Cybersource"
 
 
 class ExternalQueryErrorCode(StrEnum):
