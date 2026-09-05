@@ -47,17 +47,28 @@ jobs:
               run: |
                   # Regenerate when the data file OR any additional source (e.g. the generator) changes,
                   # so a generator-only edit can't pass without validating the committed output.
-                  # --repo is required because this step runs before checkout, so gh has no
-                  # local git remote to infer the repo from (otherwise: "not a git repository").
-                  changed_files=$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only)
+                  # List only the changed file names via the API — the diff body stays on the server,
+                  # and the repo comes from the path, so this works before checkout.
+                  changed_files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
                   if printf '%s\n' "$changed_files" \
                       | grep -qFf <(printf '%s\n' "$SOURCE_FILE" "$ADDITIONAL_SOURCE_FILES" | grep -v '^$'); then
-                      echo "changed=true" >> $GITHUB_OUTPUT
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Checkout
               if: steps.source-check.outputs.changed == 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Blobless partial clone plus sparse-checkout: skip the large Python trees
+                  # (posthog/, ee/) that no node docs build imports, so their blobs never download.
+                  # Every workspace manifest lives outside those trees, so pnpm's frozen install
+                  # still sees the full workspace.
+                  filter: blob:none
+                  sparse-checkout: |
+                      /*
+                      !/posthog/
+                      !/ee/
+                  sparse-checkout-cone-mode: false
 
             - name: Install pnpm dependencies
               if: steps.source-check.outputs.changed == 'true'
