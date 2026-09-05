@@ -70,6 +70,27 @@ describe("flag audience shaping", () => {
     expect(audience.summary).not.toContain("Everyone else gets false.");
   });
 
+  it("keeps group-scope rules out of the guaranteed catch-all", () => {
+    const audience = shapeFlagAudience(
+      flagWith({ aggregation_group_type_index: 0, groups: [{ rollout_percentage: 100 }] }),
+    );
+
+    expect(audience.rules[0].isGroup).toBe(true);
+    expect(audience.fallbackReachable).toBe(true);
+    expect(audience.headline).toBe("On for every group.");
+    expect(audience.stability).toBe("the group key");
+  });
+
+  it("describes device bucketing and keeps its fallback reachable", () => {
+    const audience = shapeFlagAudience(
+      flagWith({ bucketing_identifier: "device_id", groups: [{ rollout_percentage: 100 }] }),
+    );
+
+    expect(audience.fallbackReachable).toBe(true);
+    expect(audience.headline).toBe("On for every device.");
+    expect(audience.stability).toBe("the device ID");
+  });
+
   it("renders a readable label for operators that only reach flags through the API", () => {
     const audience = shapeFlagAudience(
       flagWith({

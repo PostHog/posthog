@@ -163,10 +163,12 @@ function RuleRow({
   index,
   rule,
   variants,
+  bucketing,
 }: {
   index: number;
   rule: FlagRule;
   variants: FlagVariant[];
+  bucketing: FlagAudience["bucketing"];
 }) {
   return (
     <div
@@ -182,7 +184,13 @@ function RuleRow({
           </span>
         )}
         {rule.conditions.length === 0 ? (
-          <span>Everyone</span>
+          <span>
+            {rule.isGroup
+              ? "Every group"
+              : bucketing === "device_id"
+                ? "Every device"
+                : "Everyone"}
+          </span>
         ) : (
           rule.conditions.map((condition, conditionIndex) => (
             <ConditionLine
@@ -205,7 +213,13 @@ function RuleRow({
   );
 }
 
-function VariantsList({ variants }: { variants: FlagVariant[] }) {
+function VariantsList({
+  variants,
+  stability,
+}: {
+  variants: FlagVariant[];
+  stability: FlagAudience["stability"];
+}) {
   return (
     <div className="mt-4">
       <div className="flex items-baseline justify-between gap-2">
@@ -216,7 +230,8 @@ function VariantsList({ variants }: { variants: FlagVariant[] }) {
           Variants
         </Text>
         <Text variant="muted" className="text-xs">
-          Assigned by a stable hash, so a person keeps their variant
+          Assigned by a stable hash of {stability}, so the assignment keeps
+          holding
         </Text>
       </div>
       <div className="mt-2 flex h-2 gap-0.5 overflow-hidden rounded">
@@ -304,6 +319,7 @@ export function FlagAudienceCard({ audience }: { audience: FlagAudience }) {
               index={index}
               rule={rule}
               variants={audience.variants}
+              bucketing={audience.bucketing}
             />
           ))}
           {audience.fallbackReachable && (
@@ -319,7 +335,10 @@ export function FlagAudienceCard({ audience }: { audience: FlagAudience }) {
         </div>
 
         {audience.variants.length > 0 && (
-          <VariantsList variants={audience.variants} />
+          <VariantsList
+            variants={audience.variants}
+            stability={audience.stability}
+          />
         )}
       </CardContent>
     </Card>

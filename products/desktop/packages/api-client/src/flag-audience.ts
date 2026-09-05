@@ -17,6 +17,10 @@ export interface FlagAudience {
   /** False when a reachable rule already matches everyone, so the fallback row is hidden. */
   fallbackReachable: boolean;
   variants: FlagVariant[];
+  /** What a check buckets on, which decides the variant-assignment hash key. */
+  bucketing: "distinct_id" | "device_id";
+  /** The bucketing key as display text: "the distinct ID", "the device ID", "the group key". */
+  stability: string;
 }
 
 export interface FlagRule {
@@ -27,6 +31,8 @@ export interface FlagRule {
   result: FlagResult;
   /** False when an earlier catch-all for the same aggregation shadows this rule. */
   reachable: boolean;
+  /** True when the rule aggregates over groups instead of persons. */
+  isGroup: boolean;
 }
 
 export type FlagResult =
@@ -282,14 +288,24 @@ function describeAudience(
   rule: FlagRule,
   group: ConditionGroup,
   people: Map<string, ResolvedPerson>,
+  deviceBucketed: boolean,
 ): Audience {
   const noun = group.isGroup ? "groups" : "people";
   const share = rule.share < 100 ? `${rule.share}% of ` : "";
   if (rule.conditions.length === 0) {
-    return rule.share < 100
-      ? { label: `${rule.share}% of ${noun}`, plural: true }
-      : // "everyone" takes a singular verb in the summary sentence.
-        { label: "everyone", plural: false };
+    if (rule.share < 100) {
+      return { label: `${rule.share}% of ${noun}`, plural: true };
+    }
+    // A group rule still needs a group key, and a device-bucketed rule still
+    // needs a device ID, so "everyone" would overstate who matches.
+    if (rule.isGroup) {
+      return { label: "every group", plural: true };
+    }
+    if (deviceBucketed) {
+      return { label: "every device", plural: true };
+    }
+    // "everyone" takes a singular verb in the summary sentence.
+    return { label: "everyone", plural: false };
   }
   if (rule.conditions.length === 1 && group.properties.length === 1) {
     const [condition] = rule.conditions;
@@ -348,9 +364,19 @@ function joinAudiences(labels: string[]): string {
   return `${labels.length} audiences`;
 }
 
-/** A reachable rule with no conditions at 100% matches everyone, leaving nobody for the fallback. */
-function catchAllRule(rule: FlagRule): boolean {
-  return rule.reachable && rule.conditions.length === 0 && rule.share === 100;
+/**
+ * A reachable rule with no conditions at 100% matches every evaluable check,
+ * leaving nobody for the fallback. Group rules still need a group key and
+ * device-bucketed rules still need a device ID, so those keep the fallback.
+ */
+function catchAllRule(rule: FlagRule, deviceBucketed: boolean): boolean {
+  return (
+    rule.reachable &&
+    rule.conditions.length === 0 &&
+    rule.share === 100 &&
+    !rule.isGroup &&
+    !deviceBucketed
+  );
 }
 
 export function shapeFlagAudience(
@@ -381,6 +407,17 @@ export function shapeFlagAudience(
   const isRemoteConfig = flag.is_remote_configuration === true;
   const disabled = flag.active === false;
   const groups = conditionGroups(flag);
+  const deviceBucketed = filters.bucketing_identifier === "device_id";
+  // The variant hash key follows the bucketing identifier: device id when set,
+  // the group key for group-aggregated rules, otherwise the distinct ID.
+  const stability = deviceBucketed
+    ? "the device ID"
+    : groups.some((group) => group.isGroup)
+      ? "the group key"
+      : "the distinct ID";
+  const bucketing: FlagAudience["bucketing"] = deviceBucketed
+    ? "device_id"
+    : "distinct_id";
 
   const matchResult = (variant: string | null): FlagResult => {
     if (isRemoteConfig) return { kind: "payload" };
@@ -397,6 +434,7 @@ export function shapeFlagAudience(
     share: group.rollout,
     result: matchResult(group.variant),
     reachable: true,
+    isGroup: group.isGroup,
   }));
   // The evaluator checks condition sets in declaration order and returns on
   // the first match, so an empty condition set at 100% shadows every later
@@ -424,8 +462,10 @@ export function shapeFlagAudience(
       disabled,
       rules,
       fallback,
-      fallbackReachable: !rules.some(catchAllRule),
+      fallbackReachable: !rules.some((rule) => catchAllRule(rule, deviceBucketed)),
       variants,
+      bucketing,
+      stability,
     };
   }
 
@@ -443,6 +483,8 @@ export function shapeFlagAudience(
       fallback,
       fallbackReachable: true,
       variants,
+      bucketing,
+      stability,
     };
   }
 
@@ -457,11 +499,18 @@ export function shapeFlagAudience(
       fallback,
       fallbackReachable: true,
       variants,
+      bucketing,
+      stability,
     };
   }
 
   const audiences = live.map((rule) =>
-    describeAudience(rule, groups[rules.indexOf(rule)], people),
+    describeAudience(
+      rule,
+      groups[rules.indexOf(rule)],
+      people,
+      deviceBucketed,
+    ),
   );
   const who = joinAudiences(audiences.map((audience) => audience.label));
   const headline = isRemoteConfig
@@ -480,9 +529,15 @@ export function shapeFlagAudience(
       `${more} more ${more === 1 ? "rule applies" : "rules apply"}.`,
     );
   }
-  const fallbackReachable = !rules.some(catchAllRule);
+  const fallbackReachable = !rules.some((rule) =>
+    catchAllRule(rule, deviceBucketed),
+  );
   if (fallbackReachable) {
-    sentences.push("Everyone else gets false.");
+    sentences.push(
+      deviceBucketed || rules.some((rule) => rule.isGroup)
+        ? "A check without its bucketing key still gets false."
+        : "Everyone else gets false.",
+    );
   }
 
   return {
@@ -493,6 +548,8 @@ export function shapeFlagAudience(
     fallback,
     fallbackReachable,
     variants,
+    bucketing,
+    stability,
   };
 }
 
