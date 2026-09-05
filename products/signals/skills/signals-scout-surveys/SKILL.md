@@ -58,7 +58,7 @@ Then orient on surveys specifically. The profile already gave you the roster, so
 Right order:
 
 1. `recent_surveys` from the profile you already read — your cold-start inventory. It says whether anything is running, and gives you ids to query directly. Two limits: it is capped at 5 and ordered by `updated_at`, so it ranks recent edits and not activity; and it is a cached snapshot, so a survey created minutes ago can be missing. Steps 2–5 supply activity, ranking and configuration.
-2. `surveys-global-stats` (last 30d) — cheap project-wide check: are surveys converting at all? If `survey sent` total is zero, close out empty.
+2. `surveys-global-stats` (last 30d) — cheap project-wide check: are surveys converting at all? It returns a `total_count` for each of `survey shown` / `survey dismissed` / `survey sent`, so read all three. Close out empty only when all three are zero. Impressions with zero completions is not an empty project — it is the response-rate cratering lane at full severity, so keep going and rank on `survey shown` in step 3 instead. Zero completions is legitimate for an `api` survey whose integrator never fires `survey sent`, and for a survey nobody has shared; when that is the steady state, write a `noise:` entry so later runs skip it instead of re-deriving it.
 3. **Rank candidates by recent activity, not by config.** Use `execute-sql` to find the top survey ids by `survey sent` volume in the last 30d:
 
    ```sql
