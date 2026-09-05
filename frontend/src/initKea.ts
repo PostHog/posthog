@@ -76,6 +76,8 @@ generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlag
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
+const MATCH_ANYTHING_EXCEPT_SEPARATOR = '^/'
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -110,9 +112,7 @@ export function initKea({
             history: routerHistory,
             location: routerLocation,
             urlPatternOptions: {
-                // :TRICKY: What chars to allow in named segment values i.e. ":key"
-                // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
+                segmentValueCharset: MATCH_ANYTHING_EXCEPT_SEPARATOR,
             },
             pathFromRoutesToWindow: (path) => {
                 return addProjectIdIfMissing(path)
