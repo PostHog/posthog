@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProjectTree, ProjectTreeProps } from './ProjectTree'
 
-interface StoryProps extends ProjectTreeProps {
+interface StoryProps extends Omit<ProjectTreeProps, 'panelName'> {
     enableCustomProductsFlag?: boolean
 }
 
@@ -30,7 +30,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             <div className="w-[280px] h-[600px] border rounded bg-surface-primary overflow-hidden">
                 <div className="p-2 border-b text-sm font-semibold text-secondary">Custom Products Sidebar</div>
                 <div className="h-[calc(100%-40px)] overflow-auto group/colorful-product-icons colorful-product-icons-true">
-                    <ProjectTree root="custom-products://" onlyTree {...props} />
+                    <ProjectTree panelName="custom-products" root="custom-products://" onlyTree {...props} />
                 </div>
             </div>
         )
@@ -58,7 +58,7 @@ export const AllProducts: Story = {
             <div className="w-[280px] h-[600px] border rounded bg-surface-primary overflow-hidden">
                 <div className="p-2 border-b text-sm font-semibold text-secondary">All Products Sidebar</div>
                 <div className="h-[calc(100%-40px)] overflow-auto group/colorful-product-icons colorful-product-icons-true">
-                    <ProjectTree root="products://" onlyTree />
+                    <ProjectTree panelName="products" root="products://" onlyTree />
                 </div>
             </div>
         )
