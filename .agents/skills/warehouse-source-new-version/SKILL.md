@@ -43,6 +43,12 @@ Add it when any of these hold:
 
 "Nothing changed" needs the same docs evidence as a divergence. An unread changelog is not a clean diff.
 
+Run that diff against the new version's own reference page for each endpoint this source reads, not against the
+changelog or the docs URL. A vendor's new generation often covers only part of its product surface, so its v2 docs
+section keeps printing v1 request lines for everything v2 never replaced; a source that reads only the untouched part
+gets no new version at all. For the same reason, a dated announcement that retires individual endpoints is not a
+version sunset - confirm the version itself stops being served before deprecating it or writing a repin.
+
 ## Adding a new version, step by step
 
 1. **Read the vendor's changelog** (the source's `api_docs_url`) and list what changed between the currently supported version(s) and the new one: renamed/removed fields, changed pagination, new required headers, changed webhook payloads, or a field the source reads becoming opt-in behind a new query parameter (a field returned by default in the old version now empty unless requested — restore it by adding that parameter on the new version's request path). Verification is docs-only — there are no stored credentials and no live-sync harness, so the docs are the sole source of truth for what each version serves. This is also the evidence the gate above runs on.
