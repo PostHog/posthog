@@ -134,6 +134,30 @@ what makes fleet-wide auto-previews (peak ~85–115 concurrently open) affordabl
 
 Access is **tailnet-only** (PostHog VPN) — internal reviewers, no public URL.
 
+## Desktop preview profile
+
+`--profile desktop` (with `--commit-sha`, the resolved PR head SHA) turns a
+preview into one the PostHog Desktop preview installers can use:
+
+- Seeds a public OAuth application (the development "Array" client id) with the
+  PR's `posthog-code-preview-pr-<n>://callback` redirect URI, a scope ceiling
+  that covers the desktop client's explicit scope list, and two synthetic tester
+  accounts in a shared synthetic organization. Idempotent: re-running never
+  duplicates apps or users.
+- Serves `/static/desktop-preview/deployment.json` (PR, exact backend SHA,
+  deployment generation) so an installed app can detect a backend replacement.
+- Gates readiness on authenticated probes — tester login, the OAuth authorize
+  round-trip with the preview client id and redirect URI, `/api/users/@me/`,
+  and the desktop access endpoint — instead of the bare `/_health`.
+- Prints a versioned single-line JSON result (`desktop_result=…`) alongside the
+  `url=`/`box_id=`/`pen_id=` contract, so the desktop workflow never scrapes
+  logs or comments.
+
+The desktop identity (`posthog-code-preview-pr-<n>`, app id, redirect URI) is
+derived from the PR number and must stay byte-compatible with
+`desktopPreviewIdentity` in
+`products/desktop/packages/shared/src/desktop-preview.ts`.
+
 ## CLI
 
 Pure stdlib + the SDK; run with `uv run` or plain `python`. Subcommands mirror

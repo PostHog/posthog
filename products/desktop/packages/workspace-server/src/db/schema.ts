@@ -135,6 +135,17 @@ export const authSessions = sqliteTable("auth_sessions", {
   id: integer().primaryKey(),
   refreshTokenEncrypted: text().notNull(),
   cloudRegion: text({ enum: ["us", "eu", "dev", "dev-cloud"] }).notNull(),
+  // Serialized deployment target: an ordinary region, or "preview" for a
+  // desktop-preview deployment whose origin lives in the build manifest.
+  deploymentTarget: text({
+    enum: ["us", "eu", "dev", "dev-cloud", "preview"],
+  })
+    .notNull()
+    .default("us"),
+  // Deployment identity recorded at sign-in for a preview session; null for
+  // ordinary regions. A changed value means the stored refresh token belongs
+  // to a replaced backend and must not be reused.
+  deploymentId: text(),
   selectedProjectId: integer(),
   scopeVersion: integer().notNull(),
   createdAt: createdAt(),

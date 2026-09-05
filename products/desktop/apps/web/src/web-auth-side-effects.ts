@@ -1,3 +1,4 @@
+import type { DeploymentTarget } from "@posthog/core/auth/schemas";
 import type { CloudRegion } from "@posthog/shared";
 import {
   clearAuthScopedQueries,
@@ -25,7 +26,7 @@ export class WebAuthSideEffects implements IAuthSideEffects {
     private readonly browserTabsClient: BrowserTabsClient,
   ) {}
 
-  onAuthSuccess(_region: CloudRegion, _projectId: number | null): void {
+  onAuthSuccess(_region: DeploymentTarget, _projectId: number | null): void {
     resetInboxReportActionDrafts();
     void refreshAuthStateQuery();
     useAuthUiStateStore.getState().clearStaleRegion();

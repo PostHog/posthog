@@ -192,6 +192,10 @@ import {
   type IPowerManager,
   POWER_MANAGER_SERVICE,
 } from "@posthog/platform/power-manager";
+import {
+  PREVIEW_DEPLOYMENT,
+  type PreviewDeploymentInfo,
+} from "@posthog/platform/preview-deployment";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
 import type { Adapter } from "@posthog/shared";
 import { sandboxProxyHtml } from "@posthog/shared/mcp-sandbox-proxy";
@@ -464,6 +468,9 @@ container.bind(POWER_MANAGER_SERVICE).toConstantValue(webPowerManager);
 // The web host is cloud-only: no local filesystem, so the UI must use remote
 // (connected-GitHub-org) repositories and cloud workspaces everywhere it would
 // otherwise reach for local folders/worktrees/terminal.
+container
+  .bind<PreviewDeploymentInfo | null>(PREVIEW_DEPLOYMENT)
+  .toConstantValue(null);
 container
   .bind(HOST_CAPABILITIES)
   .toConstantValue({ localWorkspaces: false } satisfies HostCapabilities);

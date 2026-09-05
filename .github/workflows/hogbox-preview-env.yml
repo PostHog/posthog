@@ -130,7 +130,20 @@ jobs:
         outputs:
             build: ${{ steps.decide.outputs.build }}
             teardown: ${{ steps.decide.outputs.teardown }}
+            desktop: ${{ steps.decide.outputs.desktop }}
+            desktop_backend: ${{ steps.decide.outputs.desktop_backend }}
+            desktop_teardown: ${{ steps.decide.outputs.desktop_teardown }}
         steps:
+            # The desktop decision table runs from the TRUSTED default branch
+            # (sparse: only the script itself), never the PR's copy — decide
+            # must stay checkout-free for PR code but this file is not PR code.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  sparse-checkout: |
+                      .github/scripts/desktop/desktop-preview-decision.js
+                  sparse-checkout-cone-mode: false
+
             # A blip empties the outputs, so every downstream job skips: no preview, still green.
             - name: Decide build vs teardown vs skip
               id: decide
@@ -147,11 +160,30 @@ jobs:
                           core.setOutput('teardown', teardown ? 'true' : 'false');
                       };
 
-                      // Manual dispatch is an explicit act by someone with Actions
-                      // write — always attempt a build. The preview job's fork guard
-                      // is the security gate for a dispatched fork number.
+                      // Manual dispatch is an explicit act by someone with
+                      // Actions write — always attempt a build. The preview
+                      // job's fork guard is the security gate for a dispatched
+                      // fork number. The desktop decision is computed here too
+                      // (the module handles dispatch), from the PR fetched via
+                      // the API because the dispatch payload has none.
                       if (event === 'workflow_dispatch') {
-                          return decide(true, false, 'workflow_dispatch → build');
+                          decide(true, false, 'workflow_dispatch → build');
+                          const { decideDesktopPreview } = require('./.github/scripts/desktop/desktop-preview-decision.js');
+                          const prNumber = Number(process.env.PR);
+                          const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: prNumber });
+                          const desktopDecision = decideDesktopPreview({
+                              event,
+                              action: undefined,
+                              pr,
+                              repository: base,
+                              labels: (pr.labels || []).map(l => l.name),
+                          });
+                          core.info(`desktop-preview decision: ${JSON.stringify(desktopDecision)}`);
+                          const desktopBuild = desktopDecision.action === 'build';
+                          core.setOutput('desktop', desktopBuild ? 'true' : 'false');
+                          core.setOutput('desktop_backend', desktopDecision.backend || desktopBuild ? 'true' : 'false');
+                          core.setOutput('desktop_teardown', desktopDecision.action === 'teardown' ? 'true' : 'false');
+                          return;
                       }
 
                       const pr = context.payload.pull_request;
@@ -162,10 +194,9 @@ jobs:
                       // semantics; adding the `no-preview` opt-out tears a live
                       // preview down the same way.
                       if (action === 'unlabeled' && label === 'hogbox-preview') {
-                          return decide(false, true, 'hogbox-preview removed → tear down');
-                      }
-                      if (action === 'labeled' && label === 'no-preview') {
-                          return decide(false, true, 'no-preview opt-out added → tear down');
+                          decide(false, true, 'hogbox-preview removed → tear down');
+                      } else if (action === 'labeled' && label === 'no-preview') {
+                          decide(false, true, 'no-preview opt-out added → tear down');
                       }
 
                       // Most label toggles don't change build intent — only two do:
@@ -178,7 +209,24 @@ jobs:
                           (action === 'labeled' && label === 'hogbox-preview') ||
                           (action === 'unlabeled' && label === 'no-preview');
                       if ((action === 'labeled' || action === 'unlabeled') && !buildRelevantLabel) {
-                          return decide(false, false, `label ${action} '${label}' — not preview-relevant → skip`);
+                          decide(false, false, `label ${action} '${label}' — not preview-relevant → skip`);
+                          // Unrelated-to-hogbox label churn can still be a
+                          // desktop-preview transition (its two relevant
+                          // labels differ from hogbox's). Compute the desktop
+                          // decision, then stop: no hogbox work either way.
+                          const { decideDesktopPreview } = require('./.github/scripts/desktop/desktop-preview-decision.js');
+                          const desktopDecision = decideDesktopPreview({
+                              event, action, pr,
+                              repository: base,
+                              labels: (pr.labels || []).map(l => l.name),
+                              label,
+                          });
+                          core.info(`desktop-preview decision: ${JSON.stringify(desktopDecision)}`);
+                          const desktopBuild = desktopDecision.action === 'build';
+                          core.setOutput('desktop', desktopBuild ? 'true' : 'false');
+                          core.setOutput('desktop_backend', desktopDecision.backend || desktopBuild ? 'true' : 'false');
+                          core.setOutput('desktop_teardown', desktopDecision.action === 'teardown' ? 'true' : 'false');
+                          return;
                       }
 
                       // Build eligibility: same-repo AND human AND (ready OR
@@ -222,9 +270,35 @@ jobs:
                           core.info(`frontend-touching: ${frontend}`);
                       }
                       const build = hasPreviewLabel || frontend;
-                      return decide(build, false, build
+                      decide(build, false, build
                           ? `eligible (label=${hasPreviewLabel}, frontend=${frontend}) → build`
                           : 'no hogbox-preview label and no frontend changes → skip');
+
+                      // --- desktop-preview demand -----------------------------------
+                      // Table-driven (the module sparse-checked-out above, from
+                      // the default branch — never PR code). `build` above is
+                      // the ordinary hogbox decision; this computes whether the
+                      // desktop path additionally wants the same backend with
+                      // the desktop profile, and whether a teardown should
+                      // retire desktop-only resources.
+                      const { decideDesktopPreview } = require('./.github/scripts/desktop/desktop-preview-decision.js');
+                      const labelNames = (pr.labels || []).map(l => l.name);
+                      const desktopDecision = decideDesktopPreview({
+                          event,
+                          action,
+                          pr,
+                          repository: base,
+                          labels: labelNames,
+                          label: context.payload.label && context.payload.label.name,
+                          autoPreviewEligible: build,
+                      });
+                      core.info(`desktop-preview decision: ${JSON.stringify(desktopDecision)}`);
+                      const desktopBuild = desktopDecision.action === 'build';
+                      const desktopBackend = desktopDecision.backend;
+                      const desktopTeardown = desktopDecision.action === 'teardown';
+                      core.setOutput('desktop', desktopBuild ? 'true' : 'false');
+                      core.setOutput('desktop_backend', desktopBackend || desktopBuild ? 'true' : 'false');
+                      core.setOutput('desktop_teardown', desktopTeardown ? 'true' : 'false');
 
     # ----------------------------------------------------------------------------
     # Trusted, tiny, no-checkout: open a GitHub Deployment (in_progress) and the
@@ -433,12 +507,18 @@ jobs:
         # failed, so the failure reporter below still flips the Deployment +
         # sticky comment to failed. Skips only on cancellation (a newer push's
         # run took over the concurrency group).
-        if: ${{ !cancelled() && needs.decide.outputs.build == 'true' }}
+        # `build` covers ordinary demand; `desktop_backend` covers a PR whose
+        # ONLY preview demand is the desktop label (no hogbox-preview, no
+        # frontend diff) — same box, same concurrency group, one owner.
+        if: ${{ !cancelled() && (needs.decide.outputs.build == 'true' || needs.decide.outputs.desktop_backend == 'true') }}
         concurrency:
             group: hogbox-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
             cancel-in-progress: true
         runs-on: ubuntu-24.04
         timeout-minutes: 40
+        outputs:
+            desktop_ready: ${{ steps.desktop.outputs.ready }}
+            head_sha: ${{ steps.head.outputs.sha }}
         permissions:
             contents: read
             id-token: write # mint OIDC for the tailnet join AND the hogplane token
@@ -530,10 +610,58 @@ jobs:
               with:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
+            # Resolve the EXACT PR head SHA (the synthetic merge SHA GitHub
+            # reports as github.sha is NOT what the box runs: the tool checks
+            # out pull/<n>/head). The desktop profile pins the box, the manifest,
+            # and the installers to this SHA, so all three agree.
+            - name: Resolve exact PR head SHA
+              id: head
+              if: steps.uv.outcome == 'success' && needs.decide.outputs.desktop == 'true'
+              continue-on-error: true
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      const { data } = await github.rest.pulls.get({ ...context.repo, pull_number: pr });
+                      if (!data.head || data.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+                          core.setFailed(`PR #${pr} head is not in this repository; refusing to provision`);
+                          return;
+                      }
+                      core.setOutput('sha', data.head.sha);
+
+            # Read the source support marker from the resolved SHA as DATA
+            # (never execute PR code here): a branch without the desktop
+            # preview infrastructure must get a clear message, not a
+            # misconfigured build.
+            - name: Check source desktop-preview support
+              id: support
+              if: steps.head.outcome == 'success'
+              continue-on-error: true
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const sha = process.env.HEAD_SHA;
+                      const { data: pkg } = await github.rest.repos.getContent({
+                          ...context.repo,
+                          path: 'products/desktop/apps/code/package.json',
+                          ref: sha,
+                      });
+                      const parsed = JSON.parse(Buffer.from(pkg.content, 'base64').toString('utf8'));
+                      const supported = parsed.desktopPreviewConfigVersion === 1;
+                      core.setOutput('supported', supported ? 'true' : 'false');
+                      if (!supported) {
+                          core.setFailed('This branch predates the desktop preview infrastructure. Update the branch with the desktop preview infrastructure (merge master), then re-apply the label.');
+                      }
+              env:
+                  HEAD_SHA: ${{ steps.head.outputs.sha }}
+
             - name: Bring up preview
               id: build
               if: steps.uv.outcome == 'success'
               continue-on-error: true
+              env:
+                  DESKTOP: ${{ needs.decide.outputs.desktop }}
+                  HEAD_SHA: ${{ steps.head.outputs.sha }}
               run: |
                   # Restore the golden, check out the PR, mount its backend source
                   # (posthog/ee/products) over the :master image's /code,
@@ -542,6 +670,16 @@ jobs:
                   # below) so this step runs in parallel with the FE build. The tool
                   # streams `[hogbox-preview +NNNs] <stage>` lines to STDERR for
                   # per-stage visibility; stdout stays the url=/box_id=/pen_id= contract.
+                  #
+                  # The desktop profile (--profile desktop --commit-sha) additionally
+                  # seeds the OAuth app + testers, publishes the deployment metadata
+                  # document, and gates on authenticated desktop readiness — and the
+                  # tool verifies in-box that the checkout is exactly HEAD_SHA, so
+                  # backend, manifest, and installers share one revision.
+                  profile_args=""
+                  if [ "$DESKTOP" = "true" ] && [ -n "$HEAD_SHA" ]; then
+                    profile_args="--profile desktop --commit-sha $HEAD_SHA"
+                  fi
                   out=$(uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 \
                     python -m hogbox_preview \
                     --host "$HOG_HOST" \
@@ -549,12 +687,13 @@ jobs:
                     --snapshot "alias:posthog-preview-golden" \
                     --cpus 8 --memory-mib 16384 --disk-gib 100 \
                     --ttl-seconds 1800 \
-                    up --branch "pull/${PR}/head" --no-seed)
+                    up --branch "pull/${PR}/head" --no-seed $profile_args)
                   echo "$out"
                   {
                     echo "url=$(echo "$out" | sed -n 's/^url=//p')"
                     echo "box_id=$(echo "$out" | sed -n 's/^box_id=//p')"
                     echo "pen_id=$(echo "$out" | sed -n 's/^pen_id=//p')"
+                    echo "desktop_result=$(echo "$out" | sed -n 's/^desktop_result=//p')"
                   } >> "$GITHUB_OUTPUT"
               working-directory: tools/hogbox-preview
 
@@ -650,6 +789,77 @@ jobs:
                   echo "bring-up=$BRING_UP fe-wait=$FE_WAIT dist=$DIST swap=$SWAP -> ok=$ok"
                   echo "ok=$ok" >> "$GITHUB_OUTPUT"
 
+            # Emit the PUBLIC preview manifest for the installer builds. Only
+            # public data (origin, client id, identity, flags); the desktop
+            # profile's OAuth seed material never leaves the box. The install
+            # jobs validate this artifact's schema and identity before use.
+            # The python block is a heredoc INSIDE the run script, so its
+            # indentation must stay valid YAML block-scalar content.
+            - name: Emit desktop preview manifest
+              id: desktop
+              if: ${{ !cancelled() && needs.decide.outputs.desktop == 'true' }}
+              env:
+                  BRING_UP: ${{ steps.build.outcome }}
+                  HEAD_SHA: ${{ steps.head.outputs.sha }}
+                  DESKTOP_RESULT: ${{ steps.build.outputs.desktop_result }}
+                  URL: ${{ steps.build.outputs.url }}
+              run: |
+                  ready=false
+                  if [ "$BRING_UP" = success ] && [ -n "$DESKTOP_RESULT" ]; then
+                    # Read the consumer profile from the resolved SHA as DATA
+                    # (it may be absent: baseline profile).
+                    profile='{}'
+                    if curl -sf --retry 3 --max-time 30                         -H "Authorization: Bearer ${{ github.token }}"                         -H "Accept: application/vnd.github.raw"                         "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/products/desktop/preview.json?ref=${HEAD_SHA}" \
+                        -o "$RUNNER_TEMP/consumer-profile.json"; then
+                      profile=$(cat "$RUNNER_TEMP/consumer-profile.json")
+                    fi
+                    DESKTOP_RESULT="$DESKTOP_RESULT" URL="$URL" HEAD_SHA="$HEAD_SHA" PR="$PR" PROFILE="$profile" \
+                    python3 - <<'PYEOF'
+                  import json, os, sys
+                  result = json.loads(os.environ["DESKTOP_RESULT"])
+                  url = os.environ["URL"]
+                  sha = os.environ["HEAD_SHA"]
+                  pr = os.environ["PR"]
+                  profile = json.loads(os.environ["PROFILE"]) if os.environ["PROFILE"].strip() else {}
+                  assert result["url"] == url, "result URL mismatch"
+                  assert result["commitSha"] == sha, "result SHA mismatch"
+                  assert result["desktopReady"], "desktop readiness not confirmed"
+                  # Same narrow validation the tooling applies: unknown
+                  # capabilities and non-boolean flags fail the build clearly
+                  # rather than shipping a preview missing the service under
+                  # test. The server-side flag seeding happens in the box.
+                  capabilities = profile.get("capabilities", [])
+                  flags = profile.get("featureFlags", {})
+                  assert all(isinstance(c, str) and c for c in capabilities), "bad capabilities"
+                  assert all(isinstance(v, bool) for v in flags.values()), "bad feature flags"
+                  manifest = {
+                      "schemaVersion": 1,
+                      "kind": "desktop-preview",
+                      "repository": "PostHog/posthog",
+                      "prNumber": int(pr),
+                      "commitSha": sha,
+                      "backendOrigin": url.rstrip("/"),
+                      "oauthClientId": "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
+                      "gateway": {"kind": "unavailable", "reason": "Gateway has not been configured"},
+                      "featureFlags": flags,
+                      "capabilities": capabilities,
+                  }
+                  with open(os.environ["RUNNER_TEMP"] + "/desktop-preview.json", "w") as f:
+                      json.dump(manifest, f)
+                  PYEOF
+                    ready=true
+                  fi
+                  echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+            - name: Upload desktop preview manifest
+              if: steps.desktop.outputs.ready == 'true'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: hogbox-desktop-preview-manifest
+                  path: ${{ runner.temp }}/desktop-preview.json
+                  retention-days: 1
+                  compression-level: 0
+
             # Reporting is auxiliary: an API blip must not red a preview that came up.
             - name: Report ready (deployment + comment)
               if: steps.outcome.outputs.ok == 'true'
@@ -739,6 +949,82 @@ jobs:
                           `See the **[build log](${runUrl})** for the failing step. It'll retry on the next push.\n\n` +
                           `<sub>Previews are optional and never block merging. A failure here is often a hogland or tailnet ` +
                           `hiccup rather than anything in your PR, so the check stays green and this comment is the status.</sub>`;
+                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
+                      const ex = comments.find(c => c.body.includes(marker));
+                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
+                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
+
+    # ----------------------------------------------------------------------------
+    # Desktop preview installers: built from the EXACT PR head SHA the backend
+    # runs, AFTER the desktop profile reports ready. The manifest artifact
+    # crosses from the trusted deploy job into the (untrusted-code-running)
+    # packaging jobs as DATA: the build validates its schema, provenance, and
+    # PR/SHA identity before using it, and nothing from it is executed.
+    #
+    # A reusable workflow call counts as one run against the dispatch budget;
+    # the platform matrices live in desktop-build-installers.yml.
+    desktop-installers:
+        name: '[Optional] build desktop preview installers'
+        needs: [decide, deploy]
+        if: ${{ !cancelled() && needs.decide.outputs.desktop == 'true' && needs.deploy.outputs.desktop_ready == 'true' }}
+        uses: ./.github/workflows/desktop-build-installers.yml
+        with:
+            build_kind: preview
+            desktop_preview_manifest_artifact: hogbox-desktop-preview-manifest
+            caller_run_id: ${{ github.run_id }}
+            pr_number: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+            source_sha: ${{ needs.deploy.outputs.head_sha }}
+        permissions:
+            contents: read
+            id-token: write # macOS code signing
+
+    # One sticky comment for the desktop preview path. Distinct marker from
+    # the hogbox comment so the two reporters never fight; the desktop
+    # comment carries install instructions, artifact links, and the honest
+    # per-platform matrix (a failed platform is named failed).
+    desktop-report:
+        name: '[Optional] report desktop preview'
+        needs: [decide, desktop-installers]
+        # hogli-lint: not-a-required-gate — posts the sticky desktop-preview comment; emits no required check.
+        if: ${{ !cancelled() && needs.decide.outputs.desktop == 'true' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - name: Post desktop preview status on the PR
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              env:
+                  MACOS: ${{ needs.desktop-installers.outputs.macos || 'skipped' }}
+                  WINDOWS: ${{ needs.desktop-installers.outputs.windows || 'skipped' }}
+                  LINUX: ${{ needs.desktop-installers.outputs.linux || 'skipped' }}
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      const rows = [
+                          ['macOS (arm64 + x64)', process.env.MACOS],
+                          ['Windows x64', process.env.WINDOWS],
+                          ['Linux (x64 + arm64)', process.env.LINUX],
+                      ];
+                      const platform = (r) => r[1] === 'success' ? '✅ built' : (r[1] === 'skipped' ? '— skipped' : `❌ ${r[1]}`);
+                      const allOk = rows.every(r => r[1] === 'success');
+                      const marker = '<!-- desktop-preview-comment -->';
+                      const body =
+                          `${marker}\n### 🖥️ Desktop preview &middot; ${allOk ? '✅ ready' : '⚠️ partially built'}\n\n` +
+                          `Installers connect to this PR's isolated backend (VPN required). ` +
+                          `**[Download artifacts from this run](${runUrl}#artifacts)** — requires repo access, expire in 7 days.\n\n` +
+                          `| Platform | Status |\n|--|--|\n` +
+                          rows.map(r => `| ${r[0]} | ${platform(r)} |`).join('\n') +
+                          `\n\n` +
+                          `The macOS builds are **signed but not notarized**. Clear the quarantine flag once:\n\n` +
+                          '```sh\n' +
+                          `xattr -dr com.apple.quarantine \"/Applications/PostHog Preview PR ${pr}.app\"` +
+                          '\n```\n\n' +
+                          `After a push, download a fresh installer — the old one reports that the backend moved. ` +
+                          `Backend test data and sessions can reset.\n\n` +
+                          `<sub>Preview installers never update themselves and never reach production.</sub>`;
                       const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
                       const ex = comments.find(c => c.body.includes(marker));
                       if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
