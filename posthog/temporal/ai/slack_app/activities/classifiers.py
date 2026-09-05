@@ -88,6 +88,13 @@ def classify_task_needs_repo(
         "recording",
         "mcp",
         "webhook",
+        # NB: "scout" (a PostHog Signals scout) is deliberately NOT a fast-path
+        # term. As a bare substring it collides with code asks like "fix the
+        # scout code" / "the scout SDK has a bug" — none of which trip an
+        # explicit_code_pattern — so it would short-circuit them to non-repo and
+        # skip the repo gate. Scout mentions are routed by the LLM classifier
+        # below instead, which lists Signals scouts among the non-repo products
+        # and can still catch genuine code intent.
         # Analytics primitives and data asks
         "events",
         "persons",
@@ -145,8 +152,12 @@ def classify_task_needs_repo(
         "investigating product behavior in a PostHog workspace using MCP/tools).\n\n"
         "Return needs_repo=false for tasks that are primarily about debugging or investigating "
         "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
-        "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
-        "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
+        "recordings, traces, Signals scouts, or Slack integrations inside PostHog, unless the user "
+        "explicitly asks to change code, open a PR, edit files, or work in a specific repository. "
+        "A PostHog Signals scout is a scheduled agent that scans a project and reports into the "
+        "Signals inbox; 'set up a scout', 'the scout found X', or tuning a scout is PostHog config, "
+        "not code — but 'fix the scout code' or 'the scout SDK has a bug' is a code change → "
+        "needs_repo.\n\n"
         "A complaint about something the team's own app, site, or SDK does (crashes, broken pages, "
         "wrong rendering, slow loads of a site they ship) is a code change in a repo they own → "
         "needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, "
