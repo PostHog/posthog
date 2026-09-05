@@ -265,7 +265,7 @@ export const getExperimentChangeDescription = (
                         }
                         return null
                     })
-                    .exhaustive()
+                    .otherwise(() => null)
             )
 
             // Check if exposure_config was removed (returning to default)
