@@ -47,6 +47,7 @@ import {
     SyncTypeLabelMap,
     allowedSyncFrequencies,
     defaultQuery,
+    reenableMayForceFullResync,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
 
@@ -201,9 +202,11 @@ function DetailsSection({
                     <div className="flex flex-col">
                         <span>Enabled</span>
                         <span className="text-xs text-muted max-w-md">
-                            When enabled, this schema runs on the configured schedule and data is imported into PostHog.
-                            Disabling pauses all syncs — existing data stays in place but is not updated until you
+                            When enabled, this schema runs on the configured schedule and imports data into PostHog.
+                            Disabling pauses syncs. Your synced data stays in PostHog and is not updated until you
                             re-enable.
+                            {reenableMayForceFullResync(schema.sync_type) &&
+                                ' Re-enabling may run a full resync that re-imports data from the source.'}
                         </span>
                     </div>
                     <SchemaEditorAction schema={schema}>
