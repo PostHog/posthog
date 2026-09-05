@@ -156,6 +156,38 @@ describe('useGroupList', () => {
             expect(apiGet).not.toHaveBeenCalled()
         })
 
+        it('drops the previous page when the query falls below the minimum length', async () => {
+            apiGet.mockResolvedValue({ results: [{ name: 'checkout' }], count: 1 })
+            const group = makeGroup({ endpoint: 'api/projects/1/whatever', minSearchQueryLength: 3 })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'checkout' },
+            })
+            await waitFor(() => expect(result.current.items).toEqual([{ name: 'checkout' }]))
+
+            rerender({ q: 'ch' })
+
+            // Nothing fetches below the minimum, so the longer query's rows must go —
+            // otherwise they read as matches for what is on screen now.
+            expect(result.current.items).toEqual([])
+            expect(result.current.needsMoreSearchCharacters).toBe(true)
+        })
+
+        it('drops the previous page when the request for the current query fails', async () => {
+            apiGet
+                .mockResolvedValueOnce({ results: [{ name: 'alpha' }], count: 1 })
+                .mockRejectedValueOnce(new Error('search unavailable'))
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'alpha' },
+            })
+            await waitFor(() => expect(result.current.items).toEqual([{ name: 'alpha' }]))
+
+            rerender({ q: 'beta' })
+
+            await waitFor(() => expect(result.current.items).toEqual([]))
+            expect(result.current.isLoading).toBe(false)
+        })
+
         it('refires when searchQuery changes', async () => {
             apiGet
                 .mockResolvedValueOnce({ results: [{ name: 'a' }], count: 1 })
