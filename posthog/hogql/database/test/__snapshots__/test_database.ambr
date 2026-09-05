@@ -10834,6 +10834,16 @@
                   "table": null,
                   "type": "json"
               },
+              "ai_triage": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ai_triage",
+                  "id": null,
+                  "name": "ai_triage",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
               "ai_resolved": {
                   "chain": null,
                   "fields": null,
@@ -22280,6 +22290,16 @@
                   "hogql_value": "anonymous_traits",
                   "id": null,
                   "name": "anonymous_traits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "ai_triage": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ai_triage",
+                  "id": null,
+                  "name": "ai_triage",
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
