@@ -3,6 +3,7 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
+import { consumeCrossSurfaceSessionId } from 'lib/utils/crossSurfaceSessionId'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
@@ -34,9 +35,23 @@ export interface LoadPostHogJSOptions {
      * / network-payload masking when the page renders sensitive bearer tokens in its own URL.
      */
     sessionRecording?: Partial<SessionRecordingOptions>
+    /**
+     * Adopt a desktop-provided `__posthog_session_id` URL param as the posthog-js session ID
+     * (cross-surface session stitching). Only the main app boot opts in: the exporter and
+     * render-query bundles serve public unauthenticated pages, where honoring an
+     * attacker-suppliable session ID would let a crafted link fixate a visitor's recording onto
+     * a known ID. The param is stripped from the URL on every boot path regardless.
+     */
+    adoptCrossSurfaceSessionId?: boolean
 }
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
+    // Stripped on every boot path: the router initializes even when posthog-js does not
+    // (exporter and render-query null JS_POSTHOG_API_KEY), so the param must not linger in the
+    // address bar or router state. Runs before posthog.init so the ID can be bootstrapped, and
+    // before initKea() so the router and $current_url never see it.
+    const crossSurfaceSessionId = consumeCrossSurfaceSessionId()
+
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
@@ -47,7 +62,17 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
             ],
-            bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
+            bootstrap: {
+                ...window.POSTHOG_USER_IDENTITY_WITH_FLAGS,
+                // Adopting the desktop app's session ID stitches the two surfaces into one
+                // session: events and the recording from both carry the same $session_id.
+                // Adoption is unconditional when opted in (posthog-js semantics): an in-flight
+                // web session rotates onto the desktop one, which is a session split, not data
+                // corruption.
+                ...(options.adoptCrossSurfaceSessionId && crossSurfaceSessionId
+                    ? { sessionID: crossSurfaceSessionId }
+                    : {}),
+            },
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
