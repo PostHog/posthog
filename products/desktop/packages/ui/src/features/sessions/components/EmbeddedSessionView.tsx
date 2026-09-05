@@ -32,6 +32,7 @@ export function EmbeddedSessionView({
     repoPath,
     isCloud,
     isRunning,
+    isConnecting,
     hasError,
     events,
     isPromptPending,
@@ -65,6 +66,7 @@ export function EmbeddedSessionView({
         taskId={taskId}
         task={task}
         isRunning={isRunning}
+        isConnecting={isConnecting}
         isPromptPending={isPromptPending}
         promptStartedAt={promptStartedAt}
         onSendPrompt={handleSendPrompt}

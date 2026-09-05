@@ -12,6 +12,7 @@ export interface SessionViewState {
   isCloudRunTerminal: boolean;
   cloudStatus: TaskRunStatus | null;
   isRunning: boolean;
+  isConnecting: boolean;
   hasError: boolean;
   events: AcpMessage[];
   isPromptPending: boolean;
@@ -45,30 +46,26 @@ export function deriveSessionViewState(
   const isPromptPending = session?.isPromptPending ?? false;
   const promptStartedAt = session?.promptStartedAt;
 
-  const isNewSessionWithInitialPrompt =
-    !task.latest_run?.id && !!task.description;
-  const isResumingExistingSession = !!task.latest_run?.id;
-  const hasOptimisticPrompt = session?.optimisticItems.some(
-    (item) => item.type === "user_message",
-  );
   const isHydratingEmptyTranscript =
     effectiveIsCloud &&
     events.length === 0 &&
     (session?.isHydratingTranscript ?? false);
+  // Once a session object exists we dive straight into the thread + composer,
+  // even while the agent is still connecting, so a full-panel spinner only
+  // shows when there is genuinely nothing to render yet.
   const isInitializing = effectiveIsCloud
-    ? isHydratingEmptyTranscript ||
-      (!hasError &&
-        (!session ||
-          (events.length === 0 &&
-            !hasOptimisticPrompt &&
-            isCloudRunNotTerminal)))
-    : !session ||
-      (session.status === "connecting" && events.length === 0) ||
-      (session.status === "connected" &&
-        events.length === 0 &&
-        (isPromptPending ||
-          isNewSessionWithInitialPrompt ||
-          isResumingExistingSession));
+    ? isHydratingEmptyTranscript || !session
+    : !session;
+
+  // The window between a session existing and the agent handshake landing.
+  // Cloud runs sit in "connecting" while the sandbox provisions; both hosts
+  // flip to "connected" once the agent accepts messages. Terminal cloud runs
+  // are done, not connecting.
+  const isConnecting =
+    !hasError &&
+    !!session &&
+    session.status !== "connected" &&
+    !isCloudRunTerminal;
 
   const cloudBranch = effectiveIsCloud
     ? (workspace?.baseBranch ?? task.latest_run?.branch ?? null)
@@ -80,6 +77,7 @@ export function deriveSessionViewState(
     isCloudRunTerminal,
     cloudStatus,
     isRunning: !!isRunning,
+    isConnecting,
     hasError,
     events,
     isPromptPending,

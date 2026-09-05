@@ -137,4 +137,108 @@ describe("deriveSessionViewState", () => {
     expect(state.isCloudRunTerminal).toBe(false);
     expect(state.isInitializing).toBe(true);
   });
+
+  const oneEvent = [{} as AgentSession["events"][number]];
+
+  it.each([
+    {
+      name: "local connecting shows the composer, not a full-panel spinner",
+      isCloud: false,
+      status: "connecting" as const,
+      events: [] as AgentSession["events"],
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: true,
+      isInitializing: false,
+      isRunning: false,
+    },
+    {
+      name: "local connecting with a painted tail is not initializing",
+      isCloud: false,
+      status: "connecting" as const,
+      events: oneEvent,
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: true,
+      isInitializing: false,
+      isRunning: false,
+    },
+    {
+      name: "local connected is neither connecting nor initializing",
+      isCloud: false,
+      status: "connected" as const,
+      events: oneEvent,
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: false,
+      isInitializing: false,
+      isRunning: true,
+    },
+    {
+      name: "cloud provisioning shows the composer while the sandbox spins up",
+      isCloud: true,
+      status: "connecting" as const,
+      events: [] as AgentSession["events"],
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: true,
+      isInitializing: false,
+      isRunning: true,
+    },
+    {
+      name: "cloud connected is not connecting",
+      isCloud: true,
+      status: "connected" as const,
+      events: oneEvent,
+      runStatus: "in_progress" as TaskRunStatus,
+      isConnecting: false,
+      isInitializing: false,
+      isRunning: true,
+    },
+    {
+      name: "a terminal cloud run is done, not connecting",
+      isCloud: true,
+      status: "connecting" as const,
+      events: oneEvent,
+      runStatus: "completed" as TaskRunStatus,
+      isConnecting: false,
+      isInitializing: false,
+      isRunning: true,
+    },
+  ])(
+    "$name",
+    ({
+      isCloud,
+      status,
+      events,
+      runStatus,
+      isConnecting,
+      isInitializing,
+      isRunning,
+    }) => {
+      const session = makeSession(runStatus);
+      session.isCloud = isCloud;
+      session.status = status;
+      session.events = events;
+
+      const state = deriveSessionViewState(
+        session,
+        makeTask(runStatus),
+        null,
+        isCloud,
+      );
+
+      expect(state.isConnecting).toBe(isConnecting);
+      expect(state.isInitializing).toBe(isInitializing);
+      expect(state.isRunning).toBe(isRunning);
+    },
+  );
+
+  it("is not connecting before a session exists", () => {
+    const state = deriveSessionViewState(
+      undefined,
+      makeTask("not_started"),
+      null,
+      true,
+    );
+
+    expect(state.isConnecting).toBe(false);
+    expect(state.isInitializing).toBe(true);
+  });
 });

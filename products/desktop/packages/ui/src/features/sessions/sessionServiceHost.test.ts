@@ -7057,14 +7057,18 @@ describe("SessionService", () => {
       );
     });
 
-    it("throws when session is connecting", async () => {
+    it("queues one message while the session is connecting", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({ status: "connecting" }),
       );
 
-      await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow(
-        "Session is still connecting",
+      const result = await service.sendPrompt("task-123", "Hello");
+
+      expect(result.stopReason).toBe("queued");
+      expect(mockSessionStoreSetters.enqueueMessage).toHaveBeenCalledWith(
+        "task-123",
+        "Hello",
       );
     });
 
