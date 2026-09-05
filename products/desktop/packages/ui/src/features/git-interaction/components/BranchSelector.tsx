@@ -386,7 +386,7 @@ export function BranchSelector({
               className="min-w-0 max-w-[250px] shrink"
             >
               {showSpinner ? (
-                <Spinner size="md" className="shrink-0" />
+                <Spinner className="shrink-0" />
               ) : (
                 <GitBranch size={14} weight="regular" className="shrink-0" />
               )}

@@ -186,7 +186,7 @@ function ContextWikiBody({ initialPath }: { initialPath?: string }) {
               onClick={() => enable.mutate()}
               disabled={enable.isPending}
             >
-              {enable.isPending ? <Spinner size="md" /> : null}
+              {enable.isPending ? <Spinner /> : null}
               Enable context wiki
             </Button>
             {enable.error ? (

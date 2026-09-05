@@ -11,7 +11,7 @@ describe("Spinner", () => {
   ] as const)("sizes the icon for %s with %s", (size, sizeClass) => {
     render(<Spinner size={size} />);
     const status = screen.getByRole("status", { name: "Loading" });
-    expect(status).toHaveClass("animate-spin");
+    expect(status).toHaveClass("animate-spin", "motion-reduce:animate-none");
     expect(status.querySelector("svg")).toHaveClass(sizeClass);
   });
 
