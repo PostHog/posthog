@@ -2,6 +2,7 @@ import pytest
 
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -184,6 +185,47 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
 
         response = self.client.get("/api/projects/@current/access_control_resolution_preview")
         assert response.status_code == status.HTTP_200_OK
+
+    def test_accept_requires_org_admin(self):
+        self._create_access_control(resource="project", resource_id=str(self.team.id), access_level="admin")
+
+        response = self.client.post("/api/projects/@current/access_control_resolution_accept")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.organization.refresh_from_db()
+        assert not self.organization.uses_most_specific_access_resolution
+
+    def test_accept_switches_the_organization_and_logs_it(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+
+        response = self.client.post("/api/projects/@current/access_control_resolution_accept")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"uses_most_specific_access_resolution": True}
+        self.organization.refresh_from_db()
+        assert self.organization.uses_most_specific_access_resolution
+        log = ActivityLog.objects.filter(scope="Organization", item_id=str(self.organization.id)).latest("created_at")
+        assert log.activity == "updated"
+        assert log.detail is not None
+        assert any(
+            change["field"] == "uses_most_specific_access_resolution" and change["after"] is True
+            for change in log.detail["changes"]
+        )
+
+    def test_accept_is_idempotent(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        logs_before = ActivityLog.objects.filter(scope="Organization", item_id=str(self.organization.id)).count()
+
+        response = self.client.post("/api/projects/@current/access_control_resolution_accept")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (
+            ActivityLog.objects.filter(scope="Organization", item_id=str(self.organization.id)).count() == logs_before
+        )
 
     def test_returns_changes_and_summary(self):
         self.membership.level = OrganizationMembership.Level.ADMIN

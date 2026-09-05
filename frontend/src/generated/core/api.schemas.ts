@@ -4340,6 +4340,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution: boolean | null
 }
 
 /**
