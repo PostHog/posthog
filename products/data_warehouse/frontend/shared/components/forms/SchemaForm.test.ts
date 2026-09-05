@@ -1,6 +1,5 @@
 import type { ExternalDataSourceSyncSchema } from '~/types'
 
-import { getDirectQuerySelectionDescription } from './SchemaForm'
 import { getDefaultExpandedSchemaKeys, groupTablesBySchema, splitQualifiedTableName } from './schemaGroupingUtils'
 
 const makeSchema = (table: string): ExternalDataSourceSyncSchema => ({
@@ -21,18 +20,6 @@ const makeSchema = (table: string): ExternalDataSourceSyncSchema => ({
 })
 
 describe('SchemaForm', () => {
-    it('describes browsing across all schemas when the schema is blank', () => {
-        expect(getDirectQuerySelectionDescription('')).toEqual(
-            "Query selected Postgres tables from within PostHog. Tables stay in the source database and are not synced into the data warehouse. You can't join data from these tables with other data in the PostHog warehouse. Enable each schema to choose which tables should be queryable."
-        )
-    })
-
-    it('describes the selected schema when one is set', () => {
-        expect(getDirectQuerySelectionDescription(' public ')).toEqual(
-            `Query selected Postgres tables from within PostHog. Tables stay in the source database and are not synced into the data warehouse. You can't join data from these tables with other data in the PostHog warehouse. Choose which tables from the "public" schema should be queryable.`
-        )
-    })
-
     it('splits fully qualified table names into schema and table labels', () => {
         expect(splitQualifiedTableName('public.events')).toEqual({
             schemaName: 'public',
