@@ -170,8 +170,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 </div>
                 {wildcardHrefTooSpecific && (
                     <p className="text-xs text-secondary mt-1 mb-0">
-                        This URL is specific, so it matches less data. End it with <code>*</code>, or click the wand, to
-                        match more pages.
+                        This URL is specific, so it matches less data. End it with <code>*</code> to match more pages.
                     </p>
                 )}
 

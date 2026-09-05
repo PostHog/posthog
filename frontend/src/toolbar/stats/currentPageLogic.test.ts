@@ -40,6 +40,7 @@ describe('current page logic', () => {
             ['https://wat.io/pricing', true],
             ['https://*.wat.io/project/*', false],
             ['https://wat.io/*', false],
+            ['https://wat.io/* ', true],
             ['', false],
             ['   ', false],
         ])('%s is too specific: %s', (wildcardHref, expected) => {
