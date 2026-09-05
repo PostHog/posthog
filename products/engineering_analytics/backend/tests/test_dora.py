@@ -209,6 +209,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     "2026-01-11 08:00:00",
                     merged_at="2026-01-12 08:00:00",
                     merge_commit_sha="sha-a" if merge_shas_available else None,
+                    base_ref="main",
                     default_branch="main",
                 ),
                 _pr_row(
@@ -219,6 +220,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     "2026-01-12 08:00:00",
                     merged_at="2026-01-13 09:30:00",
                     merge_commit_sha="sha-c" if merge_shas_available else None,
+                    base_ref="main",
                     default_branch="main",
                 ),
                 # Bot merge in the same slot as PR 1: must not move the lead-time figures.
@@ -234,6 +236,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     "2026-01-05 06:00:00",
                     merged_at="2026-01-05 08:00:00",
                     merge_commit_sha="sha-e" if merge_shas_available else None,
+                    base_ref="main",
                     default_branch="main",
                 ),
                 # Merged after d1's head merge but before d1's success: the success-time rule would
@@ -341,7 +344,15 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert otd[datetime(2026, 1, 15)].p50_seconds is None
 
     def test_workflow_fallback_rejects_unrelated_or_ambiguous_commit_evidence(self) -> None:
-        shas = ["feature-sha", "foreign-sha", "conflict-sha", "open-sha", "future-sha", "missing-sha"]
+        shas = [
+            "feature-sha",
+            "foreign-sha",
+            "conflict-sha",
+            "open-sha",
+            "future-sha",
+            "backport-sha",
+            "missing-sha",
+        ]
         started_at = "2026-01-12 08:01:00"
         curated = self._curated(
             self.team,
@@ -361,13 +372,18 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     0,
                     "2026-01-11 08:00:00",
                     merged_at=merged_at,
+                    base_ref=base_ref,
                     default_branch="main",
                 )
-                for number, merged_at in [
-                    (1, "2026-01-12 08:00:00"),
-                    (2, "2026-01-12 08:00:00"),
-                    (3, None),
-                    (4, "2026-01-19 08:00:00"),
+                for number, merged_at, base_ref in [
+                    (1, "2026-01-12 08:00:00", "main"),
+                    (2, "2026-01-12 08:00:00", "main"),
+                    (3, None, "main"),
+                    (4, "2026-01-19 08:00:00", "main"),
+                    # Merged into a release branch, then cherry-picked onto main: the forward-ported
+                    # commit keeps the (#5) subject, so only the base ref separates it from a real
+                    # default-branch merge.
+                    (5, "2026-01-12 08:00:00", "release-1.2"),
                 ]
             ],
             run_rows=[
@@ -391,6 +407,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                         ("conflict-sha", 2, "main", "PostHog/posthog"),
                         ("open-sha", 3, "main", "PostHog/posthog"),
                         ("future-sha", 4, "main", "PostHog/posthog"),
+                        ("backport-sha", 5, "main", "PostHog/posthog"),
                     ],
                     start=1,
                 )
