@@ -106,6 +106,24 @@ describe('doraLogic', () => {
                     limit: 1000,
                 },
                 '/api/projects/:team_id/engineering_analytics/workflow_health/': [],
+                '/api/projects/:team_id/engineering_analytics/quarantine/': {
+                    available: false,
+                    entries: [],
+                    parse_errors: [],
+                    parse_warnings: [],
+                    repo: null,
+                    source_url: '',
+                    generated_at: '2026-01-01T00:00:00Z',
+                },
+                '/api/projects/:team_id/engineering_analytics/trunk_quarantine/': {
+                    available: false,
+                    owners_resolved: true,
+                    ttl_days: 15,
+                    repository: 'example/repo',
+                    trunk_url: null,
+                    teams: [],
+                    tests: [],
+                },
             },
         })
         initKeaTests()
