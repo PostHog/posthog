@@ -1,8 +1,38 @@
-"""Business-level Prometheus counters for signals pipeline incident alerts."""
+"""Business-level counters for signals pipeline incident alerts.
 
+Pipeline counters go to the Temporal metric meter, so they only record inside a workflow or an
+activity. The scout coordinator counters are Prometheus instruments with an OTLP twin instead
+(the `replay_vision` pattern): both sinks carry one name, and the twin puts fleet dispatch
+health in the PostHog Metrics product, where it can be alerted on directly rather than inferred
+from downstream tool-call volume.
+"""
+
+from prometheus_client import Counter
 from temporalio import activity, workflow
 
+from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.temporal.common.metrics import get_metric_meter
+
+_otel = OtelInstrumentFactory("signals")
+
+COORDINATOR_DISPATCH_STARTED = "started"
+COORDINATOR_DISPATCH_DEDUPED = "deduped"
+
+SCOUT_COORDINATOR_TICKS = Counter(
+    "signals_scout_coordinator_ticks_total",
+    "Signals scout coordinator ticks that finished planning",
+)
+
+SCOUT_COORDINATOR_PLANNED = Counter(
+    "signals_scout_coordinator_planned_total",
+    "Scout runs the coordinator planned to dispatch",
+)
+
+SCOUT_COORDINATOR_DISPATCHED = Counter(
+    "signals_scout_coordinator_dispatched_total",
+    "Scout child workflows the coordinator dispatched, by outcome",
+    ["outcome"],
+)
 
 FUNNEL_STAGE_EMITTED = "emitted"
 FUNNEL_STAGE_GROUPED = "grouped"
@@ -148,3 +178,29 @@ def increment_scout_run(status: str) -> None:
         "signals_scout_runs_total",
         "Signals scout runs by terminal status",
     ).add(1)
+
+
+def increment_coordinator_tick(planned_count: int) -> None:
+    """Count a coordinator tick that finished planning, and the scout runs it planned.
+
+    The tick counter carries the stall signal on its own: a schedule that stopped firing and a
+    fleet with no work due both leave the planned and dispatched counters flat, and only this one
+    tells them apart.
+    """
+    SCOUT_COORDINATOR_TICKS.inc()
+    _otel.record_counter_twin(SCOUT_COORDINATOR_TICKS, 1, {})
+    # Zero is the reading that matters, so the series is kept alive rather than guarded away.
+    SCOUT_COORDINATOR_PLANNED.inc(planned_count)
+    _otel.record_counter_twin(SCOUT_COORDINATOR_PLANNED, planned_count, {})
+    # A labeled counter has no child series until code calls .labels(), and the dispatch counter is
+    # only touched after a dispatch. So warm both outcomes to zero every tick. A stall is a run of
+    # zero-plan ticks that never dispatch, which is exactly when the dispatch series would otherwise
+    # be absent, so a zero-rate alert on it would read "no data" instead of zero and stay silent.
+    for outcome in (COORDINATOR_DISPATCH_STARTED, COORDINATOR_DISPATCH_DEDUPED):
+        increment_coordinator_dispatch(outcome, 0)
+
+
+def increment_coordinator_dispatch(outcome: str, count: int) -> None:
+    """Count scout child workflows the coordinator dispatched, by outcome."""
+    SCOUT_COORDINATOR_DISPATCHED.labels(outcome=outcome).inc(count)
+    _otel.record_counter_twin(SCOUT_COORDINATOR_DISPATCHED, count, {"outcome": outcome})

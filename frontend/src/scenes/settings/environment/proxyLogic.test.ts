@@ -142,14 +142,13 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
 })
 
 describe('proxyLogic — root redirect', () => {
-    it.each<[string, boolean, ProxyRecord, boolean]>([
-        ['supported valid proxy', true, mockProxyRecord(), true],
-        ['supported warning proxy', true, mockProxyRecord({ status: 'warning' }), true],
-        ['legacy proxy', true, mockProxyRecord({ root_redirect_supported: false }), false],
-        ['disabled feature', false, mockProxyRecord(), false],
-        ['proxy that is not ready', true, mockProxyRecord({ status: 'waiting' }), false],
-    ])('allows configuration for a %s when expected', (_name, featureEnabled, record, expected) => {
-        expect(canConfigureRootRedirect(record, featureEnabled)).toBe(expected)
+    it.each<[string, ProxyRecord, boolean]>([
+        ['supported valid proxy', mockProxyRecord(), true],
+        ['supported warning proxy', mockProxyRecord({ status: 'warning' }), true],
+        ['legacy proxy', mockProxyRecord({ root_redirect_supported: false }), false],
+        ['proxy that is not ready', mockProxyRecord({ status: 'waiting' }), false],
+    ])('allows configuration for a %s when expected', (_name, record, expected) => {
+        expect(canConfigureRootRedirect(record)).toBe(expected)
     })
 
     it('updates the record from the PATCH response', async () => {

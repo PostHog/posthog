@@ -40,6 +40,16 @@ describe('taskTrackerSceneLogic', () => {
     let runBody: Record<string, any> | null
     let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
+    const myConfigResponse = (resolved: Record<string, any> | null): Record<string, any> => ({
+        ai_run_preferences: {},
+        resolved_ai_run_defaults: resolved ?? {
+            runtime_adapter: null,
+            model: null,
+            reasoning_effort: null,
+            source: 'none',
+        },
+    })
+
     beforeEach(() => {
         createBody = null
         runBody = null
@@ -48,6 +58,7 @@ describe('taskTrackerSceneLogic', () => {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
+                '/api/projects/:team/tasks/@me/config/': myConfigResponse(null),
                 '/api/environments/:team/integrations/': { results: [] },
             },
             post: {
@@ -144,10 +155,13 @@ describe('taskTrackerSceneLogic', () => {
 
         expect(createBody).toMatchObject({
             branch: null,
-            model: 'claude-sonnet-5',
             initial_permission_mode: 'auto',
             pending_user_message: 'do the thing',
         })
+        // An untouched selection defers the model triple to the backend, which resolves the
+        // stored default for warm matching the same way the warm was provisioned.
+        expect(createBody?.model).toBeUndefined()
+        expect(createBody?.runtime_adapter).toBeUndefined()
         expect(runBody).toBeNull()
         expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
     })
@@ -201,6 +215,66 @@ describe('taskTrackerSceneLogic', () => {
         blockedLogic.unmount()
         consent.unmount()
         jest.restoreAllMocks()
+    })
+    // An untouched selection pins nothing: the server resolves the stored team/user default
+    // (or its own fallback), so the run can never freeze a client-side guess — a failed or
+    // in-flight defaults fetch used to pin the built-in model over the configured default.
+    // An explicit pick still sends the full selection.
+    it.each([
+        {
+            description: 'omits the runtime selection when nothing is picked and a default exists',
+            resolved: {
+                runtime_adapter: 'claude',
+                model: 'claude-sonnet-4-6',
+                reasoning_effort: 'high',
+                source: 'team',
+            },
+            pick: null,
+        },
+        {
+            description: 'omits the runtime selection when nothing is picked and no default exists',
+            resolved: null,
+            pick: null,
+        },
+    ])('$description', async ({ resolved, pick }) => {
+        useMocks({ get: { '/api/projects/:team/tasks/@me/config/': myConfigResponse(resolved) } })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setNewTaskData({ description: 'do the thing', ...(pick ? { model: pick } : {}) })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody?.model).toBeUndefined()
+        expect(runBody?.runtime_adapter).toBeUndefined()
+        // The launch mode is still the composer's to state; the server clamps it to whichever
+        // runtime the default resolves to.
+        expect(runBody?.initial_permission_mode).not.toBeUndefined()
+    })
+
+    it('sends the full selection for an explicit pick even when a server default exists', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': myConfigResponse({
+                    runtime_adapter: 'claude',
+                    model: 'claude-sonnet-4-6',
+                    reasoning_effort: 'high',
+                    source: 'team',
+                }),
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setNewTaskData({ description: 'do the thing', model: 'claude-opus-4-8' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody?.model).toEqual('claude-opus-4-8')
+        expect(runBody?.runtime_adapter).toEqual('claude')
+        expect(runBody?.initial_permission_mode).not.toBeUndefined()
+        // The one-off pick resets after submit, back to "use default".
+        expect(logic.values.newTaskData.model).toBeNull()
     })
 
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the

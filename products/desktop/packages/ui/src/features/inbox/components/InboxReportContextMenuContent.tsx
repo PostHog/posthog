@@ -2,8 +2,10 @@ import {
   ArrowCounterClockwiseIcon,
   CheckCircleIcon,
   CopyIcon,
+  DesktopIcon,
   EyeSlashIcon,
   GitPullRequestIcon,
+  GlobeIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
@@ -148,7 +150,7 @@ export function InboxReportContextMenuContent({
             ) : null}
             {canResolveReport(report) ? (
               <ContextMenuSub>
-                <ContextMenuSubTrigger disabled={resolve.isPending}>
+                <ContextMenuSubTrigger disabled={resolve.isPending} openOnHover>
                   <CheckCircleIcon size={14} />
                   Resolve
                 </ContextMenuSubTrigger>
@@ -172,7 +174,7 @@ export function InboxReportContextMenuContent({
               </ContextMenuSub>
             ) : null}
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger openOnHover>
                 <EyeSlashIcon size={14} />
                 Dismiss
               </ContextMenuSubTrigger>
@@ -194,7 +196,7 @@ export function InboxReportContextMenuContent({
               </ContextMenuSubContent>
             </ContextMenuSub>
             <ContextMenuSub onOpenChange={setReviewersOpen}>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger openOnHover>
                 <UsersThreeIcon size={14} />
                 Reviewers
               </ContextMenuSubTrigger>
@@ -210,15 +212,34 @@ export function InboxReportContextMenuContent({
         )}
         <ContextMenuSeparator />
         <ContextMenuGroup>
-          <ContextMenuItem
-            onClick={() => {
-              fireAction("copy_link");
-              copyInboxReportLink(report);
-            }}
-          >
-            <CopyIcon size={14} />
-            Copy link
-          </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger openOnHover>
+              <CopyIcon size={14} />
+              Copy link
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="min-w-44">
+              <ContextMenuItem
+                data-attr="inbox-copy-web-link"
+                onClick={() => {
+                  fireAction("copy_link");
+                  copyInboxReportLink(report, "web");
+                }}
+              >
+                <GlobeIcon size={14} />
+                Copy web link
+              </ContextMenuItem>
+              <ContextMenuItem
+                data-attr="inbox-copy-desktop-link"
+                onClick={() => {
+                  fireAction("copy_link");
+                  copyInboxReportLink(report, "desktop");
+                }}
+              >
+                <DesktopIcon size={14} />
+                Copy desktop link
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
         </ContextMenuGroup>
       </ContextMenuContent>
       {resolve.dialog}

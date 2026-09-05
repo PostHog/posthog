@@ -1,1 +1,1 @@
-1334_remove_cimd_blocklist_entry
+1342_drop_cimd_blocklist_table

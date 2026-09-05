@@ -8,11 +8,19 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { ImplementationSlotClaim, inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 
 // Same string desktop uses, so the note reads the same on both surfaces.
 const PLACEHOLDER = 'Add direction for the agent (optional)…'
+
+// A report funds one implementation at a time. The two claims send the reader to the same task but
+// for different reasons, so they read differently: one run is still working, the other already
+// shipped the PR.
+const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
+    in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
+    shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
+}
 
 /**
  * The detail-pane "Create PR" action, as a split button.
@@ -29,20 +37,18 @@ const PLACEHOLDER = 'Add direction for the agent (optional)…'
 export function CreatePrButton({ report }: { report: SignalReport }): JSX.Element {
     const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     // Already mounted by `ReportDetail`, so this reads the loaded value rather than starting a fetch.
-    const { hasLiveImplementationTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { implementationSlotClaim } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const [feedback, setFeedback] = useState('')
 
     const disabledReason =
         aiConsentDisabledReason ??
-        (hasLiveImplementationTask
-            ? 'A PR task already exists for this report. Open it in the task log to continue.'
-            : undefined)
+        (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined)
 
     const submit = (note: string): void => {
         // Enter submits straight from the textarea, so it never sees the button's `disabledReason`.
         // Each guard has to hold here too, or a keypress starts a paid run anyway.
-        if (isCreatingPr || hasLiveImplementationTask) {
+        if (isCreatingPr || implementationSlotClaim) {
             return
         }
         if (aiConsentDisabledReason) {

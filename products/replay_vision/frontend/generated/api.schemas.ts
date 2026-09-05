@@ -682,6 +682,16 @@ export interface ObservationSearchResponseApi {
     truncated: boolean
 }
 
+export interface SearchSuggestionsResponseApi {
+    /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
+    queries: string[]
+}
+
+export interface SearchSuggestionsQueryApi {
+    /** Scope to a single scanner's observations. Defaults to every scanner you can read. */
+    scanner_id?: string
+}
+
 export interface VisionQuotaApi {
     /**
      * Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.
@@ -732,6 +742,20 @@ export interface VisionSpendSeriesApi {
 }
 
 /**
+ * * `ai` - AI draft
+ * * `template` - Template
+ * * `scratch` - From scratch
+ */
+export type ScannerCreationMethodEnumApi =
+    (typeof ScannerCreationMethodEnumApi)[keyof typeof ScannerCreationMethodEnumApi]
+
+export const ScannerCreationMethodEnumApi = {
+    Ai: 'ai',
+    Template: 'template',
+    Scratch: 'scratch',
+} as const
+
+/**
  * * `focused` - Focused
  * * `balanced` - Balanced
  * * `comprehensive` - Comprehensive
@@ -756,14 +780,14 @@ export const ScannerProviderEnumApi = {
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
  * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.7-flash` - Gemini 3.7 Flash
+ * * `gemini-3.8-flash` - Gemini 3.8 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
     Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini37Flash: 'gemini-3.7-flash',
+    Gemini38Flash: 'gemini-3.8-flash',
 } as const
 
 /**
@@ -840,6 +864,12 @@ export interface ReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+     *
+     * * `ai` - AI draft
+     * * `template` - Template
+     * * `scratch` - From scratch */
+    creation_method?: ScannerCreationMethodEnumApi | null
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -871,7 +901,7 @@ export interface ReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -958,6 +988,12 @@ export interface PatchedReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+     *
+     * * `ai` - AI draft
+     * * `template` - Template
+     * * `scratch` - From scratch */
+    creation_method?: ScannerCreationMethodEnumApi | null
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -989,7 +1025,7 @@ export interface PatchedReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -1431,24 +1467,6 @@ export interface ScorerStatsApi {
     histogram: ScorerHistogramApi | null
 }
 
-export interface FacetCountApi {
-    /** The facet value as emitted by the summarizer (lowercased). */
-    term: string
-    /** Number of succeeded observations that emitted this value. */
-    count: number
-}
-
-export interface SummarizerStatsApi {
-    /** Top friction points by emission count. */
-    friction_ranked: FacetCountApi[]
-    /** Top keywords by emission count. */
-    keyword_ranked: FacetCountApi[]
-    /** Succeeded observations that emitted at least one friction point or keyword. */
-    total_with_facets: number
-    /** Succeeded observations that reported at least one friction point. */
-    total_with_friction: number
-}
-
 export interface ObservationStatsApi {
     /** Counts of observations by terminal status. */
     status_counts: ObservationStatusCountsApi
@@ -1464,8 +1482,6 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
-    /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
-    summarizer: SummarizerStatsApi | null
 }
 
 /**
@@ -2026,7 +2042,7 @@ export interface DraftScannerResponseApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model: ScannerModelEnumApi | null
     /**
      * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
@@ -2067,7 +2083,7 @@ export interface EstimateRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
     /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
@@ -2123,7 +2139,7 @@ export interface InlineScanRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
 }
 
@@ -2355,6 +2371,16 @@ export type VisionObservationsRetrieveParams = {
 
 export type VisionObservationsSearchRetrieveParams = {
     /**
+     * Only observations analyzed at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Only observations analyzed at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
      * Maximum number of results (default 20, at most 50).
      * @minimum 1
      * @maximum 50
@@ -2388,6 +2414,13 @@ export type VisionObservationsSearchRetrieveParams = {
      * @minLength 1
      */
     verdict?: string
+}
+
+export type VisionObservationsSearchSuggestionsRetrieveParams = {
+    /**
+     * Scope to a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
 }
 
 export type VisionScannersListParams = {

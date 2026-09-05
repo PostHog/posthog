@@ -2,7 +2,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -262,29 +261,20 @@ describe('experimentSceneLogic', () => {
 
     describe('getAvailableExperimentTabs', () => {
         it('reduces legacy experiments to metrics and variants', () => {
-            expect(getAvailableExperimentTabs(LEGACY_EXPERIMENT, {})).toEqual(['metrics', 'variants'])
+            expect(getAvailableExperimentTabs(LEGACY_EXPERIMENT)).toEqual(['metrics', 'variants'])
         })
 
         it.each([
             ['launched experiments', LAUNCHED_EXPERIMENT, true],
             ['draft experiments', DRAFT_EXPERIMENT, false],
         ])('offers the code tab only for %s', (_label, experiment, expected) => {
-            expect(getAvailableExperimentTabs(experiment, {}).includes('code')).toBe(expected)
+            expect(getAvailableExperimentTabs(experiment).includes('code')).toBe(expected)
         })
 
         it('offers the feedback tab only when a feature flag is linked', () => {
-            expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT, {}).includes('feedback')).toBe(false)
+            expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT).includes('feedback')).toBe(false)
             const withFlag = { ...DRAFT_EXPERIMENT, feature_flag: { id: 1 } } as Experiment
-            expect(getAvailableExperimentTabs(withFlag, {}).includes('feedback')).toBe(true)
-        })
-
-        it('offers the recordings tab only when the feature flag is enabled', () => {
-            expect(getAvailableExperimentTabs(DRAFT_EXPERIMENT, {}).includes('recordings')).toBe(false)
-            expect(
-                getAvailableExperimentTabs(DRAFT_EXPERIMENT, {
-                    [FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]: true,
-                }).includes('recordings')
-            ).toBe(true)
+            expect(getAvailableExperimentTabs(withFlag).includes('feedback')).toBe(true)
         })
     })
 
