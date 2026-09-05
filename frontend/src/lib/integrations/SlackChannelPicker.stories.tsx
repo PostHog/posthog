@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
@@ -116,7 +116,15 @@ export const SearchDroppedOnBlur: Story = {
         </div>
     ),
     play: async ({ canvasElement }) => {
-        const input = canvasElement.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        // WebKit can start the play phase before React commits the first render, so wait for
+        // the input instead of reading it straight out of the canvas.
+        const input = await waitFor(() => {
+            const element = canvasElement.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')
+            if (!element) {
+                throw new Error('Channel input not yet rendered')
+            }
+            return element
+        })
         await userEvent.type(input, 'general')
         await userEvent.click(canvasElement)
         await within(canvasElement).findByText('No channel selected. Pick one from the list.')
