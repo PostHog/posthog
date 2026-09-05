@@ -4,6 +4,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
+
 
 def _minimal_query_data() -> dict:
     return {
@@ -35,6 +37,8 @@ class TestLogsExportEndpoint(APIBaseTest):
         assert asset.export_context is not None
         assert asset.export_context["source"]["kind"] == "LogsQuery"
         assert asset.export_context["columns"] == ["timestamp", "body"]
+        assert asset.export_context["row_limit"] == CSV_EXPORT_LIMIT
+        assert asset.export_context["source"]["limit"] == CSV_EXPORT_LIMIT
         mock_export_asset.delay.assert_called_once_with(asset.id)
 
         mock_report.assert_called_once()

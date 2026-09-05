@@ -72,6 +72,71 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                 </>
             ),
         },
+        {
+            title: 'Keep a long-term archive',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            PostHog retention covers active search and debugging, not multi-year compliance. To keep logs
+                            for years, or ship a copy to your own object storage, add a second exporter to the same
+                            collector pipeline. The collector sends every log to both PostHog and your archive.
+
+                            The example below uses the AWS S3 exporter, which also writes to any S3-compatible store,
+                            including Google Cloud Storage through its interoperability endpoint. Swap in the exporter for
+                            your provider if you use a different one.
+
+                            The S3 exporter ships only in the Collector's contrib distribution, so run the
+                            \`otelcol-contrib\` image or a custom build that includes it. The core \`otelcol\` build does
+                            not have it and refuses to start with this config.
+                        `}
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'yaml',
+                                file: 'OTel Collector',
+                                code: dedent`
+                                    receivers:
+                                      otlp:
+                                        protocols:
+                                          http:
+                                            endpoint: 0.0.0.0:4318
+
+                                    processors:
+                                      batch:
+
+                                    exporters:
+                                      otlphttp/posthog:
+                                        logs_endpoint: "<ph_client_api_host>/otlp/v1/logs"
+                                        headers:
+                                          Authorization: "Bearer <ph_project_token>"
+                                      awss3:
+                                        s3uploader:
+                                          region: us-east-1
+                                          s3_bucket: my-log-archive
+                                          s3_prefix: logs
+
+                                    service:
+                                      pipelines:
+                                        logs:
+                                          receivers: [otlp]
+                                          processors: [batch]
+                                          exporters: [otlphttp/posthog, awss3]
+                                `,
+                            },
+                        ]}
+                    />
+                    <Markdown>
+                        {dedent`
+                            The collector reports each exporter's result on its own, so a failed archive write does not fail your delivery to PostHog.
+                            Set the retention and lifecycle rules on the storage bucket to match your compliance window.
+                        `}
+                    </Markdown>
+                </>
+            ),
+        },
     ]
 }
 
