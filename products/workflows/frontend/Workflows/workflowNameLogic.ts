@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { HogFlow } from './hogflows/types'
+import type { HogFlowWithSchedules } from './hogflows/types'
 
 export interface WorkflowNameLogicProps {
     id: string
@@ -26,10 +27,10 @@ export interface workflowNameLogicActions {
         errorObject?: any
     }
     loadWorkflowSuccess: (
-        workflow: HogFlow | null,
+        workflow: HogFlowWithSchedules | null,
         payload?: any
     ) => {
-        workflow: HogFlow | null
+        workflow: HogFlowWithSchedules | null
         payload?: any
     }
 }
