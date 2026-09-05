@@ -22,10 +22,12 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.presentation.serializers.dora import DoraEnvironmentQuerySerializer
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    _run_row,
     connect_github_source_without_data,
     create_github_warehouse_table,
 )
@@ -134,6 +136,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         deployment_rows: list[dict[str, Any]],
         status_rows: list[dict[str, Any]],
         pr_rows: list[dict[str, Any]],
+        run_rows: list[dict[str, Any]] | None = None,
         member_rows: list[dict[str, Any]] | None = None,
         nullable_status_timestamps: bool = True,
     ) -> CuratedGitHubSource:
@@ -149,6 +152,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         }
         statuses_table = create_github_warehouse_table(self, "github_deployment_statuses", status_columns, status_rows)
         pr_table = create_github_warehouse_table(self, "github_pull_requests", PULL_REQUESTS_COLUMNS, pr_rows)
+        runs_table = create_github_warehouse_table(self, "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, run_rows or [])
         members_table = (
             create_github_warehouse_table(self, "github_team_members", TEAM_MEMBERS_COLUMNS, member_rows)
             if member_rows is not None
@@ -158,14 +162,16 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             team=team,
             tables=GitHubTables(
                 pull_requests=pr_table,
-                workflow_runs="unused",
+                workflow_runs=runs_table,
                 team_members=members_table,
                 deployments=deployments_table,
                 deployment_statuses=statuses_table,
             ),
         )
 
-    def _seeded_curated(self, member_rows: list[dict[str, Any]] | None) -> CuratedGitHubSource:
+    def _seeded_curated(
+        self, member_rows: list[dict[str, Any]] | None, *, merge_shas_available: bool = True
+    ) -> CuratedGitHubSource:
         # Window 2026-01-10 → 2026-01-20; previous window 2025-12-31 → 2026-01-10.
         # prod: d1 succeeds Jan 12, d2 fails Jan 13, d3 succeeds Jan 13 (d2's recovery, 2h later),
         # d5 succeeded in the previous window, d6 never reached an outcome (no status rows).
@@ -202,7 +208,8 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     0,
                     "2026-01-11 08:00:00",
                     merged_at="2026-01-12 08:00:00",
-                    merge_commit_sha="sha-a",
+                    merge_commit_sha="sha-a" if merge_shas_available else None,
+                    default_branch="main",
                 ),
                 _pr_row(
                     2,
@@ -211,7 +218,8 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     0,
                     "2026-01-12 08:00:00",
                     merged_at="2026-01-13 09:30:00",
-                    merge_commit_sha="sha-c",
+                    merge_commit_sha="sha-c" if merge_shas_available else None,
+                    default_branch="main",
                 ),
                 # Bot merge in the same slot as PR 1: must not move the lead-time figures.
                 _pr_row(3, "dependabot[bot]", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 08:00:00"),
@@ -225,20 +233,41 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     0,
                     "2026-01-05 06:00:00",
                     merged_at="2026-01-05 08:00:00",
-                    merge_commit_sha="sha-e",
+                    merge_commit_sha="sha-e" if merge_shas_available else None,
+                    default_branch="main",
                 ),
                 # Merged after d1's head merge but before d1's success: the success-time rule would
                 # wrongly hand it d1 (1h lead); containment makes it wait for d3 (27h lead).
                 _pr_row(6, "carol", "closed", 0, "2026-01-11 09:00:00", merged_at="2026-01-12 09:00:00"),
             ],
+            run_rows=[
+                _run_row(
+                    run_id,
+                    "build",
+                    sha,
+                    "completed",
+                    "success",
+                    started_at,
+                    started_at,
+                    commit_message=f"Update component (#{number})",
+                    pr_number=4,
+                )
+                for run_id, sha, number, started_at in [
+                    (101, "sha-a", 2 if merge_shas_available else 1, "2026-01-12 08:01:00"),
+                    (102, "sha-a", 2 if merge_shas_available else 1, "2026-01-12 08:02:00"),
+                    (103, "sha-c", 2, "2026-01-13 09:31:00"),
+                    (104, "sha-e", 5, "2026-01-05 08:01:00"),
+                ]
+            ],
             member_rows=member_rows,
         )
 
-    def test_dora_over_seeded_deploys(self):
+    @parameterized.expand([(True,), (False,)])
+    def test_dora_over_seeded_deploys(self, merge_shas_available: bool) -> None:
         # Guards the freshly written HogQL end to end over the real nullable string schema:
         # production scoping, success/failure keying, the recovery self-join, the merged-PR
         # deploy attribution (bots excluded), and both zero-filled series.
-        curated = self._seeded_curated(member_rows=None)
+        curated = self._seeded_curated(member_rows=None, merge_shas_available=merge_shas_available)
         result = query_dora_overview(
             curated=curated,
             date_from=datetime(2026, 1, 10, tzinfo=UTC),
@@ -310,6 +339,75 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert otd[datetime(2026, 1, 13)].max_seconds == 183600.0
         assert otm[datetime(2026, 1, 15)].deployed_pr_count == 0
         assert otd[datetime(2026, 1, 15)].p50_seconds is None
+
+    def test_workflow_fallback_rejects_unrelated_or_ambiguous_commit_evidence(self) -> None:
+        shas = ["feature-sha", "foreign-sha", "conflict-sha", "open-sha", "future-sha", "missing-sha"]
+        started_at = "2026-01-12 08:01:00"
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(index, sha, "prod", "2026-01-12 09:00:00", production=True)
+                for index, sha in enumerate(shas, start=1)
+            ],
+            status_rows=[
+                _status_row(index + 10, index, "success", "prod", "2026-01-12 10:00:00")
+                for index in range(1, len(shas) + 1)
+            ],
+            pr_rows=[
+                _pr_row(
+                    number,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-11 08:00:00",
+                    merged_at=merged_at,
+                    default_branch="main",
+                )
+                for number, merged_at in [
+                    (1, "2026-01-12 08:00:00"),
+                    (2, "2026-01-12 08:00:00"),
+                    (3, None),
+                    (4, "2026-01-19 08:00:00"),
+                ]
+            ],
+            run_rows=[
+                _run_row(
+                    index,
+                    "build",
+                    sha,
+                    "completed",
+                    "success",
+                    started_at,
+                    started_at,
+                    commit_message=f"Update component (#{number})",
+                    head_branch=branch,
+                    full_name=repo,
+                )
+                for index, (sha, number, branch, repo) in enumerate(
+                    [
+                        ("feature-sha", 1, "feature", "PostHog/posthog"),
+                        ("foreign-sha", 1, "main", "example/other"),
+                        ("conflict-sha", 1, "main", "PostHog/posthog"),
+                        ("conflict-sha", 2, "main", "PostHog/posthog"),
+                        ("open-sha", 3, "main", "PostHog/posthog"),
+                        ("future-sha", 4, "main", "PostHog/posthog"),
+                    ],
+                    start=1,
+                )
+            ],
+        )
+
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.deployment_count == len(shas)
+        assert result.deployed_pr_count == 0
+        assert result.median_open_to_deploy_seconds is None
+        for series in [result.open_to_deploy_series, result.open_to_merge_series, result.merge_to_deploy_series]:
+            assert all(bucket.deployed_pr_count == 0 for bucket in series)
 
     def test_restore_recovery_excluded_when_it_lands_after_date_to(self):
         # d2 fails Jan 13 10:00, recovers via d3's success at Jan 13 12:00 (see _seeded_curated).
