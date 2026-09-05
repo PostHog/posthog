@@ -59,3 +59,18 @@ export const WeeklySchedule: Story = {
 export const CustomCronSchedule: Story = {
     render: () => <EditableConfigForm initialConfig={{ ...mockScoutConfigs[0], run_cron_schedule: '0 9 * * 1-5' }} />,
 }
+
+// A scout that posts into a Slack channel: the collapsed section names the channel, so where the
+// output goes is readable without opening it.
+export const SlackChannelDestination: Story = {
+    render: () => (
+        <EditableConfigForm
+            initialConfig={{
+                ...mockScoutConfigs[0],
+                output_destinations: {
+                    slack: { integration_id: 1, channel: 'C123|#scout-alerts', thread_reports: true },
+                },
+            }}
+        />
+    ),
+}

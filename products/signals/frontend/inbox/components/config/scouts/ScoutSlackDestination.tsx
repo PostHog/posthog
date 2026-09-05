@@ -2,9 +2,18 @@ import { useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { SlackChannelPicker, SlackUserPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { urls } from 'scenes/urls'
 
@@ -24,6 +33,53 @@ interface ScoutSlackDestinationProps {
     onChange: (outputDestinations: SignalScoutOutputDestinationsApi) => void
 }
 
+/**
+ * Where this scout's output goes, for the collapsed header. The saved destination answers on its
+ * own, so a scout with Slack set up reads the same before the workspace list arrives.
+ */
+function SlackDestinationSummary({
+    destination,
+    connected,
+    loading,
+}: {
+    destination?: SignalScoutSlackDestinationApi | null
+    connected: boolean
+    loading: boolean
+}): JSX.Element | null {
+    if (destination?.channel) {
+        return (
+            <>
+                <LemonTag size="small" type="option">
+                    {slackChannelDisplayName(destination.channel)}
+                </LemonTag>
+                {destination.thread_reports ? (
+                    <LemonTag size="small" type="muted">
+                        Threaded
+                    </LemonTag>
+                ) : null}
+            </>
+        )
+    }
+    const recipientCount = destination?.users?.length ?? 0
+    if (recipientCount > 0) {
+        return (
+            <span className="text-[11.5px] text-muted">
+                DM to {recipientCount} {recipientCount === 1 ? 'person' : 'people'}
+            </span>
+        )
+    }
+    // A project with Slack connected must not read "Not connected" while its workspaces load, so
+    // the header stays blank until the list resolves.
+    if (loading) {
+        return null
+    }
+    return <span className="text-[11.5px] text-muted">{connected ? 'Off' : 'Not connected'}</span>
+}
+
+/**
+ * Slack delivery for one scout in its settings form: collapsed by default, with the target it
+ * posts to in the header, so a scout that never posts to Slack costs one line.
+ */
 export function ScoutSlackDestination({
     destination,
     disabledReason,
@@ -36,6 +92,7 @@ export function ScoutSlackDestination({
         ? integrations.find((integration) => integration.id === destination.integration_id)
         : undefined
     const selectedIntegration = configuredIntegration ?? (integrations.length === 1 ? integrations[0] : null)
+    const workspacesLoading = integrationsLoading && slackIntegrations === undefined
 
     const hasChannel = Boolean(destination?.channel)
     const hasUsers = Boolean(destination?.users?.length)
@@ -116,15 +173,12 @@ export function ScoutSlackDestination({
         onChange({})
     }
 
-    return (
-        <div className="flex flex-col gap-2 border-t border-primary pt-2">
-            <div className="flex flex-col min-w-0">
-                <span className="text-xs text-default">Slack destination</span>
-                <span className="text-[11.5px] text-muted">
-                    Post each scout run's output to a channel, or send it as a direct message
-                </span>
-            </div>
-            {integrationsLoading && slackIntegrations === undefined ? (
+    const body = (
+        <div className="flex flex-col gap-2">
+            <span className="text-[11.5px] text-muted">
+                Post each scout run's output to a channel, or send it as a direct message
+            </span>
+            {workspacesLoading ? (
                 <span className="text-xs text-muted">Loading Slack workspaces…</span>
             ) : integrations.length === 0 ? (
                 <Link to={urls.settings('environment-integrations', 'integration-slack')}>
@@ -223,6 +277,34 @@ export function ScoutSlackDestination({
                     )}
                 </div>
             )}
+        </div>
+    )
+
+    return (
+        <div className="border-t border-primary pt-2">
+            <LemonCollapse
+                embedded
+                size="small"
+                panels={[
+                    {
+                        key: 'slack-destination',
+                        dataAttr: 'scout-slack-destination',
+                        header: (
+                            <div className="flex flex-1 items-center justify-between gap-2">
+                                <span className="text-xs text-default">Slack destination</span>
+                                <div className="flex flex-wrap items-center gap-1">
+                                    <SlackDestinationSummary
+                                        destination={destination}
+                                        connected={integrations.length > 0}
+                                        loading={workspacesLoading}
+                                    />
+                                </div>
+                            </div>
+                        ),
+                        content: body,
+                    },
+                ]}
+            />
         </div>
     )
 }

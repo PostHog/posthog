@@ -2,7 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronRight, IconServer } from '@posthog/icons'
-import { LemonSwitch, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSwitch, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -189,21 +189,24 @@ function FullPicker(props: ScoutMcpServersPickerProps): JSX.Element {
     )
 }
 
+/**
+ * The settings-form variant: collapsed by default, with the servers this scout may use in the
+ * header, so a scout that uses none costs one line.
+ */
 function CompactPicker(props: ScoutMcpServersPickerProps): JSX.Element {
     useMountedLogic(scoutMcpServersLogic)
+    const { teamScoutServers } = useValues(scoutMcpServersLogic)
     const state = usePickerState(props)
+    const selectedServers = teamScoutServers.filter((server) => props.selectedServerIds.includes(server.id))
 
-    return (
-        <div className="flex flex-col gap-2 border-t border-primary pt-2">
-            <div className="flex flex-col min-w-0">
-                <span className="text-xs text-default">MCP servers</span>
-                <span className="text-[11.5px] text-muted">
-                    Choose which of the team's shared MCP servers this scout can use.{' '}
-                    <Link to={urls.mcpGateway()} target="_blank">
-                        Manage MCP servers
-                    </Link>
-                </span>
-            </div>
+    const body = (
+        <div className="flex flex-col gap-2">
+            <span className="text-[11.5px] text-muted">
+                Choose which of the team's shared MCP servers this scout can use.{' '}
+                <Link to={urls.mcpGateway()} target="_blank">
+                    Manage MCP servers
+                </Link>
+            </span>
             {state.initialLoading ? (
                 <span className="flex items-center gap-2 text-[11.5px] text-muted">
                     <Spinner /> Loading MCP servers...
@@ -241,5 +244,62 @@ function CompactPicker(props: ScoutMcpServersPickerProps): JSX.Element {
                 </div>
             )}
         </div>
+    )
+
+    return (
+        <div className="border-t border-primary pt-2">
+            <LemonCollapse
+                embedded
+                size="small"
+                panels={[
+                    {
+                        key: 'mcp-servers',
+                        dataAttr: 'scout-mcp-servers',
+                        header: (
+                            <div className="flex flex-1 items-center justify-between gap-2">
+                                <span className="text-xs text-default">MCP servers</span>
+                                <div className="flex flex-wrap items-center gap-1">
+                                    <SelectedServersSummary
+                                        loading={state.initialLoading}
+                                        selectedServers={selectedServers}
+                                    />
+                                </div>
+                            </div>
+                        ),
+                        content: body,
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
+/**
+ * What the scout may reach, for the collapsed header. The names come from the team's shared
+ * servers, so a selected id whose share was withdrawn drops out, matching what a run mounts.
+ */
+function SelectedServersSummary({
+    loading,
+    selectedServers,
+}: {
+    loading: boolean
+    selectedServers: MCPServiceAccountServerApi[]
+}): JSX.Element | null {
+    // The share list decides the names, so the header stays blank until it arrives rather than
+    // reading "None" at a scout that does have servers.
+    if (loading) {
+        return null
+    }
+    if (selectedServers.length === 0) {
+        return <span className="text-[11.5px] text-muted">None</span>
+    }
+    return (
+        <>
+            {selectedServers.map((server) => (
+                <LemonTag key={server.id} size="small" type="option">
+                    {server.name}
+                </LemonTag>
+            ))}
+        </>
     )
 }
