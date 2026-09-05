@@ -53,6 +53,7 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                                     mode="multiple"
                                     title="Environments"
                                     disablePrompting
+                                    displayMode={selectedEnvironments.length > 3 ? 'count' : 'snacks'}
                                     value={selectedEnvironments}
                                     onChange={setEnvironments}
                                     options={environmentOptions}
