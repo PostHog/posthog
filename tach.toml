@@ -124,6 +124,7 @@ depends_on = [
     "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
+    "products.reaperhog",
     "products.review_hog",
     "products.signals",
     "products.skills",
@@ -1445,4 +1446,18 @@ expose = [
 ]
 from = [
     "products.data_quality",
+]
+
+[[modules]]
+path = "products.reaperhog"
+depends_on = ["posthog", "products.experiments", "products.feature_flags", "products.skills", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.reaperhog",
 ]

@@ -1765,6 +1765,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
  * * `review_hog` - ReviewHog
+ * * `reaperhog` - ReaperHog
  * * `image_builder` - Image Builder
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
@@ -1790,6 +1791,7 @@ export const TaskOriginProductEnumApi = {
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
+    Reaperhog: 'reaperhog',
     ImageBuilder: 'image_builder',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
@@ -1854,6 +1856,7 @@ export interface TaskCreateApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
+     * * `reaperhog` - ReaperHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
@@ -2015,6 +2018,7 @@ export interface TaskWriteApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
+     * * `reaperhog` - ReaperHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
@@ -2154,6 +2158,7 @@ export interface PatchedTaskWriteApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
+     * * `reaperhog` - ReaperHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
@@ -5061,6 +5066,7 @@ export type TasksListParams = {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
+     * * `reaperhog` - ReaperHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
@@ -5194,6 +5200,7 @@ export const TasksListExcludeOriginProduct = {
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
+    Reaperhog: 'reaperhog',
     ImageBuilder: 'image_builder',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',

@@ -8,6 +8,7 @@ between the experiments product and the rest of the system.
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
@@ -119,3 +120,25 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class FlagCleanupPlan:
+    keep_variant: str | None
+    remove_variants: tuple[str, ...]
+    rationale: str
+    confident: bool
+
+
+@dataclass(frozen=True)
+class ConcludedExperiment:
+    id: int
+    name: str
+    feature_flag_id: int
+    feature_flag_key: str
+    conclusion: str
+    end_date: datetime
+    archived: bool
+    flag_cleanup_task_id: UUID | None
+    variant_keys: tuple[str, ...]
+    cleanup: FlagCleanupPlan
