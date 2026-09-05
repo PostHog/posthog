@@ -11,6 +11,7 @@ import { fromInternalPerson } from '~/common/persons/person-update-batch'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { Properties } from '~/plugin-scaffold'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
 
@@ -1135,6 +1136,126 @@ describe('BatchWritingPersonStore', () => {
                     },
                 }),
             ])
+        )
+    })
+
+    it('should let pending property writes win over a same-batch re-read, and a fresh read win once flushed', async () => {
+        // $identify($set) then $create_alias in one batch: the alias ID misses the cache and re-reads
+        // the same person from Postgres.
+        const identifiedDistinctId = 'user-email@example.com'
+        const aliasDistinctId = 'user-device-abc123'
+        const laterDistinctId = 'user-device-xyz789'
+
+        const mockRepo = createMockRepository()
+        let storedProperties: Properties = { queued_prop: 'db_value', untouched_prop: 'db_value' }
+        mockRepo.fetchPerson = jest
+            .fn()
+            .mockImplementation(() => Promise.resolve({ ...person, properties: { ...storedProperties } }))
+        const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
+        await personStore.fetchForUpdate(teamId, identifiedDistinctId, 0)
+        await personStore.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            { queued_prop: 'queued_value' },
+            [],
+            {},
+            identifiedDistinctId,
+            0,
+            true
+        )
+
+        // Another writer changes the untouched key before the alias re-read.
+        storedProperties = { queued_prop: 'db_value', untouched_prop: 'other_writer_value' }
+        await personStore.fetchForUpdate(teamId, aliasDistinctId, 0)
+
+        const afterReRead = await personStore.fetchForUpdate(teamId, identifiedDistinctId, 0)
+        expect(afterReRead?.properties).toEqual({
+            queued_prop: 'queued_value',
+            untouched_prop: 'other_writer_value',
+        })
+
+        await personStore.flush()
+
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    properties_to_set: { queued_prop: 'queued_value', untouched_prop: 'other_writer_value' },
+                }),
+            ])
+        )
+
+        // After the flush, another writer changes the flushed key and this store re-dirties the entry.
+        storedProperties = { queued_prop: 'newer_db_value', untouched_prop: 'other_writer_value' }
+        await personStore.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            { later_prop: 'later_value' },
+            [],
+            {},
+            identifiedDistinctId,
+            0,
+            true
+        )
+        await personStore.fetchForUpdate(teamId, laterDistinctId, 0)
+
+        const afterFlushedReRead = await personStore.fetchForUpdate(teamId, identifiedDistinctId, 0)
+        expect(afterFlushedReRead?.properties).toEqual({
+            queued_prop: 'newer_db_value',
+            untouched_prop: 'other_writer_value',
+            later_prop: 'later_value',
+        })
+
+        await personStore.flush()
+
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenLastCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    properties_to_set: {
+                        queued_prop: 'newer_db_value',
+                        untouched_prop: 'other_writer_value',
+                        later_prop: 'later_value',
+                    },
+                }),
+            ])
+        )
+    })
+
+    it('should keep a queued set that restores the stored value across a same-batch re-read', async () => {
+        // The queued value equals the baseline but is still a pending write.
+        const identifiedDistinctId = 'user-email@example.com'
+        const aliasDistinctId = 'user-device-abc123'
+
+        const mockRepo = createMockRepository()
+        let storedProperties: Properties = { plan: 'free' }
+        mockRepo.fetchPerson = jest
+            .fn()
+            .mockImplementation(() => Promise.resolve({ ...person, properties: { ...storedProperties } }))
+        const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
+        await personStore.fetchForUpdate(teamId, identifiedDistinctId, 0)
+        for (const plan of ['pro', 'free']) {
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { plan },
+                [],
+                {},
+                identifiedDistinctId,
+                0,
+                true
+            )
+        }
+
+        storedProperties = { plan: 'enterprise' }
+        await personStore.fetchForUpdate(teamId, aliasDistinctId, 0)
+
+        const afterReRead = await personStore.fetchForUpdate(teamId, identifiedDistinctId, 0)
+        expect(afterReRead?.properties).toEqual({ plan: 'free' })
+
+        await personStore.flush()
+
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([expect.objectContaining({ properties_to_set: { plan: 'free' } })])
         )
     })
 
@@ -3133,6 +3254,7 @@ describe('BatchWritingPersonStore', () => {
                 properties: person.properties,
                 properties_to_set: { new_prop: 'value' },
                 properties_to_unset: [],
+                pending_keys: new Set<string>(),
                 version: person.version,
                 created_at: person.created_at,
                 is_identified: false,
