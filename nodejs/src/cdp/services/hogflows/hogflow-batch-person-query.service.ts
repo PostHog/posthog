@@ -29,7 +29,10 @@ export interface AccountAudienceResponse {
  * Endpoints: /internal/hog_flows/user_blast_radius and /internal/hog_flows/user_blast_radius_persons
  */
 export class HogFlowBatchPersonQueryService {
-    constructor(private internalFetchService: InternalFetchService) {}
+    constructor(
+        private internalFetchService: InternalFetchService,
+        private audienceFetchTimeoutMs: number
+    ) {}
 
     /**
      * Get count of users affected by filters
@@ -47,6 +50,7 @@ export class HogFlowBatchPersonQueryService {
                 urlPath,
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: this.audienceFetchTimeoutMs,
                     body: JSON.stringify({
                         filters,
                         group_type_index: groupTypeIndex,
@@ -101,6 +105,7 @@ export class HogFlowBatchPersonQueryService {
                 urlPath,
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: this.audienceFetchTimeoutMs,
                     body: JSON.stringify({
                         filters,
                         group_type_index: groupTypeIndex,
@@ -152,6 +157,7 @@ export class HogFlowBatchPersonQueryService {
                 urlPath,
                 fetchParams: {
                     method: 'POST',
+                    timeoutMs: this.audienceFetchTimeoutMs,
                     body: JSON.stringify({
                         filters,
                         cursor: cursor || null,
