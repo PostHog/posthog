@@ -119,6 +119,35 @@ describe("flag audience shaping", () => {
     );
   });
 
+  it("does not describe a fraction of a named person at partial rollout", () => {
+    const people = new Map([
+      ["u-1", { uuid: "p-1", name: "Alex", email: null }],
+    ]);
+    const audience = shapeFlagAudience(
+      flagWith({
+        groups: [
+          {
+            properties: [
+              {
+                type: "person",
+                key: "distinct_id",
+                operator: "exact",
+                value: "u-1",
+              },
+            ],
+            rollout_percentage: 25,
+          },
+        ],
+      }),
+      people,
+    );
+
+    expect(audience.headline).toBe("On for Alex.");
+    expect(audience.summary).toBe(
+      "Alex is targeted, and the 25% rollout hash decides. Everyone else gets false.",
+    );
+  });
+
   it("renders a readable label for operators that only reach flags through the API", () => {
     const audience = shapeFlagAudience(
       flagWith({

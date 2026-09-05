@@ -286,6 +286,8 @@ interface Audience {
   /** "one person", "25% of Power users" */
   label: string;
   plural: boolean;
+  /** Replaces the default "<label> gets <result>." sentence when the label alone misreads. */
+  sentence?: string;
 }
 
 function describeAudience(
@@ -322,9 +324,16 @@ function describeAudience(
       const n = condition.values.length;
       if (n === 1) {
         const person = people.get(condition.values[0].raw ?? "");
+        const who = person ? person.name : "one person";
+        // The rollout is a per-identifier hash: a named person is either in
+        // or out, never a fraction, so the share stays on the rule row.
         return {
-          label: `${share}${person ? person.name : "one person"}`,
+          label: who,
           plural: false,
+          sentence:
+            rule.share < 100
+              ? `${who} is targeted, and the ${rule.share}% rollout hash decides.`
+              : undefined,
         };
       }
       return { label: `${share}${n} people`, plural: true };
@@ -555,6 +564,7 @@ export function shapeFlagAudience(
 
   const sentences = live.slice(0, 2).map((rule, index) => {
     const audience = audiences[index];
+    if (audience.sentence) return audience.sentence;
     return `${capitalize(audience.label)} ${audience.plural ? "get" : "gets"} ${describeResult(rule.result)}.`;
   });
   if (live.length > 2) {
