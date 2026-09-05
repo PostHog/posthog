@@ -78,15 +78,19 @@ SELECT count(*) - count(DISTINCT person_id) FROM posthog_cohortpeople
 WHERE cohort_id = %(cohort_id)s
 """
 
+# person_from resumes the walk where the last batch stopped. Without it every batch re-enters
+# the (cohort_id, person_id) index at the cohort's first person and re-ranks the rows already
+# swept before it reaches a new duplicate, so each batch reads more of the cohort than the last.
 SURPLUS_IDS_SQL = """
-SELECT id FROM (
-    SELECT id, row_number() OVER (
+SELECT person_id, id FROM (
+    SELECT person_id, id, row_number() OVER (
         PARTITION BY person_id ORDER BY version DESC NULLS LAST, id DESC
     ) AS rn
     FROM posthog_cohortpeople
-    WHERE cohort_id = %(cohort_id)s
+    WHERE cohort_id = %(cohort_id)s AND person_id >= %(person_from)s
 ) ranked
 WHERE rn > 1
+ORDER BY person_id
 LIMIT %(batch_size)s
 """
 
@@ -118,15 +122,31 @@ def _surplus(conn: psycopg.Connection[Any], cohort_id: int) -> int:
 
 def _repair_cohort(conn: psycopg.Connection[Any], cohort_id: int, batch_size: int, sleep: float) -> int:
     deleted = 0
+    person_from = 0
     while True:
         with conn.cursor() as cur:
-            cur.execute(SURPLUS_IDS_SQL, {"cohort_id": cohort_id, "batch_size": batch_size})
-            ids = [row[0] for row in cur.fetchall()]
-        if not ids:
+            cur.execute(
+                SURPLUS_IDS_SQL,
+                {"cohort_id": cohort_id, "person_from": person_from, "batch_size": batch_size},
+            )
+            rows = cur.fetchall()
+        if not rows:
             return deleted
+        # A short batch means the limit was not reached, so the cohort holds nothing after it.
+        exhausted = len(rows) < batch_size
+        last_person = rows[-1][0]
+        if not exhausted:
+            person_from = last_person
+            # The limit can cut the last person's rows in two, so that person waits for the next
+            # batch. A batch that holds one person cannot wait, because the next batch would read
+            # the same rows again, so it deletes them and the next batch takes the remainder.
+            if rows[0][0] != last_person:
+                rows = [row for row in rows if row[0] != last_person]
         with conn.cursor() as cur:
-            cur.execute(DELETE_SQL, {"ids": ids})
+            cur.execute(DELETE_SQL, {"ids": [row[1] for row in rows]})
             deleted += cur.rowcount
+        if exhausted:
+            return deleted
         if sleep:
             time.sleep(sleep)
 

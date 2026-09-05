@@ -58,12 +58,15 @@ def _members(conn: psycopg.Connection, cohort_id: int) -> list[tuple[int, int | 
         return cur.fetchall()
 
 
-def test_repair_keeps_one_row_per_person_at_the_highest_version(persons_conn):
-    for person_id, version in [(11, 1), (11, None), (11, 3), (12, 2), (13, 1), (13, 1)]:
+# 1 cuts a person's rows apart, 3 fills a batch with the last person only partly in it, and
+# 5000 is the default, where every surplus row fits in one batch.
+@pytest.mark.parametrize("batch_size", [1, 2, 3, 5000])
+def test_repair_keeps_one_row_per_person_at_the_highest_version(persons_conn, batch_size):
+    for person_id, version in [(11, 1), (11, None), (11, 3), (12, 2), (13, 1), (13, 1), (13, 1)]:
         _add_member(persons_conn, 900, person_id, version)
     _add_member(persons_conn, 901, 11, 1)
 
-    call_command("cohortpeople_dedup", "--mode", "repair")
+    call_command("cohortpeople_dedup", "--mode", "repair", "--batch-size", str(batch_size))
 
     assert _members(persons_conn, 900) == [(11, 3), (12, 2), (13, 1)]
     assert _members(persons_conn, 901) == [(11, 1)]
