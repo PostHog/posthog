@@ -85,6 +85,7 @@ _DEPLOYS_CTE = """
             d.id AS id,
             any(d.sha) AS sha,
             any(d.environment) AS environment,
+            any(d.created_at) AS created_at,
             minOrNullIf(s.created_at, s.state = 'success') AS first_success_at,
             minOrNullIf(s.created_at, s.state IN ('failure', 'error')) AS first_failure_at
         FROM __DEPLOYMENTS_SOURCE__ AS d
@@ -165,6 +166,9 @@ _FREQUENCY_SERIES_SELECT = """
 # The candidate PR must also merge INTO that branch: a cherry-pick keeps the original subject line,
 # so a release-branch PR's (#N) suffix can ride a default-branch commit and hand the deploy an
 # earlier head merge than the one it really contains.
+# The merge is bounded by the deployment REQUEST, not its success: GitHub fixes the deployed SHA
+# when it creates the record, so a PR merging while the deploy runs cannot have produced that
+# commit. Crediting it would over-attribute — every merge at or before it reads as contained.
 # Bot merges stay in as heads on purpose: a bot's merge commit still names what a deploy contains.
 _DEPLOY_HEADS_CTE = """
     merge_heads AS (
@@ -199,7 +203,7 @@ _DEPLOY_HEADS_CTE = """
             AND r.repo_owner = hp.repo_owner AND r.repo_name = hp.repo_name
             AND hp.merged_at IS NOT NULL
             AND hp.merged_at >= {merge_scan_floor}
-            AND hp.merged_at <= d.first_success_at
+            AND hp.merged_at <= d.created_at
         GROUP BY d.id
         HAVING uniqExact(r.commit_pr_number) = 1
     ),

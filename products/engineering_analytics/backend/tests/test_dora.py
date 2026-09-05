@@ -351,6 +351,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             "open-sha",
             "future-sha",
             "backport-sha",
+            "inflight-sha",
             "missing-sha",
         ]
         started_at = "2026-01-12 08:01:00"
@@ -384,6 +385,10 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     # commit keeps the (#5) subject, so only the base ref separates it from a real
                     # default-branch merge.
                     (5, "2026-01-12 08:00:00", "release-1.2"),
+                    # Merged while the deployment was already running: every deployment here was
+                    # created 09:00 and succeeded 10:00, so this SHA was fixed before the merge and
+                    # the artifact cannot carry it.
+                    (6, "2026-01-12 09:30:00", "main"),
                 ]
             ],
             run_rows=[
@@ -408,6 +413,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                         ("open-sha", 3, "main", "PostHog/posthog"),
                         ("future-sha", 4, "main", "PostHog/posthog"),
                         ("backport-sha", 5, "main", "PostHog/posthog"),
+                        ("inflight-sha", 6, "main", "PostHog/posthog"),
                     ],
                     start=1,
                 )
