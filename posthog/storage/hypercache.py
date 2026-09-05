@@ -285,12 +285,16 @@ class HyperCache:
                     HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
                     self._set_cache_value_redis(key, response)
                     return response, "s3"
-        except (ObjectStorageError, BotoCoreError, ClientError, ValueError) as e:
-            # Any storage-layer failure here (including a misconfigured S3 endpoint that
-            # makes boto3 raise on client construction) must degrade to a cache miss and
-            # fall through to load_fn, never bubble a 500 up to the request handler.
-            # ValueError also catches json.JSONDecodeError from a corrupt blob, so capture
-            # it — otherwise persistent corruption keeps missing silently as a plain hit_db.
+        except ObjectStorageError:
+            # object_storage.read_object already captured this with the bucket and key
+            # attached, so degrade to a cache miss without capturing it a second time.
+            pass
+        except (BotoCoreError, ClientError, ValueError) as e:
+            # A storage-layer failure that object_storage did not capture: a misconfigured
+            # S3 endpoint that makes boto3 raise on client construction, or json.loads
+            # raising ValueError/JSONDecodeError on a corrupt blob. Capture it, then degrade
+            # to a cache miss and fall through to load_fn, never bubble a 500 up to the
+            # request handler.
             capture_exception(e)
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache

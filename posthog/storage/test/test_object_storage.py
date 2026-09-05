@@ -212,7 +212,8 @@ class TestStorage(APIBaseTest):
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "nonexistent-key")
 
-    def test_read_bytes_raises_for_other_client_errors(self):
+    @patch("posthog.storage.object_storage.capture_exception")
+    def test_read_bytes_raises_for_other_client_errors(self, patched_capture):
         mock_client = MagicMock()
         error_response = {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}
         mock_client.get_object.side_effect = ClientError(error_response, "GetObject")  # type: ignore[arg-type]
@@ -220,6 +221,12 @@ class TestStorage(APIBaseTest):
 
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
+
+        patched_capture.assert_called_once()
+        assert patched_capture.call_args.kwargs["additional_properties"] == {
+            "bucket": "test-bucket",
+            "key": "test-key",
+        }
 
     def test_delete_objects_batches_keys_and_returns_failures(self) -> None:
         mock_client = MagicMock()
