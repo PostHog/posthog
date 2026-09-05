@@ -2068,7 +2068,7 @@
         }
     },
     "create-feature-flag": {
-        "description": "Create a feature flag in the current project. Call when the user asks to add a flag, gate a feature behind a flag, set up a percentage rollout, or deliver a remote config value. Release conditions, rollout percentages, multivariate variants, and payloads all go in the structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for variants, `filters.payloads` for JSON-encoded payloads). For an A/B test, create an experiment instead — experiments manage their own flag. Use `update-feature-flag` to change an existing flag, and `feature-flag-get-all` first to check whether the key is already taken.",
+        "description": "Create a feature flag in the current project. Call when the user asks to add a flag, gate a feature behind a flag, set up a percentage rollout, or deliver a remote config value. If this flag is for a new version of a page or flow, or for a pricing or onboarding change, an experiment may be in order. Ask the user if they want to run an experiment, and if so create the experiment with `experiment-create`, which will manage its own flag. Release conditions, rollout percentages, multivariate variants, and payloads all go in the structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for variants, `filters.payloads` for JSON-encoded payloads). Use `update-feature-flag` to change an existing flag, and `feature-flag-get-all` first to check whether the key is already taken.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Create feature flag",
