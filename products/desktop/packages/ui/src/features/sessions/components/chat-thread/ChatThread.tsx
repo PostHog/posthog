@@ -1,5 +1,4 @@
 import {
-  CaretDown,
   Check,
   Copy,
   FileText,
@@ -87,6 +86,7 @@ import {
   type TurnRow,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
 import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { UserMessageBody } from "@posthog/ui/features/sessions/components/chat-thread/UserMessageBody";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
 import {
@@ -106,17 +106,12 @@ import {
   ONBOARDING_BRIEF_LABEL,
   ONBOARDING_BRIEF_TOOLTIP,
 } from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
-import {
-  hasFileMentions,
-  MentionChip,
-  parseFileMentions,
-} from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
+import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { isShowActionsItem } from "@posthog/ui/features/sessions/components/session-update/showActionsItem";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
-import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
@@ -595,28 +590,7 @@ function UserBubble({
     (s) => s.openCanvasInstructionsInSplit,
   );
 
-  const containsFileMentions = hasFileMentions(displayContent);
-
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const textRef = useRef<HTMLDivElement>(null);
   const footerRevealed = useContext(FooterRevealContext);
-
-  // Only meaningful while collapsed: expanding removes the clamp so scrollHeight === clientHeight.
-  // We keep the prior result when expanded so the "Show less" trigger stays put.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the message text changes.
-  useEffect(() => {
-    if (isExpanded) return;
-    const el = textRef.current;
-    if (!el) return;
-    // The observer fires once on observe, after layout, so the first measure
-    // forces no layout inside the commit.
-    const observer = new ResizeObserver(() =>
-      setIsOverflowing(el.scrollHeight - el.clientHeight > 1),
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [displayContent, isExpanded]);
 
   return (
     <MessageContextMenu value={displayContent}>
@@ -683,42 +657,10 @@ function UserBubble({
               )}
             >
               <ChatBubbleContent>
-                <div
-                  ref={textRef}
-                  className={cn(
-                    "[&_p]:my-0",
-                    !isExpanded && "max-h-[5lh] overflow-hidden",
-                    // Fade the clamped text out at the bottom so it reads as "continues below". Only
-                    // when actually overflowing — a short collapsed message shouldn't fade. The mask is
-                    // paint-only, so it doesn't affect the overflow measurement above.
-                    !isExpanded &&
-                      isOverflowing &&
-                      "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
-                  )}
-                >
-                  {containsFileMentions ? (
-                    parseFileMentions(displayContent)
-                  ) : (
-                    <ChatMarkdown content={displayContent} />
-                  )}
-                </div>
-                {attachments.length > 0 && !containsFileMentions && (
-                  <div className="mt-1.5">
-                    <UserMessageAttachments attachments={attachments} />
-                  </div>
-                )}
-                {isOverflowing && (
-                  <button
-                    type="button"
-                    onClick={() => setIsExpanded((v) => !v)}
-                    className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
-                  >
-                    Show {isExpanded ? "less" : "more"}
-                    <CaretDown
-                      className={cn("size-3", isExpanded && "rotate-180")}
-                    />
-                  </button>
-                )}
+                <UserMessageBody
+                  content={displayContent}
+                  attachments={attachments}
+                />
               </ChatBubbleContent>
             </ChatBubble>
           )}
