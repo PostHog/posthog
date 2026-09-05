@@ -64,12 +64,17 @@ export const CorsPlugin: ReplayPlugin & {
 }
 
 const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL}; }`
+// The replay iframe is scriptless, so the browser forces native media controls on every <video>,
+// even one the page never gave a `controls` attribute. Hide that native control panel so a page
+// with its own player does not show a second, stacked control bar. Videos that used native
+// controls keep them, because they carry the `controls` attribute.
+const nativeVideoControlsFix = 'video:not([controls])::-webkit-media-controls { display: none !important; }'
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
 
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
+    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix, nativeVideoControlsFix],
     // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
     // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
     // recorded content escape the sandbox into the app origin. Canvas is replayed via
