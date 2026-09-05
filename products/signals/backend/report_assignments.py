@@ -427,6 +427,7 @@ def update_assignments_for_pull_request(
     updated = 0
     with transaction.atomic():
         reports = list(
+            # nosemgrep: idor-lookup-without-team - The verified webhook installation scopes this cross-team lookup through team_id__in.
             SignalReport.objects.select_for_update().filter(team_id__in=team_ids, id__in=report_ids).order_by("id")
         )
         assignments = {
