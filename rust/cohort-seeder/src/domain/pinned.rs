@@ -3,11 +3,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-use std::sync::Arc;
 
 use chrono_tz::Tz;
-use cohort_core::filters::tree::{BehavioralLeafConfig, BehavioralValue};
+use cohort_core::filters::tree::BehavioralValue;
 use cohort_core::filters::{CohortId, FilterError, TeamFilters, TeamFiltersBuilder, TeamId};
+use cohort_core::leaf_state::key::BehavioralKeyInputs;
 use cohort_core::resolve_tz_or_utc;
 use cohort_core::EvictionWindow;
 use cohort_core::LeafStateKey;
@@ -459,28 +459,25 @@ fn derive_lookback(
             PinnedDropReason::AbsentFromFrozenCatalog,
         ));
     };
-    let Some(event_name) = raw.event_name.as_ref() else {
+    // The event name is not hashed into the key, but a condition without one never matched a
+    // catalog leaf, so it stays a drop.
+    if raw.event_name.is_none() {
         return Ok(LookbackResolution::Dropped(
             PinnedDropReason::AbsentFromFrozenCatalog,
         ));
-    };
-    let leaf = BehavioralLeafConfig {
-        condition_hash: hash.as_bytes(),
+    }
+    let condition_hash = hash.as_bytes();
+    let leaf_state_key = LeafStateKey::for_behavioral_inputs(&BehavioralKeyInputs {
+        condition_hash: &condition_hash,
         value,
-        event_key: event_name.clone(),
         time_value: raw.time_value,
         operator_value: raw.operator_value,
-        time_interval: raw.time_interval.clone(),
-        operator: raw.operator.clone(),
-        explicit_datetime: raw.explicit_datetime.clone(),
-        explicit_datetime_to: raw.explicit_datetime_to.clone(),
-        leaf_state_key: LeafStateKey([0; 16]),
-        state_variant: None,
-        bytecode: Arc::new(Vec::new()),
-        negated: false,
-    }
-    .with_state_key();
-    let Some(meta) = filters.by_lsk.get(&leaf.leaf_state_key) else {
+        time_interval: raw.time_interval.as_deref(),
+        operator: raw.operator.as_deref(),
+        explicit_datetime: raw.explicit_datetime.as_deref(),
+        explicit_datetime_to: raw.explicit_datetime_to.as_deref(),
+    });
+    let Some(meta) = filters.by_lsk.get(&leaf_state_key) else {
         return Ok(LookbackResolution::Dropped(
             PinnedDropReason::AbsentFromFrozenCatalog,
         ));

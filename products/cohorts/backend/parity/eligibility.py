@@ -33,6 +33,8 @@ EXCLUDED_HAS_COHORT_REF = "excluded_has_cohort_ref"
 EXCLUDED_CYCLE_DETECTED = "excluded_cycle_detected"
 EXCLUDED_UNRESOLVED_REF = "excluded_unresolved_ref"
 EXCLUDED_HAS_DROPPED_LEAF = "excluded_has_dropped_leaf"
+# HogVM RETURN, which the catalog loader appends to every stored program before loading it.
+_OP_RETURN = 38
 # Not a processor metric class: the Rust loader skips these cohorts entirely.
 PARSE_ERROR = "parse_error"
 
@@ -249,6 +251,19 @@ def _valid_condition_hash(value: Any) -> bool:
     return isinstance(value, str) and len(value.encode("utf-8")) == 16
 
 
+def _loads_as_hog_program(bytecode: list[Any]) -> bool:
+    """Mirror of hogvm `Program::from_shared`, which the catalog loader now runs per leaf.
+
+    The loader appends a trailing RETURN before loading, so an empty stored program presents that
+    opcode as its marker and is rejected; a bare `["_H"]` takes the appended opcode as its version.
+    """
+    marker = bytecode[0] if bytecode else _OP_RETURN
+    if marker != "_H":
+        return False
+    version = bytecode[1] if len(bytecode) > 1 else _OP_RETURN
+    return isinstance(version, int) and not isinstance(version, bool) and version >= 0
+
+
 def _classify_leaf(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     """Mirror of leaf_classifier.rs classify_leaf: a kept/ref _Leaf, or a drop-reason string."""
     leaf_type = node.get("type")
@@ -274,8 +289,11 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
         return "behavioral_action_key"
     if not _valid_condition_hash(node.get("conditionHash")):
         return "missing_condition_hash"
-    if not isinstance(node.get("bytecode"), list):
+    bytecode = node.get("bytecode")
+    if not isinstance(bytecode, list):
         return "missing_bytecode"
+    if not _loads_as_hog_program(bytecode):
+        return "malformed_bytecode"
     if not isinstance(key, str) or not key:
         return "malformed_leaf"
     window = _behavioral_window_days(node, value)
@@ -287,8 +305,11 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
 def _classify_person(node: Mapping[str, Any]) -> Union[_Leaf, str]:
     if not _valid_condition_hash(node.get("conditionHash")):
         return "missing_condition_hash"
-    if not isinstance(node.get("bytecode"), list):
+    bytecode = node.get("bytecode")
+    if not isinstance(bytecode, list):
         return "missing_bytecode"
+    if not _loads_as_hog_program(bytecode):
+        return "malformed_bytecode"
     return _Leaf(kind="person", negated=_explicit_negation(node))
 
 

@@ -396,13 +396,13 @@ fn explicit_window_days(from: Option<&str>, to: Option<&str>) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use chrono::{NaiveDate, TimeZone, Utc};
     use chrono_tz::America::New_York;
     use chrono_tz::UTC;
 
     use super::*;
+    use crate::hogvm::ConditionProgram;
 
     use crate::leaf_state::key::LeafStateKey;
 
@@ -437,7 +437,7 @@ mod tests {
             explicit_datetime_to: None,
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
-            bytecode: Arc::new(vec![]),
+            program: ConditionProgram::bare_header(),
             negated: false,
         }
         .with_state_key()

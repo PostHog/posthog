@@ -87,6 +87,26 @@
       "expected": "excluded_has_dropped_leaf"
     },
     {
+      "name": "empty_bytecode_is_dropped_as_malformed",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "conditionHash": "0123456789abcdef", "bytecode": []}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "wrong_bytecode_marker_is_dropped_as_malformed",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "conditionHash": "0123456789abcdef", "bytecode": ["_X", 1, 29]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "non_integer_bytecode_version_is_dropped_as_malformed",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "conditionHash": "0123456789abcdef", "bytecode": ["_H", "one", 29]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "person_wrong_bytecode_marker_is_dropped_as_malformed",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "0123456789abcdef", "bytecode": ["_X", 1, 29]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
       "name": "person_leaf_is_single_leaf_without_window",
       "filters": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 1, 2, 11]}]}},
       "expected": "single_leaf",
