@@ -550,6 +550,61 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
+    @parameterized.expand(
+        [
+            # Both levers change whether the merge can work, so the recorded block no longer
+            # describes the configuration in force.
+            ("sync_type_change", {"sync_type": "full_refresh"}, None),
+            ("primary_key_change", {"primary_key_columns": ["order_id"]}, None),
+            # A bare re-enable changes nothing about the configuration. Clearing here would drop the
+            # warning the settings page shows while the table is still unable to merge.
+            ("bare_re_enable", {"should_sync": True}, "missing_primary_key"),
+        ]
+    )
+    def test_update_schema_clears_the_block_only_when_the_sync_config_changes(
+        self, _name: str, payload: dict[str, Any], expected_block: str | None
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "datetime",
+                "incremental_sync_blocked": "missing_primary_key",
+            },
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data=payload,
+            )
+
+        assert response.status_code == 200
+        assert response.json()["incremental_sync_blocked"] == expected_block
+        schema.refresh_from_db()
+        assert schema.incremental_sync_blocked == expected_block
+
     def test_update_schema_sync_type_is_logged_to_activity(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

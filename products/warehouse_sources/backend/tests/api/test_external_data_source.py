@@ -3016,6 +3016,7 @@ class TestExternalDataSource(APIBaseTest):
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
+                    "incremental_sync_blocked": None,
                     "enabled_columns": None,
                     "row_filters": None,
                     "available_columns": [],
