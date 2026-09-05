@@ -10,6 +10,7 @@ import {
 import { cn } from "@posthog/quill";
 import {
   BarChart,
+  DEFAULT_CHART_CONFIG,
   LineChart,
   type Series,
   TimeSeriesBarChart,
@@ -41,12 +42,16 @@ function ChartSeriesBody({
 }) {
   const theme = useChartTheme();
   const series: Series[] = data.series;
-  const config = {
-    legend: data.series.length > 1 ? { show: true } : undefined,
-    ...(data.isTimeSeries
-      ? { xAxis: { interval: data.interval, timezone: "UTC" } }
-      : {}),
-  };
+  const config = useMemo(
+    () => ({
+      ...DEFAULT_CHART_CONFIG,
+      ...(data.series.length > 1 ? { legend: { show: true } } : {}),
+      ...(data.isTimeSeries
+        ? { xAxis: { interval: data.interval, timezone: "UTC" } }
+        : {}),
+    }),
+    [data.series.length, data.isTimeSeries, data.interval],
+  );
   if (data.isTimeSeries) {
     return data.render === "bar" ? (
       <TimeSeriesBarChart
