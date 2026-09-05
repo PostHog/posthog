@@ -20,6 +20,7 @@ from posthog.ph_client import feature_enabled_or_false
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertDestination,
+    ErrorTrackingAlertThread,
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
 )
@@ -375,3 +376,27 @@ def preview_alert_messages(
         {"kind": "root_edit", "event": "$error_tracking_issue_resolved", "text": edit["text"], "blocks": edit["blocks"]}
     )
     return {"issue_id": issue.id if issue is not None else None, "messages": messages}
+
+
+def list_issue_threads(team_id: int, issue_id: UUID | str) -> QuerySet[ErrorTrackingAlertThread]:
+    parsed_id = _parse_alert_id(issue_id)
+    if parsed_id is None:
+        return ErrorTrackingAlertThread.objects.none()
+    return (
+        ErrorTrackingAlertThread.objects.for_team(team_id)
+        .filter(issue_id=parsed_id)
+        .select_related("alert", "destination", "destination__integration")
+        .order_by("-created_at")
+    )
+
+
+def slack_thread_url(external_ref: dict[str, Any], workspace_id: str | None) -> str | None:
+    channel = external_ref.get("channel")
+    ts = external_ref.get("ts")
+    if not channel or not ts:
+        return None
+    if workspace_id:
+        # Workspace-qualified deep link, so someone signed into several workspaces lands
+        # in the right one; the bare archive link resolves through their default.
+        return f"https://app.slack.com/client/{workspace_id}/{channel}/thread/{channel}-{ts}"
+    return f"https://slack.com/archives/{channel}/p{str(ts).replace('.', '')}"

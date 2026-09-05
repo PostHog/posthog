@@ -210,9 +210,30 @@ class ErrorTrackingAlertPreviewParamsSerializer(serializers.Serializer):
     )
 
 
+class ErrorTrackingAlertThreadSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    alert_id = serializers.UUIDField()
+    alert_name = serializers.CharField()
+    channel_type = serializers.CharField()
+    channel = serializers.CharField(allow_null=True, help_text="Provider channel id the thread lives in.")
+    channel_name = serializers.CharField(allow_null=True, help_text="Human-readable channel name, when stored.")
+    external_url = serializers.URLField(
+        allow_null=True, help_text="Link to the thread in the provider; null while the root has not been posted."
+    )
+    root_headline = serializers.CharField()
+    last_error = serializers.CharField(help_text="Last delivery error for the destination, empty when healthy.")
+    consecutive_failures = serializers.IntegerField()
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+
+
+class ErrorTrackingAlertThreadsParamsSerializer(serializers.Serializer):
+    issue_id = serializers.UUIDField(help_text="Issue whose alert threads to list.")
+
+
 class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
-    scope_object_read_actions = ["list", "retrieve", "preview"]
+    scope_object_read_actions = ["list", "retrieve", "preview", "threads"]
     serializer_class = ErrorTrackingAlertSerializer
 
     def initial(self, request: Request, *args, **kwargs) -> None:
@@ -330,3 +351,15 @@ class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if not UserAccessControl(user, team=team).check_access_level_for_resource("error_tracking", "viewer"):
             raise PermissionDenied("You do not have access to error tracking in this environment.")
         return team
+
+    @extend_schema(
+        parameters=[ErrorTrackingAlertThreadsParamsSerializer],
+        responses={200: OpenApiResponse(response=ErrorTrackingAlertThreadSerializer(many=True))},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def threads(self, request: Request, *args, **kwargs) -> Response:
+        """Slack threads that alerts have opened for one issue, newest first."""
+        params = ErrorTrackingAlertThreadsParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        threads = alerts_facade.list_issue_threads(self.team.id, params.validated_data["issue_id"])
+        return Response(ErrorTrackingAlertThreadSerializer(threads, many=True).data)

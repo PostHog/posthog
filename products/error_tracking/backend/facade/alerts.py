@@ -119,3 +119,31 @@ def preview_alert_messages(
         issue_id=preview["issue_id"],
         messages=[contracts.ErrorTrackingAlertPreviewMessage(**message) for message in preview["messages"]],
     )
+
+
+def _slack_workspace_id(destination: ErrorTrackingAlertDestinationModel) -> str | None:
+    integration = destination.integration
+    if integration is None:
+        return None
+    team = integration.config.get("team") if isinstance(integration.config, dict) else None
+    return str(team["id"]) if isinstance(team, dict) and team.get("id") else None
+
+
+def list_issue_threads(team_id: int, issue_id: UUID | str) -> list[contracts.ErrorTrackingAlertThread]:
+    return [
+        contracts.ErrorTrackingAlertThread(
+            id=thread.id,
+            alert_id=thread.alert_id,
+            alert_name=thread.alert.name,
+            channel_type=thread.destination.channel_type,
+            channel=thread.destination.config.get("channel"),
+            channel_name=thread.destination.config.get("channel_name"),
+            external_url=_alerts.slack_thread_url(thread.external_ref, _slack_workspace_id(thread.destination)),
+            root_headline=thread.root_headline,
+            last_error=thread.destination.last_error,
+            consecutive_failures=thread.destination.consecutive_failures,
+            created_at=thread.created_at,
+            updated_at=thread.updated_at,
+        )
+        for thread in _alerts.list_issue_threads(team_id, issue_id)
+    ]
