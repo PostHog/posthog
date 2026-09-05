@@ -193,8 +193,6 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 },
                 False,
             ),
-            # Only case that reaches the config branch's last OR arm, where `filters` being
-            # non-nullable makes `= '{}'` the whole test.
             (
                 "empty_filters_object",
                 {
@@ -202,6 +200,50 @@ class TestFilterFlagsByActiveParam(BaseTest):
                     "filters": {},
                 },
                 True,
+            ),
+            # A flag with no release conditions serves everyone. `{"groups": []}` is the model
+            # default, so the filter has to read it the same way the checker does.
+            (
+                "empty_release_conditions",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": []},
+                },
+                True,
+            ),
+            # Legacy rows omit `properties`, which means the same as `[]`. The editor and the
+            # filters serializer both write the key now.
+            (
+                "group_without_properties_key",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"rollout_percentage": 100}]},
+                },
+                True,
+            ),
+            # The filters schema accepts an explicit `properties: null`, and the flag matcher
+            # reads it as no targeting, so both sides must count the group as a full rollout.
+            (
+                "group_with_null_properties",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": None}]},
+                },
+                True,
+            ),
+            # Multivariate flag with no release conditions: the checker needs a fully rolled out
+            # condition before it calls a variant flag stale, so the empty-groups arm above must
+            # not catch this one.
+            (
+                "multivariate_without_release_conditions",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {
+                        "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                        "groups": [],
+                    },
+                },
+                False,
             ),
         ]
     )
