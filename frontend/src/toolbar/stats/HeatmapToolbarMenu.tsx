@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconMagicWand, IconTarget } from '@posthog/icons'
@@ -10,8 +9,6 @@ import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -104,7 +101,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         clickmapsEnabled,
         heatmapFixedPositionMode,
         heatmapColorPalette,
-        samplingFactor,
         elementsLoading,
         processingProgress,
         areaSelectionActive,
@@ -118,7 +114,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         toggleClickmapsEnabled,
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
-        setSamplingFactor,
         startAreaSelection,
         cancelAreaSelection,
         selectHeatmapAreaFilter,
@@ -294,46 +289,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 Tip: Hold <kbd className="border rounded px-1 py-0.5 bg-surface-tertiary">shift</kbd> to
                                 interact with the page beneath the clickmap.
                             </p>
-                            <div className="flex items-center justify-between pb-2">
-                                <div className="flex items-center gap-1">
-                                    <LemonLabel
-                                        info="Sampling computes the result on a proportion of data of the users in the dataset, making click maps load significantly faster."
-                                        infoLink="https://posthog.com/docs/toolbar/heatmaps"
-                                    >
-                                        Sampling
-                                    </LemonLabel>
-                                    <LemonSwitch
-                                        className="m-2"
-                                        onChange={(checked) => {
-                                            if (checked) {
-                                                setSamplingFactor(0.1)
-                                                posthog.capture('sampling_enabled_on_heatmap')
-                                                return
-                                            }
-                                            setSamplingFactor(1)
-                                            posthog.capture('sampling_disabled_on_heatmap')
-                                        }}
-                                        checked={samplingFactor !== 1}
-                                    />
-                                </div>
-                                {samplingFactor !== 1 && (
-                                    <div className="flex items-center gap-2">
-                                        <LemonSegmentedButton
-                                            options={[0.1, 1, 10, 25, 50].map((percentage) => ({
-                                                value: percentage / 100,
-                                                label: `${percentage}%`,
-                                            }))}
-                                            value={samplingFactor}
-                                            onChange={(newValue) => {
-                                                setSamplingFactor(newValue)
-                                                posthog.capture('sampling_percentage_updated_on_heatmap', {
-                                                    samplingFactor: newValue,
-                                                })
-                                            }}
-                                        />
-                                    </div>
-                                )}
-                            </div>
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     icon={<IconSync />}
