@@ -152,13 +152,16 @@ class TestGetAsyncAnthropicGatewayClient:
         assert client.api_key == "test-key"
 
     @patch("posthog.llm.gateway_client.settings")
-    def test_attaches_team_id_default_header(self, mock_settings):
+    def test_attaches_team_id_alongside_caller_default_headers(self, mock_settings):
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
-        client = get_async_anthropic_gateway_client(product="signals", team_id=42)
+        client = get_async_anthropic_gateway_client(
+            product="signals", team_id=42, default_headers={"x-posthog-property-source_product": "signals_grouping"}
+        )
 
         assert client.default_headers.get("x-posthog-property-team_id") == "42"
+        assert client.default_headers.get("x-posthog-property-source_product") == "signals_grouping"
 
     @patch("posthog.llm.gateway_client.settings")
     def test_no_team_id_header_when_team_id_omitted(self, mock_settings):
@@ -436,8 +439,20 @@ class TestBuildAsyncAnthropicClient:
         )
 
         # Fallback keeps the Python-gateway signature: route-derived product plus the passthrough knobs.
-        mock_get_anthropic.assert_called_once_with("signals", team_id=42, use_bedrock_fallback=True)
+        mock_get_anthropic.assert_called_once_with(
+            "signals", team_id=42, use_bedrock_fallback=True, default_headers=None
+        )
         assert result is mock_get_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @patch("posthog.llm.gateway_client.get_async_anthropic_gateway_client")
+    def test_python_gateway_fallback_preserves_the_run_trace(self, mock_get_anthropic):
+        # Without the traceparent the Python gateway hashes metadata.user_id, which is the team, so
+        # every run of one team collapses back into a single trace.
+        build_async_anthropic_client("signals", team_id=42, trace_id="a9f9e1dd-8332-4ad0-959b-36ea0a45734e")
+
+        headers = mock_get_anthropic.call_args.kwargs["default_headers"]
+        assert headers["traceparent"].startswith("00-a9f9e1dd83324ad0959b36ea0a45734e-")
 
     @override_settings(AI_GATEWAY_URL="https://ai-gateway.example", AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.get_async_anthropic_gateway_client")
@@ -445,7 +460,9 @@ class TestBuildAsyncAnthropicClient:
         # URL missing the /v1 base path is a misconfig: resolve returns None and the caller falls back.
         result = build_async_anthropic_client("signals", ai_product="signals_grouping")
 
-        mock_get_anthropic.assert_called_once_with("signals", team_id=None, use_bedrock_fallback=False)
+        mock_get_anthropic.assert_called_once_with(
+            "signals", team_id=None, use_bedrock_fallback=False, default_headers=None
+        )
         assert result is mock_get_anthropic.return_value
 
 
