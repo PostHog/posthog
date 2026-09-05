@@ -309,6 +309,7 @@ the row lists both.
 | fusionauth                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | g2                               | HTTP                        | requests                                                        | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
+| gcp_cloud_monitoring             | HTTP                        | `google.auth` AuthorizedSession + `TrackedHTTPAdapter`          | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
 | gitea                            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -1049,7 +1050,6 @@ doesn't conflict with concurrent PRs.
 - gcp_cloud_dns
 - gcp_cloud_functions
 - gcp_cloud_logging
-- gcp_cloud_monitoring
 - gcp_cloud_run
 - gcp_cloud_spanner
 - gcp_cloud_sql
