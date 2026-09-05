@@ -34,6 +34,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
         () => ({
             DataAndPeople: (
                 <ProjectTree
+                    panelName="data-and-people"
                     root="data-and-people://"
                     searchPlaceholder="Search data"
                     isActiveInPanel={activePanelIdentifier === 'DataAndPeople'}
@@ -41,6 +42,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
             ),
             Project: (
                 <ProjectTree
+                    panelName="project"
                     root="project://"
                     logicKey={PROJECT_TREE_KEY}
                     searchPlaceholder="Search files"
@@ -50,6 +52,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
             ),
             Products: (
                 <ProjectTree
+                    panelName="products"
                     root="products://"
                     searchPlaceholder="Search tools"
                     isActiveInPanel={activePanelIdentifier === 'Products'}
@@ -57,6 +60,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
             ),
             Shortcuts: (
                 <ProjectTree
+                    panelName="shortcuts"
                     root="shortcuts://"
                     searchPlaceholder="Search starred items"
                     isActiveInPanel={activePanelIdentifier === 'Shortcuts'}

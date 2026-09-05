@@ -42,6 +42,8 @@ import { calculateMovePath } from './utils'
 export interface ProjectTreeProps {
     logicKey?: string // key override?
     root?: string
+    /** Names the panel in the DOM; must be a pinned, stable identifier (not derived from root). */
+    panelName: string
     onlyTree?: boolean
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
@@ -98,6 +100,7 @@ const isItemActive = (item: TreeDataItem): boolean => {
 export function ProjectTree({
     logicKey,
     root,
+    panelName,
     onlyTree = false,
     searchPlaceholder,
     treeSize = 'default',
@@ -594,7 +597,7 @@ export function ProjectTree({
 
     return (
         <PanelLayoutPanel
-            panelName={(root ?? 'project://').replace('://', '')}
+            panelName={panelName}
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
                     <TreeSearchField
