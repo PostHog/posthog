@@ -182,10 +182,10 @@ Fired when someone presses "Load all" in the heatmap menu to page through the re
 
 Fired when someone presses "Stop loading" to end a run early. A run that ends on its own, or at the page cap, does not emit this.
 
-| Property        | Type     | Description                                    |
-| --------------- | -------- | ---------------------------------------------- |
-| `pages_loaded`  | `number` | Pages the run had loaded when it was stopped   |
-| `element_count` | `number` | Element stats rows loaded when it was stopped  |
+| Property        | Type     | Description                                   |
+| --------------- | -------- | --------------------------------------------- |
+| `pages_loaded`  | `number` | Pages the run had loaded when it was stopped  |
+| `element_count` | `number` | Element stats rows loaded when it was stopped |
 
 **File:** `stats/HeatmapToolbarMenu.tsx`
 
