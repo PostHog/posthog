@@ -23,11 +23,18 @@ logger = structlog.get_logger(__name__)
 
 
 class FanoutEndpointLike(Protocol):
-    name: str
-    path: str
-    incremental_fields: list[Any]
-    default_incremental_field: str | None
-    page_size: int
+    # Read-only members: the fan-out only reads an endpoint config, so frozen dataclasses
+    # satisfy this too (a settable attribute still matches a read-only member).
+    @property
+    def name(self) -> str: ...
+    @property
+    def path(self) -> str: ...
+    @property
+    def incremental_fields(self) -> list[Any]: ...
+    @property
+    def default_incremental_field(self) -> str | None: ...
+    @property
+    def page_size(self) -> int: ...
 
 
 @dataclass(frozen=True)
