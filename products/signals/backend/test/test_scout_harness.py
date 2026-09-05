@@ -1322,19 +1322,25 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "emit,acting_user_resolves,expected_grant",
+    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes",
     [
-        pytest.param(True, True, ["dashboard:write"], id="live_run_holds_the_grant"),
+        pytest.param(
+            True,
+            True,
+            ["dashboard:write"],
+            {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write"]},
+            id="live_run_holds_the_grant",
+        ),
         # Dry run is how a person previews a scout before trusting it, so a dry run that could
         # edit dashboards would do the thing they wanted to look at first.
-        pytest.param(False, True, [], id="dry_run_holds_no_grant"),
+        pytest.param(False, True, [], "signals_scout", id="dry_run_holds_no_grant"),
         # The grant was approved for the person the runs act as. When that identity no longer
         # resolves, the team fallback is a member who never approved it and cannot revoke it.
-        pytest.param(True, False, [], id="team_fallback_holds_no_grant"),
+        pytest.param(True, False, [], "signals_scout", id="team_fallback_holds_no_grant"),
     ],
 )
 async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
-    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant
+    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes
 ):
     # The grant is what the run's token carries, so a composition that loses it leaves a scout
     # unable to do the job it was granted for, and one that passes the column through unfiltered
@@ -1375,9 +1381,11 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    posture = captured["context"].posthog_mcp_scopes
-    assert posture["preset"] == "signals_scout"
-    assert posture["extra_write_scopes"] == expected_grant
+    # A scout without a grant is dispatched as the plain preset string. The posture dict is the
+    # newer wire shape, and a sandbox worker one deploy behind reads it as a list of its keys,
+    # which mints a token with no scout scopes at all. Only a scout that holds a grant pays that
+    # compatibility cost.
+    assert captured["context"].posthog_mcp_scopes == expected_mcp_scopes
     # Stamped at run creation, because the config's grant can be widened or revoked afterwards and
     # would otherwise rewrite what past runs are recorded as having been able to change.
     metadata = await database_sync_to_async(

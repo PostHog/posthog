@@ -262,8 +262,13 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
 
 // A thrown fetch has no HTTP status, so its message is the raw "Failed to fetch", most often an ad
 // blocker or extension blocking the request. Name that likely cause instead of echoing it.
+// Django REST Framework's placeholder detail for an unhandled 500. It carries no more meaning
+// than the status code itself, so don't let it stand in for a message the source wrote.
+const GENERIC_SERVER_ERROR_DETAIL = 'A server error occurred.'
+
 export function resolveConnectErrorMessage(e: any): string {
-    const apiMessage = e?.data?.message ?? e?.detail
+    const detail = e?.detail === GENERIC_SERVER_ERROR_DETAIL ? undefined : e?.detail
+    const apiMessage = e?.data?.message ?? detail
     if (apiMessage) {
         return apiMessage
     }
@@ -1759,6 +1764,7 @@ export interface sourceWizardLogicActions {
             | 'Tempo'
             | 'TemporalIO'
             | 'TenableVulnerabilityManagement'
+            | 'Tenjin'
             | 'TeraBox'
             | 'Ternary'
             | 'TerraApi'
