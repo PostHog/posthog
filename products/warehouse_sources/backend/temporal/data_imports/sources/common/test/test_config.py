@@ -623,6 +623,22 @@ def test_from_dict_missing_required_field_raises_clear_error(config_dict):
         SourceConfig.from_dict(config_dict)
 
 
+def test_from_dict_failing_default_factory_raises_clear_error():
+    # A default factory that builds a nested config with a required field raises the opaque
+    # builtin TypeError from inside `config_cls(**inputs)`, where no top-level field is missing.
+    # The message must still name the config we were building.
+    @config.config
+    class AuthConfig(config.Config):
+        type: str
+
+    @config.config
+    class SourceConfig(config.Config):
+        auth: AuthConfig = config.value(default_factory=AuthConfig)  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError, match=r"Cannot build 'SourceConfig'"):
+        SourceConfig.from_dict({})
+
+
 @config.config
 class _SecretFieldConfig(config.Config):
     password: str | None = None
@@ -880,3 +896,14 @@ def test_validate_dict_with_nested_dict():
 
     assert is_valid is False
     assert len(errors) == 1
+
+
+def test_value_with_none_default_makes_a_field_optional():
+    # `None` is a real default, not a "no default given" marker: a field declared with
+    # `value(default=None)` must be constructible without that field.
+    @config.config
+    class SourceConfig(config.Config):
+        api_key: str | None = config.value(alias="key", default=None)
+
+    assert SourceConfig.from_dict({}).api_key is None
+    assert SourceConfig.validate_dict({}) == (True, [])
