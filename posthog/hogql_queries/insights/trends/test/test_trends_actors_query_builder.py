@@ -13,6 +13,7 @@ from posthog.schema import (
     ChartDisplayType,
     Compare,
     CompareFilter,
+    DataWarehouseNode,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -253,6 +254,23 @@ class TestTrendsActorsQueryBuilder(BaseTest):
 
         with self.assertRaisesRegex(QueryError, expected_error):
             self._get_date_where_sql(trends_query=trends_query, time_frame=time_frame)
+
+    def test_data_warehouse_series_raises_query_error(self) -> None:
+        trends_query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id="some_table",
+                    table_name="some_table",
+                    id_field="id",
+                    distinct_id_field="distinct_id",
+                    timestamp_field="timestamp",
+                )
+            ],
+            dateRange=DateRange(date_from="-7d"),
+        )
+
+        with self.assertRaisesRegex(QueryError, "data warehouse table"):
+            self._get_builder(trends_query=trends_query, time_frame="2023-05-08")
 
     def test_date_range_total_value_compare_previous(self):
         self.team.timezone = "Europe/Berlin"
