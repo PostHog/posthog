@@ -3,12 +3,19 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 
+from django.http import QueryDict
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries.dora import query_dora_overview
+from products.engineering_analytics.backend.logic.queries.dora import (
+    query_dora_environment_choices,
+    query_dora_overview,
+)
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENT_STATUSES_COLUMNS,
@@ -16,11 +23,37 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
 )
+from products.engineering_analytics.backend.presentation.serializers.dora import DoraEnvironmentQuerySerializer
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
     connect_github_source_without_data,
     create_github_warehouse_table,
 )
+
+
+class TestDoraEnvironmentQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("", None),
+            ("environment=%20prod-us%20&environment=prod-eu&environment=prod-us", ["prod-us", "prod-eu"]),
+            ("environment=preview-pr-1", ["preview-pr-1"]),
+        ]
+    )
+    def test_valid_environment_selection(self, query: str, expected: list[str] | None) -> None:
+        serializer = DoraEnvironmentQuerySerializer(
+            data=QueryDict(query),
+            context={"get_environment_choices": lambda names: ["prod-eu", "prod-us", "preview-pr-1"]},
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data.get("environment") == expected
+
+    @parameterized.expand([("environment=",), ("environment=%20",), ("environment=prod-us&environment=unknown",)])
+    def test_rejects_invalid_environment_selection(self, query: str) -> None:
+        serializer = DoraEnvironmentQuerySerializer(
+            data=QueryDict(query), context={"get_environment_choices": lambda names: ["prod-us"]}
+        )
+        assert not serializer.is_valid()
+        assert "environment" in serializer.errors
 
 
 def _deployment_row(
@@ -74,8 +107,26 @@ class TestDoraEndpoint(ClickhouseTestMixin, APIBaseTest):
         assert payload["deployment_frequency_series"] == []
         assert payload["merge_to_deploy_series"] == []
 
+        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/dora/", {"environment": " "})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
 
 class TestDoraQuery(ClickhouseTestMixin, BaseTest):
+    def _validated_environments(self, curated: CuratedGitHubSource, names: list[str]) -> list[str]:
+        serializer = DoraEnvironmentQuerySerializer(
+            data={"environment": names},
+            context={
+                "get_environment_choices": lambda environments: query_dora_environment_choices(
+                    curated=curated,
+                    environments=environments,
+                    date_from=datetime(2026, 1, 10, tzinfo=UTC),
+                    date_to=datetime(2026, 1, 20, tzinfo=UTC),
+                )
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data["environment"]
+
     def _curated(
         self,
         team: Team,
@@ -84,13 +135,19 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         status_rows: list[dict[str, Any]],
         pr_rows: list[dict[str, Any]],
         member_rows: list[dict[str, Any]] | None = None,
+        nullable_status_timestamps: bool = True,
     ) -> CuratedGitHubSource:
         deployments_table = create_github_warehouse_table(
             self, "github_deployments", DEPLOYMENTS_COLUMNS, deployment_rows
         )
-        statuses_table = create_github_warehouse_table(
-            self, "github_deployment_statuses", DEPLOYMENT_STATUSES_COLUMNS, status_rows
-        )
+        status_columns = {
+            **DEPLOYMENT_STATUSES_COLUMNS,
+            "created_at": {
+                **DEPLOYMENT_STATUSES_COLUMNS["created_at"],
+                "clickhouse": "Nullable(String)" if nullable_status_timestamps else "String",
+            },
+        }
+        statuses_table = create_github_warehouse_table(self, "github_deployment_statuses", status_columns, status_rows)
         pr_table = create_github_warehouse_table(self, "github_pull_requests", PULL_REQUESTS_COLUMNS, pr_rows)
         members_table = (
             create_github_warehouse_table(self, "github_team_members", TEAM_MEMBERS_COLUMNS, member_rows)
@@ -394,6 +451,32 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.deployment_count == 1
+        assert result.environments == ["prod"]
+        assert result.selected_environments == ["prod"]
+
+    def test_environment_discovery_covers_the_deployment_scan_slack(self):
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-eu", "prod-eu", "2025-12-29 09:00:00", production=True),
+                _deployment_row(2, "sha-us", "prod-us", "2026-01-20 09:00:00", production=True),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod-eu", "2026-01-02 10:00:00"),
+                _status_row(21, 2, "success", "prod-us", "2026-01-20 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-01 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 16, tzinfo=UTC),
+            date_to=datetime(2026, 1, 31, tzinfo=UTC),
+        )
+
+        assert result.environments == ["prod-eu", "prod-us"]
+        assert result.selected_environments == ["prod-eu", "prod-us"]
+        assert result.deployment_count == 1
+        assert result.deployment_count_prev == 1
 
     def test_exact_environment_scope(self):
         # A dedicated fixture, not _seeded_curated: that shared fixture's PR 5 (merged Jan 5) has
@@ -425,7 +508,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             curated=curated,
             date_from=datetime(2026, 1, 10, tzinfo=UTC),
             date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            environments_filter=["staging"],
+            validated_environments=self._validated_environments(curated, ["staging"]),
         )
 
         assert result.environment_scope == "staging"
@@ -438,24 +521,105 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             curated=curated,
             date_from=datetime(2026, 1, 10, tzinfo=UTC),
             date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            environments_filter=["staging", "prod"],
+            validated_environments=self._validated_environments(curated, [" staging ", "prod", "staging"]),
             granularity="week",
         )
 
         assert both.environment_scope == "staging, prod"
+        assert both.selected_environments == ["staging", "prod"]
         assert both.deployment_count == 2  # the multi-environment scope admits d1 and d4
         assert both.series_granularity == "week"  # the caller's override beats the window fit
 
-    def test_default_scope_picks_busiest_production_environment(self):
-        # Two production-marked regions: the default scope takes the busiest one, so a
-        # multi-region repo doesn't double-count every deploy and hand lead time to
-        # whichever region ships first.
+    def test_exact_environment_scope_can_select_a_transient_environment(self) -> None:
         curated = self._curated(
             self.team,
             deployment_rows=[
-                _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=True),
-                _deployment_row(2, "sha-b", "prod-us", "2026-01-13 09:30:00", production=True),
-                _deployment_row(3, "sha-c", "prod-eu", "2026-01-12 09:30:00", production=True),
+                _deployment_row(1, "sha-a", "prod", "2026-01-12 09:30:00", production=True),
+                _deployment_row(
+                    2,
+                    "sha-b",
+                    "preview-pr-2",
+                    "2026-01-13 09:30:00",
+                    production=False,
+                    transient=True,
+                ),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "preview-pr-2", "2026-01-13 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+            validated_environments=self._validated_environments(curated, ["preview-pr-2"]),
+        )
+
+        assert result.environments == ["prod"]
+        assert result.selected_environments == ["preview-pr-2"]
+        assert result.deployment_count == 1
+
+    def test_exact_environment_lookup_is_not_limited_by_picker_options(self) -> None:
+        deployment_rows = [
+            _deployment_row(
+                index,
+                f"sha-{index}",
+                f"environment-{index:03}",
+                "2026-01-12 09:30:00",
+                production=False,
+            )
+            for index in range(1, 102)
+        ]
+        status_rows = [
+            _status_row(index + 1000, index, "success", f"environment-{index:03}", "2026-01-12 10:00:00")
+            for index in range(1, 102)
+        ]
+        curated = self._curated(
+            self.team,
+            deployment_rows=deployment_rows,
+            status_rows=status_rows,
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+            validated_environments=self._validated_environments(curated, ["environment-101"]),
+        )
+
+        assert len(result.environments) == 100
+        assert "environment-101" not in result.environments
+        assert result.selected_environments == ["environment-101"]
+        assert result.deployment_count == 1
+
+    def test_environment_discovery_keeps_a_quiet_persistent_option(self) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[_deployment_row(1, "sha-a", "staging", "2026-01-05 09:30:00", production=False)],
+            status_rows=[_status_row(11, 1, "success", "staging", "2026-01-05 10:00:00")],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-01 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 20, tzinfo=UTC),
+            date_to=datetime(2026, 1, 31, tzinfo=UTC),
+        )
+
+        assert result.environments == ["staging"]
+        assert result.selected_environments == ["staging"]
+        assert result.deployment_count == 0
+        assert result.deployment_count_prev == 0
+
+    @parameterized.expand([(True, True), (False, False), (True, False)])
+    def test_default_scope_includes_production_regions(self, us_production: bool, eu_production: bool) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=us_production),
+                _deployment_row(2, "sha-b", "prod-us", "2026-01-13 09:30:00", production=us_production),
+                _deployment_row(3, "sha-c", "prod-eu", "2026-01-12 09:30:00", production=eu_production),
             ],
             status_rows=[
                 _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
@@ -470,6 +634,165 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             date_to=datetime(2026, 1, 20, tzinfo=UTC),
         )
 
-        assert result.environment_scope == "prod-us"
+        assert result.environment_scope == "prod-eu, prod-us"
         assert result.environments == ["prod-us", "prod-eu"]
+        assert result.selected_environments == ["prod-eu", "prod-us"]
+        assert result.deployment_count == 3
+
+    def test_default_production_scope_is_not_limited_by_picker_options(self) -> None:
+        deployment_rows = [
+            _deployment_row(
+                index * 10 + repetition,
+                f"staging-sha-{index}-{repetition}",
+                f"staging-{index:03}",
+                "2026-01-12 09:00:00",
+                production=False,
+            )
+            for index in range(1, 101)
+            for repetition in range(2)
+        ]
+        deployment_rows.extend(
+            [
+                _deployment_row(2001, "prod-us-sha", "prod-us", "2026-01-12 09:00:00", production=False),
+                _deployment_row(2002, "prod-eu-sha", "prod-eu", "2026-01-12 09:00:00", production=False),
+            ]
+        )
+        curated = self._curated(
+            self.team,
+            deployment_rows=deployment_rows,
+            status_rows=[
+                _status_row(3001, 2001, "success", "prod-us", "2026-01-12 10:00:00"),
+                _status_row(3002, 2002, "success", "prod-eu", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert len(result.environments) == 100
+        assert "prod-us" not in result.environments
+        assert "prod-eu" not in result.environments
+        assert result.selected_environments == ["prod-eu", "prod-us"]
         assert result.deployment_count == 2
+
+    def test_default_scope_includes_flagged_names_and_excludes_transient_production_names(self) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "custom-sha", "release", "2026-01-12 09:00:00", production=True),
+                _deployment_row(
+                    2,
+                    "preview-sha",
+                    "prod-preview",
+                    "2026-01-12 09:00:00",
+                    production=True,
+                    transient=True,
+                ),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "release", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod-preview", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.selected_environments == ["release"]
+        assert result.deployment_count == 1
+
+    def test_default_scope_includes_more_than_one_hundred_production_environments(self) -> None:
+        deployment_rows = [
+            _deployment_row(
+                index,
+                f"sha-{index}",
+                f"prod-{index:03}",
+                "2026-01-12 09:00:00",
+                production=False,
+            )
+            for index in range(1, 102)
+        ]
+        status_rows = [
+            _status_row(index + 1000, index, "success", f"prod-{index:03}", "2026-01-12 10:00:00")
+            for index in range(1, 102)
+        ]
+        curated = self._curated(
+            self.team,
+            deployment_rows=deployment_rows,
+            status_rows=status_rows,
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert len(result.environments) == 100
+        assert len(result.selected_environments) == 101
+        assert result.selected_environments == [f"prod-{index:03}" for index in range(1, 102)]
+        assert result.deployment_count == 101
+
+        explicitly_selected = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+            validated_environments=self._validated_environments(
+                curated, [f"prod-{index:03}" for index in range(1, 102)]
+            ),
+        )
+        assert explicitly_selected.selected_environments == [f"prod-{index:03}" for index in range(1, 102)]
+        assert explicitly_selected.deployment_count == 101
+
+    @parameterized.expand([(True,), (False,)])
+    def test_unsuccessful_deploy_cannot_hide_a_later_success(self, nullable_status_timestamps: bool) -> None:
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "merge-a", "prod", "2026-01-12 09:00:00", production=True),
+                _deployment_row(2, "merge-a", "prod", "2026-01-12 11:00:00", production=True),
+            ],
+            status_rows=[
+                _status_row(11, 1, "failure", "prod", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod", "2026-01-12 12:00:00"),
+            ],
+            nullable_status_timestamps=nullable_status_timestamps,
+            pr_rows=[
+                _pr_row(
+                    1,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-11 08:00:00",
+                    merged_at="2026-01-12 08:00:00",
+                    merge_commit_sha="merge-a",
+                ),
+            ],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.deployed_pr_count == 1
+        assert result.median_open_to_deploy_seconds == 28 * 3600
+        assert result.median_merge_to_deploy_seconds == 4 * 3600
+        assert result.median_failed_deploy_to_next_success_seconds == 2 * 3600
+        for series, median in [
+            (result.open_to_deploy_series, 28 * 3600),
+            (result.open_to_merge_series, 24 * 3600),
+            (result.merge_to_deploy_series, 4 * 3600),
+        ]:
+            populated = [bucket for bucket in series if bucket.deployed_pr_count]
+            assert len(populated) == 1
+            assert populated[0].p50_seconds == median
