@@ -178,7 +178,10 @@ class GenericJobAdapter:
         expected_state_changed_at: datetime | None = None,
     ) -> None:
         if job_state == self.succeeded_state:
-            followers = self._pending_followers.pop(batch_id, ())
+            # Peek rather than pop: if the transaction below raises, the
+            # entry must still be there for a subsequent retry to pick up,
+            # otherwise a crash mid-commit would silently drop the followers.
+            followers = self._pending_followers.get(batch_id, ())
             # Terminal write and follower enqueue commit together: a crash
             # between them cannot complete a job without its followers.
             async with conn.transaction():
@@ -208,6 +211,9 @@ class GenericJobAdapter:
                             for f in followers
                         ],
                     )
+            # Only drop the stash once the transaction has actually committed
+            # (i.e. the block above returned without raising).
+            self._pending_followers.pop(batch_id, None)
             return
         # expected_state_changed_at arms a compare-and-swap: the recovery sweep passes
         # the state it observed so a stale re-queue can't clobber a newer terminal write
