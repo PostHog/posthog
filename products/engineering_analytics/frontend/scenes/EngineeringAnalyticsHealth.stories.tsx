@@ -187,6 +187,34 @@ export const Health: Story = {
     parameters: { pageUrl: urls.engineeringAnalyticsHealth() },
 }
 
+export const HealthWithoutAttributedPullRequests: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: urls.engineeringAnalyticsHealth(),
+        testOptions: {
+            waitForSelector: '[data-attr="engineering-analytics-dora-unattributed-empty"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/dora/': {
+                    ...DORA,
+                    deployed_pr_count: 0,
+                    deployed_pr_count_prev: 0,
+                    median_merge_to_deploy_seconds: null,
+                    median_merge_to_deploy_seconds_prev: null,
+                    median_open_to_deploy_seconds: null,
+                    median_open_to_deploy_seconds_prev: null,
+                    merge_to_deploy_series: leadTimeSeries(BUCKET_DAYS.map(() => null)),
+                    open_to_merge_series: leadTimeSeries(BUCKET_DAYS.map(() => null)),
+                    open_to_deploy_series: leadTimeSeries(BUCKET_DAYS.map(() => null)),
+                } satisfies DoraOverviewApi,
+            },
+        }),
+    ],
+}
+
 // The not-yet-synced state: the deploy endpoints aren't enabled on the GitHub source, so the tab
 // explains what to enable instead of showing zeros.
 export const HealthWithoutDeployData: Story = {
