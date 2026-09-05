@@ -379,8 +379,9 @@ class TestLoginAPI(APIBaseTest):
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        unindexed = [q["sql"] for q in ctx.captured_queries if "posthog_user" in q["sql"] and "UPPER(" in q["sql"]]
-        self.assertEqual(unindexed, [])
+        scans = [q["sql"] for q in ctx.captured_queries if "posthog_user" in q["sql"] and "UPPER(" in q["sql"]]
+        # Report the tail of each match, which holds the WHERE clause, not the full column list.
+        self.assertEqual(scans, [], f"unindexed posthog_user lookups: {[sql[-160:] for sql in scans]}")
 
     def test_login_refused_for_blocked_member_when_org_requires_verified_domain(self):
         # A blocked member has no recovery action a session would enable, so they get a clear
