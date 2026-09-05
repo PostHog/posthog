@@ -1859,6 +1859,36 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertAlmostEqual(coverage.errored_percentage, 5 / 101 * 100, places=5)
 
     @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_coverage_counts_error_reasons_past_the_default_row_limit(self):
+        # SDKs pick their own error strings, so one row per reason plus one for the evaluated
+        # entities can pass the 100 rows HogQL reads when a query sets no limit of its own.
+        self.experiment.end_date = None
+        self.experiment.save()
+
+        journeys: dict = {}
+        journeys.update(self._flag_call_journey("user_ok_0", None))
+        for index in range(100):
+            journeys.update(self._flag_call_journey(f"user_error_{index}", f"error_{index}"))
+        journeys_for(journeys, self.team)
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=None,
+        )
+        result = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        coverage = result.exposure_coverage
+        assert coverage is not None
+        self.assertEqual(coverage.evaluated_entities, 1)
+        self.assertEqual(coverage.errored_entities, 100)
+        self.assertEqual(len(coverage.error_reasons), 100)
+
+    @freeze_time("2024-01-07T12:00:00Z")
     def test_exposure_coverage_skipped_when_experiment_has_ended(self):
         # Bootstrapping the SDK only helps while the experiment is still collecting data.
         journeys: dict = {}

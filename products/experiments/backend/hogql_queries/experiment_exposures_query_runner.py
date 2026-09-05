@@ -319,9 +319,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         try:
             with tags_context(experiment_query_surface="flag_call_outcomes"):
+                query = builder.get_flag_call_outcomes_query()
+                # Set limit to avoid being cut-off by the default 100 rows limit
+                query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
                 response = execute_hogql_query(
                     query_type="ExperimentFlagCallOutcomesQuery",
-                    query=builder.get_flag_call_outcomes_query(),
+                    query=query,
                     team=self.team,
                     user=self.user,
                     timings=self.timings,

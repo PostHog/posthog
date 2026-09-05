@@ -287,7 +287,9 @@ class ExposureQueryBuilder:
 
         Rows are (reason, entities). An empty reason means the entity got a variant back
         at least once; any other reason is the `$feature_flag_error` value of an entity
-        that only ever got errors.
+        that only ever got errors. SDKs choose their own error strings, so the row count is
+        unbounded: the largest reasons come first, which keeps the row limit from dropping
+        the row that carries the evaluated entities.
 
         Always reads `$feature_flag_called` rather than the configured exposure event:
         this measures what the SDK reported, and a failed evaluation carries no variant
@@ -318,6 +320,7 @@ class ExposureQueryBuilder:
                 GROUP BY entity_id
             )
             GROUP BY reason
+            ORDER BY entities DESC
             """,
             placeholders={
                 "entity_key": parse_expr(self.context.entity_key),
