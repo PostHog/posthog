@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.source_integrations import resume_syncs_paused_by_auth_failure
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +80,32 @@ def cleanup_disabled_external_data_schema(
         reason=reason,
         exclude_workflow_id=exclude_workflow_id,
     )
+
+
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def resume_external_data_syncs_after_reconnect(*, team_id: int, integration_id: int) -> None:
+    """Restart the tables an authentication failure stopped, once the account is reconnected.
+
+    Dispatched from the integration API after the new credentials commit. Runs asynchronously
+    because every resumed table opens its own Temporal connections, and a wide source has dozens
+    of tables, which must not hold the OAuth request open. Retries with backoff; the resume only
+    reads tables that are still stopped, so a retry re-runs only what previously failed.
+    """
+    resumed = resume_syncs_paused_by_auth_failure(integration_id=integration_id, team_id=team_id)
+    if resumed:
+        logger.info(
+            "resume_external_data_syncs_after_reconnect_resumed",
+            team_id=team_id,
+            integration_id=integration_id,
+            count=resumed,
+        )
 
 
 @shared_task(ignore_result=True)

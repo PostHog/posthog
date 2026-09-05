@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.source_integrations import (
     mark_integration_auth_error,
     resume_syncs_paused_by_auth_failure,
 )
+from products.warehouse_sources.backend.tasks import resume_external_data_syncs_after_reconnect
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import META_AUTH_ERROR_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 from products.warehouse_sources.backend.types import ExternalDataSchemaStatus, ExternalDataSourceType
@@ -126,6 +127,22 @@ def test_reconnect_resumes_only_the_tables_the_auth_failure_stopped(team: Any) -
     turned_off_by_user.refresh_from_db()
     assert other_failure.should_sync is False
     assert turned_off_by_user.should_sync is False
+
+
+def test_reconnect_resumes_from_the_background_task(team: Any) -> None:
+    # The reconnect request only dispatches this task, so a task that no longer reaches the resume
+    # would leave every table off after a repair, with nothing on the request path to show it.
+    integration = _integration(team)
+    source = _source(team, integration)
+    auth_stopped = _schema(
+        team, source, name="campaigns", error=META_AUTH_ERROR_MESSAGE, status=ExternalDataSchemaStatus.FAILED
+    )
+
+    with patch("products.warehouse_sources.backend.source_integrations.update_should_sync") as mock_update_should_sync:
+        resume_external_data_syncs_after_reconnect(team_id=team.id, integration_id=integration.id)
+
+    assert mock_update_should_sync.call_count == 1
+    assert mock_update_should_sync.call_args.kwargs["schema_id"] == str(auth_stopped.id)
 
 
 def test_reconnect_leaves_another_integrations_sources_alone(team: Any) -> None:
