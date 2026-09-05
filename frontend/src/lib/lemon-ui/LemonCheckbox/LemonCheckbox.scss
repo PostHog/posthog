@@ -67,6 +67,16 @@
         }
     }
 
+    // With no label the only click target is the 16px box, which is hard to hit. Pad the
+    // label to grow the target, and cancel the padding with a negative margin so the box
+    // keeps its place and the surrounding layout does not shift.
+    &.LemonCheckbox--no-label:not(.LemonCheckbox--bordered) {
+        label {
+            padding: 0.375rem;
+            margin: -0.375rem;
+        }
+    }
+
     &.LemonCheckbox--indeterminate label {
         --tick-length: 9;
     }
