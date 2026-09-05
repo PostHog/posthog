@@ -21,6 +21,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.models.comment import Comment
+from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.temporal.common.client import sync_connect
 
@@ -464,15 +465,50 @@ def list_email_threads_for_account_matching(
     if after_id is not None:
         threads = threads.filter(id__gt=after_id)
 
-    return [
-        EmailThreadForAccountMatching(
-            id=str(thread.id),
-            participant_emails=[
-                participant.email for participant in cast(list[EmailThreadParticipant], thread.customer_participants)
-            ],
+    thread_page = list(threads.order_by("id")[:limit])
+    gmail_sources_by_thread_id: dict[str, list[str]] = {}
+    integration_ids: set[int] = set()
+    invalid_source_thread_ids: set[str] = set()
+    for thread_id, source_id in (
+        EmailThreadMessage.objects.for_team(team_id)
+        .filter(thread_id__in=[thread.id for thread in thread_page], source_type="gmail")
+        .values_list("thread_id", "source_id")
+    ):
+        normalized_thread_id = str(thread_id)
+        gmail_sources_by_thread_id.setdefault(normalized_thread_id, []).append(source_id)
+        integration_id, separator, message_id = source_id.partition(":")
+        if not separator or not integration_id.isdigit() or not message_id:
+            invalid_source_thread_ids.add(normalized_thread_id)
+            continue
+        integration_ids.add(int(integration_id))
+
+    integration_owner_ids = dict(
+        Integration.objects.filter(
+            team_id=team_id,
+            id__in=integration_ids,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+        ).values_list("id", "created_by_id")
+    )
+    matching_threads: list[EmailThreadForAccountMatching] = []
+    for thread in thread_page:
+        normalized_thread_id = str(thread.id)
+        gmail_owner_id: int | None = None
+        source_ids = gmail_sources_by_thread_id.get(normalized_thread_id, [])
+        if source_ids and normalized_thread_id not in invalid_source_thread_ids:
+            owner_ids = {integration_owner_ids.get(int(source_id.partition(":")[0])) for source_id in source_ids}
+            if None not in owner_ids and len(owner_ids) == 1:
+                gmail_owner_id = owner_ids.pop()
+        matching_threads.append(
+            EmailThreadForAccountMatching(
+                id=normalized_thread_id,
+                participant_emails=[
+                    participant.email
+                    for participant in cast(list[EmailThreadParticipant], thread.customer_participants)
+                ],
+                gmail_owner_id=gmail_owner_id,
+            )
         )
-        for thread in threads.order_by("id")[:limit]
-    ]
+    return matching_threads
 
 
 @transaction.atomic

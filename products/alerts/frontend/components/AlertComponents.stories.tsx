@@ -450,6 +450,25 @@ function PreviewLogScaleStory(): JSX.Element {
     )
 }
 
+function PreviewBreakdownStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm()}
+                trendsValues={[20, 30, 40]}
+                trendsLabels={PREVIEW_LABELS}
+                isBreakdown
+                trendsBreakdownSeries={[
+                    { key: 'chrome', label: 'Chrome', data: [20, 30, 40] },
+                    { key: 'safari', label: 'Safari', data: [10, 25, 60] },
+                ]}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
 const meta: Meta = {
     title: 'Products/Alerts/Shared components',
     parameters: {
@@ -482,3 +501,4 @@ export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory 
 export const Preview: Story = { render: () => <PreviewStory /> }
 export const PreviewRelative: Story = { render: () => <PreviewRelativeStory /> }
 export const PreviewLogScale: Story = { render: () => <PreviewLogScaleStory /> }
+export const PreviewBreakdown: Story = { render: () => <PreviewBreakdownStory /> }

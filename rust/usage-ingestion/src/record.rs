@@ -38,6 +38,8 @@ pub struct KafkaBillingUsageRecord {
     pub quantity: i64,
     pub timestamp: String,
     pub inserted_at: String,
+    #[serde(skip)]
+    pub usage_timestamp: DateTime<Utc>,
 }
 
 impl KafkaBillingUsageRecord {
@@ -76,6 +78,7 @@ impl KafkaBillingUsageRecord {
             quantity: record.quantity,
             timestamp: timestamp.to_rfc3339_opts(SecondsFormat::Millis, true),
             inserted_at: inserted_at.to_rfc3339_opts(SecondsFormat::Millis, true),
+            usage_timestamp: timestamp,
         })
     }
 }

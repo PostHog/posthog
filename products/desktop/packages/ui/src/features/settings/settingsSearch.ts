@@ -128,6 +128,11 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   },
   {
     category: "personalization",
+    label: "Simplified Technical English (ASD-STE100)",
+    keywords: ["ste100", "clear language", "writing style"],
+  },
+  {
+    category: "personalization",
     label: "Hedgehog mode",
     keywords: ["hedgehog", "buddy", "fun"],
   },
@@ -202,6 +207,27 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     category: "agents",
     label: "Agents",
     keywords: ["responders", "scouts", "signal sources", "setup agent"],
+  },
+  {
+    category: "task-agent-defaults",
+    label: "Project default",
+    keywords: [
+      "default model",
+      "team default",
+      "reasoning effort",
+      "claude",
+      "codex",
+    ],
+  },
+  {
+    category: "task-agent-defaults",
+    label: "My default",
+    keywords: [
+      "default model",
+      "my model",
+      "personal default",
+      "reasoning effort",
+    ],
   },
   {
     category: "signals",

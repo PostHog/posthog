@@ -499,7 +499,7 @@ export type AiQualityRating = "good" | "bad";
 
 export interface AiFeedbackContextProperties {
   $ai_session_id: string | null;
-  $ai_trace_id: null;
+  $ai_trace_id: string | null;
   ai_product: AiFeedbackProduct;
   task_id: string | null;
   task_run_id?: string;
@@ -687,9 +687,12 @@ export type InboxReportCloseMethod =
 
 export type InboxReportActionType =
   | "dismiss"
+  | "resolve"
+  | "restore"
   | "snooze"
   | "delete"
   | "reingest"
+  | "implement"
   | "create_pr"
   | "open_pr"
   | "open_task"
@@ -713,6 +716,7 @@ export type InboxReportActionSurface =
   | "toolbar"
   | "keyboard"
   | "list_row"
+  | "context_menu"
   | "triage";
 
 export type InboxReportActionOutcome = "succeeded" | "failed";
@@ -856,6 +860,8 @@ export interface InboxReportActionProperties {
   signal_section?: "relevant_code" | "data_queried";
   why_field?: "priority" | "actionability";
   task_section?: "research" | "implementation";
+  suggested_reviewer_login?: string;
+  suggested_reviewer_uuid?: string;
   // True when the user submitted Discuss with a first question via the popover.
   has_question?: boolean;
   // True when the user submitted Create PR with extra feedback via the popover.
@@ -989,10 +995,15 @@ export interface ScoutDetailViewedProperties {
 export interface ScoutConfigChangedProperties {
   skill_name: string;
   scout_origin: "canonical" | "custom";
-  setting: "enabled" | "emit" | "run_interval_minutes" | "auto_pause_exempt";
-  new_value: boolean | number;
+  setting:
+    | "enabled"
+    | "emit"
+    | "run_interval_minutes"
+    | "run_cron_schedule"
+    | "auto_pause_exempt";
+  new_value: boolean | number | string | null;
   /** Null when the backend predates the setting and never sent a value. */
-  old_value: boolean | number | null;
+  old_value: boolean | number | string | null;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }
@@ -1257,7 +1268,7 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-type UpgradePromptCause = "model_gate" | "org_limit";
+type UpgradePromptCause = "model_gate" | "model_unavailable" | "org_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
