@@ -4546,14 +4546,16 @@ class ExperimentService:
                 else:
                     queryset = queryset.order_by(F("status_sort_key").asc())
             elif order_value in ["created_by", "-created_by"]:
-                # Match the frontend column's `first_name || email` sorter — treat an
-                # empty `first_name` as missing and fall back to `email`, so users with
-                # a blank first name aren't bunched at one end of the list.
+                # Match the frontend column's `first_name || email || ''` sorter — treat an
+                # empty `first_name` as missing and fall back to `email`, then to '' when the
+                # creator is missing entirely, so null creators land with blank names instead
+                # of PostgreSQL's NULLS FIRST/LAST default.
                 prefix = "-" if order_value.startswith("-") else ""
                 queryset = queryset.annotate(
                     created_by_display=Coalesce(
                         NullIf(F("created_by__first_name"), Value("")),
                         F("created_by__email"),
+                        Value(""),
                         # first_name is a CharField and email an EmailField; Django refuses to
                         # infer a type across the two, so set it explicitly.
                         output_field=CharField(),
