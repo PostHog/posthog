@@ -2508,11 +2508,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         actions.setIsFullScreen(true)
                     }
                     const timestampParam = Number(searchParams.timestamp)
-                    const tParam = Number(searchParams.t) * 1000
+                    // `t=` accepts a numeric offset in seconds (converted to ms) or an absolute
+                    // ISO timestamp string (converted to seconds-from-session-start).
+                    const tParamRaw = searchParams.t
+                    let tParamMs = Number(tParamRaw) * 1000
+                    if (tParamRaw && !Number.isFinite(tParamMs)) {
+                        // Not a plain number — try parsing as an ISO timestamp and convert to
+                        // seconds-from-session-start so absolute links (e.g. from Slack) work.
+                        const absMs = Date.parse(tParamRaw)
+                        if (Number.isFinite(absMs) && initialSegment?.startTimestamp) {
+                            tParamMs = Math.max(0, absMs - initialSegment.startTimestamp)
+                        }
+                    }
                     if (searchParams.timestamp && Number.isFinite(timestampParam)) {
                         actions.seekToTimestamp(timestampParam, true)
-                    } else if (searchParams.t && Number.isFinite(tParam)) {
-                        actions.seekToTime(tParam)
+                    } else if (tParamRaw && Number.isFinite(tParamMs)) {
+                        actions.seekToTime(tParamMs)
                     } else {
                         actions.setSkipToFirstMatchingEvent(true)
                     }
