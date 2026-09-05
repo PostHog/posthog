@@ -197,6 +197,40 @@ describe('SlackChannelPicker', () => {
         )
     })
 
+    // A destination whose saved channel was deleted, or made private without PostHog in it, keeps
+    // failing every day. Slack answers the by-id lookup with nothing, and before this the picker
+    // said nothing either.
+    it('warns when Slack no longer returns the saved channel', async () => {
+        render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} value="CDELETED999|#old-alerts" onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await waitFor(
+            () => {
+                expect(screen.getByText(/PostHog cannot find/)).toBeInTheDocument()
+            },
+            { timeout: 2000 }
+        )
+    })
+
+    it('does not warn about a saved channel Slack still returns', async () => {
+        render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} value={OFF_PAGE_CHANNEL.id} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await waitFor(
+            () => {
+                expect(channelIdLookups).toContain(OFF_PAGE_CHANNEL.id)
+            },
+            { timeout: 2000 }
+        )
+        expect(screen.queryByText(/PostHog cannot find/)).toBeNull()
+    })
+
     it('does not fire a direct lookup when there is no saved value', async () => {
         render(
             <Provider>
@@ -462,5 +496,28 @@ describe('SlackChannelPicker — inactive integration banner', () => {
         })
         expect(screen.queryByText('Reconnect Slack')).toEqual(expectsLink ? expect.anything() : null)
         expect(screen.queryByText(/Ask a project admin/)).toEqual(expectsLink ? null : expect.anything())
+    })
+
+    // Every lookup comes back empty while the connection is down, so blaming the channel would send
+    // the reader to fix the wrong thing.
+    it('blames the connection, not the saved channel', async () => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Admin,
+        })
+
+        render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} value="C0B6HUH9FUH|#alerts" onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await waitFor(
+            () => {
+                expect(screen.getByText(/Slack connection is no longer active/)).toBeInTheDocument()
+            },
+            { timeout: 2000 }
+        )
+        expect(screen.queryByText(/PostHog cannot find/)).toBeNull()
     })
 })

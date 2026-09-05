@@ -34,6 +34,18 @@ let res := fetch('https://slack.com/api/chat.postMessage', {
 });
 
 if (res.status != 200 or res.body.ok == false) {
+  // Slack answers 200 with an error code for a config problem the customer has to fix, so name the
+  // fix here. The raw response otherwise reaches them through the daily failure digest.
+  let nextSteps := {
+    'channel_not_found': 'PostHog cannot find that channel. It was deleted, or it is private and PostHog was never added to it. Select the channel again in this destination.',
+    'not_in_channel': 'PostHog is not a member of that channel. Invite it in Slack with /invite @PostHog, then this destination works again.',
+    'is_archived': 'That channel is archived. Un-archive it in Slack, or select a different channel in this destination.',
+    'invalid_auth': 'The Slack connection is no longer valid. Reconnect Slack in your project integration settings.'
+  };
+  let nextStep := nextSteps[res.body.error];
+  if (nextStep != null) {
+    throw Error(f'Slack rejected the message ({res.body.error}). {nextStep}');
+  }
   throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
 }
 `.trim(),

@@ -12,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -1322,10 +1323,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "25,000" in html_body  # failed count for second function
 
     def test_send_hog_functions_daily_digest(self, MockEmailMessage: MagicMock) -> None:
+        from posthog.api.test.test_log_entries import create_log_entry
         from posthog.test.fixtures import create_app_metric2
 
         # Clean up app_metrics2 table before test
-        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL, TRUNCATE_LOG_ENTRIES_TABLE_SQL])
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1387,6 +1389,26 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             count=3,
         )
 
+        for hours_ago, level, message in [
+            (3, "ERROR", "Error executing function on event abc: Error('Failed to post message to Slack: 200')"),
+            (
+                2,
+                "ERROR",
+                "Error executing function on event def: Error('Slack rejected the message (channel_not_found). "
+                "Select the channel again in this destination.')",
+            ),
+            # A later non-error line must not displace the newest error as the reported reason.
+            (1, "INFO", "Function completed"),
+        ]:
+            create_log_entry(
+                team_id=self.team.id,
+                log_source="hog_function",
+                log_source_id=str(hog_function.id),
+                level=level,
+                message=message,
+                timestamp=(timezone.now() - dt.timedelta(hours=hours_ago)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            )
+
         # Test 1: Enable digest for this team - should send email since there are failures
         # There are 3 users at this point (self.user, creator_user, editor_user)
         with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):
@@ -1403,6 +1425,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "creator@posthog.com" in html_body, "Creator email should be in the email"
         assert "editor@posthog.com" in html_body, "Editor email should be in the email"
         assert edit_date.strftime("%Y-%m-%d") in html_body, "Edit date should be in the email"
+        # The whole point of the digest: the newest failure reason, without the executor's wrapper.
+        assert "Slack rejected the message (channel_not_found)." in html_body
+        assert "Error executing function on event" not in html_body
+        assert "Function completed" not in html_body
 
         # Reset mocked messages
         mocked_email_messages.clear()

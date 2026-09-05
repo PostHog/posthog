@@ -1,3 +1,4 @@
+import re
 import uuid
 import datetime
 from enum import Enum
@@ -1822,6 +1823,51 @@ def send_hog_functions_daily_digest() -> None:
     logger.info("Completed HogFunctions daily digest task")
 
 
+# The executor wraps every thrown error as "Error executing function on event <uuid>: Error('<cause>')".
+# The event uuid and the wrapper mean nothing to the reader, so keep only the cause. The template
+# truncates what is left, as the materialized view digest does.
+_FAILURE_REASON_PREFIX = re.compile(r"^Error executing function on event \S+: ")
+_FAILURE_REASON_WRAPPER = re.compile(r"^Error\('(?P<cause>.*)'\)$", re.DOTALL)
+
+
+def _readable_failure_reason(message: str) -> str:
+    reason = _FAILURE_REASON_PREFIX.sub("", message.strip())
+    wrapped = _FAILURE_REASON_WRAPPER.match(reason)
+    return wrapped.group("cause") if wrapped else reason
+
+
+def _latest_failure_reasons(team_id: int, hog_function_ids: list[str]) -> dict[str, str]:
+    """The newest error log line of each function in the digest window, keyed by function id.
+
+    Counts alone cannot tell a reader why a destination failed, so the digest carries the reason
+    the invocation itself recorded.
+    """
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+
+    query = """
+    SELECT log_source_id, argMax(message, timestamp) AS latest_message
+    FROM log_entries
+    WHERE team_id = %(team_id)s
+    AND log_source = 'hog_function'
+    AND log_source_id IN %(hog_function_ids)s
+    AND timestamp >= NOW() - INTERVAL 24 HOUR
+    AND timestamp < NOW()
+    AND upper(level) = 'ERROR'
+    GROUP BY log_source_id
+    """
+
+    with tags_context(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.DIGEST):
+        rows = sync_execute(query, {"team_id": team_id, "hog_function_ids": hog_function_ids})
+
+    reasons: dict[str, str] = {}
+    for log_source_id, message in rows:
+        reason = _readable_failure_reason(message)
+        if reason:
+            reasons[str(log_source_id)] = reason
+    return reasons
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | None = None) -> None:
@@ -1940,6 +1986,8 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     # Build function metrics. Only include functions with at least one failure; per-user threshold
     # (data_pipeline_error_threshold) then filters which functions each user sees in send_hog_functions_digest_email.
+    failure_reasons = _latest_failure_reasons(team_id, hog_function_ids_list)
+
     function_metrics = []
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
@@ -1964,6 +2012,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
             "failed": metrics["failed"],
             "failure_rate": round(failure_rate, 1),
             "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
+            "last_error": failure_reasons.get(hog_function_id),
         }
         function_metrics.append(function_info)
 

@@ -21,7 +21,7 @@ import { IntegrationType, SlackChannelType } from '~/types'
 
 import type { SlackUserApi } from 'products/integrations/frontend/generated/api.schemas'
 
-import { slackChannelId } from './slackChannel'
+import { slackChannelDisplayName, slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
 export function SlackNotConfiguredBanner({
@@ -322,12 +322,17 @@ function SlackChannelPickerNotices({
         allSlackChannelsLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
+        isUnresolvedSlackChannel,
+        slackChannelByIdLoading,
         getChannelRefreshButtonDisabledReason,
         slackIntegrationInactiveMessage,
     } = useValues(logic)
-    const { loadAllSlackChannels } = useActions(logic)
+    const { loadAllSlackChannels, loadSlackChannelById } = useActions(logic)
 
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
+    // While the whole connection is down every lookup comes back empty, so the reconnect banner
+    // is the accurate message. Only blame the channel once the connection itself is fine.
+    const showUnresolvedChannelWarning = value && !slackIntegrationInactiveMessage && isUnresolvedSlackChannel(value)
 
     return (
         <>
@@ -345,6 +350,25 @@ function SlackChannelPickerNotices({
                 <p className="text-secondary text-xs mt-1 mb-0">
                     Only the first page of channels is shown. Type to search for a specific channel.
                 </p>
+            ) : null}
+
+            {showUnresolvedChannelWarning ? (
+                <LemonBanner type="warning" className="mt-1">
+                    <div className="flex flex-wrap gap-2 items-center">
+                        <span>
+                            PostHog cannot find <strong>{slackChannelDisplayName(value)}</strong> in Slack. It was
+                            deleted, or it is private and PostHog is not a member. Pick another channel, or add PostHog
+                            to the channel in Slack and check again.
+                        </span>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => loadSlackChannelById(slackChannelId(value))}
+                            loading={slackChannelByIdLoading}
+                        >
+                            Check again
+                        </LemonButton>
+                    </div>
+                </LemonBanner>
             ) : null}
 
             {showSlackMembershipWarning ? (

@@ -88,6 +88,32 @@ describe('slack template', () => {
     it.each([
         ['a non-200 status', { status: 400, body: { ok: true } }, "Failed to post message to Slack: 400: {'ok': true}"],
         ['ok: false', { status: 200, body: { ok: false } }, "Failed to post message to Slack: 200: {'ok': false}"],
+        [
+            'an unrecognized Slack error code',
+            { status: 200, body: { ok: false, error: 'ratelimited' } },
+            "Failed to post message to Slack: 200: {'ok': false, 'error': 'ratelimited'}",
+        ],
+        [
+            'channel_not_found',
+            // The shape Slack actually returns, extra keys and all, since the code reads body.error.
+            { status: 200, body: { ok: false, error: 'channel_not_found', warning: 'missing_charset' } },
+            'Slack rejected the message (channel_not_found). PostHog cannot find that channel. It was deleted, or it is private and PostHog was never added to it. Select the channel again in this destination.',
+        ],
+        [
+            'not_in_channel',
+            { status: 200, body: { ok: false, error: 'not_in_channel' } },
+            'Slack rejected the message (not_in_channel). PostHog is not a member of that channel. Invite it in Slack with /invite @PostHog, then this destination works again.',
+        ],
+        [
+            'is_archived',
+            { status: 200, body: { ok: false, error: 'is_archived' } },
+            'Slack rejected the message (is_archived). That channel is archived. Un-archive it in Slack, or select a different channel in this destination.',
+        ],
+        [
+            'invalid_auth',
+            { status: 200, body: { ok: false, error: 'invalid_auth' } },
+            'Slack rejected the message (invalid_auth). The Slack connection is no longer valid. Reconnect Slack in your project integration settings.',
+        ],
     ])('should throw on %s', async (_name, fetchResponse, expectedError) => {
         let response = await tester.invoke(commonInputs)
         response = await tester.invokeFetchResponse(response.invocation, fetchResponse)

@@ -107,6 +107,31 @@ export const RecentlySubscribedFirst: Story = {
     args: { recentlySubscribedChannelIds: ['C4', 'C1'] },
 }
 
+// A destination whose saved channel was deleted, or made private without PostHog in it, keeps
+// failing every day. The banner is what tells the user which half of the config to fix.
+export const SavedChannelUnreachable: Story = {
+    decorators: [
+        function UnreachableChannelMocks(Story) {
+            useStorybookMocks({
+                get: {
+                    '/api/environments/:id/integrations/:intId/channels': ({ request }) =>
+                        new URL(request.url).searchParams.get('channel_id') ? { channels: [] } : { channels },
+                },
+            })
+            return <Story />
+        },
+    ],
+    render: () => (
+        // The narrowest scene a docked side panel leaves, so the banner has to wrap rather than clip.
+        <div className="p-4 max-w-[520px]">
+            <SlackChannelPicker integration={integration} value="CDELETED999|#old-alerts" onChange={() => {}} />
+        </div>
+    ),
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText(/PostHog cannot find/, undefined, { timeout: 3000 })
+    },
+}
+
 // Typing a channel name and clicking away drops the search, because the picker takes an option
 // rather than free text. The state below is what tells the user their channel is still unset.
 export const SearchDroppedOnBlur: Story = {
