@@ -330,26 +330,3 @@ Fired after a successful screenshot/media upload.
 | `source` | `'toolbar'` | Always `'toolbar'` |
 
 **File:** `screenshot-upload/screenshotUploadLogic.ts`
-
-## Heatmap sampling (page's PostHog instance)
-
-These events use the **page's** `posthog.capture()`, not `toolbarPosthogJS`.
-They are sent to the customer's project, not PostHog's internal project.
-
-### `sampling_enabled_on_heatmap`
-
-Fired when sampling is enabled on the heatmap. No properties.
-
-### `sampling_disabled_on_heatmap`
-
-Fired when sampling is disabled on the heatmap. No properties.
-
-### `sampling_percentage_updated_on_heatmap`
-
-Fired when the sampling percentage is changed.
-
-| Property         | Type     | Description                                |
-| ---------------- | -------- | ------------------------------------------ |
-| `samplingFactor` | `number` | New sampling factor (e.g., 0.1, 0.25, 0.5) |
-
-**File:** `stats/HeatmapToolbarMenu.tsx`
