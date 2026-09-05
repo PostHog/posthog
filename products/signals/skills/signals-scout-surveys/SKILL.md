@@ -59,18 +59,21 @@ Right order:
 
 1. `recent_surveys` from the profile you already read — your cold-start inventory. It says whether anything is running, and gives you ids to query directly. Two limits: it is capped at 5 and ordered by `updated_at`, so it ranks recent edits and not activity; and it is a cached snapshot, so a survey created minutes ago can be missing. Steps 2–5 supply activity, ranking and configuration.
 2. `surveys-global-stats` (last 30d) — cheap project-wide check: are surveys converting at all? It returns a `total_count` for each of `survey shown` / `survey dismissed` / `survey sent`, so read all three. Close out empty only when all three are zero. Impressions with zero completions is not an empty project — it is the response-rate cratering lane at full severity, so keep going and rank on `survey shown` in step 3 instead. Zero completions is legitimate for an `api` survey whose integrator never fires `survey sent`, and for a survey nobody has shared; when that is the steady state, write a `noise:` entry so later runs skip it instead of re-deriving it.
-3. **Rank candidates by recent activity, not by config.** Use `execute-sql` to find the top survey ids by `survey sent` volume in the last 30d:
+3. **Rank candidates by recent activity, not by config.** Use `execute-sql` to find the top survey ids by submission volume in the last 30d. Count submissions, not rows: a survey with partial responses on emits one `survey sent` row per answered question, so a bare `count()` ranks a quiet multi-question survey above a busy single-question one.
 
    ```sql
    SELECT
        JSONExtractString(properties, '$survey_id') AS survey_id,
-       count() AS sent_count,
+       count(DISTINCT coalesce(
+           nullIf(JSONExtractString(properties, '$survey_submission_id'), ''),
+           toString(uuid)
+       )) AS submissions,
        max(timestamp) AS last_sent
    FROM events
    WHERE event = 'survey sent'
      AND timestamp > now() - INTERVAL 30 DAY
    GROUP BY survey_id
-   ORDER BY sent_count DESC
+   ORDER BY submissions DESC
    LIMIT 20
    ```
 
