@@ -12,6 +12,7 @@ import pyarrow.parquet as pq
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -30,8 +31,14 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import (
+    ClickHouseCheckQueryStatusError,
+    ClickHouseClient,
     ClickHouseError,
+    ClickHouseQueryNotFound,
+    ClickHouseQueryStatus,
+    ClickHouseQueryTimeoutError,
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -46,7 +53,11 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
     upsert_batch,
     upsert_stats_fields,
 )
-from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
+from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context, strip_hostname_from_error
+from posthog.temporal.data_modeling.errors import (
+    INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE,
+    INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE,
+)
 
 from products.data_modeling.backend.facade.api import (
     IncrementalConfig,
@@ -73,6 +84,9 @@ from products.warehouse_sources.backend.facade.temporal import AccountPropertyRo
 LOGGER = get_logger(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
+ARROW_FAILURE_DIAGNOSTIC_ATTEMPTS = 10
+ARROW_FAILURE_DIAGNOSTIC_DELAY_SECONDS = 1
+ARROW_FAILURE_DIAGNOSTIC_TIMEOUT_SECONDS = 3
 
 # ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and
 # DESCRIBE plans the query too, so the schema probe scans the source tables just to return column
@@ -110,6 +124,20 @@ def _print_untouched(
     prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
 ) -> str:
     return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+async def _diagnose_arrow_failure(client: ClickHouseClient, query_id: str) -> None:
+    for attempt in range(ARROW_FAILURE_DIAGNOSTIC_ATTEMPTS):
+        try:
+            status = await asyncio.wait_for(
+                client.acheck_query(query_id), timeout=ARROW_FAILURE_DIAGNOSTIC_TIMEOUT_SECONDS
+            )
+        except (ClickHouseQueryNotFound, TimeoutError):
+            status = None
+        if status not in (None, ClickHouseQueryStatus.RUNNING):
+            return
+        if attempt < ARROW_FAILURE_DIAGNOSTIC_ATTEMPTS - 1:
+            await asyncio.sleep(ARROW_FAILURE_DIAGNOSTIC_DELAY_SECONDS)
 
 
 async def _describe_columns(
@@ -193,17 +221,35 @@ class WritePlan:
 @database_sync_to_async_pool
 def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> WritePlan:
     config = get_incremental_config(saved_query)
+    incremental_enabled = config is not None and _incremental_enabled(team_id)
+    has_completed_materialization = DataModelingJob.objects.filter(
+        saved_query_id=saved_query.id,
+        engine=DataModelingJob.Engine.CLICKHOUSE,
+        status=DataModelingJob.Status.COMPLETED,
+    ).exists()
+
+    if not has_completed_materialization:
+        fingerprint = (
+            definition_fingerprint(typing.cast(dict, saved_query.query), config) if incremental_enabled else None
+        )
+        return WritePlan(
+            incremental=False,
+            reason="first run",
+            fingerprint=fingerprint,
+            config=config if incremental_enabled else None,
+        )
+
     if config is None:
         return WritePlan(incremental=False, reason="not configured for incremental materialization")
 
-    if not _incremental_enabled(team_id):
+    if not incremental_enabled:
         return WritePlan(incremental=False, reason="incremental materialization is not enabled")
 
     fingerprint = definition_fingerprint(typing.cast(dict, saved_query.query), config)
     state = get_incremental_state(saved_query)
 
     if state.watermark is None:
-        return WritePlan(incremental=False, reason="first run", fingerprint=fingerprint, config=config)
+        return WritePlan(incremental=False, reason="no usable watermark", fingerprint=fingerprint, config=config)
 
     if fingerprint is None or fingerprint != state.definition_fingerprint:
         # The query or its config changed, so existing rows were computed by a definition that no
@@ -674,20 +720,33 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        async for batch in client.astream_query_as_arrow(
-            arrow_printed,
-            query_parameters=context.values,
-            on_schema=capture_arrow_schema,
-        ):
-            batches_size = batches_size + batch.nbytes
-            batches.append(batch)
+        query_id = str(uuid.uuid4())
+        try:
+            async for batch in client.astream_query_as_arrow(
+                arrow_printed,
+                query_parameters=context.values,
+                query_id=query_id,
+                on_schema=capture_arrow_schema,
+            ):
+                batches_size = batches_size + batch.nbytes
+                batches.append(batch)
 
-            if batches_size >= MB_100_IN_BYTES:
-                await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-                yield (_combine_batches(batches), ch_typings_pairs)
-                yielded_results = True
-                batches_size = 0
-                batches = []
+                if batches_size >= MB_100_IN_BYTES:
+                    await logger.adebug(
+                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                    )
+                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yielded_results = True
+                    batches_size = 0
+                    batches = []
+        except InvalidMessageFormat as arrow_error:
+            try:
+                await _diagnose_arrow_failure(client, query_id)
+            except ClickHouseCheckQueryStatusError:
+                raise arrow_error
+            except ClickHouseError as query_error:
+                raise query_error from arrow_error
+            raise
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
@@ -1157,10 +1216,22 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         cdp_sink,
                         person_property_sink,
                     )
-            except (Exception, asyncio.CancelledError):
+            except asyncio.CancelledError:
+                await cdp_sink.discard()
+                raise
+            except Exception as error:
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
                 await cdp_sink.discard()
+                sanitized_error = strip_hostname_from_error(str(error))
+                await logger.aerror(f"Materialization attempt failed: {sanitized_error}")
+                await logger.aerror(f"Materialization attempt failed: {error}", write_only=True)
+                if plan.reason == "first run" and isinstance(error, ClickHouseQueryTimeoutError):
+                    raise ApplicationError(
+                        INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE,
+                        type=INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE,
+                        non_retryable=True,
+                    ) from error
                 raise
 
             await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")

@@ -43,6 +43,10 @@ from posthog.temporal.data_modeling.activities import (
     succeed_materialization_activity,
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
+from posthog.temporal.data_modeling.errors import (
+    INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE,
+    INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE,
+)
 from posthog.temporal.data_modeling.metrics import (
     get_clickhouse_materialization_duration_metric,
     get_duckgres_shadow_duration_metric,
@@ -448,12 +452,17 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     quality_audited=quality_audited,
                 )
             except Exception as e:
-                # handle failure
                 cancelled = _is_cancellation(e)
+                error_type: str | None = None
                 if cancelled:
                     error_message = "Workflow was cancelled"
                 elif isinstance(e, temporalio.exceptions.ActivityError):
-                    error_message = str(e.cause) if e.cause else str(e)
+                    cause = e.cause
+                    if isinstance(cause, temporalio.exceptions.ApplicationError):
+                        error_message = cause.message
+                        error_type = cause.type
+                    else:
+                        error_message = str(cause) if cause else str(e)
                 else:
                     capture_exception(e)
                     error_message = str(e)
@@ -475,6 +484,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                             job_id=job_id,
                             error=error_message,
                             cancelled=cancelled,
+                            suspend_immediately=error_type == INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=temporalio.common.RetryPolicy(
@@ -487,6 +497,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         extra=inputs.properties_to_log,
                     )
                 get_node_finished_metric("cancelled" if cancelled else "failed").add(1)
+                if error_type == INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE:
+                    raise temporalio.exceptions.ApplicationError(
+                        INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE,
+                        type=INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE,
+                        non_retryable=True,
+                    ) from e
                 raise
 
         # await the duckgres shadow activity so the parent workflow's concurrency

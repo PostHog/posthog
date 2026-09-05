@@ -28,7 +28,13 @@ ABORT_ERROR = "Preempted: a new DAG run started before this job completed"
 
 @pytest.mark.django_db
 class TestClearUnearnedNodeSuspensions(BaseTest):
-    def _suspended_node(self, *, errors: list[str], engine: str = DataModelingJobEngine.CLICKHOUSE) -> Node:
+    def _suspended_node(
+        self,
+        *,
+        errors: list[str],
+        engine: str = DataModelingJobEngine.CLICKHOUSE,
+        enforce_without_flag: bool = False,
+    ) -> Node:
         saved_query = DataWarehouseSavedQuery.objects.create(
             name=f"model_{uuid4().hex[:8]}",
             team=self.team,
@@ -37,7 +43,13 @@ class TestClearUnearnedNodeSuspensions(BaseTest):
         node = sync_saved_query_to_dag(saved_query)
         assert node is not None
         self._record_failures(saved_query, errors, engine=engine)
-        mark_node_suspended(node, engine=engine, reason=errors[-1], job_id=str(uuid4()))
+        mark_node_suspended(
+            node,
+            engine=engine,
+            reason=errors[-1],
+            job_id=str(uuid4()),
+            enforce_without_flag=enforce_without_flag,
+        )
         node.save()
         return node
 
@@ -73,6 +85,14 @@ class TestClearUnearnedNodeSuspensions(BaseTest):
 
     def test_keeps_a_marker_five_genuine_failures_still_earn(self):
         node = self._suspended_node(errors=[CUSTOMER_ERROR] * 5)
+
+        call_command("clear_unearned_node_suspensions", "--apply", stdout=StringIO())
+
+        node.refresh_from_db()
+        assert is_node_suspended(node, DataModelingJobEngine.CLICKHOUSE)
+
+    def test_keeps_an_always_enforced_marker_without_five_failures(self):
+        node = self._suspended_node(errors=[CUSTOMER_ERROR], enforce_without_flag=True)
 
         call_command("clear_unearned_node_suspensions", "--apply", stdout=StringIO())
 

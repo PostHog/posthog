@@ -185,6 +185,28 @@ class TestGetDagStructureActivity:
         assert dag.suspended_nodes["clickhouse"] == ([str(suspended_node.id)] if enforced else [])
         assert dag.suspended_nodes["duckgres"] == []
 
+    async def test_reports_forced_suspension_without_enforcement(self, activity_environment, ateam, dag_nodes, adag):
+        from posthog.temporal.data_modeling.activities import get_dag_structure as gds
+        from posthog.temporal.data_modeling.activities.utils import mark_node_suspended
+
+        suspended_node = dag_nodes[1]
+        mark_node_suspended(
+            suspended_node,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason="Initial full build timed out",
+            job_id="j",
+            enforce_without_flag=True,
+        )
+        await database_sync_to_async(suspended_node.save)()
+
+        with unittest.mock.patch.object(gds, "is_suspension_enforced", return_value=False):
+            dag = await activity_environment.run(
+                get_dag_structure_activity,
+                GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id)),
+            )
+
+        assert dag.suspended_nodes["clickhouse"] == [str(suspended_node.id)]
+
     @pytest.mark.usefixtures("dag_edges")  # avoids type checking unused arg
     async def test_excludes_source_table_edges(self, activity_environment, ateam, adag):
         inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))

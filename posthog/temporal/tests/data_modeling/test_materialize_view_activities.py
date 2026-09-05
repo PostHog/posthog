@@ -15,12 +15,14 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql.resolver import ResolverFactory
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseError
+from posthog.temporal.common.asyncpa import InvalidMessageFormat
+from posthog.temporal.common.clickhouse import ClickHouseError, ClickHouseQueryNotFound, ClickHouseQueryTimeoutError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
@@ -44,6 +46,10 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     hogql_table,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
+from posthog.temporal.data_modeling.errors import (
+    INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE,
+    INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE,
+)
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
@@ -114,8 +120,10 @@ class TestFailMaterializationActivity:
         [(False, DataModelingJob.Status.FAILED), (True, DataModelingJob.Status.CANCELLED)],
     )
     async def test_marks_job_as_terminal(
-        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, cancelled, expected_status
     ):
+        asaved_query.latest_error = "Previous error"
+        await database_sync_to_async(asaved_query.save)(update_fields=["latest_error"])
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -129,9 +137,87 @@ class TestFailMaterializationActivity:
         assert ajob.status == expected_status
         assert ajob.rows_materialized == 0
         assert ajob.error == "Test error message"
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert asaved_query.latest_error == ("Previous error" if cancelled else "Test error message")
         # The UI derives run duration and the log-search window from last_run_at, so a
         # terminal transition must stamp it (the model default is the job's start time).
         assert ajob.last_run_at > ajob.created_at
+
+    @pytest.mark.parametrize("succeeds", [False, True])
+    async def test_duckgres_terminal_job_does_not_update_latest_error(
+        self, activity_environment, ateam, anode, asaved_query, adag, succeeds
+    ):
+        asaved_query.latest_error = "ClickHouse failure"
+        await database_sync_to_async(asaved_query.save)(update_fields=["latest_error"])
+        job = await _make_job(
+            ateam,
+            asaved_query,
+            DataModelingJob.Status.RUNNING,
+            engine=DataModelingJobEngine.DUCKGRES,
+        )
+        if succeeds:
+            await activity_environment.run(
+                succeed_materialization_activity,
+                SucceedMaterializationInputs(
+                    team_id=ateam.pk,
+                    node_id=str(anode.id),
+                    dag_id=str(adag.id),
+                    job_id=str(job.id),
+                    row_count=1,
+                    duration_seconds=1,
+                    update_node=False,
+                ),
+            )
+        else:
+            await activity_environment.run(
+                fail_materialization_activity,
+                FailMaterializationInputs(
+                    team_id=ateam.pk,
+                    node_id=str(anode.id),
+                    dag_id=str(adag.id),
+                    job_id=str(job.id),
+                    error="Duckgres failure",
+                    update_node=False,
+                ),
+            )
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert asaved_query.latest_error == "ClickHouse failure"
+        await database_sync_to_async(job.delete)()
+
+    async def test_stale_failure_does_not_replace_a_newer_success(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        older_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        newer_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        await activity_environment.run(
+            succeed_materialization_activity,
+            SucceedMaterializationInputs(
+                team_id=ateam.pk,
+                node_id=str(anode.id),
+                dag_id=str(adag.id),
+                job_id=str(newer_job.id),
+                row_count=1,
+                duration_seconds=1,
+            ),
+        )
+        await activity_environment.run(
+            fail_materialization_activity,
+            FailMaterializationInputs(
+                team_id=ateam.pk,
+                node_id=str(anode.id),
+                dag_id=str(adag.id),
+                job_id=str(older_job.id),
+                error="Older failure",
+            ),
+        )
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert asaved_query.latest_error is None
+        assert anode.properties["system"]["last_run_status"] == DataModelingJobStatus.COMPLETED
+        await database_sync_to_async(older_job.delete)()
+        await database_sync_to_async(newer_job.delete)()
 
     async def test_does_not_overwrite_already_terminal_job(self, activity_environment, ateam, anode, ajob, adag):
         ajob.status = DataModelingJob.Status.COMPLETED
@@ -168,8 +254,12 @@ class TestFailMaterializationActivity:
         assert system_props["last_run_error"] == "Query failed: timeout"
         assert "last_run_at" in system_props
 
+    @pytest.mark.parametrize(
+        "error",
+        ["Some non-timeout error", "Code: 159. DB::Exception: Query exceeded timeout (TIMEOUT_EXCEEDED)"],
+    )
     async def test_suspends_node_after_consecutive_failures(
-        self, activity_environment, ateam, anode, asaved_query, adag
+        self, activity_environment, ateam, anode, asaved_query, adag, error
     ):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended
 
@@ -182,12 +272,48 @@ class TestFailMaterializationActivity:
             node_id=str(anode.id),
             dag_id=str(adag.id),
             job_id=str(current_job.id),
-            error="Some non-timeout error",
+            error=error,
         )
         await activity_environment.run(fail_materialization_activity, inputs)
 
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+    async def test_forces_immediate_suspension_for_initial_full_refresh_timeout(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        from posthog.temporal.data_modeling.activities.utils import (
+            clear_node_suspension_for_engine,
+            is_node_suspended,
+            is_node_suspension_always_enforced,
+        )
+
+        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(current_job.id),
+            error=INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE,
+            suspend_immediately=True,
+        )
+        await activity_environment.run(fail_materialization_activity, inputs)
+
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+        assert is_node_suspension_always_enforced(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+        await clear_node_suspension_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        await activity_environment.run(fail_materialization_activity, inputs)
+
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
+        await database_sync_to_async(current_job.delete)()
 
     @pytest.mark.parametrize(
         "previous_status,expect_notification",
@@ -366,174 +492,6 @@ class TestFailMaterializationActivity:
         resolver = mock_create.call_args.args[0].resolver
         assert isinstance(resolver, _SavedQueryViewers)
 
-    async def test_timeout_does_not_pause_schedule_with_fewer_than_5_previous_jobs(
-        self, activity_environment, ateam, anode, asaved_query, adag
-    ):
-        # Create only 3 previous failed timeout jobs - not enough to pause
-        previous_jobs = []
-        for i in range(3):
-            job = await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam,
-                saved_query=asaved_query,
-                status=DataModelingJob.Status.FAILED,
-                error="Timeout exceeded",
-                workflow_id=f"prev-workflow-{i}",
-            )
-            previous_jobs.append(job)
-
-        # Create current job
-        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=asaved_query,
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id="current-workflow",
-        )
-
-        inputs = FailMaterializationInputs(
-            team_id=ateam.pk,
-            node_id=str(anode.id),
-            dag_id=str(adag.id),
-            job_id=str(current_job.id),
-            error="Timeout exceeded in query",
-        )
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.fail_materialization.pause_saved_query_schedule"
-        ) as mock_pause:
-            await activity_environment.run(fail_materialization_activity, inputs)
-            mock_pause.assert_not_called()
-
-        # Cleanup
-        await database_sync_to_async(current_job.delete)()
-        for job in previous_jobs:
-            await database_sync_to_async(job.delete)()
-
-    async def test_timeout_does_not_pause_schedule_when_previous_jobs_not_all_failures(
-        self, activity_environment, ateam, anode, asaved_query, adag
-    ):
-        # Create 5 previous jobs but one succeeded
-        previous_jobs = []
-        for i in range(5):
-            status = DataModelingJob.Status.COMPLETED if i == 2 else DataModelingJob.Status.FAILED
-            error = None if i == 2 else "Timeout exceeded"
-            job = await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam,
-                saved_query=asaved_query,
-                status=status,
-                error=error,
-                workflow_id=f"prev-workflow-{i}",
-            )
-            previous_jobs.append(job)
-
-        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=asaved_query,
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id="current-workflow",
-        )
-
-        inputs = FailMaterializationInputs(
-            team_id=ateam.pk,
-            node_id=str(anode.id),
-            dag_id=str(adag.id),
-            job_id=str(current_job.id),
-            error="Timeout exceeded in query",
-        )
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.fail_materialization.pause_saved_query_schedule"
-        ) as mock_pause:
-            await activity_environment.run(fail_materialization_activity, inputs)
-            mock_pause.assert_not_called()
-
-        await database_sync_to_async(current_job.delete)()
-        for job in previous_jobs:
-            await database_sync_to_async(job.delete)()
-
-    async def test_timeout_does_not_pause_schedule_when_previous_failures_not_all_timeouts(
-        self, activity_environment, ateam, anode, asaved_query, adag
-    ):
-        # Create 5 previous failed jobs but with different errors
-        previous_jobs = []
-        for i in range(5):
-            error = "Memory limit exceeded" if i == 3 else "Timeout exceeded"
-            job = await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam,
-                saved_query=asaved_query,
-                status=DataModelingJob.Status.FAILED,
-                error=error,
-                workflow_id=f"prev-workflow-{i}",
-            )
-            previous_jobs.append(job)
-
-        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=asaved_query,
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id="current-workflow",
-        )
-
-        inputs = FailMaterializationInputs(
-            team_id=ateam.pk,
-            node_id=str(anode.id),
-            dag_id=str(adag.id),
-            job_id=str(current_job.id),
-            error="Timeout exceeded in query",
-        )
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.fail_materialization.pause_saved_query_schedule"
-        ) as mock_pause:
-            await activity_environment.run(fail_materialization_activity, inputs)
-            mock_pause.assert_not_called()
-
-        await database_sync_to_async(current_job.delete)()
-        for job in previous_jobs:
-            await database_sync_to_async(job.delete)()
-
-    async def test_timeout_pauses_schedule_after_5_consecutive_timeout_failures(
-        self, activity_environment, ateam, anode, asaved_query, adag
-    ):
-        # Create 5 previous timeout failed jobs
-        previous_jobs = []
-        for i in range(5):
-            job = await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam,
-                saved_query=asaved_query,
-                status=DataModelingJob.Status.FAILED,
-                error="Timeout exceeded",
-                workflow_id=f"prev-workflow-{i}",
-            )
-            previous_jobs.append(job)
-
-        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=asaved_query,
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id="current-workflow",
-        )
-
-        inputs = FailMaterializationInputs(
-            team_id=ateam.pk,
-            node_id=str(anode.id),
-            dag_id=str(adag.id),
-            job_id=str(current_job.id),
-            error="Timeout exceeded in query",
-        )
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.fail_materialization.pause_saved_query_schedule"
-        ) as mock_pause:
-            await activity_environment.run(fail_materialization_activity, inputs)
-            mock_pause.assert_called_once_with(asaved_query)
-
-        await database_sync_to_async(current_job.refresh_from_db)()
-        assert current_job.error is not None
-        assert "schedule has been paused" in current_job.error
-
-        await database_sync_to_async(asaved_query.refresh_from_db)()
-        assert asaved_query.sync_frequency_interval is None
-
-        await database_sync_to_async(current_job.delete)()
-        for job in previous_jobs:
-            await database_sync_to_async(job.delete)()
-
 
 class TestQualityBlockMaterializationActivity:
     async def test_a_blocked_publish_fails_the_node_and_job_but_starts_no_recovery(
@@ -560,136 +518,6 @@ class TestQualityBlockMaterializationActivity:
         assert "suspended" not in system_props
 
         await database_sync_to_async(job.delete)()
-
-
-class TestShouldPauseScheduleForTimeout:
-    async def test_returns_false_when_fewer_than_5_previous_jobs(self, ateam, asaved_query):
-        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
-
-        previous_jobs = []
-        for i in range(3):
-            job = await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam,
-                saved_query=asaved_query,
-                status=DataModelingJob.Status.FAILED,
-                error="Timeout exceeded",
-                workflow_id=f"prev-workflow-{i}",
-            )
-            previous_jobs.append(job)
-
-        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=asaved_query,
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id="current-workflow",
-        )
-
-        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job
-        )
-        assert should_pause is False
-        assert count == 3
-
-        await database_sync_to_async(current_job.delete)()
-        for job in previous_jobs:
-            await database_sync_to_async(job.delete)()
-
-    async def test_returns_true_when_5_consecutive_timeout_failures(self, ateam, asaved_query):
-        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
-
-        previous_jobs = []
-        for i in range(5):
-            job = await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam,
-                saved_query=asaved_query,
-                status=DataModelingJob.Status.FAILED,
-                error="Timeout exceeded",
-                workflow_id=f"prev-workflow-{i}",
-            )
-            previous_jobs.append(job)
-
-        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=asaved_query,
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id="current-workflow",
-        )
-
-        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job
-        )
-        assert should_pause is True
-        assert count == 5
-
-        await database_sync_to_async(current_job.delete)()
-        for job in previous_jobs:
-            await database_sync_to_async(job.delete)()
-
-    async def test_streak_survives_a_run_skipped_for_an_upstream_failure(self, ateam, asaved_query):
-        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
-
-        previous_jobs = []
-        for i in range(5):
-            job = await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam,
-                saved_query=asaved_query,
-                status=DataModelingJob.Status.FAILED,
-                error="Timeout exceeded",
-                workflow_id=f"prev-workflow-{i}",
-            )
-            previous_jobs.append(job)
-
-        skipped = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=asaved_query,
-            status=DataModelingJob.Status.SKIPPED,
-            error="Skipped because upstream view orders_daily is failing.",
-            workflow_id="skipped-workflow",
-        )
-        previous_jobs.append(skipped)
-
-        current_job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=asaved_query,
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id="current-workflow",
-        )
-
-        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job
-        )
-        assert should_pause is True
-        assert count == 5
-
-        await database_sync_to_async(current_job.delete)()
-        for job in previous_jobs:
-            await database_sync_to_async(job.delete)()
-
-    async def test_streak_ignores_jobs_from_other_engines(self, ateam, asaved_query):
-        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
-
-        jobs = [
-            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="Timeout exceeded")
-            for _ in range(5)
-        ]
-        # a more recent duckgres failure must not break the clickhouse timeout streak
-        jobs.append(
-            await _make_job(
-                ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
-            )
-        )
-        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
-        jobs.append(current_job)
-
-        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job
-        )
-        assert should_pause is True
-        assert count == 5
-
-        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
-        for job in jobs:
-            await database_sync_to_async(job.delete)()
 
 
 class TestNodeSuspension:
@@ -1070,7 +898,9 @@ class TestNodeSuspension:
 
 
 class TestSucceedMaterializationActivity:
-    async def test_marks_job_as_completed(self, activity_environment, ateam, anode, ajob, adag):
+    async def test_marks_job_as_completed(self, activity_environment, ateam, anode, asaved_query, ajob, adag):
+        asaved_query.latest_error = "Previous error"
+        await database_sync_to_async(asaved_query.save)(update_fields=["latest_error"])
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -1084,6 +914,46 @@ class TestSucceedMaterializationActivity:
         assert ajob.status == DataModelingJob.Status.COMPLETED
         assert ajob.error is None
         assert ajob.last_run_at is not None
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert asaved_query.latest_error is None
+
+    async def test_stale_success_does_not_clear_a_newer_failure(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        older_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        newer_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        await activity_environment.run(
+            fail_materialization_activity,
+            FailMaterializationInputs(
+                team_id=ateam.pk,
+                node_id=str(anode.id),
+                dag_id=str(adag.id),
+                job_id=str(newer_job.id),
+                error="Newer failure",
+                suspend_immediately=True,
+            ),
+        )
+        await activity_environment.run(
+            succeed_materialization_activity,
+            SucceedMaterializationInputs(
+                team_id=ateam.pk,
+                node_id=str(anode.id),
+                dag_id=str(adag.id),
+                job_id=str(older_job.id),
+                row_count=1,
+                duration_seconds=1,
+            ),
+        )
+
+        from posthog.temporal.data_modeling.activities.utils import is_node_suspended
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert asaved_query.latest_error == "Newer failure"
+        assert anode.properties["system"]["last_run_status"] == DataModelingJobStatus.FAILED
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+        await database_sync_to_async(older_job.delete)()
+        await database_sync_to_async(newer_job.delete)()
 
     async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = SucceedMaterializationInputs(
@@ -1345,6 +1215,71 @@ class TestMaterializeViewActivity:
         with pytest.raises(InvalidNodeTypeException, match="Cannot materialize a TABLE node"):
             await activity_environment.run(materialize_view_activity, inputs)
         await database_sync_to_async(table_node.delete)()
+
+    @pytest.mark.parametrize(
+        "case",
+        ["incremental_first_run", "previously_completed", "not_incremental", "incremental_disabled"],
+    )
+    async def test_only_first_run_timeout_is_a_dedicated_non_retryable_error(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, case
+    ):
+        if case != "not_incremental":
+            asaved_query.incremental_config = {"enabled": True, "incremental_key": "id", "unique_key": ["id"]}
+            await database_sync_to_async(asaved_query.save)(update_fields=["incremental_config"])
+        completed_job = None
+        if case == "previously_completed":
+            completed_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.COMPLETED)
+        timeout = ClickHouseQueryTimeoutError("Code: 159. DB::Exception: Query timed out (TIMEOUT_EXCEEDED)")
+        logger = unittest.mock.MagicMock()
+        logger.ainfo = unittest.mock.AsyncMock()
+        logger.adebug = unittest.mock.AsyncMock()
+        logger.aerror = unittest.mock.AsyncMock()
+
+        with (
+            unittest.mock.patch.object(LOGGER, "bind", return_value=logger),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view._incremental_enabled",
+                return_value=case != "incremental_disabled",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view._build_person_property_sink",
+                new=unittest.mock.AsyncMock(return_value=None),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view._materialize_fully",
+                new=unittest.mock.AsyncMock(side_effect=timeout),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view._CDPRowSink.prepare",
+                new=unittest.mock.AsyncMock(),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view._CDPRowSink.discard",
+                new=unittest.mock.AsyncMock(),
+            ),
+        ):
+            expected_error = ClickHouseQueryTimeoutError if case == "previously_completed" else ApplicationError
+            with pytest.raises(expected_error) as error:
+                await activity_environment.run(
+                    materialize_view_activity,
+                    MaterializeViewInputs(
+                        team_id=ateam.pk,
+                        dag_id=str(adag.id),
+                        node_id=str(anode.id),
+                        job_id=str(ajob.id),
+                    ),
+                )
+
+        if case != "previously_completed":
+            assert isinstance(error.value, ApplicationError)
+            assert error.value.type == INITIAL_FULL_REFRESH_TIMEOUT_ERROR_TYPE
+            assert error.value.non_retryable is True
+            assert INITIAL_FULL_REFRESH_TIMEOUT_MESSAGE in str(error.value)
+        visible_attempt_logs = [call for call in logger.aerror.await_args_list if not call.kwargs.get("write_only")]
+        assert len(visible_attempt_logs) == 1
+        assert "TIMEOUT_EXCEEDED" in visible_attempt_logs[0].args[0]
+        if completed_job is not None:
+            await database_sync_to_async(completed_job.delete)()
 
     async def test_materializes_view_to_delta_table(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -1646,6 +1581,7 @@ class _EmptyArrowClient:
         self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
         self.reject_describe_with_settings = False
         self.arrow_query: str | None = None
+        self.arrow_query_id: str | None = None
 
     async def astream_query_as_arrow(
         self,
@@ -1657,6 +1593,7 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
+        self.arrow_query_id = query_id
         if on_schema is not None:
             on_schema(self.schema)
         return
@@ -1763,7 +1700,56 @@ class TestHogqlTableModifiers:
         assert client.arrow_query is not None
 
 
+class _MaskedArrowFailureClient(_EmptyArrowClient):
+    def __init__(self, schema: pa.Schema):
+        super().__init__(schema)
+        self.diagnostic_query_ids: list[str] = []
+
+    async def astream_query_as_arrow(
+        self,
+        query: str,
+        *data: Any,
+        query_parameters: dict[str, Any] | None = None,
+        query_id: str | None = None,
+        on_schema: Callable[[pa.Schema], None] | None = None,
+    ) -> AsyncIterator[pa.RecordBatch]:
+        self.arrow_query = query
+        self.arrow_query_id = query_id
+        raise InvalidMessageFormat("Arrow stream contained a ClickHouse error")
+        yield pa.RecordBatch.from_arrays([], names=[])
+
+    async def acheck_query(self, query_id: str) -> None:
+        self.diagnostic_query_ids.append(query_id)
+        if len(self.diagnostic_query_ids) == 1:
+            raise ClickHouseQueryNotFound(query_id)
+        raise ClickHouseQueryTimeoutError("Code: 159. DB::Exception: TIMEOUT_EXCEEDED", query_id=query_id)
+
+
 class TestHogqlTableEmptyResults:
+    async def test_recovers_typed_failure_from_masked_arrow_error(self, ateam):
+        client = _MaskedArrowFailureClient(pa.schema([pa.field("id", pa.int64())]))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs):
+            yield client
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client",
+                fake_get_client,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.asyncio.sleep",
+                new=unittest.mock.AsyncMock(),
+            ) as sleep,
+        ):
+            with pytest.raises(ClickHouseQueryTimeoutError):
+                _ = [batch async for batch in hogql_table("SELECT 1", ateam, LOGGER.bind())]
+
+        assert client.arrow_query_id is not None
+        assert client.diagnostic_query_ids == [client.arrow_query_id, client.arrow_query_id]
+        sleep.assert_awaited_once()
+
     async def test_zero_row_query_uses_the_initial_stream_schema(self, ateam):
         client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
 
