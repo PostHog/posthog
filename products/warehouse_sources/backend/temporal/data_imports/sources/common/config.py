@@ -10,6 +10,9 @@ import dataclasses
 
 META_KEY = "_SOURCE_CONFIG_META"
 
+# `None` is a valid default a caller can pass, so it cannot double as "no default given".
+_MISSING: typing.Any = dataclasses.MISSING
+
 _T = typing.TypeVar("_T")
 
 _SECRET_FIELD_NAME_SUBSTRINGS: tuple[str, ...] = (
@@ -570,7 +573,7 @@ def _get_default_prefix_for_class(cls: type) -> str:
 
 def value(
     *,
-    default: _T = typing.cast(typing.Any, dataclasses.MISSING),
+    default: _T = _MISSING,
     default_factory: typing.Callable[[], _T] | None = None,
     init: bool = True,
     repr: bool = True,
@@ -599,7 +602,7 @@ def value(
     """
     metadata = {META_KEY: MetaConfig(prefix=prefix, alias=alias, converter=converter)}
 
-    if default is not dataclasses.MISSING:
+    if default is not _MISSING:
         return dataclasses.field(
             default=default,
             hash=hash,
