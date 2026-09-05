@@ -1753,6 +1753,22 @@ class TestRetryOnTransientTabletUnavailable:
 
         assert operation.call_count == 2
 
+    def test_retries_vitess_dial_timeout_then_succeeds(self, mocker):
+        # A vtgate dial timeout to a backend tablet (error 1815) can land on a metadata query
+        # against an already-open connection, not just at connect time — `connect()` succeeding
+        # doesn't retry it, so this wrapper must.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        dial_timeout = pymysql.err.OperationalError(
+            1815,
+            "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
+            "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+        )
+        operation = MagicMock(side_effect=[dial_timeout, "ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == 2
+
     def test_gives_up_after_max_attempts(self, mocker):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         operation = MagicMock(side_effect=self._unavailable())
