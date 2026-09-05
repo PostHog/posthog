@@ -30,7 +30,10 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.presentation.views.saved_query import SavedQueryMaterializeSerializer
+from products.data_warehouse.backend.presentation.views.saved_query import (
+    SavedQueryMaterializeSerializer,
+    SavedQueryResumeSchedulesRequestSerializer,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -523,16 +526,11 @@ class TestSavedQuery(APIBaseTest):
         query_name = "test_query"
         saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)
 
-        with patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
-        ) as mock_delete_saved_query_schedule:
-            response = self.client.delete(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
-            )
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+        )
 
-            mock_delete_saved_query_schedule.assert_called()
-
-            assert response.status_code == 204
+        assert response.status_code == 204
 
         saved_query.refresh_from_db()
 
@@ -589,15 +587,9 @@ class TestSavedQuery(APIBaseTest):
         first_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_a", folder=folder)
         second_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_b", folder=folder)
 
-        with patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
-        ) as mock_delete_saved_query_schedule:
-            response = self.client.delete(
-                f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
-            )
+        response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/")
 
         self.assertEqual(response.status_code, 204, response.content)
-        self.assertEqual(mock_delete_saved_query_schedule.call_count, 2)
         self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
 
         first_view.refresh_from_db()
@@ -614,15 +606,9 @@ class TestSavedQuery(APIBaseTest):
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
 
-        with patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
-        ) as mock_delete_saved_query_schedule:
-            response = self.client.delete(
-                f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
-            )
+        response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/")
 
         self.assertEqual(response.status_code, 204, response.content)
-        mock_delete_saved_query_schedule.assert_called_once()
         self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
 
         endpoint_view.refresh_from_db()
@@ -756,9 +742,6 @@ class TestSavedQuery(APIBaseTest):
         with (
             patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
-            patch(
-                "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"
-            ) as v1_exists,
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
@@ -775,8 +758,6 @@ class TestSavedQuery(APIBaseTest):
         node.refresh_from_db()
         self.assertEqual(get_declared_target(node), expected_target)
         reconcile.assert_called_once()
-        # a stale v1 schedule from a half-finished migration must not be revived by the PATCH
-        v1_exists.assert_not_called()
 
     @parameterized.expand(
         [
@@ -825,7 +806,6 @@ class TestSavedQuery(APIBaseTest):
         with (
             patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag"),
-            patch("products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
@@ -1133,31 +1113,6 @@ class TestSavedQuery(APIBaseTest):
             )
 
             mock_get_columns.assert_not_called()
-
-    def test_delete_with_existing_schedule(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 201)
-        saved_query_id = response.json()["id"]
-        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-
-        with patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
-        ) as mock_delete_saved_query_schedule:
-            response = self.client.delete(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
-            )
-
-            self.assertEqual(response.status_code, 204)
-            mock_delete_saved_query_schedule.assert_called_once_with(saved_query)
 
     def test_saved_query_doesnt_exist(self):
         saved_query_1_response = self.client.post(
@@ -1874,38 +1829,30 @@ class TestSavedQuery(APIBaseTest):
 
         DataWarehouseModelPath.objects.create(team=self.team, path=[mock_table.id.hex, db_saved_query.id.hex])
 
-        with (
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_schedule"
-            ) as mock_delete_schedule,
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_connect"),
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
-            )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
+        )
 
-            self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.status_code, 200, response.content)
 
-            db_saved_query.refresh_from_db()
-            self.assertIsNone(db_saved_query.sync_frequency_interval)
-            self.assertIsNone(db_saved_query.last_run_at)
-            self.assertIsNone(db_saved_query.latest_error)
-            self.assertIsNone(db_saved_query.status)
-            self.assertIsNone(db_saved_query.table_id)
-            self.assertFalse(db_saved_query.is_materialized)
+        db_saved_query.refresh_from_db()
+        self.assertIsNone(db_saved_query.sync_frequency_interval)
+        self.assertIsNone(db_saved_query.last_run_at)
+        self.assertIsNone(db_saved_query.latest_error)
+        self.assertIsNone(db_saved_query.status)
+        self.assertIsNone(db_saved_query.table_id)
+        self.assertFalse(db_saved_query.is_materialized)
 
-            # Check the table has been deleted
-            mock_table.refresh_from_db()
-            self.assertTrue(mock_table.deleted)
+        # Check the table has been deleted
+        mock_table.refresh_from_db()
+        self.assertTrue(mock_table.deleted)
 
-            self.assertEqual(
-                DataWarehouseModelPath.objects.filter(
-                    team=self.team, path__lquery=f"*{{1,}}.{db_saved_query.id.hex}"
-                ).count(),
-                0,
-            )
-
-            mock_delete_schedule.assert_called_once_with(mock.ANY, schedule_id=str(db_saved_query.id))
+        self.assertEqual(
+            DataWarehouseModelPath.objects.filter(
+                team=self.team, path__lquery=f"*{{1,}}.{db_saved_query.id.hex}"
+            ).count(),
+            0,
+        )
 
     def test_create_with_existing_name(self):
         DataWarehouseTable.objects.create(
@@ -2335,6 +2282,76 @@ class TestSavedQuery(APIBaseTest):
             node.refresh_from_db()
             self.assertEqual(suspension_state(node), {})
 
+    def test_resume_schedules_clears_suspension_for_every_listed_query(self):
+
+        saved_queries = [
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"bulk_suspended_{i}",
+                query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                created_by=self.user,
+            )
+            for i in range(2)
+        ]
+        nodes = []
+        for i, saved_query in enumerate(saved_queries):
+            node = Node.objects.create(
+                team=self.team,
+                dag=DAG.objects.create(team=self.team, name=f"bulk_dag_{i}"),
+                saved_query=saved_query,
+                type=NodeType.MAT_VIEW,
+            )
+            mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid.uuid4()))
+            node.save()
+            nodes.append(node)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/resume_schedules/",
+            {"view_ids": [str(saved_query.id) for saved_query in saved_queries]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        for node in nodes:
+            node.refresh_from_db()
+            self.assertEqual(suspension_state(node), {})
+
+    def test_resume_schedules_skips_a_deleted_view(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="bulk_deleted",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+            deleted=True,
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.objects.create(team=self.team, name="bulk_deleted_dag"),
+            saved_query=saved_query,
+            type=NodeType.MAT_VIEW,
+        )
+        mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid.uuid4()))
+        node.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/resume_schedules/",
+            {"view_ids": [str(saved_query.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        node.refresh_from_db()
+        self.assertNotEqual(suspension_state(node), {})
+
+    def test_resume_schedules_rejects_a_malformed_view_id(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/resume_schedules/",
+            {"view_ids": ["not-a-uuid"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_materialize_and_revert_are_rate_limited(self, _rate_limit_enabled_mock):
         api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
@@ -2403,6 +2420,22 @@ class TestMaterializeRequestBody(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "sync_frequency" in serializer.errors
+
+
+class TestResumeSchedulesRequestBody(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("view_ids_omitted", {}),
+            ("view_ids_empty", {"view_ids": []}),
+            # a malformed id must be rejected before it reaches the id__in filter
+            ("view_id_not_a_uuid", {"view_ids": ["not-a-uuid"]}),
+            ("body_is_a_list", []),
+        ]
+    )
+    def test_rejected_body(self, _name, payload):
+        serializer = SavedQueryResumeSchedulesRequestSerializer(data=payload)
+
+        assert not serializer.is_valid()
 
 
 class TestSavedQueryRun(APIBaseTest):

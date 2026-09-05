@@ -25,7 +25,6 @@ SCHEDULE_MATERIALIZATION = (
 # about the provider mechanism, not about anything specific to engineering analytics.
 KIND = DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
 
-SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 NODE_MAT = "products.data_modeling.backend.logic.node_materialization"
