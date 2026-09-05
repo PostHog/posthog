@@ -1,4 +1,3 @@
-from functools import cached_property
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -277,19 +276,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         # uses .all and not .first so that prefetching can be used
         sharing_configurations = self.sharingconfiguration_set.all()
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
-
-    @cached_property
-    def query_from_filters(self):
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-
-        try:
-            return {
-                "kind": "InsightVizNode",
-                "source": filter_to_query(self.filters).model_dump(exclude_none=True),
-                "full": True,
-            }
-        except Exception as e:
-            capture_exception(e)
 
     def dashboard_filters(
         self, dashboard: Optional["Dashboard"] = None, dashboard_filters_override: Optional[dict] = None
