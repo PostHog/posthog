@@ -228,7 +228,7 @@ export function ReasoningLevelSelector({
           <DropdownMenuTrigger
             render={
               <Button type="button" variant="default" size="sm">
-                <Spinner size="sm" />
+                <Spinner size="sm" aria-hidden="true" />
                 Loading...
               </Button>
             }

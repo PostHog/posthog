@@ -170,6 +170,7 @@ Loading indicators are `Spinner` from [packages/ui/src/primitives/Spinner.tsx](.
 `LoadingState` is the centered pane or section loader.
 `Spinner` is the inline one: leave `size` off inside quill buttons and media slots, which size it like the icons beside it, and use `xs` (badges), `sm` (12px text), `md` (default rows) or `lg` (a pane) elsewhere.
 Biome rejects `Spinner` imports from `@posthog/quill` and `@radix-ui/themes`, and the phosphor spinner glyphs.
+It carries `role="status"` and a "Loading" label. Pass `aria-hidden="true"` where visible text or a wrapping live region already says the same thing, so a screen reader reads it once.
 An icon that has to rotate for another reason (a refresh arrow while refreshing) goes through `Spin` from the same file.
 Never put `animate-spin` on an `<svg>`: Chromium animates SVG transforms on the main thread, so one visible spinner costs a style recalc and a layerize pass on every frame.
 Stop the animation (`spinning={false}`) or unmount the spinner when it is hidden behind `opacity-0`.
