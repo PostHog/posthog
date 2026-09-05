@@ -1,7 +1,6 @@
 """Prometheus metrics and Temporal interceptor for logs alerting."""
 
 import gc
-import time
 import typing
 import datetime as dt
 
@@ -12,12 +11,10 @@ from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, Interceptor
 
-from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.metrics import ExecutionTimeRecorder
 
 from products.logs.backend.alert_error_classifier import AlertErrorCode
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
-
-logger = get_write_only_logger(__name__)
 
 _NOTIFICATION_FAILURE_LABELS: dict[NotificationAction, str] = {
     NotificationAction.FIRE: "firing",
@@ -281,51 +278,6 @@ def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> Non
         latency_ms,
         {"activity_type": activity_type},
     )
-
-
-# TODO: Extract ExecutionTimeRecorder to posthog/temporal/common/ — copied from
-# posthog/temporal/ai_observability/metrics.py to avoid cross-product import.
-class ExecutionTimeRecorder:
-    """Context manager to record execution time to a histogram metric."""
-
-    def __init__(
-        self,
-        histogram_name: str,
-        /,
-        description: str | None = None,
-        histogram_attributes: Attributes | None = None,
-    ) -> None:
-        self.histogram_name = histogram_name
-        self.description = description
-        self.histogram_attributes = histogram_attributes or {}
-        self._start_counter: float | None = None
-
-    def __enter__(self) -> typing.Self:
-        self._start_counter = time.perf_counter()
-        return self
-
-    def __exit__(
-        self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback: object
-    ) -> None:
-        if self._start_counter is None:
-            raise RuntimeError("Start counter not initialized, did you call `__enter__`?")
-
-        end_counter = time.perf_counter()
-        delta_ms = int((end_counter - self._start_counter) * 1000)
-        delta = dt.timedelta(milliseconds=delta_ms)
-
-        attributes = dict(self.histogram_attributes)
-        if exc_value is not None:
-            attributes["status"] = "FAILED"
-        else:
-            attributes["status"] = "COMPLETED"
-
-        meter = get_metric_meter(attributes)
-        hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
-        try:
-            hist.record(value=delta)
-        except Exception:
-            logger.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
 
 
 class LogsAlertingMetricsInterceptor(Interceptor):
