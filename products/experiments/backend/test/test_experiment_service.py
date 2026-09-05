@@ -6101,12 +6101,59 @@ class TestExperimentService(APIBaseTest):
             ("-duration",),
             ("status",),
             ("-status",),
+            ("conclusion",),
+            ("-conclusion",),
         ]
     )
     def test_order_by_valid_fields_works(self, order: str):
+        """Allowlisted order params must evaluate — not only build a queryset."""
         service = self._service()
+        service.create_experiment(name="Order smoke", feature_flag_key=f"order-smoke-{order.replace(chr(45), 'desc-')}")
         qs = service.filter_experiments_queryset(self._base_queryset(), action="list", query_params={"order": order})
-        assert qs is not None
+        # Force SQL evaluation so annotation/join errors (e.g. mixed Coalesce types) surface here.
+        assert list(qs[:1]) is not None
+
+    @parameterized.expand(
+        [
+            ("ascending", "created_by", ["Email fallback", "Named creator"]),
+            ("descending", "-created_by", ["Named creator", "Email fallback"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_creator_display_name(
+        self, _: str, order: str, expected_named_order: list[str]
+    ) -> None:
+        """Created-by sort mirrors LemonTable: first_name, else email, else '' for missing creators."""
+        service = self._service()
+        email_user = self._create_user("alpha@example.com")
+        email_user.first_name = ""
+        email_user.save(update_fields=["first_name"])
+        named_user = self._create_user("zulu@example.com")
+        named_user.first_name = "bravo"
+        named_user.save(update_fields=["first_name"])
+
+        without_creator = service.create_experiment(name="No creator", feature_flag_key="order-no-creator")
+        without_creator.created_by = None
+        without_creator.save(update_fields=["created_by"])
+        ExperimentService(team=self.team, user=email_user).create_experiment(
+            name="Email fallback", feature_flag_key="order-email-creator"
+        )
+        ExperimentService(team=self.team, user=named_user).create_experiment(
+            name="Named creator", feature_flag_key="order-named-creator"
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+        ordered_names = list(queryset.values_list("name", flat=True))
+
+        if order == "created_by":
+            assert ordered_names[0] == "No creator"
+            assert ordered_names[1:] == expected_named_order
+        else:
+            assert ordered_names[:2] == expected_named_order
+            assert ordered_names[-1] == "No creator"
 
     def test_launch_with_deleted_flag_raises(self):
         """Launching an experiment whose flag is soft-deleted should fail."""
