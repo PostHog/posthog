@@ -26,6 +26,19 @@ describe('semver', () => {
             expect(isSupportedVersion('7.8.9')).toEqual(true)
             expect(isSupportedVersion('4.5.6-alpha')).toEqual(false)
         })
+
+        it('treats missing minor/patch as zero when comparing against the requirement', () => {
+            // A requirement written with fewer components (e.g. "1.99") must still be
+            // satisfied by the equal version spelled out in full (e.g. "1.99.0").
+            const isSupportedVersion = createVersionChecker('1.99')
+            expect(isSupportedVersion('1.99')).toEqual(true)
+            expect(isSupportedVersion('1.99.0')).toEqual(true)
+            expect(isSupportedVersion('1.99.1')).toEqual(true)
+            expect(isSupportedVersion('1.98.9')).toEqual(false)
+
+            const isSupportedFullVersion = createVersionChecker('1.99.0')
+            expect(isSupportedFullVersion('1.99')).toEqual(true)
+        })
     })
 
     describe('isValidSemverValue', () => {
