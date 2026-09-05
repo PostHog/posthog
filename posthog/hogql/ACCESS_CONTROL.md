@@ -195,10 +195,13 @@ Naming a column `properties` does not opt a table in.
 The printer checks the column name against `RESTRICTABLE_JSON_BLOB_COLUMNS` before it consults the dispatch, so a new table can pass that check on the name alone and still return its blob unmasked.
 A table that exposes person, event, or group properties has to be added to the dispatch when it is added to the catalog.
 
-`posthog/hogql/test/test_restricted_properties.py` enforces this: it walks the catalog and asserts that the set of tables exposing one of those blob columns with no matching branch equals a small allowlist of explicit exemptions.
-A table added to the catalog later without a branch is not on the allowlist, so it fails the test.
-The allowlist is not a statement of full coverage: `accounts.properties` and `pg_embeddings.properties` are name collisions masked nowhere by design, and `ai_events.properties` carries event properties but has no branch yet, so its blob is still returned unmasked.
-Covering a table means removing its exemption, so the list cannot keep a stale entry.
+`posthog/hogql/test/test_restricted_properties.py` enforces this.
+It restricts one distinctly named key per property class, walks the catalog, and asserts the exact keys the dispatch masks in every blob column it reaches, with the exempt blobs mapped to no keys at all.
+The expected mapping is written out in the test rather than derived from `RESTRICTABLE_JSON_BLOB_COLUMNS`, so it holds the invariant in both directions: a table added to the catalog without a branch arrives masking nothing, and a column dropped from that set leaves its blob out of the walk entirely.
+Because each class restricts its own key, a table dispatched as the wrong class, or a group blob dispatched to the wrong group index, comes back carrying another class's key instead of passing on a non-empty result.
+
+The exemptions are not a statement of full coverage: `accounts.properties` and `pg_embeddings.properties` are name collisions masked nowhere by design, and `ai_events.properties` carries event properties but has no branch yet, so its blob is still returned unmasked.
+Covering a table means moving it out of the exemptions and into the expected mapping, so neither list can keep a stale entry.
 
 ### No user: default rules apply
 
