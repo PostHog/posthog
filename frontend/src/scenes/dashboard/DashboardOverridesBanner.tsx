@@ -6,13 +6,14 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { DashboardMode } from '~/types'
 
+import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 import { dashboardLogic } from './dashboardLogic'
 
 export const DashboardOverridesBanner = (): JSX.Element | null => {
-    const { dashboardMode, hasUrlFilters, cancellingPreview } = useValues(dashboardLogic)
+    const { dashboardMode, urlFilters, cancellingPreview } = useValues(dashboardLogic)
     const { setDashboardMode } = useActions(dashboardLogic)
 
-    if (dashboardMode === DashboardMode.Edit || !hasUrlFilters) {
+    if (dashboardMode === DashboardMode.Edit || isDashboardFilterEmpty(urlFilters)) {
         return null
     }
 
