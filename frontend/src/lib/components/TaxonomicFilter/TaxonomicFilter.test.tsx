@@ -1488,6 +1488,23 @@ describe('TaxonomicFilter', () => {
             })
 
             expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            expect(screen.getByTestId('taxonomic-filter-searchfield').closest('.LemonInput')).toHaveClass(
+                'TaxonomicFilter__search-input--with-category'
+            )
+            expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveClass(
+                'TaxonomicFilter__category-dropdown',
+                'LemonButton--tertiary',
+                'LemonButton--truncate'
+            )
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'x')
+            const inputButtons = screen
+                .getByTestId('taxonomic-filter-searchfield')
+                .closest('.LemonInput')
+                ?.querySelectorAll('button')
+            expect(inputButtons?.item(inputButtons.length - 1)).toBe(
+                screen.getByTestId('taxonomic-category-dropdown-trigger-pill')
+            )
         })
 
         it('pill variant: opening the dropdown and picking a category switches the visible results', async () => {

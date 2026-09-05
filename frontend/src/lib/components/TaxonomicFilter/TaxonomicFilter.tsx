@@ -225,15 +225,24 @@ export const TaxonomicFilterSearchInput = forwardRef<
 
     const categoriesAreInDropdown = categoryDropdownVariant !== 'control'
     const categoryDropdown = categoriesAreInDropdown ? (
-        <CategoryDropdown variant={categoryDropdownVariant} eventName={eventName} onAfterChange={focusInput} />
+        <CategoryDropdown
+            variant={categoryDropdownVariant}
+            eventName={eventName}
+            onAfterChange={focusInput}
+            joinedToInput
+        />
     ) : null
 
     return (
         <LemonInput
             {...props}
             ref={ref}
+            className={clsx({
+                'TaxonomicFilter__search-input--with-category': categoriesAreInDropdown,
+            })}
             data-attr="taxonomic-filter-searchfield"
             type="search"
+            suffixAfterClear={categoriesAreInDropdown}
             fullWidth
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
