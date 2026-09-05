@@ -909,13 +909,16 @@ def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]
 
 
 def _relocate_legacy_conversion_event_object(conversion: dict) -> dict:
-    # Before the conversion.events slot existed, an event-based goal could be saved as an object in
+    # Before the conversion.events slot existed, a goal could be saved as an object in
     # conversion.filters (e.g. {"events": [...], "source": "events"}). The property slot only takes an
-    # array, so that shape is invisible to the matcher and breaks the property picker — move it to the
-    # events slot (mirrors the one-time backfill in migration 0009). Every other shape is returned
-    # unchanged. Shared by the write path and the partial-update merge so both see one shape.
+    # array of property conditions, so that shape is invisible to the matcher and breaks the property
+    # picker. Move it to the events slot instead. The goal can name events or a saved action, the same
+    # pair _event_config_has_event_or_action treats as a real target, so both shapes move. Every other
+    # shape is returned unchanged. Shared by the write path and the partial-update merge so both see
+    # one shape. The backfill_conversion_filters_to_events command repairs the event shape in stored
+    # rows and leaves the action shape for this to relocate on the next save.
     filters = conversion.get("filters")
-    if not isinstance(filters, dict) or not filters.get("events"):
+    if not isinstance(filters, dict) or not (filters.get("events") or filters.get("actions")):
         return conversion
     return {**conversion, "events": [*(conversion.get("events") or []), {"filters": filters}], "filters": []}
 

@@ -1083,14 +1083,26 @@ class TestHogFlowAPI(APIBaseTest):
         assert conversion["window_minutes"] == 120
         assert len(conversion["events"]) == 1, conversion
 
-    def test_hog_flow_conversion_partial_patch_keeps_a_legacy_goal(self):
-        # Rows written before the conversion.events slot existed hold the event goal as an object in the
+    @parameterized.expand([("event_goal",), ("action_goal",)])
+    def test_hog_flow_conversion_partial_patch_keeps_a_legacy_goal(self, goal_shape):
+        # Rows written before the conversion.events slot existed hold the goal as an object in the
         # property slot. A window-only patch dropped it, so the merge relocates that shape the way the
-        # write path does instead of leaving it behind.
-        event_obj = {
-            "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
-            "source": "events",
-        }
+        # write path does instead of leaving it behind. The goal names either events or a saved action,
+        # and the property slot takes neither, so both shapes have to move.
+        if goal_shape == "action_goal":
+            action = Action.objects.create(
+                team=self.team, name="Completed checkout", steps_json=[{"event": "checkout"}]
+            )
+            legacy_obj = {
+                "events": [],
+                "actions": [{"id": str(action.id), "type": "actions", "order": 0}],
+                "source": "events",
+            }
+        else:
+            legacy_obj = {
+                "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
+                "source": "events",
+            }
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
@@ -1099,7 +1111,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert created.status_code == 201, created.json()
         flow_id = created.json()["id"]
         flow = HogFlow.objects.get(id=flow_id)
-        flow.conversion = {"filters": event_obj, "window_minutes": 60}
+        flow.conversion = {"filters": legacy_obj, "window_minutes": 60}
         flow.save()
 
         response = self.client.patch(
@@ -1112,7 +1124,11 @@ class TestHogFlowAPI(APIBaseTest):
         conversion = response.json()["conversion"]
         assert conversion["window_minutes"] == 120
         assert len(conversion["events"]) == 1, conversion
-        assert conversion["events"][0]["filters"]["events"] == event_obj["events"]
+        moved = conversion["events"][0]["filters"]
+        assert moved["events"] == legacy_obj["events"], conversion
+        assert moved.get("actions", []) == legacy_obj.get("actions", []), conversion
+        # Compiled where it landed, so the carried-over goal still matches instead of only being stored.
+        assert moved["bytecode"], conversion
         assert conversion["filters"] == [], conversion
 
     def test_hog_flow_conversion_legacy_goal_clears_when_the_patch_replaces_filters(self):
