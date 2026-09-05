@@ -26,6 +26,7 @@ import type {
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
     TicketApi,
+    TicketFullEmailApi,
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketUpdateRequestApi,
@@ -207,6 +208,32 @@ export const conversationsTicketsMessagesList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getConversationsTicketsMessagesFullEmailRetrieveUrl = (
+    projectId: string,
+    id: string,
+    messageId: string
+) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/messages/${messageId}/full_email/`
+}
+
+/**
+ * Return the full inbound email body in Markdown.
+ */
+export const conversationsTicketsMessagesFullEmailRetrieve = async (
+    projectId: string,
+    id: string,
+    messageId: string,
+    options?: RequestInit
+): Promise<TicketFullEmailApi> => {
+    return apiMutator<TicketFullEmailApi>(
+        getConversationsTicketsMessagesFullEmailRetrieveUrl(projectId, id, messageId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getConversationsTicketsNotesPartialUpdateUrl = (projectId: string, id: string, messageId: string) => {

@@ -562,7 +562,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # database host doesn't resolve to an address — a config/DNS issue on their side that
             # retrying won't fix.
             "No address associated with hostname": _DNS_RESOLUTION_ERROR,
-            "Network is unreachable": None,
+            # A resolved-but-unroutable host (ENETUNREACH) — an IPv6-only host PostHog can't reach
+            # over IPv4, or a firewall dropping our egress IPs. Already non-retryable, but the bare
+            # driver text ("connection to server at <host> ... Network is unreachable") gives the
+            # customer nothing to act on and echoes their host/IP back into `latest_error`. Surface
+            # the same actionable guidance the validate path and the Supavisor `:enetunreach` twin
+            # above already use.
+            "Network is unreachable": _HOST_UNREACHABLE_ERROR,
             # `InsufficientPrivilege` is the psycopg exception class name. It only appears once
             # Temporal wraps the activity failure (`ApplicationError` stringifies as
             # "InsufficientPrivilege: ..."), so it matches at the workflow layer but NOT in the
@@ -635,7 +641,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "InvalidObjectDefinition": None,
             "Connection refused": None,
-            "No route to host": None,
+            # EHOSTUNREACH — the routing sibling of "Network is unreachable" above. Same
+            # unroutable-host class (IPv6-only host, or a firewall dropping our IPs), so surface the
+            # same actionable guidance instead of the raw driver text (which echoes the host/IP).
+            "No route to host": _HOST_UNREACHABLE_ERROR,
             # The OS-level TCP connect() timing out (strerror(ETIMEDOUT)) instead of getting an
             # immediate refusal or unreachable-route response. Same connect-time host-reachability
             # class as its two siblings above — usually a non-routable host (e.g. a private RDS
@@ -774,6 +783,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "apply changes from the primary that remove rows the sync is still reading. Increase "
                 "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
                 "connection at the primary database, then re-enable the sync."
+            ),
+            # A recovery conflict on a full-table read of a table with no unique, non-NULL key. The
+            # re-read can only be paged by seeking on such a key, so there is no safe page order and
+            # a whole-activity retry re-reads into the same wall. Non-retryable for that reason,
+            # unlike the same conflict on a table that has a key, which stays retryable.
+            "no key that can resume a canceled read": (
+                "Your read replica canceled the sync's read of this table "
+                '("canceling statement due to conflict with recovery"). To resume the read, PostHog '
+                "needs a column that is unique and never null, and this table doesn't have one. "
+                "Without it, reading the table again would duplicate or miss rows. Add a primary key "
+                "to the table, increase max_standby_streaming_delay on the replica, enable "
+                "hot_standby_feedback, or point the connection at the primary database, then "
+                "re-enable the sync."
             ),
             # Activity-layer twin of the `QueryTimeoutException` key above, for the read-replica path:
             # when a recovery conflict forces the offset-chunking fallback and a chunk then hits the
@@ -1510,6 +1532,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
+        table_rebuild_pending = inputs.reset_pipeline or schema.delta_revive_required is not None
 
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
@@ -1536,10 +1559,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 row_filters=inputs.row_filters,
                 # xmin state is read straight off the schema here (the generic `SourceInputs` stays
                 # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
+                # A reset, and a pending corrupt-delta revive, both delete the Delta table before
+                # this read, so the cursor has to go with it: kept, the read covers only the window
+                # since the last run, and the overwrite collapses the table to that slice. The
+                # activity drops the incremental cursor for both cases for the same reason; the xmin
+                # cursor is dropped here because it is read here.
                 is_xmin=schema.is_xmin,
-                xmin_last_value=schema.xmin_last_value,
-                xmin_num_wraparound=schema.xmin_num_wraparound,
+                xmin_last_value=None if table_rebuild_pending else schema.xmin_last_value,
+                xmin_num_wraparound=None if table_rebuild_pending else schema.xmin_num_wraparound,
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
+                activity_attempt=inputs.activity_attempt,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

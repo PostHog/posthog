@@ -2,7 +2,7 @@
     {
         "key": "quickstart",
         "label": "Quickstart",
-        "source": "// Globals: evaluation_events (one generation event, or every event in a trace) and target\nprint(concat('Evaluating ', target.type, ' ', target.id))\n\nfor (let i, item in evaluation_events) {\n    print(concat('Event ', toString(i), ': ', item.event))\n    if (length(item.input_text) > 0) {\n        print(concat('Input: ', substring(item.input_text, 1, 100)))\n    }\n    if (length(item.output_text) > 0) {\n        print(concat('Output: ', substring(item.output_text, 1, 100)))\n    }\n    if (item.properties.$ai_model != null) {\n        print(concat('Model: ', item.properties.$ai_model))\n    }\n}\n\n// Return true (pass) or false (fail)\nreturn true"
+        "source": "// Globals: evaluation_events (one generation event, or every event in a trace) and target\nprint(concat('Evaluating ', target.type, ' ', target.id))\n\nfor (let i, item in evaluation_events) {\n    print(concat('Event ', toString(i), ': ', item.event))\n    if (length(item.input_text) > 0) {\n        print(concat('Input: ', substring(item.input_text, 1, 100)))\n    }\n    if (length(item.output_text) > 0) {\n        print(concat('Output: ', substring(item.output_text, 1, 100)))\n    }\n    if (item.properties.$ai_model != null) {\n        print(concat('Model: ', item.properties.$ai_model))\n    }\n}\n\n// The evaluation's output settings decide which boolean counts as a failure\nreturn true"
     },
     {
         "key": "output_not_empty",

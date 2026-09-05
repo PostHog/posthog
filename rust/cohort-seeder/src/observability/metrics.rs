@@ -48,6 +48,36 @@ pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total"
 /// object or escaped the static analysis, so the scan selects every column. A team sitting at
 /// `full_columns` is the signal to read the run's census for which event names block it.
 pub const CHUNKS_PROJECTED: &str = "seeder_chunks_projected_total";
+/// Shadow-compare verdicts per chunk, labelled by closed `result`
+/// (`match`/`diff`/`error`/`no_rows`/`not_projected`) and `team_id` (counter). Emitted only while
+/// `SEEDER_SCAN_SHADOW_COMPARE` is on, once per chunk that finishes its scan. A chunk cancelled by
+/// shutdown or a lost lease increments nothing and runs again later.
+///
+/// `diff` is the validation failure signal — the paired `warn!` carries the chunk attribution and
+/// exemplars. `error` means the diagnostic wide scan itself failed and the chunk's projected tiles
+/// were emitted unverified.
+///
+/// The last two values are chunks no second query was issued for, because it could only have
+/// agreed: `no_rows` where the authoritative scan read nothing, and `not_projected` where it was
+/// already wide. Neither is evidence about projecting, so read compare coverage as `match` and
+/// `diff` against their sum, not against the chunk count.
+pub const SHADOW_COMPARE: &str = "seeder_shadow_compare_total";
+/// Wall time of one chunk's diagnostic wide re-scan, including its fold and diff (histogram).
+///
+/// The compare arm runs after the authoritative scan on the same task, holding the chunk's worker
+/// slot and lease, and [`CHUNK_SCAN_DURATION_SECONDS`] deliberately closes before it. Without this
+/// series the arm's cost shows up only as slower chunk throughput, with nothing naming the cause —
+/// which is the reading behind the decision to turn the knob off for the rest of a long reseed.
+pub const SHADOW_COMPARE_DURATION_SECONDS: &str = "seeder_shadow_compare_duration_seconds";
+/// Rows only the shadow compare's legacy wide arm refused to build globals for, labelled by
+/// `team_id` (counter). Emitted only while `SEEDER_SCAN_SHADOW_COMPARE` is on, and at zero as well.
+///
+/// The difference between the two arms' skip counts, not the wide arm's total. A blob the
+/// projection keeps whole or rebuilds from keys fails the same parse on both arms and explains no
+/// divergence; only a blob the projection replaced with an empty literal is skipped on one side
+/// and evaluated on the other. That difference is what separates a projection defect from the
+/// over-count `sql::render_blob` documents, which lands in `result="diff"` indistinguishably.
+pub const SHADOW_COMPARE_LEGACY_SKIPPED: &str = "seeder_shadow_compare_legacy_skipped_total";
 /// Top-level JSON keys a narrowed scan rebuilds one blob from, labelled by `blob`
 /// (`properties`/`person_properties`) and `team_id` (histogram). Zero means the blob is not read at
 /// all and the scan selects an empty literal for it.
@@ -272,6 +302,10 @@ const PROJECTION_KEYS_BUCKETS: &[f64] = &[0.0, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 6
 const HISTOGRAM_LADDERS: &[(&str, &[f64])] = &[
     (PROJECTION_KEYS, PROJECTION_KEYS_BUCKETS),
     (CHUNK_SCAN_DURATION_SECONDS, SCAN_DURATION_SECONDS_BUCKETS),
+    (
+        SHADOW_COMPARE_DURATION_SECONDS,
+        SCAN_DURATION_SECONDS_BUCKETS,
+    ),
     (
         PERSON_CHUNK_SCAN_DURATION_SECONDS,
         SCAN_DURATION_SECONDS_BUCKETS,

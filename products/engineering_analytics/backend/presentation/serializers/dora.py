@@ -1,5 +1,6 @@
 """Payloads for the DORA deploy-metrics read."""
 
+from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -7,6 +8,23 @@ from products.engineering_analytics.backend.facade.contracts import (
     DoraOverview,
     LeadTimeBucket,
 )
+
+
+class DoraEnvironmentQuerySerializer(serializers.Serializer):
+    environment = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+        help_text="Deploy environments to scope to. Names are trimmed and deduplicated; blank or unknown names "
+        "are rejected. Real transient environments are allowed. Omit to use the production default.",
+    )
+
+    def validate_environment(self, value: list[str]) -> list[str]:
+        names = list(dict.fromkeys(value))
+        choice = serializers.ChoiceField(choices=self.context["get_environment_choices"](names))
+        for name in names:
+            choice.run_validation(name)
+        return names
 
 
 class DeploymentFrequencyBucketSerializer(DataclassSerializer):
@@ -40,6 +58,11 @@ class LeadTimeBucketSerializer(DataclassSerializer):
                 "help_text": "Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
+            "p05_seconds": {
+                "help_text": "5th percentile of the stage's duration, in seconds — the lower whisker when "
+                "outliers are excluded. Null when nothing deployed.",
+                "allow_null": True,
+            },
             "p25_seconds": {
                 "help_text": "25th percentile of the stage's duration, in seconds. Null when nothing deployed.",
                 "allow_null": True,
@@ -54,6 +77,11 @@ class LeadTimeBucketSerializer(DataclassSerializer):
             },
             "p75_seconds": {
                 "help_text": "75th percentile of the stage's duration, in seconds. Null when nothing deployed.",
+                "allow_null": True,
+            },
+            "p95_seconds": {
+                "help_text": "95th percentile of the stage's duration, in seconds — the upper whisker when "
+                "outliers are excluded. Null when nothing deployed.",
                 "allow_null": True,
             },
             "max_seconds": {
@@ -72,8 +100,8 @@ class DoraOverviewSerializer(DataclassSerializer):
     merge_to_deploy_series = LeadTimeBucketSerializer(
         many=True,
         help_text="Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot "
-        "series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, "
-        "or when github_team was passed without membership data synced.",
+        "series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't "
+        "synced, or when github_team was passed without membership data synced.",
     )
     open_to_merge_series = LeadTimeBucketSerializer(
         many=True,
@@ -96,17 +124,18 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "selected repo; every other field is then empty or null, never a fake zero."
             },
             "environment_scope": {
-                "help_text": "What the environment filter resolved to: 'production' (deployments GitHub marks "
-                "production_environment), an exact environment name (the one passed, or the busiest persistent "
-                "environment when nothing is marked production), or 'persistent' (no persistent environment "
-                "deployed in the window, so every non-transient one counts). Transient environments (ephemeral "
-                "per-PR previews) never join a default scope. The scope resolves from deployments in the scan "
-                "window, so two different windows can resolve different scopes and are not always comparable."
+                "help_text": "Display label for the selected environments, comma-separated, 'persistent' when no "
+                "persistent environments were discovered. Use selected_environments for exact names."
             },
             "environments": {
-                "help_text": "Distinct persistent environments deployed to in the scan window, most-deployed "
-                "first — the environment picker's options. Transient environments are omitted but stay "
-                "reachable by exact name."
+                "help_text": "Distinct persistent environments from the metric scan window or the 30 days before "
+                "its end, whichever starts earlier, most-deployed first. Transient environments are omitted."
+            },
+            "selected_environments": {
+                "help_text": "Exact environment names used for these metrics. Defaults to all persistent "
+                "environments marked production or named prod/production (including regional suffixes), "
+                "falling back to the busiest persistent environment. Explicit filters are trimmed and deduplicated. "
+                "DRF rejects blank or unknown names; real transient names are allowed."
             },
             "has_membership_data": {
                 "help_text": "True when the optional team-membership snapshot is synced. When false, a "
@@ -140,6 +169,17 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "median_merge_to_deploy_seconds_prev": {
                 "help_text": "Previous-window twin of median_merge_to_deploy_seconds.",
+                "allow_null": True,
+            },
+            "median_open_to_deploy_seconds": {
+                "help_text": "Median seconds from a PR's open to the first successful deployment "
+                "containing it — the full open-to-deploy lead time over the same deployed-PR "
+                "population as median_merge_to_deploy_seconds. Null when nothing deployed in the "
+                "window.",
+                "allow_null": True,
+            },
+            "median_open_to_deploy_seconds_prev": {
+                "help_text": "Previous-window twin of median_open_to_deploy_seconds.",
                 "allow_null": True,
             },
             "deployed_pr_count": {
@@ -188,6 +228,7 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "series_granularity": {
-                "help_text": "Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'."
+                "help_text": "Bucket width of every series: the granularity param when given, else chosen to "
+                "fit the window: 'hour', 'day', or 'week'."
             },
         }
