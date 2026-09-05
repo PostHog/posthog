@@ -90,6 +90,17 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/count", data={"query": "not-an-object"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(["count", "query", "sparkline", "services", "export"])
+    def test_rejects_non_object_body(self, action):
+        # A body that is not an object must 400 before the body-level `.get()` runs,
+        # so a client mistake is not reported as a server error.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/{action}",
+            data=json.dumps("not-an-object"),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @parameterized.expand(
         [
             # Multi-day window — exercises full WHERE clause

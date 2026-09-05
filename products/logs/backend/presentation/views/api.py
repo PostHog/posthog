@@ -1190,6 +1190,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         return {"type": "AND", "values": []}
 
     @staticmethod
+    def _require_dict_body(request: Request) -> dict:
+        """Guard against a non-object body crashing on the first `.get()` call below."""
+        if not isinstance(request.data, dict):
+            raise ParseError("Request body must be an object")
+        return request.data
+
+    @staticmethod
     def _require_dict_query(query_data: object) -> None:
         """Guard against a non-object `query` field crashing on the first `.get()` call below."""
         if not isinstance(query_data, dict):
@@ -1216,7 +1223,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", None)
+        query_data = self._require_dict_body(request).get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
         self._require_dict_query(query_data)
@@ -1350,7 +1357,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._require_dict_body(request).get("query", {})
         self._require_dict_query(query_data)
 
         date_range_data = query_data.get("dateRange")
@@ -1396,7 +1403,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def facet_values(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._require_dict_body(request).get("query", {})
         self._require_dict_query(query_data)
 
         facet_field = query_data.get("facetField")
@@ -1439,7 +1446,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def count(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._require_dict_body(request).get("query", {})
         self._require_dict_query(query_data)
 
         date_range_data = query_data.get("dateRange")
@@ -1482,7 +1489,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="count-ranges")
     def count_ranges(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._require_dict_body(request).get("query", {})
         self._require_dict_query(query_data)
 
         date_range_data = query_data.get("dateRange")
@@ -1525,7 +1532,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def services(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._require_dict_body(request).get("query", {})
         self._require_dict_query(query_data)
 
         query = LogsQuery(
@@ -1568,7 +1575,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def patterns(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._require_dict_body(request).get("query", {})
         self._require_dict_query(query_data)
 
         query = self._filtered_logs_query(query_data)
@@ -1602,7 +1609,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="patterns_diff")
     def patterns_diff(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._require_dict_body(request).get("query", {})
         self._require_dict_query(query_data)
 
         query = self._filtered_logs_query(query_data)
@@ -1635,7 +1642,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="group-by")
     def group_by(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = self._require_dict_body(request).get("query", {})
         self._require_dict_query(query_data)
 
         query = self._filtered_logs_query(query_data)
@@ -1850,7 +1857,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def export(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
-        query_data = request.data.get("query", None)
+        query_data = self._require_dict_body(request).get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
         self._require_dict_query(query_data)
