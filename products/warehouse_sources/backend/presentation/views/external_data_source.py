@@ -1728,6 +1728,10 @@ class ExternalDataSourceCreateResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the created external data source.")
 
 
+class ExternalDataSourceExistsResponseSerializer(serializers.Serializer):
+    exists = serializers.BooleanField(help_text="Whether the project has at least one visible external data source.")
+
+
 class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
     message = serializers.CharField(help_text="Human-readable explanation of why the source could not be created.")
 
@@ -2037,6 +2041,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     ]
     scope_object_read_actions = [
         "list",
+        "exists",
         "retrieve",
         "jobs",
         "wizard",
@@ -2185,6 +2190,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             .order_by(self.ordering)
         )
+
+    @extend_schema(
+        responses=ExternalDataSourceExistsResponseSerializer,
+        description="Check whether the project has at least one visible external data source.",
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    def exists(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        queryset = self.get_queryset()
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        return Response(ExternalDataSourceExistsResponseSerializer({"exists": queryset.exists()}).data)
 
     def _resolve_stored_credential(self, source_type: str, payload: dict) -> ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.

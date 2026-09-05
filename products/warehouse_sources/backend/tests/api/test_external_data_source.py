@@ -236,6 +236,18 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(result["status"], ExternalDataSchema.Status.FAILED)
         self.assertEqual(result["latest_error"], "boom")
 
+    def test_exists_reports_active_sources(self):
+        url = f"/api/environments/{self.team.pk}/external_data_sources/exists/"
+        self.assertEqual(self.client.get(url).json(), {"exists": False})
+
+        source = self._make_source("exists")
+        self._make_schema_with_table(source, "Customers")
+        self.assertEqual(self.client.get(url).json(), {"exists": True})
+
+        source.deleted = True
+        source.save(update_fields=["deleted"])
+        self.assertEqual(self.client.get(url).json(), {"exists": False})
+
     def test_list_query_count_does_not_scale_with_source_count(self):
         # Guards the prefetch design: adding sources (each with schemas + tables) must not add queries.
         # A regression to per-source credential/source lookups or the duplicate schema prefetch shows up
