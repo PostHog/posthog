@@ -67,7 +67,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    def _select(self, columns: str):
+    def _select(self, columns: str, where: str = ""):
         # settings.DEBUG is False under the test runner, so the org gate fail-closes and prunes the
         # table. test_database.py covers the gate itself; here it only has to be out of the way.
         context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
@@ -76,7 +76,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             return_value=True,
         ):
             return execute_hogql_query(
-                f"SELECT {columns} FROM posthog.flag_evaluations WHERE uuid = '{self.row_uuid}'",
+                f"SELECT {columns} FROM posthog.flag_evaluations WHERE uuid = '{self.row_uuid}'{where}",
                 team=self.team,
                 context=context,
                 pretty=False,
@@ -166,6 +166,26 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
 
         assert self._select(f"{expression} > 9") == [(True,)]
+
+    @parameterized.expand(
+        [
+            ("flag_key", "flag_key", "$feature_flag", "probe-flag"),
+            ("response", "response", "$feature_flag_response", "variant-x"),
+            ("session_id", "session_id", "$session_id", "sess-123"),
+            ("request_id", "request_id", "$feature_flag_request_id", "req-456"),
+            ("group_key", "`$group_0`", "$group_0", "acme"),
+        ]
+    )
+    def test_column_copying_a_restricted_property_reads_and_filters_as_null(
+        self, _name: str, column: str, source_property: str, stored_value: str
+    ):
+        # These columns hold a second copy of the property, so masking the property paths alone leaves the
+        # value readable here. The filter matters as much as the read: an unmasked column narrows a value
+        # down through which rows come back, without ever selecting it.
+        self._restrict(source_property, PropertyDefinition.Type.EVENT)
+
+        assert self._select(column) == [(None,)]
+        assert self._select("uuid", where=f" AND {column} = '{stored_value}'") == []
 
     def test_restricted_key_is_dropped_from_a_whole_blob_read(self):
         self._restrict("probe", PropertyDefinition.Type.EVENT)

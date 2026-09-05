@@ -25,6 +25,41 @@ RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
     }
 )
 
+# flag_evaluations columns that store a verbatim copy of an event property, mapped to the property each copies.
+# The shards compute them from `properties`, so both spellings return one value, and masking only reaches the
+# `properties.<key>` and whole-blob paths. Restricting the property has to mask the column by name too, or the
+# column answers what those two refuse.
+_FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
+    "flag_key": "$feature_flag",
+    "response": "$feature_flag_response",
+    "session_id": "$session_id",
+    "request_id": "$feature_flag_request_id",
+    **{f"$group_{index}": f"$group_{index}" for index in range(GROUP_TYPES_LIMIT)},
+}
+
+
+def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
+    """The event property a typed column copies verbatim, or None when the column copies nothing.
+
+    A caller that prints one of these columns must mask the read when the property is restricted, in a predicate
+    as much as in a SELECT: an unmasked column lets a filter narrow down a value the same user cannot read.
+    `events` exposes mirror columns of its own that nothing consults this for; see ACCESS_CONTROL.md.
+    """
+    if not isinstance(table_type, ast.BaseTableType):
+        return None
+
+    try:
+        table = table_type.resolve_database_table(context)
+    except Exception:
+        # Fail-open to match restricted_property_keys_for_table_type, whose docstring explains why this is
+        # unreachable today; log so a future table type that can raise does not silently unmask a column.
+        logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
+        return None
+
+    if isinstance(table, FlagEvaluationsTable):
+        return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    return None
+
 
 def restricted_property_keys_for_table_type(
     table_type: ast.Type, context: HogQLContext, *, group_type_index: int | None = None
