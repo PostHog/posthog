@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -6,7 +5,6 @@ import {
 } from "@posthog/di/logger";
 import { createGitClient } from "@posthog/git/client";
 import { deleteCheckpoint } from "@posthog/git/sagas/checkpoint";
-import { forceRemove } from "@posthog/git/utils";
 import { WorktreeManager } from "@posthog/git/worktree";
 import {
   type IWorkspaceSettings,
@@ -38,7 +36,10 @@ import {
   captureWorktreeCheckpoint,
   restoreWorktreeFromCheckpoint,
 } from "../worktree-checkpoint/worktree-checkpoint";
-import { deriveWorktreePath as deriveWorktreePathFromBase } from "../worktree-path/worktree-path";
+import {
+  deriveWorktreePath as deriveWorktreePathFromBase,
+  removeManagedWorktreeWrapper,
+} from "../worktree-path/worktree-path";
 import { getCurrentBranchName } from "../worktree-query/worktree-query";
 import {
   SUSPENSION_FILE_WATCHER,
@@ -317,7 +318,15 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
   ): Promise<void> {
     const manager = this.createWorktreeManager(folderPath);
     await manager.deleteWorktree(worktreePath);
-    await forceRemove(path.dirname(worktreePath));
+    const wrapperRemoved = await removeManagedWorktreeWrapper(
+      worktreePath,
+      this.workspaceSettings.getWorktreeLocation(),
+    );
+    if (!wrapperRemoved) {
+      this.log.info(
+        `Kept parent of deleted worktree at ${worktreePath}: not an app-managed worktree location`,
+      );
+    }
   }
 
   private async killTaskProcesses(
