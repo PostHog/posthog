@@ -219,6 +219,8 @@ public:
 
     virtual std::any visitColumnExprAnd(HogQLParser::ColumnExprAndContext *context) = 0;
 
+    virtual std::any visitColumnExprAliasCompare(HogQLParser::ColumnExprAliasCompareContext *context) = 0;
+
     virtual std::any visitColumnExprValuePassthrough(HogQLParser::ColumnExprValuePassthroughContext *context) = 0;
 
     virtual std::any visitColumnExprOr(HogQLParser::ColumnExprOrContext *context) = 0;
