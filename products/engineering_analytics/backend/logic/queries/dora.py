@@ -282,7 +282,7 @@ _LEAD_TIME_SERIES_SELECT = f"""
 # options and the default scope: a busy repo deploys previews hundreds of times a week, which
 # would swamp every deploy count. An exact ``environment`` filter can still reach one by name.
 _ENVIRONMENTS_SELECT = f"""
-    SELECT environment, max(is_production_environment) AS is_production, count() AS n
+    SELECT environment, count() AS n
     FROM __DEPLOYMENTS_SOURCE__ AS d
     WHERE d.created_at >= {{environment_scan_floor}} AND NOT d.is_transient_environment __DATE_TO_CREATED__
     GROUP BY environment
@@ -363,7 +363,7 @@ class _DoraScan:
 
 def _resolve_environment_scope(
     requested_environments: list[str] | None,
-    environments: list[tuple[str, bool]],
+    environments: list[str],
     production_environments: list[str],
 ) -> _EnvironmentScope:
     if requested_environments is not None:
@@ -382,7 +382,7 @@ def _resolve_environment_scope(
             values=production_environments,
         )
     if environments:
-        fallback = environments[0][0]
+        fallback = environments[0]
         return _EnvironmentScope(scope=fallback, predicate="d.environment IN {environments}", values=[fallback])
     return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment", values=None)
 
@@ -701,7 +701,7 @@ def query_dora_overview(
     return DoraOverview(
         deploy_data_available=True,
         environment_scope=env_scope.scope,
-        environments=[name for name, _ in environments],
+        environments=environments,
         selected_environments=env_scope.values or [],
         has_membership_data=has_membership_data,
         github_teams=github_teams,
@@ -771,13 +771,13 @@ def _query_environments(
     *,
     placeholders: dict[str, ast.Expr],
     date_to_filter: str,
-) -> list[tuple[str, bool]]:
-    """``(environment, is_production)`` pairs deployed to in the scan window, most-deployed first."""
+) -> list[str]:
+    """Persistent environments deployed to in the scan window, most-deployed first."""
     sql = _ENVIRONMENTS_SELECT.replace("__DEPLOYMENTS_SOURCE__", deployments_source).replace(
         "__DATE_TO_CREATED__", date_to_filter
     )
     response = curated.run(sql, query_type="engineering_analytics.dora_environments", placeholders=placeholders)
-    return [(str(name), bool(is_production)) for name, is_production, _ in (response.results or []) if name]
+    return [str(name) for name, _ in (response.results or []) if name]
 
 
 def _normalize_requested_environments(environments_filter: list[str] | None) -> list[str]:
