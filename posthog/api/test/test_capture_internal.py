@@ -1,3 +1,4 @@
+import inspect
 import threading
 from datetime import UTC, datetime
 from typing import Any
@@ -1403,3 +1404,41 @@ class TestLaneErrorMessages(SimpleTestCase):
             )
         assert "capture_ai_internal" in str(ctx.exception)
         assert "replay event" in str(ctx.exception)
+
+
+class TestLaneIsNotAPublicArgument(SimpleTestCase):
+    """Callers pick a lane by choosing an entry point, never by passing a flag.
+
+    Two ways to reach one lane would let a call site bypass the intended function,
+    and the error messages — which name the entry point — would then misreport it.
+    """
+
+    @parameterized.expand(
+        [
+            ("capture_internal", capture_internal),
+            ("capture_batch_internal", capture_batch_internal),
+            ("capture_ai_internal", capture_ai_internal),
+            ("capture_batch_ai_internal", capture_batch_ai_internal),
+        ]
+    )
+    def test_public_senders_take_no_lane_flag(self, name: str, fn: Any) -> None:
+        params = inspect.signature(fn).parameters
+        assert "ai_lane" not in params, f"{name} must not expose the lane as an argument"
+
+    @parameterized.expand(
+        [
+            ("capture_internal", capture_internal, EXPECTED_URL),
+            ("capture_ai_internal", capture_ai_internal, EXPECTED_AI_URL),
+        ]
+    )
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_each_entry_point_reaches_exactly_one_lane(
+        self, name: str, fn: Any, expected_url: str, mock_session_fn: MagicMock
+    ) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+        event_name = "$ai_generation" if "ai" in name.split("_") else "$pageview"
+
+        fn(token="tok", event_name=event_name, event_source="src", distinct_id="u1", event_uuid=uid)
+
+        assert spy.calls[0]["url"] == expected_url
