@@ -99,6 +99,38 @@ describe('workflowLogic schedule reducers', () => {
             expect(dayjs(nextScheduledRun!.at).isAfter(dayjs())).toBe(true)
         })
 
+        it.each([
+            {
+                label: 'a daily rule that started months ago',
+                rrule: 'FREQ=DAILY;INTERVAL=1',
+                startedDaysAgo: 120,
+                maxWaitHours: 24,
+            },
+            {
+                label: 'an hourly rule the picker cannot express',
+                rrule: 'FREQ=HOURLY;INTERVAL=1',
+                startedDaysAgo: 30,
+                maxWaitHours: 1,
+            },
+        ])('expands $label while next_run_at is still empty', ({ rrule, startedDaysAgo, maxWaitHours }) => {
+            logic.actions.setSchedules([
+                makeSchedule({ rrule, starts_at: dayjs().subtract(startedDaysAgo, 'day').toISOString() }),
+            ])
+
+            const nextScheduledRun = logic.values.nextScheduledRun
+            expect(nextScheduledRun).not.toBeNull()
+            expect(dayjs(nextScheduledRun!.at).isAfter(dayjs())).toBe(true)
+            expect(dayjs(nextScheduledRun!.at).isBefore(dayjs().add(maxWaitHours, 'hour').add(1, 'minute'))).toBe(true)
+        })
+
+        it('keeps an explicit month day that the picker cannot express', () => {
+            logic.actions.setSchedules([
+                makeSchedule({ rrule: 'FREQ=MONTHLY;BYMONTHDAY=15', starts_at: '2026-01-03T09:00:00.000Z' }),
+            ])
+
+            expect(dayjs(logic.values.nextScheduledRun!.at).utc().date()).toBe(15)
+        })
+
         it.each(['paused', 'completed'])('is null when the schedule is %s', (status) => {
             logic.actions.setSchedules([makeSchedule({ status, next_run_at: FUTURE_RUN })])
 

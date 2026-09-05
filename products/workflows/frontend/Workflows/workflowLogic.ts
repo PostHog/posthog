@@ -29,9 +29,8 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
-    computePreviewOccurrences,
+    computeNextOccurrence,
     DEFAULT_STATE,
-    fakeUtcToReal,
     isOneTimeSchedule,
     ONE_TIME_RRULE,
     parseRRuleToState,
@@ -3472,17 +3471,11 @@ export const workflowLogic = kea<workflowLogicType>([
                     return { at: currentSchedule.next_run_at, timezone }
                 }
                 // The scheduler fills next_run_at only after its first tick, so expand the rrule until then.
-                const [next] = computePreviewOccurrences(
-                    parseRRuleToState(currentSchedule.rrule),
-                    currentSchedule.starts_at,
-                    timezone,
-                    1
-                )
-                if (!next) {
+                const nextRun = computeNextOccurrence(currentSchedule.rrule, currentSchedule.starts_at, timezone)
+                if (!nextRun?.isAfter(dayjs())) {
                     return null
                 }
-                const nextRun = fakeUtcToReal(next, timezone)
-                return nextRun.isAfter(dayjs()) ? { at: nextRun.toISOString(), timezone } : null
+                return { at: nextRun.toISOString(), timezone }
             },
         ],
         pendingSchedule: [
