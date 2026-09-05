@@ -5,6 +5,8 @@ from typing import Any, Literal, get_args
 
 import posthoganalytics
 
+from products.tasks.backend import model_catalog
+
 # Canonical PR/CI snapshot vocabulary, as produced by the GitHub integration's
 # pull-request snapshot (`_map_pr_state` / `_map_ci_status`) and persisted on
 # ``TaskRun.output`` (``pr_state`` / ``ci_status``) for the task list filters.
@@ -88,12 +90,18 @@ MODEL_ACCESS_FLAGS: dict[str, str] = {
 
 
 def get_required_model_flag(model: str | None) -> str | None:
-    """The feature flag a caller needs to select `model`, or None when it's generally available."""
+    """The feature flag a caller needs to select `model`, or None when it's generally available.
+
+    Normalized through the catalog rather than lowercased here: every resolver folds a
+    provider-qualified id onto the model it names, so a gate matching raw strings would
+    read `anthropic/zai-org/glm-5.3` as an unknown model and skip the entitlement check
+    on a spelling the rest of the stack treats as the gated one.
+    """
     if not model:
         return None
-    normalized = model.strip().lower()
+    normalized = model_catalog.normalize_model_id(model)
     for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
-        if gated_model.lower() == normalized:
+        if model_catalog.normalize_model_id(gated_model) == normalized:
             return flag_key
     return None
 

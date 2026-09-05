@@ -8,6 +8,7 @@ import {
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER } from 'products/tasks/frontend/modelCatalog.generated'
 
 import { type PermissionMode, resolveModeForRuntimeAdapter } from './composerModes'
 
@@ -16,33 +17,15 @@ export interface ComposerEffortOption {
     label: string
 }
 
-// What a thinking model supports at minimum. Only reached for a model the catalogue hasn't described yet — while the
-// first fetch is in flight, or for a run started on a model since retired from the gateway.
+// What a thinking model supports at minimum. Only reached for a model the catalogue does not describe, which now means
+// a run started on a model since retired from the catalog.
 const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
     ReasoningEffortEnumApi.Low,
     ReasoningEffortEnumApi.Medium,
     ReasoningEffortEnumApi.High,
 ]
 
-// Used only when the tasks API can't answer: an unreachable LLM gateway makes the catalogue endpoint return an empty
-// list, and an empty model dropdown is worse than a stale one. The live catalogue is the source of truth — see
-// `modelCatalogueLogic`. Claude-only: without the catalogue we can't know a Codex model exists, and Claude is the default.
-export const FALLBACK_MODEL_CHOICES: ModelChoiceApi[] = [
-    {
-        runtime_adapter: RuntimeAdapterEnumApi.Claude,
-        model: 'claude-sonnet-5',
-        display_name: 'Claude Sonnet 5',
-        supported_efforts: FALLBACK_EFFORTS,
-    },
-    {
-        runtime_adapter: RuntimeAdapterEnumApi.Claude,
-        model: 'claude-opus-5',
-        display_name: 'Claude Opus 5',
-        supported_efforts: FALLBACK_EFFORTS,
-    },
-]
-
-export const DEFAULT_COMPOSER_MODEL = 'claude-sonnet-5'
+export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
 const EFFORT_LABELS: Record<string, string> = {

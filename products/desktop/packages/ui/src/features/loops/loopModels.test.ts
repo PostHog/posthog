@@ -4,6 +4,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { restrictedModelMeta } from "@posthog/shared";
+import { MODELS } from "@posthog/shared/model-catalog";
 import { describe, expect, it } from "vitest";
 import {
   clampLoopReasoningEffort,
@@ -223,6 +224,28 @@ describe("loopModelOptions", () => {
       pinnedModel: "",
     }).map((option) => option.value);
     expect(values).toEqual(expectedValues);
+  });
+
+  // The loops serializer rejects a model the catalog no longer serves, so a retired id
+  // in the fallback list is a save the user cannot make. The cases above assert the
+  // fallback against hardcoded ids, so only this notices a catalog removal.
+  it("every fallback model is one the catalog still serves", () => {
+    for (const adapter of ["claude", "codex"] as const) {
+      const served = MODELS.filter((m) => m.runtimeAdapter === adapter).map(
+        (m) => m.id,
+      );
+      const fallback = loopModelOptions(adapter, [], {
+        glmEnabled: true,
+        glm53Enabled: true,
+        glm53FlashEnabled: true,
+        kimiEnabled: true,
+        deepseekEnabled: true,
+        pinnedModel: "",
+      })
+        .map((o) => o.value)
+        .filter((v) => v !== "");
+      expect(served).toEqual(expect.arrayContaining(fallback));
+    }
   });
 });
 

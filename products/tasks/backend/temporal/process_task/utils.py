@@ -18,6 +18,7 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_installations_for_sandbox
+from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -101,13 +102,11 @@ class ReasoningEffort(StrEnum):
     ULTRACODE = "ultracode"
 
 
-PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    ReasoningEffort.LOW,
-    ReasoningEffort.MEDIUM,
-    ReasoningEffort.HIGH,
-    ReasoningEffort.XHIGH,
-    ReasoningEffort.MAX,
-    ReasoningEffort.ULTRACODE,
+# Derived, not restated: this is the tuple the run serializers build their effort choices
+# from, so a tier added to the catalog and not here would have every picker offering a
+# depth the API rejects.
+PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = tuple(
+    ReasoningEffort(effort) for effort in model_catalog.REASONING_EFFORTS
 )
 
 
@@ -115,116 +114,9 @@ CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
-    RuntimeAdapter.CLAUDE: LLMProvider.ANTHROPIC,
-    RuntimeAdapter.CODEX: LLMProvider.OPENAI,
+    RuntimeAdapter(adapter): LLMProvider(provider)
+    for adapter, provider in model_catalog.PROVIDER_BY_RUNTIME_ADAPTER.items()
 }
-
-
-CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
-    # GLM 5.2 is a Cloudflare-served model driven through the `claude` runtime adapter: the LLM
-    # gateway exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
-    # so the derived `provider="anthropic"` is the intended routing, not a direct Anthropic call.
-    "@cf/zai-org/glm-5.2": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "zai-org/glm-5.3": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "zai-org/glm-5.3-flash": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "moonshotai/kimi-k3": (),
-    "claude-opus-4-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-    ),
-    "claude-opus-4-6": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-    ),
-    "claude-opus-4-7": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-opus-4-8": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-opus-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-fable-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-fable-5-1": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-sonnet-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-sonnet-4-6": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-    ),
-}
-
-CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    ReasoningEffort.LOW,
-    ReasoningEffort.MEDIUM,
-    ReasoningEffort.HIGH,
-)
-CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    *CODEX_REASONING_EFFORTS,
-    ReasoningEffort.XHIGH,
-)
-CODEX_MAX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    *CODEX_XHIGH_REASONING_EFFORTS,
-    ReasoningEffort.MAX,
-)
-CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
-CODEX_MAX_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
-
-# Canonical list of Codex models. The runtime technically accepts any
-# `gpt-*` identifier passed through, but only models on this list are
-# considered tested and surfaced in pickers. Extend when a new Codex model
-# ships.
-CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
 
 
 def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
@@ -237,20 +129,25 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
     if runtime_adapter is None:
         return ()
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    if adapter_value == RuntimeAdapter.CLAUDE.value:
-        return tuple(CLAUDE_REASONING_EFFORTS_BY_MODEL.keys())
-    if adapter_value == RuntimeAdapter.CODEX.value:
-        return CODEX_MODELS
-    return ()
+    return model_catalog.models_for_runtime_adapter(adapter_value)
 
 
-# Applied at fire time when a loop leaves its model unset ("" / None): a blank
-# model means "let PostHog pick", so defaults can improve without rewriting
-# stored loops. Mirrored by LOOP_DEFAULT_MODELS in posthog-code's loops UI.
-DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
-    RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
-    RuntimeAdapter.CODEX.value: "gpt-5",
-}
+def runtime_adapter_serves_model(runtime_adapter: RuntimeAdapter | str | None, model: str | None) -> bool:
+    """Whether the adapter drives the model, whichever spelling the caller sends.
+
+    An allowlist wants this rather than membership of `get_models_for_runtime_adapter`,
+    which holds canonical ids and so rejects the provider-qualified spelling the gateway
+    also serves and every resolver here accepts.
+    """
+    if runtime_adapter is None:
+        return False
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    return model_catalog.serves_model(adapter_value, model)
+
+
+# Applied at fire time when a run or loop leaves its model unset ("" / None): a blank
+# model means "let PostHog pick", so defaults can improve without rewriting stored loops.
+DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = dict(model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER)
 
 
 def get_default_model_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> str | None:
@@ -328,17 +225,7 @@ def get_supported_reasoning_efforts(
         return ()
 
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    if adapter_value == RuntimeAdapter.CLAUDE.value:
-        return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
-    if adapter_value == RuntimeAdapter.CODEX.value:
-        normalized_model = model.lower()
-        if normalized_model in CODEX_MAX_REASONING_MODELS:
-            return CODEX_MAX_REASONING_EFFORTS
-        if normalized_model in CODEX_XHIGH_REASONING_MODELS:
-            return CODEX_XHIGH_REASONING_EFFORTS
-        return CODEX_REASONING_EFFORTS
-
-    return ()
+    return tuple(ReasoningEffort(effort) for effort in model_catalog.reasoning_efforts_for(adapter_value, model))
 
 
 def get_reasoning_effort_error(
@@ -372,9 +259,11 @@ def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
     if not model:
         return None
 
-    normalized = model.strip().lower()
+    # The catalog's own normalization, so a provider-qualified id resolves the same way
+    # here as it does in `reasoning_efforts_for`.
+    normalized = model_catalog.normalize_model_id(model)
     for adapter in RuntimeAdapter:
-        if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
+        if normalized in get_models_for_runtime_adapter(adapter):
             return adapter
     return None
 

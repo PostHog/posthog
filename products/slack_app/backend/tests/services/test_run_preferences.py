@@ -8,7 +8,7 @@ from products.slack_app.backend.services.model_catalogue import (
     ModelChoice,
     available_model_choices,
     describe_run_model,
-    format_model_id,
+    display_name_for_model,
 )
 from products.slack_app.backend.services.run_preferences import (
     SLACK_DEFAULT_MODEL,
@@ -226,24 +226,24 @@ class TestFormatModelId:
             ("gpt-5-mini", "GPT-5 Mini"),
             # A provider-prefixed id drops the prefix before naming.
             ("openai/gpt-5.5", "GPT-5.5"),
+            # A vendor-served id derives badly, so the catalog names it and that name wins.
+            ("@cf/zai-org/glm-5.2", "GLM-5.2"),
         ],
     )
     def test_names_every_family_without_a_lookup_table(self, model_id, expected):
-        assert format_model_id(model_id) == expected
+        assert display_name_for_model(model_id) == expected
 
 
 class TestAvailableModelChoices:
-    def test_drops_providers_we_cannot_route(self):
-        """The gateway serves models under providers the tasks product has no runtime
-        for; offering one would produce a run the gateway rejects."""
-        from products.tasks.backend.facade.model_catalogue import GatewayModel
-
-        gateway = (
-            GatewayModel(id="claude-fable-5", owned_by="anthropic", context_window=200000),
-            GatewayModel(id="titan-express", owned_by="bedrock", context_window=8000),
-        )
+    def test_reads_the_catalog_rather_than_the_gateway(self):
+        """Slack asks only what the catalog answers, so a gateway outage must not leave a
+        mention with nothing to match its model against."""
         with patch(
             "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-            return_value=gateway,
+            return_value=(),
         ):
-            assert [c.model for c in available_model_choices()] == ["claude-fable-5"]
+            choices = available_model_choices()
+
+        models = {c.model for c in choices}
+        assert {"claude-sonnet-5", "gpt-5.6-sol", "zai-org/glm-5.3"} <= models
+        assert all(c.label and c.runtime_adapter for c in choices)
