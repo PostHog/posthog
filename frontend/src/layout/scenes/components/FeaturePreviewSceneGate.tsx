@@ -48,7 +48,8 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
     }, [loadEarlyAccessFeatures])
 
     const feature = earlyAccessFeatures.find((f) => f.flagKey === config.flag)
-    const sceneConfig = activeSceneId ? sceneConfigurations[activeSceneId] : undefined
+    const sceneIdForHeader = config.sceneId ?? activeSceneId
+    const sceneConfig = sceneIdForHeader ? sceneConfigurations[sceneIdForHeader] : undefined
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
 
     return (
