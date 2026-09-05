@@ -109,6 +109,7 @@ function gatewayServer(overrides: Partial<MCPGatewayServerApi>): MCPGatewayServe
         description: '',
         category: 'dev',
         template_auth_type: null,
+        auth_type: null,
         is_team_enabled: true,
         icon_key: '',
         icon_domain: '',
@@ -165,9 +166,11 @@ function serviceAccountWithShare(scope: MCPAgentGrantScopeEnumApi): MCPServiceAc
                 scope,
                 name: 'Test server',
                 description: '',
+                url: '',
                 icon_key: '',
                 icon_domain: '',
                 connection_state: 'ready',
+                reachable: true,
             },
         ],
         last_active_at: null,
@@ -280,6 +283,16 @@ describe('mcpGatewayLogic', () => {
                 scope: 'personal',
             })
         )
+    })
+
+    it('presets the connect modal to the auth type a custom server was added with', () => {
+        const server = gatewayServer({ id: 'custom-server', auth_type: 'api_key' })
+        logic.actions.loadServersSuccess([server])
+
+        logic.actions.connectServer(server.id)
+
+        expect(logic.values.connectionModalServerId).toBe(server.id)
+        expect(logic.values.connectionAuthType).toBe('api_key')
     })
 
     it('refreshes tools through the generated installation endpoint', async () => {
@@ -424,9 +437,11 @@ describe('mcpGatewayLogic', () => {
                     scope: 'personal' as const,
                     name: 'Linear',
                     description: '',
+                    url: '',
                     icon_key: '',
                     icon_domain: '',
                     connection_state: 'ready' as const,
+                    reachable: true,
                 },
             ],
         }
@@ -468,9 +483,11 @@ describe('mcpGatewayLogic', () => {
                     scope: 'personal' as const,
                     name: 'Linear',
                     description: '',
+                    url: '',
                     icon_key: '',
                     icon_domain: '',
                     connection_state: 'ready' as const,
+                    reachable: true,
                 },
             ],
         })

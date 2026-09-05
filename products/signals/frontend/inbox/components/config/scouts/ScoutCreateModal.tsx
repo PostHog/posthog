@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useId } from 'react'
 
 import {
     LemonButton,
@@ -23,12 +22,15 @@ import {
     ScoutCreateInitialValues,
     ScoutCreateModalLogicProps,
     scoutCreateModalLogic,
+    scoutCreateModalLogicKey,
 } from '../../../logics/scoutCreateModalLogic'
 import {
     getScoutScheduleMode,
     getScoutScheduleOptions,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
+    SCOUT_WEEKDAY_OPTIONS,
+    SCOUT_WEEKLY_ON_SCHEDULE_MODE,
     SIGNALS_SCOUT_SKILL_PREFIX,
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
@@ -44,7 +46,7 @@ export interface ScoutCreateModalProps {
 
 export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: ScoutCreateModalProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const logicKey = useId()
+    const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
     const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated }
     const logic = scoutCreateModalLogic(logicProps)
@@ -56,7 +58,13 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
         scoutCreateFormTouches,
         showScoutCreateFormErrors,
     } = useValues(logic)
-    const { resetScoutCreateForm, setScoutCreateDailyTime, setScoutCreateScheduleMode } = useActions(logic)
+    const {
+        resetScoutCreateForm,
+        resetMcpServersDefaulted,
+        setScoutCreateDailyTime,
+        setScoutCreateWeeklyDay,
+        setScoutCreateScheduleMode,
+    } = useActions(logic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const scheduleMode = getScoutScheduleMode(scoutCreateForm.config)
 
@@ -65,6 +73,9 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
             return
         }
         resetScoutCreateForm()
+        // Leaving the modal on purpose discards the draft, so clear the "servers defaulted" marker too.
+        // Otherwise its persisted `true` would make the next open skip the all-servers default.
+        resetMcpServersDefaulted()
         onClose()
     }
 
@@ -224,7 +235,7 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                             help={
                                 scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE
                                     ? 'A cron schedule provided by the opening context'
-                                    : 'Choose a rolling cadence, or a set time each day'
+                                    : 'Choose a rolling cadence, or a set time each day or week'
                             }
                         >
                             <LemonSelect
@@ -233,7 +244,17 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                                 onChange={setScoutCreateScheduleMode}
                             />
                         </LemonField.Pure>
-                        {scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE ? (
+                        {scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE ? (
+                            <LemonField.Pure label="Run day" help="The scout runs once a week, on this day">
+                                <LemonSelect
+                                    value={scoutCreateForm.weeklyDay}
+                                    options={SCOUT_WEEKDAY_OPTIONS}
+                                    onChange={setScoutCreateWeeklyDay}
+                                />
+                            </LemonField.Pure>
+                        ) : null}
+                        {scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE ||
+                        scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE ? (
                             <LemonField.Pure label="Run time" help={`Uses the project timezone (${projectTimezone})`}>
                                 <LemonInput
                                     type="time"

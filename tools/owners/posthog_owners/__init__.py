@@ -2,10 +2,12 @@
 
 from .census import TeamTestCensus, census, first_team_owner, runner_for_path
 from .matcher import compile_pattern, path_matches_pattern
-from .resolver import OwnersResolver, Resolution
+from .resolver import DiskSource, OwnershipSource, OwnersResolver, Resolution
 
 __all__ = [
+    "DiskSource",
     "OwnersResolver",
+    "OwnershipSource",
     "Resolution",
     "TeamTestCensus",
     "census",

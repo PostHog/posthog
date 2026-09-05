@@ -527,11 +527,6 @@ class AssistantTool(StrEnum):
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
     SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
-    READ_REPLAY_VISION_ACTIONS = "read_replay_vision_actions"
-    UPDATE_REPLAY_VISION_ACTION = "update_replay_vision_action"
-    DELETE_REPLAY_VISION_ACTION = "delete_replay_vision_action"
-    RUN_REPLAY_VISION_ACTION = "run_replay_vision_action"
-    CREATE_REPLAY_VISION_ACTION = "create_replay_vision_action"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -887,6 +882,29 @@ class CurrencyCode(StrEnum):
     YER = "YER"
     ZAR = "ZAR"
     ZMW = "ZMW"
+
+
+class CustomBotField(StrEnum):
+    FIELD_RAW_USER_AGENT = "$raw_user_agent"
+    FIELD_IP = "$ip"
+    FIELD_LIB = "$lib"
+    FIELD_HOST = "$host"
+    FIELD_PATHNAME = "$pathname"
+    FIELD_CURRENT_URL = "$current_url"
+    FIELD_BROWSER = "$browser"
+    FIELD_OS = "$os"
+    FIELD_BROWSER_LANGUAGE = "$browser_language"
+    FIELD_SCREEN_WIDTH = "$screen_width"
+    FIELD_SCREEN_HEIGHT = "$screen_height"
+    FIELD_GEOIP_COUNTRY_CODE = "$geoip_country_code"
+    FIELD_REFERRER = "$referrer"
+    FIELD_REFERRING_DOMAIN = "$referring_domain"
+
+
+class CustomBotMatcher(StrEnum):
+    CONTAINS = "contains"
+    REGEX = "regex"
+    CIDR = "cidr"
 
 
 class CustomChannelField(StrEnum):
@@ -2638,6 +2656,10 @@ class ExternalDataSourceType(StrEnum):
     COOLIFY = "Coolify"
     SOCIAL_PILOT = "SocialPilot"
     ROKT_ADS = "RoktAds"
+    STRATO = "Strato"
+    MEDUSA = "Medusa"
+    MEMBRAIN = "Membrain"
+    RECALL_AI = "RecallAI"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3665,6 +3687,7 @@ class ProductKey(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
     COHORTS = "cohorts"
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
@@ -3702,11 +3725,16 @@ class ProductKey(StrEnum):
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_AI_ONBOARDING = "posthog_ai_onboarding"
+    POSTHOG_DESKTOP = "posthog_desktop"
+    POSTHOG_GITHUB = "posthog_github"
+    POSTHOG_SLACK = "posthog_slack"
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
     PULSE = "pulse"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVIEW_HOG = "review_hog"
+    SELF_DRIVING = "self_driving"
     SESSION_REPLAY = "session_replay"
     REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"

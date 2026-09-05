@@ -100,6 +100,22 @@ describe("classifyGatewayLimitError", () => {
       "model_gate",
     ],
     [
+      `Internal error: API Error: 403 {"error":{"message":"Nope.","type":"permission_error","code":"model_gate"}}`,
+      "model_gate",
+    ],
+    [
+      `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.","type":"permission_error","code":"model_gate","reason":"model_not_available"}}`,
+      "model_unavailable",
+    ],
+    [
+      `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available. Choose another model. (rate_limit)","type":"permission_error","code":"model_gate"}}`,
+      "model_unavailable",
+    ],
+    [
+      "API Error: 403 Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.",
+      "model_unavailable",
+    ],
+    [
       // Bare FastAPI detail from gateways predating the error envelope.
       `Internal error: API Error: 403 {"detail":"Model 'claude-opus-4-8' needs a paid PostHog plan."}`,
       "model_gate",
@@ -182,6 +198,14 @@ describe("isFatalSessionError", () => {
     expect(isFatalSessionError(message)).toBe(true);
   });
 
+  it("does not tear the session down over a model the account can't use", () => {
+    expect(
+      isFatalSessionError(
+        `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.","type":"permission_error","code":"model_gate","reason":"model_not_available"}}`,
+      ),
+    ).toBe(false);
+  });
+
   it("does not treat a rate-limit error as fatal even if a fatal phrase is present", () => {
     expect(isFatalSessionError("process exited", "rate limit exceeded")).toBe(
       false,
@@ -198,6 +222,7 @@ describe("isFatalSessionError", () => {
     "Internal error: API Error: terminated",
     "Internal error: API Error: Connection error",
     "Internal error: API Error: 529 overloaded_error",
+    "Internal error: API Error: Content block is not a thinking block",
   ])("does not treat the transient upstream failure %j as fatal", (message) => {
     expect(isFatalSessionError(message)).toBe(false);
   });
@@ -241,6 +266,8 @@ describe("isTransientUpstreamError", () => {
     "Internal error: API Error: Connection closed mid-response. The response above may be incomplete.",
     "The socket connection was closed unexpectedly.",
     "socket connection closed",
+    "Internal error: API Error: Content block not found",
+    "Internal error: API Error: Content block is not a thinking block",
   ])("recognises %j", (message) => {
     expect(isTransientUpstreamError(message)).toBe(true);
   });
