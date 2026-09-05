@@ -46,6 +46,10 @@ import { FleetFindingsCallout } from "./FleetFindingsCallout";
 import { FleetMemoryCallout } from "./FleetMemoryCallout";
 import { ScoutHelperSkillLinks } from "./ScoutHelperSkillLinks";
 import { ScoutRowCard } from "./ScoutRowCard";
+import {
+  ScoutSuggestionsCards,
+  ScoutSuggestionsSection,
+} from "./ScoutSuggestionsSection";
 
 const EMPTY_CONFIGS: ScoutConfig[] = [];
 
@@ -114,7 +118,9 @@ export function ScoutsFleetSection() {
   ).length;
 
   return (
-    <Flex direction="column" gap="3">
+    <div className="flex flex-col gap-3">
+      {/* Above the fleet pulse, so the picks are readable without expanding it. */}
+      <ScoutSuggestionsSection />
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
@@ -153,7 +159,7 @@ export function ScoutsFleetSection() {
       {expanded ? (
         <ScoutsFleetList configs={configs} syncOutcome={syncOutcome} />
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -469,27 +475,23 @@ function ScoutsEmptyState({
 }) {
   useTrackFleetViewed(EMPTY_CONFIGS, syncOutcome);
   return (
-    <Flex direction="column" gap="3">
-      <Flex
-        direction="column"
-        gap="2"
-        align="start"
-        className="rounded-(--radius-3) border border-border bg-(--color-panel-solid) px-5 py-5"
-      >
-        <Flex align="center" gap="2">
-          <CompassIcon size={18} className="text-(--iris-9)" />
-          <Text className="font-medium text-[13px] text-gray-12">
-            No scouts on this project yet
-          </Text>
-        </Flex>
-        <Text className="max-w-2xl text-[12.5px] text-gray-11 leading-snug">
-          Scouts run on a schedule to investigate a recurring signal or
-          behavior. Add one by creating a{" "}
-          <span className="font-mono text-[11px]">signals-scout-*</span> skill
-          in your PostHog project.
-        </Text>
-        <ScoutHelperSkillLinks surface="empty_state" />
-      </Flex>
-    </Flex>
+    <div className="flex flex-col items-start gap-3 rounded-(--radius-3) border border-border bg-(--color-panel-solid) px-5 py-5">
+      <div className="flex items-center gap-2">
+        <CompassIcon size={18} className="text-(--iris-9)" />
+        <span className="font-medium text-[13px] text-gray-12">
+          No scouts on this project yet
+        </span>
+      </div>
+      <p className="m-0 max-w-2xl text-[12.5px] text-gray-11 leading-snug">
+        Scouts run on a schedule to investigate a recurring signal or behavior.
+        Add one by creating a{" "}
+        <span className="font-mono text-[11px]">signals-scout-*</span> skill in
+        your PostHog project.
+      </p>
+      {/* Renders nothing until a batch exists, so a project that has never been
+          scanned keeps the empty state it had. */}
+      <ScoutSuggestionsCards />
+      <ScoutHelperSkillLinks surface="empty_state" />
+    </div>
   );
 }
