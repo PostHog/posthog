@@ -331,14 +331,18 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
     @patch("ee.billing.billing_manager.requests.get")
     def test_invoices_carry_iso_dates_and_cursor_urls(self, mock_get):
         mock_get.return_value = _response(INVOICES)
-        response = self.client.get(self._url("invoices/?limit=1"))
+        response = self.client.get(self._url("invoices/?limit=1&status=paid"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         body = response.json()
         self.assertEqual(body["results"][0]["period_start"], "2026-09-01T00:00:00Z")
         self.assertIsNone(body["results"][0]["due_date"])
-        self.assertTrue(body["next"].endswith("/billing/invoices/?cursor=bz0x"))
+        # The next link keeps the page size and filter of this request.
+        self.assertTrue(body["next"].endswith("/billing/invoices/?limit=1&status=paid&cursor=bz0x"), body["next"])
         self.assertIsNone(body["previous"])
-        self.assertEqual(mock_get.call_args.kwargs["params"], {"limit": 1})
+        self.assertEqual(mock_get.call_args.kwargs["params"], {"limit": 1, "status": "paid"})
+        for query in ("limit=abc", "limit=0", "status=draft"):
+            response = self.client.get(self._url(f"invoices/?{query}"))
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, query)
 
     @patch("ee.api.billing_public.fetch_invoice_document")
     @patch("ee.billing.billing_manager.requests.get")

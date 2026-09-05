@@ -377,8 +377,22 @@ INCLUDE_PLANS = OpenApiParameter(
 )
 
 
+class BillingInvoiceListParamsSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        required=False, choices=["open", "paid", "uncollectible", "void"], help_text="Only invoices in this state."
+    )
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, help_text="Invoices per page.")
+    cursor = serializers.CharField(required=False, help_text="The cursor from a previous page.")
+
+
+@extend_schema(extensions={"x-product": "billing"})
 class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Read billing state for an organization: subscription, products, features and usage."""
+    """Read billing state for an organization: subscription, products, features and usage.
+
+    The schema attributes every operation here to the billing product. Without that the route
+    puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+    the billing tools that name them.
+    """
 
     scope_object = "billing"
     scope_object_read_actions = [
@@ -604,17 +618,17 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return self._timeseries(request, "spend")
 
     def _cursor_url(self, request: Request, cursor: Optional[str]) -> Optional[str]:
+        """The same request with the cursor swapped, so limit and any filter carry across pages."""
         if not cursor:
             return None
-        return request.build_absolute_uri(f"{request.path}?cursor={cursor}")
+        params = request.query_params.copy()
+        params["cursor"] = cursor
+        return request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
 
     @extend_schema(
         operation_id="billing_invoices_list",
         summary="List the organization's invoices",
-        parameters=[
-            OpenApiParameter("cursor", str, OpenApiParameter.QUERY, description="The cursor from a previous page."),
-            OpenApiParameter("limit", int, OpenApiParameter.QUERY, description="Invoices per page.", default=100),
-        ],
+        parameters=[BillingInvoiceListParamsSerializer],
         responses={200: OpenApiResponse(response=BillingInvoicesSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="invoices")
@@ -622,10 +636,9 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        limit = request.query_params.get("limit")
-        data = self._manager().get_public_invoices(
-            organization, grants, cursor=request.query_params.get("cursor"), limit=int(limit) if limit else None
-        )
+        params = BillingInvoiceListParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        data = self._manager().get_public_invoices(organization, grants, **params.validated_data)
         results = [
             {
                 **invoice,

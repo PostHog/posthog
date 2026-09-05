@@ -789,13 +789,15 @@ class BillingManager:
         return self._public_get(organization, grants, "forecast/")
 
     def get_public_invoices(
-        self, organization: Organization, grants: EffectiveBillingGrants, *, cursor: str | None, limit: int | None
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        status: str | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {}
-        if cursor:
-            params["cursor"] = cursor
-        if limit:
-            params["limit"] = limit
+        params = {key: value for key, value in (("cursor", cursor), ("limit", limit), ("status", status)) if value}
         return self._public_get(organization, grants, "invoices/", params)
 
     def get_public_invoice_pdf_url(
