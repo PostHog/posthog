@@ -282,6 +282,7 @@ def build_agent_runtime_env_prefix(
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
+    unset_bedrock: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -311,7 +312,15 @@ def build_agent_runtime_env_prefix(
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
     )
-    return f"env {assignments} " if assignments else ""
+    # Route the agent through the PostHog LLM gateway instead of direct Bedrock:
+    # unset the box profile's Bedrock vars so the Claude CLI falls back to the
+    # gateway (ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN). Direct Bedrock from the
+    # box needs AWS Marketplace model access plus SigV4-signing the
+    # x-posthog-property-* headers (which AWS strips), so the gateway path avoids
+    # both and matches the Modal backend.
+    unset_flags = "-u CLAUDE_CODE_USE_BEDROCK -u AWS_CONTAINER_CREDENTIALS_FULL_URI" if unset_bedrock else ""
+    body = f"{unset_flags} {assignments}".strip()
+    return f"env {body} " if body else ""
 
 
 class SandboxBase(ABC):
@@ -319,6 +328,11 @@ class SandboxBase(ABC):
     config: SandboxConfig
     supports_creation_cancellation = False
     creation_timeout_seconds = 300
+    # When True, the agent runtime is launched with the box's Bedrock env unset,
+    # so the Claude CLI routes through the PostHog LLM gateway instead of direct
+    # Bedrock. hogland opts in (see HoglandSandbox); Modal/Docker already use the
+    # gateway.
+    disable_direct_bedrock = False
 
     @staticmethod
     def creation_cancellation_scope(cancel_event: threading.Event) -> AbstractContextManager[None]:
