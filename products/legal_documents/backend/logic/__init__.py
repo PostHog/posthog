@@ -171,10 +171,18 @@ PANDADOC_COMPLETED_STATUS = "document.completed"
 # out — the state the reconcile sweep re-sends from.
 PANDADOC_DRAFT_STATUS = "document.draft"
 
+# Pseudo-status returned by get_pandadoc_document_status when PandaDoc 404s the
+# envelope. PandaDoc never sends this string itself.
+PANDADOC_ENVELOPE_MISSING = "envelope.missing"
+
 # A row created moments ago is normally about to get its own document.draft webhook;
 # re-sending from the sweep at the same time would duplicate the send and produce a
 # spurious 409 in error tracking.
 RECONCILE_DRAFT_MIN_AGE = timedelta(minutes=5)
+
+# Throttles envelope re-creation per row so a still-processing create isn't
+# mistaken for a lost envelope and retried on every 15-minute tick.
+RECONCILE_RECREATE_MIN_AGE = timedelta(hours=1)
 
 # The reconciliation sweep polls PandaDoc once per pending row every 15 minutes, so
 # bound the set: only rows created inside this window, capped per run. Two weeks is
@@ -182,6 +190,10 @@ RECONCILE_DRAFT_MIN_AGE = timedelta(minutes=5)
 # completed, so a longer window mostly re-asks about drafts nobody will ever sign.
 _RECONCILE_LOOKBACK = timedelta(days=14)
 RECONCILE_MAX_PER_RUN = 500
+
+# Spreads a burst of re-creates across ticks so one tick stays under PandaDoc's
+# per-minute rate limit.
+RECONCILE_MAX_RECREATES_PER_RUN = 20
 
 
 def list_pending_signature_documents() -> QuerySet[LegalDocument]:
@@ -199,6 +211,21 @@ def list_pending_signature_documents() -> QuerySet[LegalDocument]:
         .exclude(pandadoc_document_id="")
         .order_by("created_at")[:RECONCILE_MAX_PER_RUN]
     )
+
+
+def list_pending_documents_missing_envelope() -> QuerySet[LegalDocument]:
+    """
+    Rows still submitted for signature whose PandaDoc envelope was never
+    created: the initial create call failed and left the id empty.
+    `list_pending_signature_documents` excludes these forever, so the sweep
+    retries their creation from here instead.
+    """
+    cutoff = timezone.now() - _RECONCILE_LOOKBACK
+    return LegalDocument.objects.filter(
+        status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+        pandadoc_document_id="",
+        created_at__gte=cutoff,
+    ).order_by("created_at")[:RECONCILE_MAX_PER_RUN]
 
 
 def list_signed_documents_missing_pdf(exclude_ids: Iterable[UUID] = ()) -> QuerySet[LegalDocument]:
@@ -223,15 +250,16 @@ def list_signed_documents_missing_pdf(exclude_ids: Iterable[UUID] = ()) -> Query
 
 def get_pandadoc_document_status(document: LegalDocument) -> str | None:
     """
-    Ask PandaDoc for the envelope's current status. Returns None when we can't
-    reach PandaDoc or the envelope is gone — the caller skips the row this round
-    and retries on the next tick.
+    Ask PandaDoc for the envelope's current status. Returns
+    PANDADOC_ENVELOPE_MISSING when PandaDoc 404s the envelope, or None when we
+    can't tell because the call itself failed; the caller retries a None on
+    the next tick rather than treating a transient error as a gone envelope.
     """
     if not document.pandadoc_document_id:
         return None
     client = pandadoc_client.PandaDocClient()
     try:
-        return client.get_document_status(document_id=document.pandadoc_document_id)
+        status = client.get_document_status(document_id=document.pandadoc_document_id)
     except pandadoc_client.PandaDocError as exc:
         logger.warning(
             "legal_document_pandadoc_status_poll_failed",
@@ -240,6 +268,7 @@ def get_pandadoc_document_status(document: LegalDocument) -> str | None:
             error=str(exc),
         )
         return None
+    return status if status is not None else PANDADOC_ENVELOPE_MISSING
 
 
 def delete_document(document: LegalDocument, *, strict_pandadoc: bool = False) -> None:
@@ -526,6 +555,46 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
         )
         capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
         return None
+
+
+def confirm_pandadoc_envelope_gone(document: LegalDocument) -> bool:
+    """
+    A 404 from the status GET isn't proof the envelope is actually gone; a
+    transient or false 404 looks identical. Attempting the void write is the
+    second opinion: a 404 there confirms PandaDoc purged it, a 2xx means it
+    was still live and is now voided, and any other response means it still
+    exists in a state PandaDoc won't void, so the caller must not supersede it.
+    """
+    client = pandadoc_client.PandaDocClient()
+    try:
+        status_code = client.force_void_document(document_id=document.pandadoc_document_id)
+    except pandadoc_client.PandaDocError as exc:
+        logger.warning(
+            "legal_document_pandadoc_envelope_not_confirmed_gone",
+            document_id=str(document.id),
+            pandadoc_document_id=document.pandadoc_document_id,
+            error=str(exc),
+        )
+        document.save(update_fields=["updated_at"])
+        return False
+    if status_code == 404:
+        return True
+    logger.warning(
+        "legal_document_pandadoc_envelope_voided_before_recreate",
+        document_id=str(document.id),
+        pandadoc_document_id=document.pandadoc_document_id,
+    )
+    return True
+
+
+def retry_pandadoc_envelope(document: LegalDocument) -> bool:
+    """
+    Re-attempt envelope creation for a row whose PandaDoc envelope is missing
+    or was never created. Stamps `updated_at` first so the sweep's throttle
+    measures from this attempt, not the original failure.
+    """
+    document.save(update_fields=["updated_at"])
+    return create_pandadoc_envelope(document) is not None
 
 
 def send_pandadoc_envelope(document: LegalDocument) -> bool:
