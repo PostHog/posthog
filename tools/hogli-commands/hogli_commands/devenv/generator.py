@@ -511,8 +511,9 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
     # Procs excluded from the sandbox by default: they need the docker socket the
     # profile denies (e.g. temporal-worker running PostHog Desktop tasks with
-    # SANDBOX_PROVIDER=docker). POSTHOG_DEV_SANDBOX_EXCLUDE adds more on top.
-    _SANDBOX_DEFAULT_EXCLUDES = frozenset({"temporal-worker"})
+    # SANDBOX_PROVIDER=docker; backend provisions the same Docker sandboxes from
+    # web requests). POSTHOG_DEV_SANDBOX_EXCLUDE adds more on top.
+    _SANDBOX_DEFAULT_EXCLUDES = frozenset({"temporal-worker", "backend"})
 
     def _add_sandbox_wrapper(self, proc_config: dict[str, Any], name: str = "") -> dict[str, Any]:
         """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) by default.
