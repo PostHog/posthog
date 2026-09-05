@@ -116,6 +116,15 @@ MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
+    # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
+    # entry: a config problem only the customer can fix, so retrying just re-hits the same
+    # rejection. Match the stable prefix and exclude the volatile host details that follow it.
+    "Database host not allowed": (
+        "PostHog rejected this source's database host because it either couldn't be resolved, or "
+        "resolves to a private/internal address. Check the host is spelled correctly and reachable "
+        "from the public internet, then re-enable the sync."
+    ),
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
     # can't be parsed, or password auth is missing a username/password. Shared by every
     # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,
