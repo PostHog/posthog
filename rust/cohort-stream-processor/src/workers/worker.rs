@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::cascade::{first_cascade, CascadeMessage};
 use crate::consumers::events::CohortStreamEvent;
+use crate::consumers::seeds::SeedWork;
 use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
@@ -48,7 +49,8 @@ use crate::workers::event_path::{
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::reconcile::{handle_reconcile_drain, ReconcileQueue};
-use crate::workers::seed_path::handle_seed;
+use crate::workers::seed_apply::{handle_seed_groups, ApplyDeps};
+use crate::workers::seed_run::{group_seeds, row_weight, Admitted, SeedOffset};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -182,7 +184,37 @@ async fn run_worker(
         // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
         let mut held = false;
 
+        // Seeds accumulate so one run amortizes a produce round trip across many of them. Every
+        // other arm closes the collection first, which keeps a seed's order against the messages
+        // around it — a reconcile control seed still lands behind the data seeds that precede it.
+        let mut seeds: Vec<Admitted<SeedWork>> = Vec::new();
+
         for message in batch {
+            if let ShuffleMessage::Seed { work, offset, .. } = message {
+                seeds.push(Admitted {
+                    work: *work,
+                    offset: SeedOffset(offset),
+                });
+                continue;
+            }
+            if apply_seed_runs(
+                partition_id,
+                &handle,
+                &catalog,
+                &sink,
+                &merge,
+                &mut queue,
+                &mut reconcile_queue,
+                &mut last_updated_clock,
+                &mut buffer,
+                &mut held,
+                &mut seeds,
+            )
+            .await
+            {
+                break;
+            }
+
             let last_updated = last_updated_clock.next();
             match message {
                 ShuffleMessage::Event {
@@ -303,42 +335,6 @@ async fn run_worker(
                     )
                     .await;
                 }
-                ShuffleMessage::Seed {
-                    work,
-                    offset,
-                    broker_ts_ms: _,
-                } => {
-                    // Worker receipt is the first point that both proves this exact seed landed and
-                    // orders its ceiling before even a zero-work handler can mark it processed.
-                    // The dispatcher also records the delivered batch maximum, but that post-send
-                    // accounting can race a fast worker on a multithreaded runtime.
-                    merge
-                        .seed_tracker
-                        .mark_dispatched(partition_id as i32, offset + 1);
-                    if flush_event_changes_before_inline(
-                        &sink,
-                        &mut buffer,
-                        partition_id,
-                        &mut held,
-                    )
-                    .await
-                    {
-                        break;
-                    }
-                    handle_seed(
-                        partition_id,
-                        &handle,
-                        &catalog,
-                        &sink,
-                        &merge,
-                        &mut queue,
-                        &mut reconcile_queue,
-                        &last_updated,
-                        &work,
-                        offset,
-                    )
-                    .await;
-                }
                 ShuffleMessage::RedrivePendingTransfers => {
                     handle_redrive(partition_id, &handle, &merge).await;
                 }
@@ -383,6 +379,8 @@ async fn run_worker(
                             .unwrap_or_default();
                     }
                 }
+                // Collected above, before this match ever sees one.
+                ShuffleMessage::Seed { .. } => unreachable!("seeds are collected into runs"),
                 ShuffleMessage::ReconcileDrain => {
                     if flush_event_changes_before_inline(
                         &sink,
@@ -411,6 +409,23 @@ async fn run_worker(
                 tokio::task::yield_now().await;
                 last_yield = Instant::now();
             }
+        }
+
+        if !held {
+            apply_seed_runs(
+                partition_id,
+                &handle,
+                &catalog,
+                &sink,
+                &merge,
+                &mut queue,
+                &mut reconcile_queue,
+                &mut last_updated_clock,
+                &mut buffer,
+                &mut held,
+                &mut seeds,
+            )
+            .await;
         }
 
         if held {
@@ -511,6 +526,57 @@ async fn flush_event_changes_before_inline(
         );
         return true;
     }
+    false
+}
+
+/// Apply the seeds collected so far as runs, ahead of whatever message closed the collection.
+///
+/// Returns `true` when the pre-run flush of buffered live changes failed: the caller must stop the
+/// batch without marking, so Kafka replays it. The collected seeds are then neither marked nor
+/// held, which is what their own redelivery is for.
+#[allow(clippy::too_many_arguments)]
+async fn apply_seed_runs(
+    partition_id: u16,
+    handle: &StoreHandle,
+    catalog: &CatalogHandle,
+    sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
+    queue: &mut EvictionQueue<BehavioralKey>,
+    reconcile_queue: &mut ReconcileQueue,
+    clock: &mut LastUpdatedClock,
+    buffer: &mut OutputBuffer,
+    held: &mut bool,
+    seeds: &mut Vec<Admitted<SeedWork>>,
+) -> bool {
+    if seeds.is_empty() {
+        return false;
+    }
+    let seeds = std::mem::take(seeds);
+    // Worker receipt is the first point that both proves these exact seeds landed and orders their
+    // ceiling before even a zero-work run can mark them processed. The dispatcher also records the
+    // delivered batch maximum, but that post-send accounting can race a fast worker on a
+    // multithreaded runtime.
+    if let Some(max) = seeds.iter().map(|seed| seed.offset.0).max() {
+        merge
+            .seed_tracker
+            .mark_dispatched(partition_id as i32, max + 1);
+    }
+    // Produce order equals state-commit order for the live buffer, so a run must not produce while
+    // unflushed live changes sit in it.
+    if flush_event_changes_before_inline(sink, buffer, partition_id, held).await {
+        return true;
+    }
+
+    let snapshot = catalog.load();
+    let deps = ApplyDeps {
+        partition_id,
+        handle,
+        catalog: &snapshot,
+        sink,
+        merge,
+    };
+    let groups = group_seeds(seeds, merge.seed_budget, |work| row_weight(&snapshot, work));
+    handle_seed_groups(deps, queue, reconcile_queue, clock, groups).await;
     false
 }
 
@@ -1219,6 +1285,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
     }
 
@@ -1252,6 +1319,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
     }
 
@@ -1279,6 +1347,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
     }
 

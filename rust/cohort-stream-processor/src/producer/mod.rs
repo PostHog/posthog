@@ -183,6 +183,11 @@ impl CaptureSink {
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
         self.0.recorded()
     }
+
+    /// Produce calls made, failed ones included — the round trips a batched apply is amortizing.
+    pub fn produce_calls(&self) -> usize {
+        self.0.produce_calls()
+    }
 }
 
 #[async_trait]

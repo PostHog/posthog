@@ -1,5 +1,6 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -14,6 +15,7 @@ use tracing::warn;
 use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
 use crate::store::durability::DurabilityConfig;
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
+use crate::workers::seed_run::RunBudget;
 use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
@@ -275,6 +277,22 @@ pub struct Config {
     /// clock skew; ties go to live.
     #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
     pub cohort_seed_person_live_margin_ms: i64,
+
+    /// Seeds one partition worker applies as a single run. `1` reproduces the per-seed apply and
+    /// is the hatch if batching misbehaves. Live on roll: there is no dark period.
+    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX", default = "256")]
+    pub cohort_seed_apply_batch_max: usize,
+
+    /// Store rows one run may touch: the stage-1 rows its seeds fold plus one stage-2 register per
+    /// cohort those leaves back. A ceiling on what the run retains and emits — overlay, register
+    /// read, recompute set, membership output and cascades — so a hash resolving to many leaves, a
+    /// leaf backing many cohorts, or a 1,024-hash person seed cannot make a run arbitrarily heavy.
+    /// Not a ceiling on the reads inside each composed evaluation: those scale with that cohort's
+    /// tree as they do under the per-seed apply, and the maintenance lane's permits meter them. A
+    /// run closes before the seed that would exceed it; a seed heavier than the whole budget still
+    /// runs alone, which is the per-seed apply's own exposure.
+    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX_ROWS", default = "4096")]
+    pub cohort_seed_apply_batch_max_rows: usize,
 
     /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
     /// `0` disables the trigger.
@@ -670,6 +688,16 @@ impl Config {
             .max(Duration::from_secs(1))
     }
 
+    /// The run ceilings the partition workers group seeds under. Validated at startup, so a
+    /// zero here is a bug rather than a config error.
+    pub fn seed_run_budget(&self) -> RunBudget {
+        RunBudget {
+            seeds: NonZeroUsize::new(self.cohort_seed_apply_batch_max).unwrap_or(NonZeroUsize::MIN),
+            rows: NonZeroUsize::new(self.cohort_seed_apply_batch_max_rows)
+                .unwrap_or(NonZeroUsize::MIN),
+        }
+    }
+
     pub fn reconcile_tick_interval(&self) -> Duration {
         Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
     }
@@ -776,6 +804,16 @@ impl Config {
         ensure!(
             self.cohort_seed_reconcile_tick_interval_ms > 0,
             "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS must be greater than zero.",
+        );
+        // A zero run ceiling would form no run at all, so every seed would be neither marked nor
+        // held and the partition would wedge behind the first one.
+        ensure!(
+            self.cohort_seed_apply_batch_max > 0,
+            "COHORT_SEED_APPLY_BATCH_MAX must be greater than zero (1 = the per-seed apply).",
+        );
+        ensure!(
+            self.cohort_seed_apply_batch_max_rows > 0,
+            "COHORT_SEED_APPLY_BATCH_MAX_ROWS must be greater than zero.",
         );
 
         let pacing = self.seed_pacing_config()?;
@@ -1174,6 +1212,8 @@ mod tests {
             cohort_seed_reconcile_tick_interval_ms: 2_000,
             cohort_seed_person_apply_enabled: false,
             cohort_seed_person_live_margin_ms: 900_000,
+            cohort_seed_apply_batch_max: 256,
+            cohort_seed_apply_batch_max_rows: 4096,
             cohort_seed_live_lag_pause_ms: 120_000,
             cohort_seed_live_lag_resume_ms: 60_000,
             cohort_seed_disk_pause_pct: 60.0,
@@ -1252,6 +1292,36 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
+    }
+
+    /// A zero ceiling would form no run at all, so every seed would be neither marked nor held
+    /// and the partition would wedge behind the first one.
+    #[test]
+    fn seed_run_budget_rejects_zero_ceilings_and_maps_the_defaults() {
+        let defaults = test_config();
+        assert_eq!(defaults.seed_run_budget().seeds.get(), 256);
+        assert_eq!(defaults.seed_run_budget().rows.get(), 4096);
+
+        let mut config = test_config();
+        config.cohort_seed_apply_batch_max = 0;
+        assert!(config
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_APPLY_BATCH_MAX"),);
+
+        config.cohort_seed_apply_batch_max = 1;
+        config.cohort_seed_apply_batch_max_rows = 0;
+        assert!(config
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_APPLY_BATCH_MAX_ROWS"),);
+
+        // `1` is the documented hatch back to the per-seed apply, so it must start.
+        config.cohort_seed_apply_batch_max_rows = 1;
+        assert!(config.validate_startup().is_ok());
+        assert_eq!(config.seed_run_budget().seeds.get(), 1);
     }
 
     #[test]

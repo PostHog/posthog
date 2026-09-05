@@ -7,6 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use cohort_core::seed::RunId;
 use metrics::counter;
 use uuid::Uuid;
 
@@ -17,7 +18,7 @@ use crate::observability::metrics::{
     SEED_REGISTER_REPAIRS_TOTAL, STAGE2_COHORTS_EVALUATED, STAGE2_STATE_DECODE_ERROR,
     STAGE2_TRANSITIONS,
 };
-use crate::producer::{CohortMembershipChange, MembershipStatus};
+use crate::producer::{ChangeOrigin, CohortMembershipChange, MembershipStatus};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::PersonRecord;
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
@@ -84,11 +85,6 @@ impl Stage2Recompute {
         self.evaluated += other.evaluated;
         self.composed.add(other.composed);
         self.repairs.add(other.repairs);
-    }
-
-    /// Nothing to emit and nothing to commit.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.changes.is_empty() && self.writes.is_empty()
     }
 }
 
@@ -230,22 +226,19 @@ pub(crate) async fn recompute_stage2(
     })
 }
 
-/// One leaf a seed apply folded, with the membership its resulting state implies. The caller holds
+/// One leaf a seed run folded, with the membership its resulting state implies. The caller holds
 /// that truth already, so the register diff never re-reads `cf_behavioral`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FoldedLeaf {
     pub leaf_state_key: LeafStateKey,
     pub person_id: Uuid,
     pub in_cohort: bool,
-    /// Whether stage 1 minted a transition for this leaf in this apply. Only the fold knows it, and
-    /// it is what separates an ordinary flip from a register repair in the metrics.
+    /// Whether the run *net* flipped this leaf's membership against the state its read pass saw.
+    /// Only the fold knows it, and it is what separates an ordinary flip from a register repair in
+    /// the metrics. A run that enters then leaves the same leaf mints nothing.
     pub minted_transition: bool,
-}
-
-impl FoldedLeaf {
-    pub(crate) fn pair(self) -> (LeafStateKey, Uuid) {
-        (self.leaf_state_key, self.person_id)
-    }
+    /// The run that last touched this leaf, stamped onto every change the diff emits for it.
+    pub run_id: RunId,
 }
 
 /// What the single-leaf register diff decided for one apply.
@@ -258,6 +251,14 @@ pub(crate) struct RegisterDiff {
     /// in stage 1, so a produce that then fails leaves the row disagreeing with the truth and the
     /// redelivery re-emits.
     pub stage1_writes: Vec<(Stage2Key, Stage2State)>,
+}
+
+impl RegisterDiff {
+    /// Fold another team's diff in, so a multi-team run still commits and produces once.
+    pub(crate) fn extend(&mut self, other: Self) {
+        self.recompute.extend(other.recompute);
+        self.stage1_writes.extend(other.stage1_writes);
+    }
 }
 
 /// Derive each single-leaf cohort's membership change from the folded leaf's truth and the
@@ -306,19 +307,20 @@ pub(crate) async fn diff_single_leaf_registers(
                 cohort_id: cohort_id.0 as u64,
                 person_id: leaf.person_id,
             };
-            let previous = wanted.insert(
-                key,
-                WantedRegister {
-                    team_id: tree.team_id.0,
-                    cohort_id: *cohort_id,
-                    in_cohort: leaf.in_cohort,
-                    minted_transition: leaf.minted_transition,
-                },
-            );
-            // A single-leaf cohort resolves to one leaf, so one apply reaches each row once.
+            let want = WantedRegister {
+                team_id: tree.team_id.0,
+                cohort_id: *cohort_id,
+                in_cohort: leaf.in_cohort,
+                minted_transition: leaf.minted_transition,
+                run_id: leaf.run_id,
+            };
+            let previous = wanted.insert(key, want);
+            // A single-leaf cohort resolves to one leaf, so one run reaches each row exactly once.
+            // A duplicate is the overlay-dedup bug that would silently drop a net transition, and
+            // this is its only guard — hence the whole-value compare rather than the bit alone.
             debug_assert!(
-                previous.is_none_or(|prior| prior.in_cohort == leaf.in_cohort),
-                "one apply folded {key:?} to two different memberships",
+                previous.is_none_or(|prior| prior == want),
+                "one run folded {key:?} to two different register verdicts",
             );
         }
     }
@@ -328,11 +330,15 @@ pub(crate) async fn diff_single_leaf_registers(
 
     let keys: Vec<Stage2Key> = wanted.keys().copied().collect();
     let stored = handle.multi_get_stage2(keys, lane).await?;
-    debug_assert_eq!(
-        wanted.len(),
-        stored.len(),
-        "multi_get_stage2 answers one entry per key, in order",
-    );
+    // A short answer would zip one register's bytes onto another register's key and silently drop
+    // the tail's emissions. A run asks for every leaf it folded, so the tail can be large.
+    if stored.len() != wanted.len() {
+        return Err(StoreError::ShortRead {
+            op: "multi_get_stage2",
+            asked: wanted.len(),
+            answered: stored.len(),
+        });
+    }
 
     let mut changes = Vec::new();
     let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
@@ -395,8 +401,9 @@ pub(crate) async fn diff_single_leaf_registers(
             person_id: key.person_id.to_string(),
             last_updated: last_updated.to_string(),
             status,
-            origin: None,
-            run_id: None,
+            // Stamped from the leaf, so only the composed half still needs `tag_seed`.
+            origin: Some(ChangeOrigin::Seed),
+            run_id: Some(want.run_id),
         });
     }
 
@@ -415,11 +422,13 @@ pub(crate) async fn diff_single_leaf_registers(
 }
 
 /// One `(single-leaf cohort, person)` the fold decided, before its stored row is read.
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct WantedRegister {
     team_id: i32,
     cohort_id: CohortId,
     in_cohort: bool,
     minted_transition: bool,
+    run_id: RunId,
 }
 
 fn membership_status(in_cohort: bool) -> MembershipStatus {
@@ -868,6 +877,7 @@ mod tests {
     const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
     const TS: &str = "2026-05-26 12:34:56.789123";
     const EVENT_MS: i64 = 1_700_000_000_000;
+    const RUN: RunId = RunId(Uuid::from_u128(0xBF));
 
     fn temp_store() -> (TempDir, CohortStore) {
         let dir = TempDir::new().unwrap();
@@ -1428,6 +1438,7 @@ mod tests {
             person_id,
             in_cohort,
             minted_transition: false,
+            run_id: RUN,
         }
     }
 
@@ -1650,6 +1661,7 @@ mod tests {
                     person_id: alice,
                     in_cohort,
                     minted_transition: minted,
+                    run_id: RUN,
                 }],
                 EVENT_MS,
                 TS,
@@ -1712,6 +1724,7 @@ mod tests {
                     person_id: alice,
                     in_cohort: stored,
                     minted_transition: true,
+                    run_id: RUN,
                 }],
                 EVENT_MS,
                 TS,
