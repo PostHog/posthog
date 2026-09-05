@@ -6745,13 +6745,17 @@ snapshots:
     scenes-app-engineering-analytics-delivery-pipeline--without-deploys--light:
         hash: v1.k794b7964.5eaee687a224ef9cd7d3707391948732cacb11769bdd619f315a101abcb85de1.ymQC-4XF77SeJ0AN5SrtlyYKs8Ve29MBfz4J8FGLWtg
     scenes-app-engineering-analytics-health--health--dark:
-        hash: v1.k794b7964.f360c920cb938b520b6be36feb1c1f09e17bf75c9fc1867062c9196d3095648c.p0RcxBr1mTWBq9zZRmCKht04bJMXAB0Gw1gOtEvctL0
+        hash: v1.k794b7964.b44984309f95ae7f109b15a9fae848c4b4946590788e71a8e4387710dfb936d6.OoB3EM50krQphJ342Rw0f3OstTYHV2NjyjS7JCFrzuk
     scenes-app-engineering-analytics-health--health--light:
-        hash: v1.k794b7964.c8f5e1bd6dd76487d604f6047196430fcdb1089c50b9f39596ca80757c59740e.a-xn5Ef0rSu9fYwDJVgIuLzafToROwBE8jWojJaEOmw
+        hash: v1.k794b7964.35c7ca733e40d8700368971cab0385c5c0e9299b7e2bdcdc959c4021d1e5dd9a.JY2t4yraYrMoI7dKNjGbOrOZoTLFYIrNqoyj9HTnxWs
+    scenes-app-engineering-analytics-health--health-with-limited-deployment-coverage--dark:
+        hash: v1.k794b7964.91d4d18da5f4bf6784bed887fd0a7e2ff10c278fd1c6ae2330911541aaeb9f1e.t7zP7abNW6GN2rtotpz5VGWkzKBbmaSqSqwLuoKbJ1I
+    scenes-app-engineering-analytics-health--health-with-limited-deployment-coverage--light:
+        hash: v1.k794b7964.cea50b9a0c73e0868c0b4b59dbc0e0c8301fb8c08fb33bab1d2bfdfaa6c58143.4KlzrYv4MgqmhfXlrKavy5FXTDxsFa1A_T275D4jDIU
     scenes-app-engineering-analytics-health--health-without-attributed-pull-requests--dark:
-        hash: v1.k794b7964.ade08d76e0e86e94837e2336d129092631dc8be77dff7c9b0049c6011b482b84.MhzKqJFl7699ZEH8SnnqEgzPTlKZ1ztmWsRR2_L0ZEc
+        hash: v1.k794b7964.712465012bc894bfbf77066f2b3287bbb28c684d8992bfb6e6824e04a4ff3d0f.AIi4PIwjarrVtkm9Rn9pSyAWRL7IITCCaAywR7a3p9A
     scenes-app-engineering-analytics-health--health-without-attributed-pull-requests--light:
-        hash: v1.k794b7964.f2d943eccccec7f01157f2c7dc4806db7ccb408be9f33b854dba0e19db54fab1.Wo_17c5n-muEgIRJEYEARPH8Li6c2H3kS2Ai6CVyaHo
+        hash: v1.k794b7964.916a98ec25fe104a20e7364b41baad00b75c67456d07a457c96cf31cbefcd330.vm_ef_S4gyq4TggAyQQOsNQ2BUqZyNK1nYiDkdWF8UU
     scenes-app-engineering-analytics-health--health-without-deploy-data--dark:
         hash: v1.k794b7964.19d11f17e9a84ed24f41001e49e34211992af3fd06e22d3d8e4956ea54451692.bHLFcWqNX7duZvoYdWlAWdK6Hbf3hNcKuEofZN8Jeg4
     scenes-app-engineering-analytics-health--health-without-deploy-data--light:
