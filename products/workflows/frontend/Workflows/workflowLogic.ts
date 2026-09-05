@@ -29,7 +29,9 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
+    computePreviewOccurrences,
     DEFAULT_STATE,
+    fakeUtcToReal,
     isOneTimeSchedule,
     ONE_TIME_RRULE,
     parseRRuleToState,
@@ -188,6 +190,12 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+/** The next time the saved schedule fires on its own, as a real moment plus the schedule's timezone. */
+export interface NextScheduledRun {
+    at: string
+    timezone?: string
+}
+
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
 interface SaveContext {
     initiatedByAutoSave: boolean
@@ -228,6 +236,7 @@ export interface workflowLogicValues {
     isWorkflowValid: boolean
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
+    nextScheduledRun: NextScheduledRun | null
     originalWorkflow: HogFlow | null
     originalWorkflowLoading: boolean
     pendingSchedule:
@@ -2796,6 +2805,7 @@ export interface workflowLogicMeta {
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
         currentSchedule: (schedules: HogFlowSchedule[]) => HogFlowSchedule | null
+        nextScheduledRun: (currentSchedule: HogFlowSchedule | null, workflow: HogFlow) => NextScheduledRun | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
             scheduleState: ScheduleState,
@@ -3447,6 +3457,33 @@ export const workflowLogic = kea<workflowLogicType>([
         currentSchedule: [
             (s) => [s.schedules],
             (schedules: HogFlowSchedule[]): HogFlowSchedule | null => schedules[0] ?? null,
+        ],
+        nextScheduledRun: [
+            (s) => [s.currentSchedule, s.workflow],
+            (currentSchedule: HogFlowSchedule | null, workflow: HogFlow): NextScheduledRun | null => {
+                if (!currentSchedule || workflow?.status !== 'active') {
+                    return null
+                }
+                if ((currentSchedule.status ?? 'active') !== 'active') {
+                    return null
+                }
+                const timezone = currentSchedule.timezone
+                if (currentSchedule.next_run_at && dayjs(currentSchedule.next_run_at).isAfter(dayjs())) {
+                    return { at: currentSchedule.next_run_at, timezone }
+                }
+                // The scheduler fills next_run_at only after its first tick, so expand the rrule until then.
+                const [next] = computePreviewOccurrences(
+                    parseRRuleToState(currentSchedule.rrule),
+                    currentSchedule.starts_at,
+                    timezone,
+                    1
+                )
+                if (!next) {
+                    return null
+                }
+                const nextRun = fakeUtcToReal(next, timezone)
+                return nextRun.isAfter(dayjs()) ? { at: nextRun.toISOString(), timezone } : null
+            },
         ],
         pendingSchedule: [
             (s) => [s.currentSchedule, s.scheduleState, s.scheduleStartsAt, s.scheduleTimezone, s.isScheduleRepeating],

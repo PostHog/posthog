@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
+
 import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_STATE, ONE_TIME_RRULE } from './hogflows/steps/components/rrule-helpers'
@@ -69,6 +71,45 @@ describe('workflowLogic schedule reducers', () => {
                 isScheduleRepeating: false,
                 scheduleState: DEFAULT_STATE,
             })
+        })
+    })
+
+    describe('nextScheduledRun selector', () => {
+        const FUTURE_RUN = '2099-01-04T09:00:00.000Z'
+
+        beforeEach(() => {
+            logic.actions.setWorkflowValue('status', 'active')
+        })
+
+        it('is null when the workflow has no schedule', () => {
+            expect(logic.values.nextScheduledRun).toBeNull()
+        })
+
+        it('reports the next run from next_run_at', () => {
+            logic.actions.setSchedules([makeSchedule({ next_run_at: FUTURE_RUN })])
+
+            expect(logic.values.nextScheduledRun).toEqual({ at: FUTURE_RUN, timezone: 'UTC' })
+        })
+
+        it('expands the rrule while next_run_at is still empty', () => {
+            logic.actions.setSchedules([makeSchedule()])
+
+            const nextScheduledRun = logic.values.nextScheduledRun
+            expect(nextScheduledRun).not.toBeNull()
+            expect(dayjs(nextScheduledRun!.at).isAfter(dayjs())).toBe(true)
+        })
+
+        it.each(['paused', 'completed'])('is null when the schedule is %s', (status) => {
+            logic.actions.setSchedules([makeSchedule({ status, next_run_at: FUTURE_RUN })])
+
+            expect(logic.values.nextScheduledRun).toBeNull()
+        })
+
+        it('is null when the workflow is not active', () => {
+            logic.actions.setWorkflowValue('status', 'draft')
+            logic.actions.setSchedules([makeSchedule({ next_run_at: FUTURE_RUN })])
+
+            expect(logic.values.nextScheduledRun).toBeNull()
         })
     })
 
