@@ -25,6 +25,15 @@ from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 logger = structlog.get_logger(__name__)
 
+# Rides on every render request so a site's WAF can allow our screenshot without allowing headless
+# browsers broadly. The render reaches the site from Browserless' worker fleet, not from PostHog's
+# published egress IPs, so an IP allowlist cannot match it; this header can. The name is a public
+# contract we publish to customers, so a rename breaks every WAF rule that matches it. The value is
+# non-secret: Browserless applies these headers to every request the page makes, including
+# cross-origin subresources.
+HEATMAP_SCREENSHOT_REQUEST_HEADER = "X-PostHog-Heatmap-Screenshot"
+HEATMAP_SCREENSHOT_REQUEST_HEADER_VALUE = "1"
+
 # Reclaim a hung worker rather than letting a stuck render hold an EXPORTS slot for the full retry budget.
 HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT = 600  # seconds
 HEATMAP_SCREENSHOT_TIME_LIMIT = HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT + 30
@@ -398,6 +407,7 @@ def _browserless_screenshot(
         "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30_000},
         "scrollPage": True,
         "bestAttempt": True,
+        "setExtraHTTPHeaders": {HEATMAP_SCREENSHOT_REQUEST_HEADER: HEATMAP_SCREENSHOT_REQUEST_HEADER_VALUE},
     }
     # blockConsentModals / blockAds are browserless.io cloud API extensions; the self-hosted OSS
     # image rejects unknown body fields (400 "must NOT have additional properties"), so only send
@@ -563,7 +573,9 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
         if page_status is not None and not 200 <= page_status < 300:
             raise PageHttpStatusError(
                 f"{_host_of(screenshot.url)} returned {page_status} when we loaded the page, so the capture "
-                f"is a picture of that response. This comes from the site's host or CDN, not from PostHog.",
+                f"is a picture of that response. Bot protection often blocks our screenshots. To allow them, "
+                f'add a rule that permits requests carrying the "{HEATMAP_SCREENSHOT_REQUEST_HEADER}: '
+                f'{HEATMAP_SCREENSHOT_REQUEST_HEADER_VALUE}" header, then try again.',
                 cause="page_http_status",
             )
         _persist_snapshot(screenshot, w, image_data)

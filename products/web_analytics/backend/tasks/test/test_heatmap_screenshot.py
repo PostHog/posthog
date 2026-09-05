@@ -317,6 +317,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         assert body["options"]["type"] == "jpeg"
         assert body["scrollPage"] is True
         assert body["blockConsentModals"] is True
+        # Pin the literal header a customer WAF rule matches on. A rename here silently stops every
+        # rule matching, so assert the published string rather than the constant.
+        assert body["setExtraHTTPHeaders"] == {"X-PostHog-Heatmap-Screenshot": "1"}
         assert "blockAds" not in body
         # (connect, read) timeout tuple wired from settings
         assert mock_requests.post.call_args.kwargs["timeout"] == (30.0, 210.0)
