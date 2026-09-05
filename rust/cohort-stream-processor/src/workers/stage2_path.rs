@@ -5,7 +5,7 @@
 //! the Stage 1 and Stage 2 commits drops a flip, but `evaluate_tree` recomputes the whole cohort
 //! each event, so a mismatch self-heals on the person's next event.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use metrics::counter;
 use uuid::Uuid;
@@ -14,7 +14,8 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::tree::{CohortLeaf, CohortTree, FilterNode};
 use crate::filters::CohortId;
 use crate::observability::metrics::{
-    STAGE2_COHORTS_EVALUATED, STAGE2_STATE_DECODE_ERROR, STAGE2_TRANSITIONS,
+    SEED_REGISTER_REPAIRS_TOTAL, STAGE2_COHORTS_EVALUATED, STAGE2_STATE_DECODE_ERROR,
+    STAGE2_TRANSITIONS,
 };
 use crate::producer::{CohortMembershipChange, MembershipStatus};
 use crate::stage1::key::LeafStateKey;
@@ -56,19 +57,110 @@ pub async fn compose_stage2(
 /// Uncommitted recompute result: the flips and their pending `cf_stage2` writes. Lets
 /// produce-before-state callers commit only after their produces ack, so a failed produce is
 /// re-derived on replay.
+#[derive(Default)]
 pub(crate) struct Stage2Recompute {
     pub changes: Vec<CohortMembershipChange>,
     pub writes: Vec<(Stage2Key, Stage2State)>,
     evaluated: u64,
+    /// Composed flips only. `changes` also carries the single-leaf changes a register diff folds
+    /// in, so counting over it would report those as Stage 2 transitions.
+    composed: StatusCounts,
+    /// Single-leaf changes a register diff derived with no stage-1 transition behind them.
+    repairs: RepairCounts,
 }
 
 impl Stage2Recompute {
     /// Call only once the writes committed, so a failed commit's redelivery cannot double-count.
     pub(crate) fn record_metrics(&self) {
         counter!(STAGE2_COHORTS_EVALUATED).increment(self.evaluated);
-        for change in &self.changes {
-            counter!(STAGE2_TRANSITIONS, "kind" => change.status.as_str()).increment(1);
+        self.composed.record(STAGE2_TRANSITIONS);
+        self.repairs.record(SEED_REGISTER_REPAIRS_TOTAL);
+    }
+
+    /// Fold a sibling recompute in, so one produce and one commit cover both halves.
+    pub(crate) fn extend(&mut self, other: Self) {
+        self.changes.extend(other.changes);
+        self.writes.extend(other.writes);
+        self.evaluated += other.evaluated;
+        self.composed.add(other.composed);
+        self.repairs.add(other.repairs);
+    }
+
+    /// Nothing to emit and nothing to commit.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.changes.is_empty() && self.writes.is_empty()
+    }
+}
+
+/// Per-status flip counts, kept so [`Stage2Recompute::record_metrics`] can attribute each half of a
+/// folded recompute to its own metric without re-walking `changes`.
+#[derive(Debug, Default, Clone, Copy)]
+struct StatusCounts {
+    entered: u64,
+    left: u64,
+}
+
+impl StatusCounts {
+    fn count(&mut self, status: MembershipStatus) {
+        match status {
+            MembershipStatus::Entered => self.entered += 1,
+            MembershipStatus::Left => self.left += 1,
         }
+    }
+
+    fn add(&mut self, other: Self) {
+        self.entered += other.entered;
+        self.left += other.left;
+    }
+
+    /// A zero count emits nothing, so a path that cannot move the metric never creates its series.
+    fn record(self, metric: &'static str) {
+        for (count, status) in self.non_zero() {
+            counter!(metric, "kind" => status.as_str()).increment(count);
+        }
+    }
+
+    fn record_found(self, metric: &'static str, found: &'static str) {
+        for (count, status) in self.non_zero() {
+            counter!(metric, "kind" => status.as_str(), "found" => found).increment(count);
+        }
+    }
+
+    fn non_zero(self) -> impl Iterator<Item = (u64, MembershipStatus)> {
+        [
+            (self.entered, MembershipStatus::Entered),
+            (self.left, MembershipStatus::Left),
+        ]
+        .into_iter()
+        .filter(|(count, _)| *count > 0)
+    }
+}
+
+/// Register repairs split by what the diff found in the row. The split is what the read observed,
+/// not why the row got that way: a row can disagree with the truth because a produce failed and
+/// was redelivered, because the cohort was edited and its leaf key moved, or because a transfer
+/// left a fallback behind, and nothing persisted tells those apart.
+#[derive(Debug, Default, Clone, Copy)]
+struct RepairCounts {
+    /// No row at all — the register predates this apply.
+    absent: StatusCounts,
+    /// A row that did not decode; also counted on `STAGE2_STATE_DECODE_ERROR` at the read.
+    corrupt: StatusCounts,
+    /// A row that decoded and disagreed with the truth.
+    mismatch: StatusCounts,
+}
+
+impl RepairCounts {
+    fn add(&mut self, other: Self) {
+        self.absent.add(other.absent);
+        self.corrupt.add(other.corrupt);
+        self.mismatch.add(other.mismatch);
+    }
+
+    fn record(self, metric: &'static str) {
+        self.absent.record_found(metric, "absent");
+        self.corrupt.record_found(metric, "corrupt");
+        self.mismatch.record_found(metric, "mismatch");
     }
 }
 
@@ -94,6 +186,7 @@ pub(crate) async fn recompute_stage2(
     let mut changes = Vec::new();
     let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
     let mut evaluated: u64 = 0;
+    let mut composed = StatusCounts::default();
 
     for (cohort_id, person_id) in affected {
         let Some(tree) = filters.cohorts.get(&cohort_id) else {
@@ -103,6 +196,7 @@ pub(crate) async fn recompute_stage2(
         let diff = recompute_and_diff(partition_id, person_id, tree, filters, handle, lane).await?;
         evaluated += 1;
         if diff.flipped() {
+            composed.count(diff.status());
             changes.push(CohortMembershipChange {
                 team_id: tree.team_id.0,
                 cohort_id: cohort_id.0,
@@ -114,8 +208,9 @@ pub(crate) async fn recompute_stage2(
             });
         }
         if diff.requires_write() {
-            // Write `false` rather than deleting so absence means "never evaluated". A no-flip
-            // transferred fallback is rewritten once so receiver evaluation claims ownership.
+            // Write `false` rather than deleting so the retracted pair stays enumerable by the
+            // reconcile scan. A no-flip transferred fallback is rewritten once so receiver
+            // evaluation claims ownership.
             writes.push((
                 diff.stage2_key,
                 Stage2State {
@@ -130,7 +225,236 @@ pub(crate) async fn recompute_stage2(
         changes,
         writes,
         evaluated,
+        composed,
+        repairs: RepairCounts::default(),
     })
+}
+
+/// One leaf a seed apply folded, with the membership its resulting state implies. The caller holds
+/// that truth already, so the register diff never re-reads `cf_behavioral`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FoldedLeaf {
+    pub leaf_state_key: LeafStateKey,
+    pub person_id: Uuid,
+    pub in_cohort: bool,
+    /// Whether stage 1 minted a transition for this leaf in this apply. Only the fold knows it, and
+    /// it is what separates an ordinary flip from a register repair in the metrics.
+    pub minted_transition: bool,
+}
+
+impl FoldedLeaf {
+    pub(crate) fn pair(self) -> (LeafStateKey, Uuid) {
+        (self.leaf_state_key, self.person_id)
+    }
+}
+
+/// What the single-leaf register diff decided for one apply.
+#[must_use]
+#[derive(Default)]
+pub(crate) struct RegisterDiff {
+    /// Changes to emit and the rows to commit after the ack; folds into the composed recompute.
+    pub recompute: Stage2Recompute,
+    /// Rows recording what downstream holds before this apply's emission. The caller stages them
+    /// in stage 1, so a produce that then fails leaves the row disagreeing with the truth and the
+    /// redelivery re-emits.
+    pub stage1_writes: Vec<(Stage2Key, Stage2State)>,
+}
+
+/// Derive each single-leaf cohort's membership change from the folded leaf's truth and the
+/// persisted register row, which on the seed paths records what downstream was last told.
+///
+/// An apply emits when stage 1 minted a transition, as the transition-derived paths do, or when
+/// the stored bit disagrees with the truth, which is what a produce that never acked leaves
+/// behind. An absent row says nothing, so it reads as "never told": an entry is emitted, a
+/// non-member is not. A row that agrees with the truth never vetoes a minted transition: it can be
+/// a stage-1 guess (the pre-write below) or the leftover of an apply that acked and then held
+/// before its post-ack commit, and emitting on a transition is at worst a duplicate the LWW sink
+/// absorbs.
+///
+/// Before an emission the row must read the opposite of the truth, so a failed produce is
+/// re-derivable on redelivery; when it does not, stage 1 writes it. A silent apply leaves an
+/// agreeing row alone, so an active reconcile scan is not dirtied, and does not write an absent
+/// one, because nothing downstream needs a row for a person it was never told about.
+///
+/// One batched `cf_stage2` read on `lane`. Leaves with no single-leaf cohort keyed on them cost
+/// nothing.
+pub(crate) async fn diff_single_leaf_registers(
+    partition_id: u16,
+    handle: &StoreHandle,
+    filters: &TeamFilters,
+    folded: &[FoldedLeaf],
+    evaluated_at_ms: i64,
+    last_updated: &str,
+    lane: ReadLane,
+) -> Result<RegisterDiff, StoreError> {
+    // Ordered and deduplicated, so the read is one batch and the writes are deterministic.
+    let mut wanted: BTreeMap<Stage2Key, WantedRegister> = BTreeMap::new();
+    for leaf in folded {
+        let Some(cohort_ids) = filters
+            .by_lsk_to_single_leaf_cohorts
+            .get(&leaf.leaf_state_key)
+        else {
+            continue;
+        };
+        for cohort_id in cohort_ids {
+            let Some(tree) = filters.cohorts.get(cohort_id) else {
+                continue;
+            };
+            let key = Stage2Key {
+                partition_id,
+                team_id: tree.team_id.0 as u64,
+                cohort_id: cohort_id.0 as u64,
+                person_id: leaf.person_id,
+            };
+            let previous = wanted.insert(
+                key,
+                WantedRegister {
+                    team_id: tree.team_id.0,
+                    cohort_id: *cohort_id,
+                    in_cohort: leaf.in_cohort,
+                    minted_transition: leaf.minted_transition,
+                },
+            );
+            // A single-leaf cohort resolves to one leaf, so one apply reaches each row once.
+            debug_assert!(
+                previous.is_none_or(|prior| prior.in_cohort == leaf.in_cohort),
+                "one apply folded {key:?} to two different memberships",
+            );
+        }
+    }
+    if wanted.is_empty() {
+        return Ok(RegisterDiff::default());
+    }
+
+    let keys: Vec<Stage2Key> = wanted.keys().copied().collect();
+    let stored = handle.multi_get_stage2(keys, lane).await?;
+    debug_assert_eq!(
+        wanted.len(),
+        stored.len(),
+        "multi_get_stage2 answers one entry per key, in order",
+    );
+
+    let mut changes = Vec::new();
+    let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
+    let mut stage1_writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
+    let mut repairs = RepairCounts::default();
+    for ((key, want), bytes) in wanted.into_iter().zip(stored) {
+        let truth = want.in_cohort;
+        let stored = read_register(bytes);
+        let stored_bit = match stored {
+            StoredRegister::Present(prior) => Some(prior.in_cohort),
+            StoredRegister::Absent | StoredRegister::Corrupt => None,
+        };
+        let emits = want.minted_transition || stored_bit.map_or(truth, |bit| bit != truth);
+        // What downstream is taken to hold before this apply: the value an emission retires, or
+        // the truth when nothing is emitted.
+        let before = if emits { !truth } else { truth };
+        let records_before = match stored {
+            StoredRegister::Present(prior) => prior.in_cohort != before,
+            StoredRegister::Corrupt => true,
+            StoredRegister::Absent => emits,
+        };
+        if records_before {
+            stage1_writes.push((
+                key,
+                Stage2State {
+                    in_cohort: before,
+                    last_evaluated_at_ms: evaluated_at_ms,
+                },
+            ));
+        }
+        // A no-flip transferred fallback is still rewritten once, so receiver evaluation claims
+        // the row the way the composed path claims its own.
+        let claims_fallback = matches!(
+            stored,
+            StoredRegister::Present(prior) if prior.ownership == Stage2Ownership::TransferredFallback
+        );
+        if emits || claims_fallback {
+            writes.push((
+                key,
+                Stage2State {
+                    in_cohort: truth,
+                    last_evaluated_at_ms: evaluated_at_ms,
+                },
+            ));
+        }
+        if !emits {
+            continue;
+        }
+        let status = membership_status(truth);
+        if !want.minted_transition {
+            match stored {
+                StoredRegister::Absent => repairs.absent.count(status),
+                StoredRegister::Corrupt => repairs.corrupt.count(status),
+                StoredRegister::Present(_) => repairs.mismatch.count(status),
+            }
+        }
+        changes.push(CohortMembershipChange {
+            team_id: want.team_id,
+            cohort_id: want.cohort_id.0,
+            person_id: key.person_id.to_string(),
+            last_updated: last_updated.to_string(),
+            status,
+            origin: None,
+            run_id: None,
+        });
+    }
+
+    Ok(RegisterDiff {
+        recompute: Stage2Recompute {
+            changes,
+            writes,
+            // The register diff evaluates nothing, so `STAGE2_COHORTS_EVALUATED` keeps meaning
+            // composed evaluations.
+            evaluated: 0,
+            composed: StatusCounts::default(),
+            repairs,
+        },
+        stage1_writes,
+    })
+}
+
+/// One `(single-leaf cohort, person)` the fold decided, before its stored row is read.
+struct WantedRegister {
+    team_id: i32,
+    cohort_id: CohortId,
+    in_cohort: bool,
+    minted_transition: bool,
+}
+
+fn membership_status(in_cohort: bool) -> MembershipStatus {
+    if in_cohort {
+        MembershipStatus::Entered
+    } else {
+        MembershipStatus::Left
+    }
+}
+
+/// What the store holds for one register row. Absence stays distinct from a stored `false`,
+/// because the diff has to tell "never told" from "told `false`".
+#[derive(Clone, Copy)]
+enum StoredRegister {
+    Absent,
+    /// A row that exists but does not decode. It cannot say what downstream was told, so it reads
+    /// as absent and is replaced with a decodable bit; counted on `STAGE2_STATE_DECODE_ERROR`.
+    Corrupt,
+    Present(PriorStage2State),
+}
+
+fn read_register(bytes: Option<Vec<u8>>) -> StoredRegister {
+    let Some(bytes) = bytes else {
+        return StoredRegister::Absent;
+    };
+    match Stage2State::decode_with_ownership(&bytes) {
+        Ok((state, ownership)) => StoredRegister::Present(PriorStage2State {
+            in_cohort: state.in_cohort,
+            ownership,
+        }),
+        Err(_) => {
+            counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
+            StoredRegister::Corrupt
+        }
+    }
 }
 
 /// Commit recomputed `cf_stage2` bits.
@@ -442,6 +766,7 @@ fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
     }
 }
 
+#[derive(Clone, Copy)]
 struct PriorStage2State {
     in_cohort: bool,
     ownership: Stage2Ownership,
@@ -1095,6 +1420,17 @@ mod tests {
             .unwrap();
     }
 
+    /// A leaf whose stage 1 minted nothing this apply, which is what a redelivery or a
+    /// catalog-added cohort looks like.
+    fn folded(leaf_state_key: LeafStateKey, person_id: Uuid, in_cohort: bool) -> FoldedLeaf {
+        FoldedLeaf {
+            leaf_state_key,
+            person_id,
+            in_cohort,
+            minted_transition: false,
+        }
+    }
+
     fn single_leaf_lsk(filters: &TeamFilters, cohort: i32) -> LeafStateKey {
         match filters.eligibility[&CohortId(cohort)] {
             CohortEligibility::SingleLeaf(lsk) => lsk,
@@ -1257,5 +1593,327 @@ mod tests {
             None,
             "no cf_stage2 bit written when the gate is off",
         );
+    }
+    // --- Single-leaf register diff ---
+
+    /// The diff's whole rule set, one row per `(stored register, folded truth, minted transition)`
+    /// cell. Each row states what downstream is told, what stage 1 records first, and what the
+    /// post-ack commit writes.
+    #[tokio::test]
+    async fn register_diff_emits_on_a_minted_transition_or_a_lagging_register() {
+        use MembershipStatus::{Entered, Left};
+        // (stored, truth, minted) -> (change, stage-1 write, post-ack write)
+        let cases = [
+            (None, true, false, Some(Entered), Some(false), Some(true)),
+            (None, true, true, Some(Entered), Some(false), Some(true)),
+            (None, false, false, None, None, None),
+            (None, false, true, Some(Left), Some(true), Some(false)),
+            (Some(false), true, false, Some(Entered), None, Some(true)),
+            (Some(false), true, true, Some(Entered), None, Some(true)),
+            (Some(true), false, false, Some(Left), None, Some(false)),
+            (Some(true), false, true, Some(Left), None, Some(false)),
+            (Some(true), true, false, None, None, None),
+            (
+                Some(true),
+                true,
+                true,
+                Some(Entered),
+                Some(false),
+                Some(true),
+            ),
+            (Some(false), false, false, None, None, None),
+            (
+                Some(false),
+                false,
+                true,
+                Some(Left),
+                Some(true),
+                Some(false),
+            ),
+        ];
+        for (stored, in_cohort, minted, want_change, want_stage1, want_post_ack) in cases {
+            let why = format!("stored {stored:?}, truth {in_cohort}, minted {minted}");
+            let (_dir, store) = temp_store();
+            let filters = freeze(vec![behavioral_leaf(7)]);
+            let lsk = single_leaf_lsk(&filters, 1);
+            let alice = person(1);
+            if let Some(bit) = stored {
+                write_stage2(&store, 1, alice, bit);
+            }
+
+            let diff = diff_single_leaf_registers(
+                PARTITION,
+                &handle(&store),
+                &filters,
+                &[FoldedLeaf {
+                    leaf_state_key: lsk,
+                    person_id: alice,
+                    in_cohort,
+                    minted_transition: minted,
+                }],
+                EVENT_MS,
+                TS,
+                ReadLane::Maintenance,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(
+                diff.recompute
+                    .changes
+                    .iter()
+                    .map(|change| change.status)
+                    .collect::<Vec<_>>(),
+                want_change.into_iter().collect::<Vec<_>>(),
+                "{why}",
+            );
+            assert_eq!(
+                diff.stage1_writes
+                    .iter()
+                    .map(|(_, state)| state.in_cohort)
+                    .collect::<Vec<_>>(),
+                want_stage1.into_iter().collect::<Vec<_>>(),
+                "{why}: stage 1 records what downstream held before the emission",
+            );
+            assert_eq!(
+                diff.recompute
+                    .writes
+                    .iter()
+                    .map(|(_, state)| state.in_cohort)
+                    .collect::<Vec<_>>(),
+                want_post_ack.into_iter().collect::<Vec<_>>(),
+                "{why}",
+            );
+        }
+    }
+
+    /// A register that already agrees with the post-transition truth cannot prove downstream was
+    /// told: it is the pre-write of a retraction whose produce failed, or the row an apply left
+    /// behind when it acked its membership and then held on its cascade. The minted transition
+    /// wins, and the pre-write keeps its emission re-derivable if this produce fails too.
+    #[tokio::test]
+    async fn a_minted_transition_is_emitted_over_an_agreeing_register() {
+        for (stored, status) in [
+            (false, MembershipStatus::Left),
+            (true, MembershipStatus::Entered),
+        ] {
+            let (_dir, store) = temp_store();
+            let filters = freeze(vec![behavioral_leaf(7)]);
+            let lsk = single_leaf_lsk(&filters, 1);
+            let alice = person(1);
+            write_stage2(&store, 1, alice, stored);
+
+            let diff = diff_single_leaf_registers(
+                PARTITION,
+                &handle(&store),
+                &filters,
+                &[FoldedLeaf {
+                    leaf_state_key: lsk,
+                    person_id: alice,
+                    in_cohort: stored,
+                    minted_transition: true,
+                }],
+                EVENT_MS,
+                TS,
+                ReadLane::Maintenance,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(diff.recompute.changes.len(), 1, "register {stored}");
+            assert_eq!(diff.recompute.changes[0].status, status);
+            assert_eq!(
+                diff.stage1_writes[0].1.in_cohort, !stored,
+                "register {stored}: stage 1 first records the value this emission retires",
+            );
+            assert_eq!(
+                diff.recompute.writes[0].1.in_cohort, stored,
+                "the post-ack bit"
+            );
+        }
+    }
+
+    /// The change carries the cohort's own coordinates, not the leaf's, so it lands on the same
+    /// row a transition-derived change would.
+    #[tokio::test]
+    async fn a_register_derived_change_addresses_the_single_leaf_cohort() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![behavioral_leaf(7)]);
+        let lsk = single_leaf_lsk(&filters, 1);
+        let alice = person(1);
+
+        let diff = diff_single_leaf_registers(
+            PARTITION,
+            &handle(&store),
+            &filters,
+            &[folded(lsk, alice, true)],
+            EVENT_MS,
+            TS,
+            ReadLane::Maintenance,
+        )
+        .await
+        .unwrap();
+
+        let change = &diff.recompute.changes[0];
+        assert_eq!(change.cohort_id, 1);
+        assert_eq!(change.team_id, TEAM as i32);
+        assert_eq!(change.person_id, alice.to_string());
+        assert_eq!(change.last_updated, TS);
+        assert_eq!(diff.stage1_writes[0].0.cohort_id, 1);
+        assert_eq!(diff.recompute.writes[0].0.person_id, alice);
+    }
+
+    /// A composable cohort's bit is `recompute_stage2`'s to own. Diffing it here too would emit
+    /// every composed flip twice.
+    #[tokio::test]
+    async fn a_composable_cohorts_leaf_is_not_register_diffed() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![behavioral_leaf(7), person_leaf()]);
+        let (beh_lsk, _) = and_leaf_keys(&filters);
+        let alice = person(1);
+
+        let diff = diff_single_leaf_registers(
+            PARTITION,
+            &handle(&store),
+            &filters,
+            &[folded(beh_lsk, alice, true)],
+            EVENT_MS,
+            TS,
+            ReadLane::Maintenance,
+        )
+        .await
+        .unwrap();
+
+        assert!(diff.recompute.changes.is_empty());
+        assert!(diff.recompute.writes.is_empty());
+        assert!(diff.stage1_writes.is_empty());
+    }
+
+    /// Mirrors the composed path: a merge-carried fallback is claimed by the first local
+    /// evaluation even when the bit it holds is already right.
+    #[tokio::test]
+    async fn a_transferred_fallback_is_rewritten_without_an_emission() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![behavioral_leaf(7)]);
+        let lsk = single_leaf_lsk(&filters, 1);
+        let alice = person(1);
+        let key = Stage2Key {
+            partition_id: PARTITION,
+            team_id: TEAM,
+            cohort_id: 1,
+            person_id: alice,
+        };
+        let state = Stage2State {
+            in_cohort: true,
+            last_evaluated_at_ms: EVENT_MS,
+        };
+        store
+            .write_batch(|b| b.put_stage2(&key, &state.encode_transferred_fallback()))
+            .unwrap();
+
+        let diff = diff_single_leaf_registers(
+            PARTITION,
+            &handle(&store),
+            &filters,
+            &[folded(lsk, alice, true)],
+            EVENT_MS,
+            TS,
+            ReadLane::Maintenance,
+        )
+        .await
+        .unwrap();
+
+        assert!(diff.recompute.changes.is_empty(), "the bit did not flip");
+        assert!(diff.stage1_writes.is_empty(), "the row agrees");
+        assert_eq!(
+            diff.recompute.writes,
+            vec![(key, state)],
+            "the fallback is claimed locally",
+        );
+    }
+
+    /// An undecodable row cannot say what downstream was told, so it reads as absent: an entry is
+    /// emitted, a non-member is not, and either way stage 1 replaces the row with a readable bit.
+    #[tokio::test]
+    async fn a_corrupt_register_row_reads_as_never_told_and_is_replaced() {
+        for (in_cohort, want_changes) in [(true, 1), (false, 0)] {
+            let (_dir, store) = temp_store();
+            let filters = freeze(vec![behavioral_leaf(7)]);
+            let lsk = single_leaf_lsk(&filters, 1);
+            let alice = person(1);
+            let key = Stage2Key {
+                partition_id: PARTITION,
+                team_id: TEAM,
+                cohort_id: 1,
+                person_id: alice,
+            };
+            store
+                .write_batch(|b| b.put_stage2(&key, b"not a stage 2 state"))
+                .unwrap();
+
+            let diff = diff_single_leaf_registers(
+                PARTITION,
+                &handle(&store),
+                &filters,
+                &[folded(lsk, alice, in_cohort)],
+                EVENT_MS,
+                TS,
+                ReadLane::Maintenance,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(
+                diff.recompute.changes.len(),
+                want_changes,
+                "truth {in_cohort}"
+            );
+            assert_eq!(
+                diff.stage1_writes.len(),
+                1,
+                "truth {in_cohort}: the row is replaced"
+            );
+            assert!(!diff.stage1_writes[0].1.in_cohort);
+        }
+    }
+
+    /// Two single-leaf cohorts on one leaf both diff, and a leaf the catalog does not back costs
+    /// nothing. Those are the two halves of the fan-out the seed paths depend on.
+    #[tokio::test]
+    async fn the_diff_fans_out_to_every_single_leaf_cohort_on_the_leaf() {
+        let (_dir, store) = temp_store();
+        let filters = freeze_cascade(
+            vec![(1, vec![behavioral_leaf(7)]), (2, vec![behavioral_leaf(7)])],
+            false,
+        );
+        let lsk = single_leaf_lsk(&filters, 1);
+        let alice = person(1);
+        write_stage2(&store, 1, alice, true);
+
+        let diff = diff_single_leaf_registers(
+            PARTITION,
+            &handle(&store),
+            &filters,
+            &[
+                folded(lsk, alice, true),
+                folded(LeafStateKey([0xEE; 16]), alice, true),
+            ],
+            EVENT_MS,
+            TS,
+            ReadLane::Maintenance,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            diff.recompute
+                .changes
+                .iter()
+                .map(|change| change.cohort_id)
+                .collect::<Vec<_>>(),
+            vec![2],
+            "cohort 1's register was already true; the unbacked leaf contributes nothing",
+        );
+        assert_eq!(diff.stage1_writes.len(), 1, "only cohort 2 had no row");
     }
 }

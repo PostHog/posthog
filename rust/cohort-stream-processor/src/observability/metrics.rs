@@ -516,6 +516,16 @@ pub const PERSON_SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_person_seeds_rekey_
 /// Failed person-seed re-key produces; the seed offset is held (counter).
 pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
     "cohort_person_seeds_rekey_produce_failure_total";
+/// Single-leaf membership changes a seed apply derived from the persisted register with no stage-1
+/// transition behind them, labelled by `kind` (`entered`|`left`) and `found`, which names what the
+/// row held rather than why (counter). `absent`: no row, a register that predates the apply, such
+/// as a cohort added over existing leaf state; expect these in bulk through the first full run
+/// after a roll. `corrupt`: a row that did not decode, also counted on
+/// [`STAGE2_STATE_DECODE_ERROR`]. `mismatch`: a row that disagreed with the truth.
+/// **A `mismatch` rate has more than one cause — a redelivery repairing a failed produce, an
+/// edited cohort whose leaf key moved, a transferred fallback row — so read it against the seed
+/// produce-failure counters before concluding produces are failing.**
+pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
@@ -878,6 +888,10 @@ mod tests {
         assert_eq!(
             PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
             "cohort_person_seeds_rekey_produce_failure_total",
+        );
+        assert_eq!(
+            SEED_REGISTER_REPAIRS_TOTAL,
+            "cohort_seed_register_repairs_total"
         );
         // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
