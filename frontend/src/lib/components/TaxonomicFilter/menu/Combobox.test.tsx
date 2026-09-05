@@ -1084,6 +1084,58 @@ describe('MenuFilterCombobox', () => {
     })
 
     describe('reveal barrier', () => {
+        it('waits for contributing categories but not their full expansion counts', async () => {
+            let resolveProperties!: (value: { results: { id: number; name: string }[]; count: number }) => void
+            let resolveCount!: (value: { count: number }) => void
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('property_definitions')) {
+                    return new Promise((resolve) => {
+                        if (url.includes('filter_by_event_names=true')) {
+                            resolveProperties = resolve
+                        } else {
+                            resolveCount = resolve
+                        }
+                    })
+                }
+                return Promise.resolve({ results: [{ id: 1, name: 'browser_opened' }], count: 1 })
+            })
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+                searchQuery: 'browser',
+                eventNames: ['browser_opened'],
+            })
+            await waitFor(() => expect(resolveProperties).toBeTruthy())
+            expect(screen.getByTestId('menu-filter-loading')).toBeInTheDocument()
+            expect(rowTexts()).toEqual([])
+
+            await act(async () => resolveProperties({ results: [{ id: 2, name: 'browser_name' }], count: 1 }))
+            await waitFor(() => expect(rowTexts().some((text) => text.includes('browser_name'))).toBe(true))
+            expect(rowTexts().some((text) => text.includes('browser_opened'))).toBe(true)
+            expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
+            const visibleRows = rowTexts()
+
+            await act(async () => resolveCount({ count: 9 }))
+            expect(rowTexts()).toEqual(visibleRows)
+        })
+
+        it('reveals the selected category while another category is still fetching', async () => {
+            const user = userEvent.setup()
+            apiGet.mockImplementation((url: string) =>
+                url.includes('property_definitions')
+                    ? new Promise(() => {})
+                    : Promise.resolve({ results: [{ id: 1, name: 'browser_opened' }], count: 1 })
+            )
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+                searchQuery: 'browser',
+            })
+            await waitFor(() => expect(screen.getByTestId('menu-filter-loading')).toBeInTheDocument())
+            await user.click(screen.getByLabelText('Filter category'))
+            await user.click(await within(await openedCategoryPopup()).findByText('Events'))
+            await waitFor(() => expect(rowTexts().some((text) => text.includes('browser_opened'))).toBe(true))
+            expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
+        })
+
         it('hides stale results during a refetch and reveals once it settles', async () => {
             const user = userEvent.setup()
             let resolveSecond: ((value: { results: any[]; count: number }) => void) | undefined

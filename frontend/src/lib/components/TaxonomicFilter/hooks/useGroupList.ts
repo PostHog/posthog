@@ -336,6 +336,28 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         { enabled: serverSearchEnabled, staleTime: 60_000, keepPreviousData: true }
     )
 
+    // The full count only adds an expand row below the results, so it must not hold the reveal barrier.
+    const expandedCount = useTaxonomicResource<ListStorage>(
+        [...(serverSearchEnabled ? serverSearchKey : remoteKey), 'expanded-count'],
+        ({ signal }) =>
+            fetchTaxonomicListPage({
+                group,
+                searchQuery: serverSearchEnabled ? trimmedSearch : remoteSearchQuery,
+                offset: 0,
+                limit: 1,
+                isExpanded: true,
+                showNumericalPropsOnly,
+                hideBehavioralCohorts,
+                excludeStale,
+                signal,
+            }),
+        {
+            enabled: remoteEnabled && !!group.scopedEndpoint && !isExpanded,
+            staleTime: clientFilter ? 5 * 60_000 : 60_000,
+            keepPreviousData: false,
+        }
+    )
+
     // Per-fetch Fuse index over the cached first page. Built lazily on
     // first non-empty query, then re-used across keystrokes until the
     // page changes (refetch / invalidate).
@@ -411,8 +433,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const isExpandable = !!(
         group.endpoint &&
         group.scopedEndpoint &&
-        remoteItems.expandedCount &&
-        remoteItems.expandedCount > remoteItems.count
+        !isExpanded &&
+        expandedCount.data &&
+        expandedCount.data.count > remoteItems.count
     )
     // Match legacy semantics: `count` is the API-reported total + local pool
     // size + keyword shortcuts, NOT the loaded array length. Without this,
@@ -503,6 +526,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         expand,
         refetch: () => {
             remote.refetch()
+            if (remoteEnabled && group.scopedEndpoint && !isExpanded) {
+                expandedCount.refetch()
+            }
         },
     }
 }
