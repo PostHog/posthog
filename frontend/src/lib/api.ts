@@ -254,6 +254,7 @@ import type {
     HogFlowBatchJob,
     HogFlowSchedule,
     HogFlowTemplate,
+    HogFlowWithSchedules,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
@@ -6664,7 +6665,7 @@ const api = {
         }): Promise<CountedPaginatedResponse<HogFlow>> {
             return await new ApiRequest().hogFlows().withQueryString(params).get()
         },
-        async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+        async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlowWithSchedules> {
             return await new ApiRequest().hogFlow(hogFlowId).get()
         },
         async createHogFlow(data: Partial<HogFlow>): Promise<HogFlow> {
