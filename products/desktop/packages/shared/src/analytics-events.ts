@@ -1348,7 +1348,8 @@ type LoopRunBlockedReason =
   | "disabled"
   | "gate_blocked"
   | "owner_inactive"
-  | "owner_changed";
+  | "owner_changed"
+  | "context_missing";
 type LoopRunStatus =
   | "not_started"
   | "queued"

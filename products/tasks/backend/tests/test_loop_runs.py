@@ -921,6 +921,31 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         self.assertIn("loop_context_internal:write", scopes)
         self.assertIn("task:write", scopes)
 
+    @parameterized.expand(
+        [
+            ("channel", {"update_context": True}),
+            ("canvas", {"canvas_id": CANVAS_ID}),
+        ]
+    )
+    def test_a_deleted_context_deliverable_ends_the_fire_and_asks_for_attention(self, _name, outputs):
+        # The deliverable does not come back on its own. The fire must end as a recorded outcome the
+        # owner is told about, or the trigger path retries until the loop stops without a trace.
+        loop = self.create_loop(context_target=self.context_target(**outputs))
+        trigger = self.create_trigger(loop)
+        Channel.objects.unscoped().filter(id=self.channel.id).update(deleted=True)
+        apps.get_model("canvas", "Canvas").objects.unscoped().filter(id=self.CANVAS_ID).update(deleted=True)
+
+        with patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event") as mock_dispatch:
+            result, _ = self.fire_and_capture(loop, trigger)
+
+        self.assertFalse(result.created)
+        self.assertEqual(result.reason, "context_missing")
+        self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
+        self.assertEqual(mock_dispatch.call_args.args[:2], (loop, "needs_attention"))
+        self.assertEqual(mock_dispatch.call_args.args[2]["reason"], "context_missing")
+        fire = LoopFire.objects.for_team(self.team.id, canonical=True).get(fire_key="fire-ctx")
+        self.assertEqual(fire.outcome_reason, "context_missing")
+
     def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
         loop = self.create_loop()
         trigger = self.create_trigger(loop)

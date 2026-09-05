@@ -806,6 +806,7 @@ class LoopFireRunSerializer(DataclassSerializer):
             "gate_blocked",
             "owner_inactive",
             "owner_changed",
+            "context_missing",
         ],
         help_text="Outcome of the fire attempt.",
     )
