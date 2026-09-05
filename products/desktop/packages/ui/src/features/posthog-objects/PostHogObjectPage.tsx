@@ -417,6 +417,10 @@ export function PostHogObjectPage({
     {
       staleTime: EVIDENCE_PREVIEW_STALE_TIME,
       refetchOnWindowFocus: false,
+      // The flag page now offers an edit action, so a cached preview can
+      // outlive the object: always refetch on remount so a read after the
+      // agent applies a change shows the new state.
+      refetchOnMount: "always",
       retry: 1,
     },
   );
