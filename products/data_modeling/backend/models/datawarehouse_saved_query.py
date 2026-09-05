@@ -208,7 +208,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 fields=["team_id", "name"],
                 name="dwsavedquery_team_live_name",
                 condition=~models.Q(deleted=True),
-            )
+            ),
+            # The saved query list endpoint reads a team's live queries ordered by created_at DESC
+            # every time the SQL editor or the views list opens.
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="dwsavedquery_team_live_created",
+                condition=~models.Q(deleted=True),
+            ),
         ]
 
     @property
