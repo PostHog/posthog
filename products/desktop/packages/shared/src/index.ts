@@ -99,11 +99,28 @@ export {
   buildScoutDeeplink,
   decodePlanBase64,
   getDeeplinkProtocol,
+  getDeeplinkProtocolOptions,
   isPostHogCodeDeeplink,
+  LEGACY_PROTOCOLS,
   type NewTaskLinkPayload,
   type NewTaskSharedParams,
   parseGitHubIssueUrl,
 } from "./deep-links";
+export {
+  assertNoPreviewConfig,
+  DESKTOP_PREVIEW_SCHEMA_VERSION,
+  DesktopPreviewConfigError,
+  type DesktopPreviewIdentity,
+  type DesktopPreviewManifest,
+  desktopPreviewDeploymentId,
+  desktopPreviewIdentity,
+  PREVIEW_DEPLOYMENT_METADATA_PATH,
+  type PreviewDeploymentMetadata,
+  parseDesktopPreviewManifest,
+  previewDeploymentMetadataSchema,
+  resolveDeploymentOAuthClientId,
+  resolveDeploymentUrl,
+} from "./desktop-preview";
 export {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
@@ -223,6 +240,7 @@ export {
 } from "./models";
 export {
   getOauthClientIdFromRegion,
+  getOauthClientIdFromTarget,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
 } from "./oauth";
@@ -275,9 +293,13 @@ export {
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
+  type AuthDeploymentTarget,
   CLOUD_REGIONS,
   type CloudRegion,
+  formatRegionBadge,
+  isPreviewTarget,
   REGION_LABELS,
+  targetRegionKey,
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
@@ -359,7 +381,7 @@ export {
 } from "./tool-meta";
 export { TypedEventEmitter } from "./typed-event-emitter";
 export { isSafeExternalUrl, isSafePostHogUrl } from "./url";
-export { getCloudUrlFromRegion } from "./urls";
+export { getCloudUrlFromRegion, getCloudUrlFromTarget } from "./urls";
 export {
   buildVideoDataUrl,
   getVideoMimeType,

@@ -8,6 +8,7 @@ export const ANONYMOUS_AUTH_STATE: AuthState = {
   status: "anonymous",
   bootstrapComplete: false,
   cloudRegion: null,
+  deploymentTarget: null,
   orgProjectsMap: {},
   currentOrgId: null,
   currentProjectId: null,

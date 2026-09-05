@@ -17,9 +17,10 @@ import {
   URL_LAUNCHER_SERVICE,
 } from "@posthog/platform/url-launcher";
 import {
+  type AuthDeploymentTarget,
   type BackoffOptions,
-  getCloudUrlFromRegion,
-  getOauthClientIdFromRegion,
+  getCloudUrlFromTarget,
+  getOauthClientIdFromTarget,
   OAUTH_SCOPES,
   sleepWithBackoff,
 } from "@posthog/shared";
@@ -27,7 +28,6 @@ import { inject, injectable } from "inversify";
 import { OAUTH_HOST, type OAuthHost } from "./identifiers";
 import type {
   CancelFlowOutput,
-  CloudRegion,
   RefreshTokenOutput,
   StartFlowOutput,
 } from "./schemas";
@@ -48,7 +48,7 @@ const TOKEN_FETCH_BACKOFF: BackoffOptions = {
 
 interface OAuthConfig {
   scopes: string[];
-  cloudRegion: CloudRegion;
+  target: AuthDeploymentTarget;
 }
 
 interface PendingOAuthFlow {
@@ -144,18 +144,20 @@ export class OAuthService {
    * Start the OAuth flow.
    * Uses HTTP callback in development, deep links in production.
    */
-  public async startFlow(region: CloudRegion): Promise<StartFlowOutput> {
+  public async startFlow(
+    target: AuthDeploymentTarget,
+  ): Promise<StartFlowOutput> {
     try {
       // Cancel any existing flow
       this.cancelFlow();
 
       const config: OAuthConfig = {
         scopes: OAUTH_SCOPES,
-        cloudRegion: region,
+        target,
       };
 
       const codeVerifier = this.generateCodeVerifier();
-      const authUrl = this.buildAuthorizeUrl(region, codeVerifier);
+      const authUrl = this.buildAuthorizeUrl(target, codeVerifier);
 
       return await this.startFlowWithUrl(
         config,
@@ -173,19 +175,21 @@ export class OAuthService {
   /**
    * Start the OAuth flow from the signup page.
    */
-  public async startSignupFlow(region: CloudRegion): Promise<StartFlowOutput> {
+  public async startSignupFlow(
+    target: AuthDeploymentTarget,
+  ): Promise<StartFlowOutput> {
     try {
       // Cancel any existing flow
       this.cancelFlow();
 
       const config: OAuthConfig = {
         scopes: OAUTH_SCOPES,
-        cloudRegion: region,
+        target,
       };
 
       const codeVerifier = this.generateCodeVerifier();
-      const authUrl = this.buildAuthorizeUrl(region, codeVerifier);
-      const signupUrl = this.buildSignupUrl(region, authUrl);
+      const authUrl = this.buildAuthorizeUrl(target, codeVerifier);
+      const signupUrl = this.buildSignupUrl(target, authUrl);
 
       return await this.startFlowWithUrl(
         config,
@@ -205,10 +209,10 @@ export class OAuthService {
    */
   public async refreshToken(
     refreshToken: string,
-    region: CloudRegion,
+    target: AuthDeploymentTarget,
   ): Promise<RefreshTokenOutput> {
     try {
-      const cloudUrl = getCloudUrlFromRegion(region);
+      const cloudUrl = getCloudUrlFromTarget(target);
 
       const response = await fetch(`${cloudUrl}/oauth/token`, {
         method: "POST",
@@ -218,7 +222,7 @@ export class OAuthService {
         body: JSON.stringify({
           grant_type: "refresh_token",
           refresh_token: refreshToken,
-          client_id: getOauthClientIdFromRegion(region),
+          client_id: getOauthClientIdFromTarget(target),
         }),
         signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
       });
@@ -366,13 +370,13 @@ export class OAuthService {
     codeVerifier: string,
     config: OAuthConfig,
   ): Promise<OAuthTokenResponse> {
-    const cloudUrl = getCloudUrlFromRegion(config.cloudRegion);
+    const cloudUrl = getCloudUrlFromTarget(config.target);
     const redirectUri = this.getRedirectUri();
     const body = JSON.stringify({
       grant_type: "authorization_code",
       code,
       redirect_uri: redirectUri,
-      client_id: getOauthClientIdFromRegion(config.cloudRegion),
+      client_id: getOauthClientIdFromTarget(config.target),
       code_verifier: codeVerifier,
     });
 
@@ -430,12 +434,15 @@ export class OAuthService {
     throw new Error(lastError);
   }
 
-  private buildAuthorizeUrl(region: CloudRegion, codeVerifier: string): URL {
+  private buildAuthorizeUrl(
+    target: AuthDeploymentTarget,
+    codeVerifier: string,
+  ): URL {
     const codeChallenge = this.generateCodeChallenge(codeVerifier);
     const redirectUri = this.getRedirectUri();
-    const cloudUrl = getCloudUrlFromRegion(region);
+    const cloudUrl = getCloudUrlFromTarget(target);
     const authUrl = new URL(`${cloudUrl}/oauth/authorize`);
-    authUrl.searchParams.set("client_id", getOauthClientIdFromRegion(region));
+    authUrl.searchParams.set("client_id", getOauthClientIdFromTarget(target));
     authUrl.searchParams.set("redirect_uri", redirectUri);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("code_challenge", codeChallenge);
@@ -445,8 +452,8 @@ export class OAuthService {
     return authUrl;
   }
 
-  private buildSignupUrl(region: CloudRegion, authUrl: URL): URL {
-    const cloudUrl = getCloudUrlFromRegion(region);
+  private buildSignupUrl(target: AuthDeploymentTarget, authUrl: URL): URL {
+    const cloudUrl = getCloudUrlFromTarget(target);
     const signupUrl = new URL(`${cloudUrl}/signup`);
     const nextPath = `${authUrl.pathname}${authUrl.search}`;
     signupUrl.searchParams.set("next", nextPath);

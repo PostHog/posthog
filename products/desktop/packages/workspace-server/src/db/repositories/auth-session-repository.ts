@@ -11,6 +11,8 @@ export type NewAuthSession = typeof authSessions.$inferInsert;
 export interface PersistAuthSessionInput {
   refreshTokenEncrypted: string;
   cloudRegion: CloudRegion;
+  deploymentTarget: CloudRegion | "preview";
+  deploymentId: string | null;
   selectedProjectId: number | null;
   scopeVersion: number;
 }
@@ -50,6 +52,8 @@ export class AuthSessionRepository implements IAuthSessionRepository {
       id: CURRENT_AUTH_SESSION_ID,
       refreshTokenEncrypted: input.refreshTokenEncrypted,
       cloudRegion: input.cloudRegion,
+      deploymentTarget: input.deploymentTarget,
+      deploymentId: input.deploymentId,
       selectedProjectId: input.selectedProjectId,
       scopeVersion: input.scopeVersion,
       createdAt: existing?.createdAt ?? timestamp,

@@ -6,8 +6,9 @@ import type {
   DeepLinkHandler,
   IDeepLinkRegistry,
 } from "@posthog/platform/deep-link";
-import { getDeeplinkProtocol } from "@posthog/shared";
+import { getDeeplinkProtocolOptions } from "@posthog/shared";
 import { inject, injectable } from "inversify";
+import { getPreviewIdentity } from "../../preview";
 import { isDevBuild } from "../../utils/env";
 import {
   isAppImage,
@@ -19,8 +20,6 @@ export type { DeepLinkHandler } from "@posthog/platform/deep-link";
 
 const log = logger.scope("deep-link-service");
 
-const LEGACY_PROTOCOLS = ["twig", "array"];
-
 @injectable()
 export class DeepLinkService implements IDeepLinkRegistry {
   private protocolRegistered = false;
@@ -31,17 +30,24 @@ export class DeepLinkService implements IDeepLinkRegistry {
     private readonly appLifecycle: IAppLifecycle,
   ) {}
 
+  /**
+   * The schemes this build registers and accepts. A preview build gets exactly
+   * its own scheme (derived from the PR identity): it must not steal the
+   * production or legacy callbacks, and they must not steal its OAuth callback.
+   */
+  private schemes(): string[] {
+    return getDeeplinkProtocolOptions(
+      isDevBuild(),
+      getPreviewIdentity()?.scheme ?? null,
+    );
+  }
+
   public registerProtocol(): void {
     if (this.protocolRegistered) {
       return;
     }
 
-    // Dev uses `posthog-code-dev` so local builds do not steal `posthog-code`
-    // from the production app. Production also registers legacy schemes.
-    const schemes = [getDeeplinkProtocol(isDevBuild())];
-    if (!isDevBuild()) {
-      schemes.push(...LEGACY_PROTOCOLS);
-    }
+    const schemes = this.schemes();
 
     for (const scheme of schemes) {
       this.appLifecycle.registerDeepLinkScheme(scheme);
@@ -74,19 +80,17 @@ export class DeepLinkService implements IDeepLinkRegistry {
    * Handle an incoming deep link URL
    *
    * NOTE: Strips the protocol and main key, passing only dynamic segments to handlers.
-   * Supports the active primary scheme (posthog-code or posthog-code-dev) and,
-   * in production only, legacy twig:// and array:// protocols.
+   * Accepts only the schemes this build registered (see `schemes()`).
    */
   public handleUrl(url: string): boolean {
     log.info("Received deep link:", url);
 
-    const primary = getDeeplinkProtocol(isDevBuild());
-    const isPrimaryProtocol = url.startsWith(`${primary}://`);
-    const isLegacyProtocol =
-      !isDevBuild() && LEGACY_PROTOCOLS.some((p) => url.startsWith(`${p}://`));
+    const isAccepted = this.schemes().some((scheme) =>
+      url.startsWith(`${scheme}://`),
+    );
 
-    if (!isPrimaryProtocol && !isLegacyProtocol) {
-      log.warn("URL does not match protocol:", url);
+    if (!isAccepted) {
+      log.warn("URL does not match an accepted protocol:", url);
       return false;
     }
 
@@ -121,6 +125,7 @@ export class DeepLinkService implements IDeepLinkRegistry {
   }
 
   public getProtocol(): string {
-    return getDeeplinkProtocol(isDevBuild());
+    const schemes = this.schemes();
+    return schemes[0];
   }
 }

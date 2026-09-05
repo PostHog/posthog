@@ -11,6 +11,7 @@ import {
   type UpdateInfo,
 } from "electron-updater";
 import { injectable } from "inversify";
+import { isPreviewBuild } from "../preview";
 
 function normalizeReleaseNotes(
   notes: UpdateInfo["releaseNotes"],
@@ -50,6 +51,13 @@ export class ElectronUpdater implements IUpdater {
   }
 
   public isSupported(): boolean {
+    // Preview builds have no update channel: the stable feed serves the
+    // production app, and installing it over a preview would silently replace
+    // a PR test build. Unsupported also disables the manual "check for
+    // updates" path, which reads this same method.
+    if (isPreviewBuild()) {
+      return false;
+    }
     return (
       app.isPackaged &&
       !process.env.ELECTRON_DISABLE_AUTO_UPDATE &&
@@ -58,12 +66,20 @@ export class ElectronUpdater implements IUpdater {
   }
 
   public check(): void {
+    if (isPreviewBuild()) {
+      // Belt and braces with isSupported: never poll and never download, even
+      // from a caller that ignored the support flag.
+      return;
+    }
     void autoUpdater.checkForUpdates().catch(() => undefined);
   }
 
   // Failures surface through the "error" event; the returned promise only
   // signals settlement so the service can serialize downloads.
   public download(): Promise<void> {
+    if (isPreviewBuild()) {
+      return Promise.resolve();
+    }
     return autoUpdater.downloadUpdate().then(
       () => undefined,
       () => undefined,
@@ -71,6 +87,9 @@ export class ElectronUpdater implements IUpdater {
   }
 
   public quitAndInstall(): void {
+    if (isPreviewBuild()) {
+      return;
+    }
     autoUpdater.quitAndInstall(false, true);
   }
 
