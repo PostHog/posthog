@@ -994,6 +994,28 @@ describe('sessionRecordingPlayerLogic', () => {
             )
             expect(logic.values.playerError).not.toBe('replayerPlaybackFailure')
         })
+
+        it('builds rrweb inside a node of its own and defers setPlayer off the current stack', async () => {
+            // React renders the root frame, so rrweb must not rebuild that node's children:
+            // WebKit throws out of React's commit when both sides own the same node.
+            seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
+            logic.actions.setPause()
+
+            const rootFrame = document.createElement('div')
+            const setPlayerSpy = jest.spyOn(logic.actions, 'setPlayer')
+
+            logic.actions.setRootFrame(rootFrame)
+
+            expect(setPlayerSpy).not.toHaveBeenCalledWith(expect.objectContaining({ windowId: expect.anything() }))
+            expect(rootFrame.children).toHaveLength(1)
+
+            const replayerRoot = rootFrame.children[0] as HTMLElement
+            expect(replayerRoot.className).toBe('PlayerFrame__replayerRoot')
+            expect(replayerRoot.querySelector('.replayer-wrapper')).not.toBeNull()
+
+            await new Promise<void>((resolve) => queueMicrotask(resolve))
+            expect(setPlayerSpy).toHaveBeenCalledWith(expect.objectContaining({ windowId: expect.anything() }))
+        })
     })
 
     describe('delete session recording', () => {

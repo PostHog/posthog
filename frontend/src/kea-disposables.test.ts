@@ -199,6 +199,40 @@ describe('disposablesPlugin', () => {
         })
     })
 
+    it('a setup that throws part way still hands back the cleanups it registered', () => {
+        // The rrweb replayer in the session recording player takes ownership of a DOM node and
+        // then constructs the player, which can throw. Without this, the manager registers no
+        // cleanup and the node plus its iframe stay alive for the rest of the page session.
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        setHidden(false)
+        ;(logic as any).cache.disposables.add((onCleanup: (fn: () => void) => void) => {
+            onCleanup(() => {
+                cleanupCalls += 1
+            })
+            throw new Error('setup blew up')
+        }, 'k1')
+
+        expect((logic as any).cache.disposables.registry.has('k1')).toBe(true)
+        expect(cleanupCalls).toBe(0)
+        ;(logic as any).cache.disposables.dispose('k1')
+        expect(cleanupCalls).toBe(1)
+
+        consoleError.mockRestore()
+    })
+
+    it('runs registered cleanups after the returned one, newest first', () => {
+        const order: string[] = []
+        setHidden(false)
+        ;(logic as any).cache.disposables.add((onCleanup: (fn: () => void) => void) => {
+            onCleanup(() => order.push('first'))
+            onCleanup(() => order.push('second'))
+            return () => order.push('returned')
+        }, 'k1')
+        ;(logic as any).cache.disposables.dispose('k1')
+
+        expect(order).toEqual(['returned', 'second', 'first'])
+    })
+
     it('logic.unmount() disposes all registered disposables (no leak when consumer omits beforeUnmount)', () => {
         // Pins the contract that supportTicketCounterLogic relies on after
         // dropping its explicit `beforeUnmount(() => disposables.disposeAll())`.
