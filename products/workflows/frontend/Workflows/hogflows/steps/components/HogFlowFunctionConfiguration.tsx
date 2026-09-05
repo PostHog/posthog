@@ -15,6 +15,7 @@ import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
+import { isMaterializationJobTriggerConfig } from '../../registry/triggers/materializationTriggerFilters'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
@@ -110,6 +111,25 @@ export function buildSampleGlobals(
                 is_thread_reply: false,
                 is_ext_shared_channel: false,
                 slack_event: {},
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
+    } else if (isMaterializationJobTriggerConfig(trigger)) {
+        // Property names mirror what the data modeling producer emits
+        // (materialization_workflow_events.py). No person: these runs are person-less.
+        sampleGlobals.event = {
+            event: '$materialization_job_finished',
+            distinct_id: 'saved_query:018f0000-0000-0000-0000-000000000000',
+            properties: {
+                job_id: '018f0000-0000-0000-0000-000000000001',
+                view_id: '018f0000-0000-0000-0000-000000000000',
+                view_name: 'daily_revenue',
+                status: 'failed',
+                rows_materialized: 0,
+                duration_seconds: null,
+                error: 'Example error message',
+                workflow_id: 'materialize-view-dag-daily_revenue-2024-01-01T12:00:00+00:00',
+                parent_workflow_id: null,
             },
             timestamp: '2024-01-01T12:00:00Z',
         }

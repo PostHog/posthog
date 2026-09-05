@@ -63,7 +63,13 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
 # allowlist keeps that gap closed by default, so adding a trigger means answering the
 # authorization question for that event. Pair a new entry with a tile in
 # products/workflows/frontend/Workflows/hogflows/registry/triggers/.
-WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset({"$slack_message_received", "$github_event_received"})
+#
+# $materialization_job_finished carries a view's name, row count and failure text. The run
+# history endpoint already shows the count and the failure text to any project member with
+# warehouse view access, and the name is what the view list shows to anyone who can see it.
+WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset(
+    {"$slack_message_received", "$github_event_received", "$materialization_job_finished"}
+)
 
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas

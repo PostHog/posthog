@@ -10,6 +10,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
+from products.data_modeling.backend.facade.api import emit_materialization_job_finished
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -105,7 +106,7 @@ def _succeed_node_and_data_modeling_job(
 
     enrichment_needed, enrichment_saved_query_id = _view_enrichment_needed(node)
 
-    job = DataModelingJob.objects.get(id=inputs.job_id)
+    job = DataModelingJob.objects.select_related("saved_query").get(id=inputs.job_id)
 
     # if the job is already in a terminal state, don't overwrite it
     if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
@@ -121,6 +122,7 @@ def _succeed_node_and_data_modeling_job(
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.error = None
     job.save()
+    emit_materialization_job_finished(job, duration_seconds=inputs.duration_seconds)
 
     return SucceedNodeAndJobOutcome(
         node=node,
