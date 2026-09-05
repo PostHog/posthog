@@ -304,6 +304,43 @@ export const Survey: Story = {
   },
 };
 
+export const Cohort: Story = {
+  args: {
+    objectKind: "cohort",
+    objectId: "142",
+    fallbackName: "Beta testers",
+    url: "https://us.posthog.com/project/2/cohorts/142",
+    occurrenceCount: 1,
+    state: "ready",
+    preview: {
+      title: "Beta testers",
+      detail: "1,204 people",
+      facts: ["Dynamic"],
+      stats: [
+        { label: "People", value: "1.2K" },
+        { label: "Type", value: "Dynamic" },
+        { label: "Last calculated", value: "Aug 16" },
+      ],
+      sections: [
+        {
+          title: "Membership criteria",
+          fields: [
+            {
+              label: "Group 1",
+              value:
+                "Is in cohort Power users and Completed checkout in the last 30 days",
+            },
+            {
+              label: "Group 2 (or)",
+              value: "Is not in cohort Churn risk and plan is pro",
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
+
 export const Experiment: Story = {
   args: {
     objectKind: "experiment",
