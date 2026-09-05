@@ -106,18 +106,19 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "selected repo; every other field is then empty or null, never a fake zero."
             },
             "environment_scope": {
-                "help_text": "What the environment filter resolved to: the exact environment name(s) it matches "
-                "(the caller's picks, comma-joined when several; by default the busiest production-marked "
-                "environment, falling back to the busiest persistent one), or 'persistent' (no persistent "
-                "environment deployed in the window, so every non-transient one counts). Transient environments "
-                "(ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in "
-                "the scan window, so two different windows can resolve different scopes and are not always "
-                "comparable."
+                "help_text": "Display label for the selected environments, comma-separated, 'persistent' when no "
+                "persistent environments were discovered, or 'No matching environments' when an explicit filter "
+                "contained no real environment names. Use selected_environments for exact names."
             },
             "environments": {
-                "help_text": "Distinct persistent environments deployed to in the scan window, most-deployed "
-                "first — the environment picker's options. Transient environments are omitted but stay "
-                "reachable by exact name."
+                "help_text": "Distinct persistent environments from the metric scan window or the 30 days before "
+                "its end, whichever starts earlier, most-deployed first. Transient environments are omitted."
+            },
+            "selected_environments": {
+                "help_text": "Exact environment names used for these metrics. Defaults to all persistent "
+                "environments marked production or named prod/production (including regional suffixes), "
+                "falling back to the busiest persistent environment. Explicit filters are trimmed, deduplicated, "
+                "and limited to real names in the source, including transient names. Empty when none match."
             },
             "has_membership_data": {
                 "help_text": "True when the optional team-membership snapshot is synced. When false, a "

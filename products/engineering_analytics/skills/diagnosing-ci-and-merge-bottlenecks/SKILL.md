@@ -142,3 +142,5 @@ numbers as a saved insight, a dashboard tile, or a scheduled email/Slack deliver
 (`<prefix>github_pull_requests` / `<prefix>github_workflow_runs`, prefix from `engineering-analytics-sources`)
 are directly queryable with HogQL, and that skill carries the curated column semantics plus the
 insight-create / subscriptions-create workflow.
+
+DORA environment defaults include all persistent production-marked or production-named regions. Read `selected_environments` for the validated exact scope. Explicit filters keep real transient names and drop blanks, duplicates, and unknown names. An explicit filter with no matches returns empty metrics instead of broadening to the default. Each regional deployment counts separately; lead time counts each PR once at its first successful deployment in any selected environment.
