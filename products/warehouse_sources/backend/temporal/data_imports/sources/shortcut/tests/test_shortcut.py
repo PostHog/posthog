@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from requests import Response
+from requests import Request, Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import (
@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut import (
     SHORTCUT_BASE_URL,
+    STORY_SEARCH_EPOCH_START,
+    StoriesSearchPaginator,
     _build_search_body,
     _format_incremental_value,
     shortcut_source,
@@ -86,30 +88,48 @@ class TestFormatIncrementalValue:
 
 
 class TestBuildSearchBody:
-    def test_no_incremental_returns_empty_body(self) -> None:
+    def test_full_refresh_sends_created_at_floor(self) -> None:
+        # An empty body returns zero stories, so full refresh must still carry the epoch floor.
+        # includes_description asks the endpoint for the description column the schema advertises.
         body = _build_search_body(SHORTCUT_ENDPOINTS["stories"], False, None, None)
-        assert body == {}
+        assert body == {"created_at_start": STORY_SEARCH_EPOCH_START, "includes_description": True}
 
-    def test_incremental_without_last_value_returns_empty_body(self) -> None:
+    def test_first_incremental_run_sends_created_at_floor(self) -> None:
         body = _build_search_body(SHORTCUT_ENDPOINTS["stories"], True, None, "updated_at")
-        assert body == {}
+        assert body == {"created_at_start": STORY_SEARCH_EPOCH_START, "includes_description": True}
 
     @pytest.mark.parametrize(
-        "incremental_field, expected_param",
+        "incremental_field, expected",
         [
-            ("updated_at", "updated_at_start"),
-            ("created_at", "created_at_start"),
-            (None, "updated_at_start"),
+            # A created_at cursor overrides the epoch floor; an updated_at cursor rides alongside it.
+            # Every story search asks for the description via includes_description.
+            ("created_at", {"created_at_start": "2026-01-02T03:04:05Z", "includes_description": True}),
+            (
+                "updated_at",
+                {
+                    "updated_at_start": "2026-01-02T03:04:05Z",
+                    "created_at_start": STORY_SEARCH_EPOCH_START,
+                    "includes_description": True,
+                },
+            ),
+            (
+                None,
+                {
+                    "updated_at_start": "2026-01-02T03:04:05Z",
+                    "created_at_start": STORY_SEARCH_EPOCH_START,
+                    "includes_description": True,
+                },
+            ),
         ],
     )
-    def test_maps_field_to_server_side_filter(self, incremental_field: str | None, expected_param: str) -> None:
+    def test_maps_field_to_server_side_filter(self, incremental_field: str | None, expected: dict) -> None:
         body = _build_search_body(
             SHORTCUT_ENDPOINTS["stories"], True, datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), incremental_field
         )
-        assert body == {expected_param: "2026-01-02T03:04:05Z"}
+        assert body == expected
 
-    def test_full_refresh_endpoint_has_no_filter_params(self) -> None:
-        # Flat list endpoints expose no incremental params, so even with a cursor we send nothing.
+    def test_non_search_endpoint_has_no_body(self) -> None:
+        # GET list endpoints carry no request body at all.
         body = _build_search_body(SHORTCUT_ENDPOINTS["members"], True, datetime(2026, 1, 1, tzinfo=UTC), "updated_at")
         assert body == {}
 
@@ -166,18 +186,52 @@ class TestRequests:
         assert snaps[0]["method"] == "POST"
         assert snaps[0]["url"] == f"{SHORTCUT_BASE_URL}/stories/search"
         # The server-side timestamp filter rides in the POST body, not the query string.
-        assert snaps[0]["json"] == {"updated_at_start": "2026-01-02T03:04:05Z"}
+        assert snaps[0]["json"] == {
+            "updated_at_start": "2026-01-02T03:04:05Z",
+            "created_at_start": STORY_SEARCH_EPOCH_START,
+            "includes_description": True,
+        }
         assert snaps[0]["params"] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stories_full_refresh_sends_empty_body(self, MockSession) -> None:
+    def test_stories_full_refresh_sends_non_empty_body(self, MockSession) -> None:
         session = MockSession.return_value
         snaps = _wire(session, [_response([{"id": 10}])])
 
         _rows(shortcut_source("token", "stories", 1, "j"))
 
         assert snaps[0]["method"] == "POST"
-        assert snaps[0]["json"] == {}
+        # The outgoing body is never empty — an empty body returns zero stories.
+        assert snaps[0]["json"] == {"created_at_start": STORY_SEARCH_EPOCH_START, "includes_description": True}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stories_pagination_drops_boundary_duplicates(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Page 1 fills the cap, so the paginator advances the floor to the newest created_at and
+        # refetches. created_at_start is inclusive, so page 2 re-reads the two boundary stories.
+        boundary = "2026-02-01T00:00:00Z"
+        page1 = [{"id": i, "created_at": "2026-01-01T00:00:00Z"} for i in range(1, 999)] + [
+            {"id": 999, "created_at": boundary},
+            {"id": 1000, "created_at": boundary},
+        ]
+        # Page 2 re-reads 999 and 1000 at the boundary, plus two stories that sat past the cap at the
+        # same timestamp. Being under the cap, it stops paging.
+        page2 = [
+            {"id": 999, "created_at": boundary},
+            {"id": 1000, "created_at": boundary},
+            {"id": 1001, "created_at": boundary},
+            {"id": 1002, "created_at": boundary},
+        ]
+        _wire(session, [_response(page1), _response(page2)])
+
+        rows = _rows(shortcut_source("token", "stories", 1, "j"))
+
+        ids = [row["id"] for row in rows]
+        # No id is stored twice, yet the genuinely new stories past the boundary still land.
+        assert len(ids) == len(set(ids))
+        assert ids.count(1000) == 1
+        assert {1001, 1002}.issubset(set(ids))
+        assert len(rows) == 1002
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_list_yields_nothing(self, MockSession) -> None:
@@ -195,6 +249,40 @@ class TestRequests:
         # rather than syncing the stray object as a single row.
         with pytest.raises(ValueError, match="list response body"):
             _rows(shortcut_source("token", "epics", 1, "j"))
+
+
+class TestStoriesSearchPaginator:
+    def _page(self, paginator: StoriesSearchPaginator, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        paginator.update_state(_response(rows), rows)
+        request = Request(method="POST", url="x", json={"created_at_start": "seed"})
+        paginator.update_request(request)
+        return request.json
+
+    def test_under_cap_page_stops(self) -> None:
+        paginator = StoriesSearchPaginator(cap=2)
+        self._page(paginator, [{"id": 1, "created_at": "2026-01-01T00:00:00Z"}])
+        assert paginator.has_next_page is False
+
+    def test_full_page_advances_floor_to_newest_created_at(self) -> None:
+        paginator = StoriesSearchPaginator(cap=2)
+        body = self._page(
+            paginator,
+            [
+                {"id": 1, "created_at": "2026-01-01T00:00:00Z"},
+                {"id": 2, "created_at": "2026-01-05T00:00:00Z"},
+            ],
+        )
+        assert paginator.has_next_page is True
+        assert body["created_at_start"] == "2026-01-05T00:00:00Z"
+
+    def test_full_page_of_one_timestamp_stops_instead_of_looping(self) -> None:
+        # A full page whose rows all share one created_at can't advance the floor — stop rather than loop.
+        paginator = StoriesSearchPaginator(cap=2)
+        shared = [{"id": 1, "created_at": "2026-01-01T00:00:00Z"}, {"id": 2, "created_at": "2026-01-01T00:00:00Z"}]
+        self._page(paginator, shared)
+        assert paginator.has_next_page is True
+        self._page(paginator, shared)
+        assert paginator.has_next_page is False
 
 
 class TestRetryAndErrorClassification:
@@ -268,6 +356,25 @@ class TestShortcutSourceShape:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "month"
+
+    @pytest.mark.parametrize(
+        "incremental_field, expected_sort_mode",
+        [
+            # The paginator orders stories by created_at, so only the created_at cursor is ascending.
+            ("created_at", "asc"),
+            # updated_at (and the None default, which falls back to updated_at) arrives unordered, so
+            # desc defers the watermark to the end of the run and a failed batch can't skip rows.
+            ("updated_at", "desc"),
+            (None, "desc"),
+        ],
+    )
+    def test_stories_sort_mode_matches_cursor_field(
+        self, incremental_field: str | None, expected_sort_mode: str
+    ) -> None:
+        response = shortcut_source(
+            "token", "stories", 1, "j", should_use_incremental_field=True, incremental_field=incremental_field
+        )
+        assert response.sort_mode == expected_sort_mode
 
     def test_stories_is_the_only_incremental_endpoint(self) -> None:
         # Sanity check that mirrors the schema-level contract in the settings catalog.
