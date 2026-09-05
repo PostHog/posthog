@@ -1,5 +1,10 @@
-import { getTaskRepository, parseRepository } from "@posthog/shared";
+import {
+  type AcpMessage,
+  getTaskRepository,
+  parseRepository,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
 
 export type CellStatus = "running" | "waiting" | "idle" | "error" | "completed";
 
@@ -8,6 +13,24 @@ export interface SessionStatusInput {
   cloudStatus?: string;
   pendingPermissions: { size: number };
   isPromptPending: boolean;
+  events: readonly AcpMessage[];
+}
+
+function latestStopReason(events: readonly AcpMessage[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const message = events[index].message;
+    if (!("result" in message)) continue;
+    const result = message.result;
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "stopReason" in result &&
+      typeof result.stopReason === "string"
+    ) {
+      return result.stopReason;
+    }
+  }
+  return undefined;
 }
 
 export function deriveStatus(
@@ -25,7 +48,18 @@ export function deriveStatus(
   if (session.status === "connected" && session.isPromptPending)
     return "running";
 
+  if (latestStopReason(session.events) === "cancelled") return "error";
+
   return "idle";
+}
+
+export function hasUnseenCompletion(
+  status: CellStatus,
+  activityAt: string,
+  timestamp: TaskTimestamp | undefined,
+): boolean {
+  if (status !== "idle" && status !== "completed") return false;
+  return isTaskUnread(activityAt, timestamp);
 }
 
 export function getRepoName(task: Task): string | null {
