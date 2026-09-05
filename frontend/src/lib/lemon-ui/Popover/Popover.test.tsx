@@ -25,27 +25,28 @@ describe('Popover', () => {
         return { onClickOutside }
     }
 
-    it('dismisses when clicking a plain outside element', async () => {
-        const { onClickOutside } = renderPopover(<button type="button">outside</button>)
+    it.each([
+        { target: 'outside', extra: <button type="button">outside</button>, dismisses: true },
+        {
+            // A nested menu portaled out of a parent popover's *reference* subtree (e.g. the
+            // TaxonomicFilter category pill in the search input suffix) inherits the wrong overlay
+            // level, so the parent can't recognize it as nested. It opts out via the block class.
+            target: 'nested menu item',
+            extra: (
+                <button type="button" className={CLICK_OUTSIDE_BLOCK_CLASS}>
+                    nested menu item
+                </button>
+            ),
+            dismisses: false,
+        },
+        // The reference is the popover's own trigger. Dismissing on it fights the trigger's toggle
+        // handler, which reopens the popover right after — so it never closes.
+        { target: 'reference', extra: undefined, dismisses: false },
+    ])('clicking $target dismisses: $dismisses', async ({ target, extra, dismisses }) => {
+        const { onClickOutside } = renderPopover(extra)
 
-        await userEvent.click(screen.getByText('outside'))
+        await userEvent.click(screen.getByText(target))
 
-        expect(onClickOutside).toHaveBeenCalled()
-    })
-
-    // Regression: a nested menu portaled out of a parent popover's *reference* subtree
-    // (e.g. the TaxonomicFilter category pill in the search input suffix) inherits the
-    // wrong overlay level, so the parent can't recognize it as nested. The element opts
-    // out via CLICK_OUTSIDE_BLOCK_CLASS — clicking it must not dismiss the parent.
-    it('does not dismiss when clicking an element marked with CLICK_OUTSIDE_BLOCK_CLASS', async () => {
-        const { onClickOutside } = renderPopover(
-            <button type="button" className={CLICK_OUTSIDE_BLOCK_CLASS}>
-                nested menu item
-            </button>
-        )
-
-        await userEvent.click(screen.getByText('nested menu item'))
-
-        expect(onClickOutside).not.toHaveBeenCalled()
+        expect(onClickOutside).toHaveBeenCalledTimes(dismisses ? 1 : 0)
     })
 })
