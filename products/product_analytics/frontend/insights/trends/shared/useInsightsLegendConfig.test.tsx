@@ -1,5 +1,6 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -94,12 +95,14 @@ describe('useInsightsLegendConfig', () => {
         const logic = trendsDataLogic(insightProps)
         const [first, second] = logic.values.indexedResults
 
-        result.current.onSetHiddenSeries!([String(second.id)])
+        // The isolate reaches the query through updateInsightFilter, which debounces. Wait on that
+        // listener rather than polling, so a loaded CI machine can't outrun the assertion.
+        await expectLogic(logic, () => {
+            result.current.onSetHiddenSeries!([String(second.id)])
+        }).toFinishAllListeners()
 
-        await waitFor(() => {
-            const { getTrendsHidden } = logic.values
-            expect([getTrendsHidden(first), getTrendsHidden(second)]).toEqual([false, true])
-        })
+        const { getTrendsHidden } = logic.values
+        expect([getTrendsHidden(first), getTrendsHidden(second)]).toEqual([false, true])
     })
 
     it('groups a compared series two rows onto one visibility key', () => {
