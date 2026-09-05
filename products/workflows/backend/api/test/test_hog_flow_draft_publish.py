@@ -481,7 +481,8 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert set_goal.status_code == 200, set_goal.json()
 
         flow = self._stage_draft(flow_id)
-        assert "window_minutes" not in flow.draft["conversion"], flow.draft["conversion"]
+        staged = flow.draft or {}
+        assert "window_minutes" not in staged["conversion"], staged["conversion"]
 
         widen = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
@@ -498,8 +499,9 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert response.status_code == 200, response.json()
 
         flow.refresh_from_db()
-        assert "window_minutes" not in flow.conversion, flow.conversion
-        assert len(flow.conversion["events"]) == 1, flow.conversion
+        live = flow.conversion or {}
+        assert "window_minutes" not in live, live
+        assert len(live["events"]) == 1, live
 
     def test_publish_with_stale_token_after_draft_reedit_is_rejected_with_409(self):
         flow_id = self._create_active_flow()

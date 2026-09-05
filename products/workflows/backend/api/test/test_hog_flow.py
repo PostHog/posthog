@@ -1229,7 +1229,8 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert first.status_code == 200, first.json()
         flow = HogFlow.objects.get(id=flow_id)
-        assert len(flow.draft["conversion"]["events"]) == 1, flow.draft["conversion"]
+        staged = flow.draft or {}
+        assert len(staged["conversion"]["events"]) == 1, staged["conversion"]
 
         second = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
@@ -1239,8 +1240,9 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert second.status_code == 200, second.json()
         flow.refresh_from_db()
-        assert flow.draft["conversion"]["window_minutes"] == 180, flow.draft["conversion"]
-        assert len(flow.draft["conversion"]["events"]) == 1, flow.draft["conversion"]
+        staged = flow.draft or {}
+        assert staged["conversion"]["window_minutes"] == 180, staged["conversion"]
+        assert len(staged["conversion"]["events"]) == 1, staged["conversion"]
 
     def test_hog_flow_conversion_live_patch_keeps_the_goal_when_a_draft_exists(self):
         # A patch without stage_draft lands on the live row even when the workflow holds a draft, so the
@@ -1268,8 +1270,9 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         flow.refresh_from_db()
-        assert flow.conversion["window_minutes"] == 120, flow.conversion
-        assert len(flow.conversion["events"]) == 1, flow.conversion
+        live = flow.conversion or {}
+        assert live["window_minutes"] == 120, live
+        assert len(live["events"]) == 1, live
 
     def test_hog_flow_conversion_staged_patch_leaves_the_live_goal_alone(self):
         # A staged edit that also renames the workflow saves the live row for the rename. The goal it
@@ -1304,8 +1307,9 @@ class TestHogFlowAPI(APIBaseTest):
         flow.refresh_from_db()
         assert flow.name == "Renamed"
         assert flow.conversion == stored_conversion, flow.conversion
-        assert flow.draft["conversion"]["window_minutes"] == 120, flow.draft["conversion"]
-        assert len(flow.draft["conversion"]["events"]) == 1, flow.draft["conversion"]
+        staged = flow.draft or {}
+        assert staged["conversion"]["window_minutes"] == 120, staged["conversion"]
+        assert len(staged["conversion"]["events"]) == 1, staged["conversion"]
 
     def test_hog_flow_conversion_goal_can_still_be_cleared_explicitly(self):
         hog_flow, _ = self._create_hog_flow_with_action(
