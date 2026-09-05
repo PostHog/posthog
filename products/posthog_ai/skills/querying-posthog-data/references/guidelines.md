@@ -325,8 +325,8 @@ properties.foo['bar-baz']
 
 Don't use | Use instead
 `toFloat64()`, `toInt64()`, `toInt32()`, `toUInt8()` | `toFloat()`, `toInt()`
-`toInt64OrNull()`, `toInt64OrZero()`, `toFloat64OrZero()` | `toIntOrZero()`, `toFloatOrZero()`
-`toUInt()`, `toIntOrNull()` | `toInt()`
+`toInt64OrZero()`, `toFloat64OrZero()` | `toIntOrZero()`, `toFloatOrZero()`
+`toUInt()`, `toIntOrNull()`, `toInt64OrNull()` | `toInt()`
 `toDateOrNull(timestamp)` | `toDate(timestamp)`
 `LAG()`, `LEAD()` | `lagInFrame()`, `leadInFrame()` with `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`
 `count(*)` | `count()`
