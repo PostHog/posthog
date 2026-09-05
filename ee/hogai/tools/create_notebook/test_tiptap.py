@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import MarkdownBlock, SessionReplayBlock
 
+from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_MESSAGE
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.tiptap import (
     _parse_inline,
@@ -227,7 +228,7 @@ class TestBlocksToTiptapDoc(SimpleTestCase):
         doc = blocks_to_tiptap_doc(blocks, resolve_visualization=lambda _: None)
         node = doc["content"][0]
         assert node["type"] == "paragraph"
-        assert "not found" in node["content"][0]["text"]
+        assert node["content"][0]["text"] == UNRESOLVED_VISUALIZATION_MESSAGE
 
     def test_mixed_blocks(self):
         blocks: list[StoredBlock] = [

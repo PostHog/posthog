@@ -18,6 +18,7 @@ from ee.hogai.artifacts.handlers.base import (
     get_handler_for_content_type,
     register_handler,
 )
+from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_MESSAGE
 from ee.hogai.artifacts.types import (
     DatabaseArtifactResult,
     EnrichedBlock,
@@ -96,10 +97,11 @@ class NotebookHandler(ArtifactHandler[StoredNotebookArtifactContent, NotebookArt
             if isinstance(block, VisualizationRefBlock):
                 viz_content = viz_contents.get(block.artifact_id)
                 if viz_content is None:
-                    # Artifact not found - generate error block
+                    # Reference no longer resolves to any query - tell the reader how to recover.
+                    # The failure is reported once on the write path, not here on every read.
                     enriched_blocks.append(
                         ErrorBlock(
-                            message=f"Visualization not found: {block.artifact_id}",
+                            message=UNRESOLVED_VISUALIZATION_MESSAGE,
                             artifact_id=block.artifact_id,
                         )
                     )

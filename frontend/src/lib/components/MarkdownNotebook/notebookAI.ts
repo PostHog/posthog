@@ -380,16 +380,38 @@ function getCommonPrefixLength(leftText: string, rightText: string): number {
     return maxLength
 }
 
+// Persisted insight and artifact short IDs come from an alphanumeric generator, so the id class
+// stays alphanumeric plus underscore and hyphen. A value outside it (e.g. a colon-bearing one)
+// could never resolve as a saved insight, so it is left as text rather than turned into a
+// guaranteed not-found chart.
+const INSIGHT_SHORT_ID = String.raw`[\w-]+`
+
+// Every insight-reference dialect Max emits, in the order we try them. Each only matches a tag
+// that stands alone on its line: a query renders only as its own block, and breaking a tag out of
+// a table cell or list item would corrupt the surrounding markdown. The attribute form is matched
+// first because it is the only one whose id lives in an `id=`/`shortId=` attribute.
+// Keep this grammar in sync with the backend parser in ee/hogai/tools/create_notebook/parsing.py.
+const INSIGHT_TAG_REGEXES: RegExp[] = [
+    // <Insight id="X" view="results" />, <insight shortId="X"></insight> - extra props allowed.
+    new RegExp(
+        String.raw`^[ \t]*<insight\b[^>]*?\b(?:id|shortid)\s*=\s*["'](${INSIGHT_SHORT_ID})["'][^>]*?>(?:\s*</insight\s*>)?[ \t]*$`,
+        'gim'
+    ),
+    // <insight=X>, <insight=X/>, <insight=X></insight>.
+    new RegExp(
+        String.raw`^[ \t]*<insight\s*=\s*["']?(${INSIGHT_SHORT_ID})["']?\s*/?>(?:\s*</insight\s*>)?[ \t]*$`,
+        'gim'
+    ),
+    // <insight>X</insight>.
+    new RegExp(String.raw`^[ \t]*<insight\s*>\s*(${INSIGHT_SHORT_ID})\s*</insight\s*>[ \t]*$`, 'gim'),
+]
+
 function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
-    return markdown
-        .replace(
-            /(^|\n)<insight>\s*([A-Za-z0-9_-]+)\s*<\/insight>(?=\n|$)/gi,
-            (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
-        )
-        .replace(
-            /(^|\n)<Insight\s+(?:id|shortId)=["']([A-Za-z0-9_-]+)["']\s*\/>(?=\n|$)/g,
-            (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
-        )
+    let normalized = markdown
+    for (const regex of INSIGHT_TAG_REGEXES) {
+        normalized = normalized.replace(regex, (_match, shortId: string) => getSavedInsightQueryMarkdown(shortId))
+    }
+    return normalized
 }
 
 function getSavedInsightQueryMarkdown(shortId: string): string {

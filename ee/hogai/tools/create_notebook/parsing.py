@@ -6,8 +6,20 @@ from posthog.schema import LoadingBlock, MarkdownBlock
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 
-# Regex pattern to find <insight>artifact_id</insight> tags
-INSIGHT_TAG_PATTERN = r"<insight>([^<]+)</insight>"
+# Persisted insight and artifact short IDs come from an alphanumeric generator, so the id class
+# stays alphanumeric plus underscore and hyphen. A value outside it could never resolve, so it is
+# left as text rather than stored as a dead reference.
+_INSIGHT_SHORT_ID = r"[\w-]+"
+
+# Every insight-reference dialect Max emits, converted to a VisualizationRefBlock. The attribute
+# form is matched first because it is the only one whose id lives in an `id=`/`shortId=` attribute.
+# Keep this grammar in sync with the frontend parser in
+# frontend/src/lib/components/MarkdownNotebook/notebookAI.ts.
+INSIGHT_TAG_PATTERN = (
+    rf"<insight\b[^>]*?\b(?:id|shortId)\s*=\s*[\"'](?P<attr_id>{_INSIGHT_SHORT_ID})[\"'][^>]*?>(?:\s*</insight\s*>)?"
+    rf"|<insight\s*=\s*[\"']?(?P<eq_id>{_INSIGHT_SHORT_ID})[\"']?\s*/?>(?:\s*</insight\s*>)?"
+    rf"|<insight\s*>\s*(?P<el_id>{_INSIGHT_SHORT_ID})\s*</insight\s*>"
+)
 
 T = TypeVar("T", VisualizationRefBlock, LoadingBlock)
 
@@ -29,15 +41,15 @@ def _parse_notebook_content(
     blocks: list[StoredBlock] = []
 
     last_end = 0
-    for match in re.finditer(INSIGHT_TAG_PATTERN, content):
+    for match in re.finditer(INSIGHT_TAG_PATTERN, content, flags=re.IGNORECASE):
         # Add markdown block for text before the tag
         if match.start() > last_end:
             text = content[last_end : match.start()].strip()
             if text:
                 blocks.append(MarkdownBlock(content=text))
 
-        # Add insight block using the factory
-        artifact_id = match.group(1).strip()
+        # Add insight block using the factory. Exactly one dialect group matches per tag.
+        artifact_id = (match.group("attr_id") or match.group("eq_id") or match.group("el_id")).strip()
         blocks.append(create_insight_block(artifact_id))
 
         last_end = match.end()
@@ -135,15 +147,21 @@ def parse_notebook_content_for_streaming(
 
 def _strip_incomplete_insight_tags(content: str) -> str:
     """
-    Strip incomplete insight tags at the end of content (for streaming support).
+    Strip an incomplete insight tag at the end of content (for streaming support).
+
+    Covers every dialect INSIGHT_TAG_PATTERN accepts (element, attribute, equals; any letter
+    case), so a half-streamed tag never flashes as raw markdown before the next chunk completes
+    it. IGNORECASE mirrors the parser, which also matches tags case-insensitively.
     """
     cleaned = content
-    # Remove partial opening tags: <i, <in, <ins, etc.
-    cleaned = re.sub(r"<i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned)
-    # Remove <insight> tags without complete closing tag
-    cleaned = re.sub(r"<insight>[^<]*$", "", cleaned)
-    # Remove partial closing tags: </i, </in, etc.
-    cleaned = re.sub(r"</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned)
-    # Remove <insight> with partial closing tag
-    cleaned = re.sub(r"<insight>[^<]*</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned)
+    # Partial opening tag name: <i, <in, ... <insight (any case).
+    cleaned = re.sub(r"<i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned, flags=re.IGNORECASE)
+    # Element form still streaming its id: <insight>partial, with no closing tag yet.
+    cleaned = re.sub(r"<insight>[^<]*$", "", cleaned, flags=re.IGNORECASE)
+    # Attribute or equals form that has not reached its closing '>' yet: <insight id="ab, <insight=ab.
+    cleaned = re.sub(r"<insight(?:\s+[^<>]*|\s*=[^<>]*)$", "", cleaned, flags=re.IGNORECASE)
+    # Partial closing tag: </i, </in, ... </insight.
+    cleaned = re.sub(r"</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned, flags=re.IGNORECASE)
+    # Element form with content but only a partial closing tag: <insight>abc</insig.
+    cleaned = re.sub(r"<insight>[^<]*</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned, flags=re.IGNORECASE)
     return cleaned

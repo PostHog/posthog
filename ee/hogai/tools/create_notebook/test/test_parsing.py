@@ -41,6 +41,29 @@ class TestParseNotebookContentForStorage(BaseTest):
         assert isinstance(result[0], VisualizationRefBlock)
         assert result[0].artifact_id == artifact_id
 
+    @parameterized.expand(
+        [
+            ("equals form", "<insight=v6BHXh2n></insight>", "v6BHXh2n"),
+            ("self-closing equals form", "<insight=v6BHXh2n/>", "v6BHXh2n"),
+            ("attribute form with extra props", '<Insight id="XuCZnclZ" view="results" />', "XuCZnclZ"),
+            ("lowercase attribute form", '<insight shortId="XuCZnclZ"></insight>', "XuCZnclZ"),
+        ]
+    )
+    def test_insight_dialects_create_ref_block(self, _label: str, content: str, expected_id: str):
+        result = parse_notebook_content_for_storage(content)
+
+        assert len(result) == 1
+        assert isinstance(result[0], VisualizationRefBlock)
+        assert result[0].artifact_id == expected_id
+
+    def test_colon_bearing_reference_is_left_as_text(self):
+        # A colon can never be a real short id, so the tag stays markdown instead of a dead ref.
+        result = parse_notebook_content_for_storage("<insight>W:8ZHl</insight>")
+
+        assert len(result) == 1
+        assert isinstance(result[0], MarkdownBlock)
+        assert result[0].content == "<insight>W:8ZHl</insight>"
+
     def test_whitespace_in_artifact_id_is_stripped(self):
         result = parse_notebook_content_for_storage("<insight>  abc123  </insight>")
 
@@ -171,6 +194,30 @@ class TestStripIncompleteInsightTags(BaseTest):
     def test_insight_with_partial_closing_leaves_opening(self, input_str: str, expected: str):
         result = _strip_incomplete_insight_tags(input_str)
         assert result == expected
+
+    @parameterized.expand(
+        [
+            ("uppercase partial opening", "text<Insight", "text"),
+            ("attribute name and space", "text<insight ", "text"),
+            ("attribute form partial id", 'text<Insight id="XuCZ', "text"),
+            ("attribute form extra prop", 'text<Insight id="XuCZnclZ" view="res', "text"),
+            ("attribute form before close", 'text<Insight id="XuCZnclZ" view="results" /', "text"),
+            ("equals form partial id", "text<insight=v6B", "text"),
+        ]
+    )
+    def test_partial_new_dialect_tags_stripped(self, _label: str, input_str: str, expected: str):
+        result = _strip_incomplete_insight_tags(input_str)
+        assert result == expected
+
+    @parameterized.expand(
+        [
+            ("attribute form with extra props", 'text<Insight id="XuCZnclZ" view="results" />'),
+            ("equals form", "text<insight=v6BHXh2n>"),
+        ]
+    )
+    def test_complete_new_dialect_tags_not_stripped(self, _label: str, content: str):
+        result = _strip_incomplete_insight_tags(content)
+        assert result == content
 
     def test_complete_tag_not_stripped(self):
         content = "text<insight>abc123</insight>more text"

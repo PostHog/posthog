@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -14,6 +15,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
     DateRange,
+    ErrorBlock,
     EventPropertyFilter,
     EventsNode,
     FunnelsQuery,
@@ -30,6 +32,7 @@ from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversa
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_EVENT, UNRESOLVED_VISUALIZATION_MESSAGE
 from ee.hogai.artifacts.types import StoredNotebookArtifactContent
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -143,6 +146,29 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
 
         self.assertIsInstance(content, NotebookArtifactContent)
         self.assertEqual(len(content.blocks), 1)
+
+    def test_unresolvable_visualization_ref_prompts_a_rebuild_without_reporting_on_read(self):
+        # Reading a notebook re-enriches it on every render, so the failure must NOT be reported
+        # here - only once on the write path - or the event fires on every read.
+        artifact = AgentArtifact.objects.create(
+            name="Report",
+            type=AgentArtifact.Type.NOTEBOOK,
+            data={"blocks": [{"type": "visualization_ref", "artifact_id": "gone"}]},
+            conversation=self.conversation,
+            team=self.team,
+        )
+
+        with patch("ee.hogai.artifacts.telemetry.posthoganalytics.capture") as mock_capture:
+            content = async_to_sync(self.manager.aget)(artifact.short_id, NotebookArtifactContent)
+
+        self.assertEqual(len(content.blocks), 1)
+        block = content.blocks[0]
+        assert isinstance(block, ErrorBlock)
+        self.assertEqual(block.message, UNRESOLVED_VISUALIZATION_MESSAGE)
+        unresolved_events = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") == UNRESOLVED_VISUALIZATION_EVENT
+        ]
+        self.assertEqual(unresolved_events, [])
 
     def test_retrieves_content_with_expected_type(self):
         artifact = AgentArtifact.objects.create(
