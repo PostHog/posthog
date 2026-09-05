@@ -198,9 +198,11 @@ class TestGetAnthropicGatewayClient:
             product="posthog_ai",
             team_id=42,
             default_headers={"x-posthog-property-source_product": "notebook_widget"},
+            api_key="phs_customer_job",
         )
 
         assert str(client.base_url) == "http://gateway:8080/posthog_ai/"
+        assert client.api_key == "phs_customer_job"
         assert client.default_headers["x-posthog-property-team_id"] == "42"
         assert client.default_headers["x-posthog-property-source_product"] == "notebook_widget"
 
@@ -444,10 +446,11 @@ class TestBuildAnthropicClient:
             properties={"source_product": "notebook_widget"},
             distinct_id="team-42",
             team_id=42,
+            api_key="phs_customer_job",
         )
 
         kwargs = mock_anthropic.call_args.kwargs
-        assert kwargs["api_key"] == AI_GATEWAY_KEY
+        assert kwargs["api_key"] == "phs_customer_job"
         assert kwargs["base_url"] == "https://ai-gateway.example"
         assert kwargs["http_client"] is mock_httpx.return_value
         headers = kwargs["default_headers"]
@@ -469,11 +472,13 @@ class TestBuildAnthropicClient:
             trace_id="notebook-widget-job-1",
             properties={"source_product": "notebook_widget"},
             team_id=42,
+            api_key="phs_customer_job",
         )
 
         kwargs = mock_get_anthropic.call_args.kwargs
         assert kwargs["team_id"] == 42
         assert kwargs["use_bedrock_fallback"] is False
+        assert kwargs["api_key"] == "phs_customer_job"
         assert kwargs["default_headers"]["traceparent"].startswith("00-")
         assert kwargs["default_headers"]["x-posthog-property-source_product"] == "notebook_widget"
         assert result is mock_get_anthropic.return_value

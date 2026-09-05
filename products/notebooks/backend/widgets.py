@@ -3,8 +3,10 @@ import json
 import math
 import hashlib
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from functools import partial
 from time import monotonic
 from uuid import UUID
 
@@ -13,11 +15,13 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 import posthoganalytics
 
 from posthog.dataclasses import frozen
-from posthog.models import Team, User
+from posthog.models import ProjectSecretAPIKey, Team, User
+from posthog.models.utils import SECRET_API_TOKEN_PREFIX, hash_key_value
 
 from products.notebooks.backend.models import (
     MAX_WIDGET_NODE_ID_LENGTH,
@@ -56,6 +60,7 @@ GENERATION_CANCELLATION_TTL_SECONDS = 60 * 15
 MAX_SCHEMA_CONTEXT_BYTES = 64 * 1_024
 MAX_INPUT_CONTRACT_BYTES = 512 * 1_024
 NOTEBOOK_GENERATED_WIDGETS_FLAG = "notebook-generated-widgets"
+_WIDGET_GATEWAY_CREDENTIAL_SALT = "products.notebooks.widget_gateway_credential"
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -593,6 +598,7 @@ def _fail_stale_generation_jobs(team_id: int) -> None:
         | Q(heartbeat_at__isnull=True, started_at__lt=cutoff)
         | Q(heartbeat_at__isnull=True, started_at__isnull=True, created_at__lt=cutoff)
     )
+    stale_job_ids = list(stale_jobs.values_list("id", flat=True))
     failed_at = timezone.now()
     stale_jobs.filter(cancel_requested_at__isnull=False).update(
         status=GeneratedWidgetGenerationJob.Status.CANCELED,
@@ -608,6 +614,12 @@ def _fail_stale_generation_jobs(team_id: int) -> None:
         error_detail="Generation stopped unexpectedly. Start it again.",
         finished_at=failed_at,
     )
+    reconciled_job_ids = list(
+        GeneratedWidgetGenerationJob.objects.for_team(team_id)
+        .filter(id__in=stale_job_ids, finished_at=failed_at)
+        .values_list("id", flat=True)
+    )
+    transaction.on_commit(partial(_clear_widget_gateway_credentials, reconciled_job_ids, team_id))
 
 
 def _reconcile_stale_generation_job(job: GeneratedWidgetGenerationJob) -> None:
@@ -641,6 +653,7 @@ def _reconcile_stale_generation_job(job: GeneratedWidgetGenerationJob) -> None:
         .update(**updates)
     )
     if updated:
+        transaction.on_commit(partial(_clear_widget_gateway_credential, job.id, job.team_id))
         for field, value in updates.items():
             setattr(job, field, value)
     else:
@@ -917,6 +930,7 @@ def _job_failure_phase(job: GeneratedWidgetGenerationJob | None) -> str | None:
 
 
 def fail_widget_generation_job(job_id: UUID, team_id: int) -> None:
+    _clear_widget_gateway_credential(job_id, team_id)
     job = GeneratedWidgetGenerationJob.objects.for_team(team_id).only("id", "team_id").filter(id=job_id).first()
     if job is not None:
         _mark_job_failed(
@@ -940,6 +954,69 @@ def heartbeat_widget_generation_job(job_id: UUID, team_id: int) -> None:
     GeneratedWidgetGenerationJob.objects.for_team(team_id).filter(
         id=job_id, status=GeneratedWidgetGenerationJob.Status.QUEUED
     ).update(heartbeat_at=timezone.now())
+
+
+def _widget_gateway_api_key_value(job_id: UUID, team_id: int) -> str:
+    digest = salted_hmac(
+        _WIDGET_GATEWAY_CREDENTIAL_SALT,
+        f"{team_id}:{job_id.hex}",
+        algorithm="sha256",
+    ).hexdigest()
+    return f"{SECRET_API_TOKEN_PREFIX}{digest}"
+
+
+def _clear_widget_gateway_credential(job_id: UUID, team_id: int) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    from posthog.storage.gateway_credential_cache import (  # noqa: PLC0415 — keeps gateway cache setup off notebook startup
+        clear_gateway_credential,
+    )
+
+    clear_gateway_credential(hash_key_value(_widget_gateway_api_key_value(job_id, team_id)))
+
+
+def _clear_widget_gateway_credentials(job_ids: list[UUID], team_id: int) -> None:
+    for job_id in job_ids:
+        _clear_widget_gateway_credential(job_id, team_id)
+
+
+def _project_widget_gateway_credential(job: GeneratedWidgetGenerationJob) -> None:
+    from posthog.storage.gateway_credential_cache import (  # noqa: PLC0415 — keeps gateway cache setup off notebook startup
+        GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
+        project_gateway_credential,
+    )
+
+    value = _widget_gateway_api_key_value(job.id, job.team_id)
+    credential = ProjectSecretAPIKey(
+        team=job.team,
+        label="Notebook widget generation",
+        secure_value=hash_key_value(value),
+        created_by=job.requested_by,
+        scopes=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
+    )
+    # The unsaved model reuses the gateway policy resolver without exposing this credential through the key API.
+    project_gateway_credential(credential)
+
+
+@contextmanager
+def _widget_gateway_api_key(job: GeneratedWidgetGenerationJob) -> Iterator[str | None]:
+    from posthog.llm.gateway_client import (  # noqa: PLC0415 — keeps model client setup off notebook startup
+        resolve_ai_gateway_config,
+    )
+
+    if resolve_ai_gateway_config() is None:
+        yield None
+        return
+    if not settings.AI_GATEWAY_REDIS_URL:
+        raise WidgetError(
+            "Widget source generation could not authorize this project's AI usage because gateway billing is not configured. Contact support.",
+            "gateway_billing_not_configured",
+        )
+    try:
+        _project_widget_gateway_credential(job)
+        yield _widget_gateway_api_key_value(job.id, job.team_id)
+    finally:
+        _clear_widget_gateway_credential(job.id, job.team_id)
 
 
 def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
@@ -1047,40 +1124,45 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             effective_prompt = _materialize_effective_prompt(job.base_version)
         frames = _bounded_schema_context(job.input_contract)
         frame_names = [str(item.get("slot")) for item in job.input_contract if item.get("slot")]
-        generated = generate_widget_source(
-            team_id=job.team_id,
-            trace_id=f"notebook-widget-{job.id}",
-            prompt=effective_prompt,
-            schemas=frames,
-            input_names=frame_names,
-            model=job.model,
-            is_cancelled=is_cancelled,
-            base_source=base_source,
-            change_prompt=change_prompt,
-        )
-        source = generated.source
-        title = generated.title or _display_name(effective_prompt)
-        if is_cancelled():
-            raise WidgetError("Widget generation was canceled.", "generation_canceled")
-        reviewing = (
-            GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
-            .filter(
-                id=job.id,
-                status=GeneratedWidgetGenerationJob.Status.GENERATING,
-                cancel_requested_at__isnull=True,
+        with _widget_gateway_api_key(job) as gateway_api_key:
+            generated = generate_widget_source(
+                team_id=job.team_id,
+                trace_id=f"notebook-widget-{job.id}",
+                prompt=effective_prompt,
+                schemas=frames,
+                input_names=frame_names,
+                model=job.model,
+                api_key=gateway_api_key,
+                before_request=partial(_project_widget_gateway_credential, job),
+                is_cancelled=is_cancelled,
+                base_source=base_source,
+                change_prompt=change_prompt,
             )
-            .update(phase="reviewing_source", heartbeat_at=timezone.now())
-        )
-        if not reviewing:
-            raise WidgetError("This generation is no longer active.", "generation_abandoned")
-        job.phase = "reviewing_source"
-        security_review = review_widget_source(
-            team_id=job.team_id,
-            trace_id=f"notebook-widget-security-review-{job.id}",
-            source=source,
-            input_names=frame_names,
-            is_cancelled=is_cancelled,
-        )
+            source = generated.source
+            title = generated.title or _display_name(effective_prompt)
+            if is_cancelled():
+                raise WidgetError("Widget generation was canceled.", "generation_canceled")
+            reviewing = (
+                GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
+                .filter(
+                    id=job.id,
+                    status=GeneratedWidgetGenerationJob.Status.GENERATING,
+                    cancel_requested_at__isnull=True,
+                )
+                .update(phase="reviewing_source", heartbeat_at=timezone.now())
+            )
+            if not reviewing:
+                raise WidgetError("This generation is no longer active.", "generation_abandoned")
+            job.phase = "reviewing_source"
+            security_review = review_widget_source(
+                team_id=job.team_id,
+                trace_id=f"notebook-widget-security-review-{job.id}",
+                source=source,
+                input_names=frame_names,
+                api_key=gateway_api_key,
+                before_request=partial(_project_widget_gateway_credential, job),
+                is_cancelled=is_cancelled,
+            )
         # Publication preserves the exact reviewed artifact for inspection. Browser consumers gate execution of
         # every non-clean verdict on explicit trust for this version's immutable build hash.
         security_reviewed_at = timezone.now()
