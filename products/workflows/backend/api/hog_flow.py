@@ -3138,8 +3138,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 #
                 # Normalize a legacy goal (event object in `filters`) too: carried over raw it would land
                 # past the to_internal_value relocation, and skipping it would drop the only copy of a
-                # goal the patch never asked to change.
-                stored_conversion = _relocate_legacy_conversion_event_object(deepcopy(stored_base))
+                # goal the patch never asked to change. Only when the patch leaves `filters` alone,
+                # though — a legacy goal lives in that slot and is read back from it, so a patch that
+                # replaces `filters` is editing the goal itself. Relocating it there would move it out
+                # of reach of the field the caller just replaced and keep measuring.
+                stored_conversion = deepcopy(stored_base)
+                if "filters" not in conversion:
+                    stored_conversion = _relocate_legacy_conversion_event_object(stored_conversion)
                 for key in ("filters", "events", "window_minutes"):
                     stored = stored_conversion.get(key)
                     if key in conversion or stored is None:

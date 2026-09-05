@@ -1115,6 +1115,38 @@ class TestHogFlowAPI(APIBaseTest):
         assert conversion["events"][0]["filters"]["events"] == event_obj["events"]
         assert conversion["filters"] == [], conversion
 
+    def test_hog_flow_conversion_legacy_goal_clears_when_the_patch_replaces_filters(self):
+        # A legacy goal is read back from the property slot, so replacing that slot is how a caller
+        # clears it. Relocating it into `events` on the way through would keep it measuring behind a
+        # field the caller just emptied, and a GET would not show where it went.
+        event_obj = {
+            "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
+            "source": "events",
+        }
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.conversion = {"filters": event_obj, "window_minutes": 60}
+        flow.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"filters": []}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        conversion = response.json()["conversion"]
+        assert conversion["events"] == [], conversion
+        assert conversion["filters"] == [], conversion
+        # The rest of the goal is still merged: only the slot the caller replaced is dropped.
+        assert conversion["window_minutes"] == 60, conversion
+
     def test_hog_flow_conversion_goal_only_patch_keeps_the_window(self):
         # The mirror of the case above: an edit to the goal must not drop the window.
         hog_flow, _ = self._create_hog_flow_with_action(
