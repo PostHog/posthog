@@ -4,6 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
@@ -23,6 +24,41 @@ RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
         *(f"group{index}_properties" for index in range(GROUP_TYPES_LIMIT)),
     }
 )
+
+# flag_evaluations columns that store a verbatim copy of an event property, mapped to the property each copies.
+# The shards compute them from `properties`, so both spellings return one value, and masking only reaches the
+# `properties.<key>` and whole-blob paths. Restricting the property has to mask the column by name too, or the
+# column answers what those two refuse.
+_FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
+    "flag_key": "$feature_flag",
+    "response": "$feature_flag_response",
+    "session_id": "$session_id",
+    "request_id": "$feature_flag_request_id",
+    **{f"$group_{index}": f"$group_{index}" for index in range(GROUP_TYPES_LIMIT)},
+}
+
+
+def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
+    """The event property a typed column copies verbatim, or None when the column copies nothing.
+
+    A caller that prints one of these columns must mask the read when the property is restricted, in a predicate
+    as much as in a SELECT: an unmasked column lets a filter narrow down a value the same user cannot read.
+    `events` exposes mirror columns of its own that nothing consults this for; see ACCESS_CONTROL.md.
+    """
+    if not isinstance(table_type, ast.BaseTableType):
+        return None
+
+    try:
+        table = table_type.resolve_database_table(context)
+    except Exception:
+        # Fail-open to match restricted_property_keys_for_table_type, whose docstring explains why this is
+        # unreachable today; log so a future table type that can raise does not silently unmask a column.
+        logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
+        return None
+
+    if isinstance(table, FlagEvaluationsTable):
+        return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    return None
 
 
 def restricted_property_keys_for_table_type(
@@ -54,13 +90,15 @@ def restricted_property_keys_for_table_type(
         return set()
 
     # EventsPersonSubTable and EventsGroupSubTable are virtual tables over `events`, not EventsTable subclasses, but
-    # they carry person/group properties — match them before the EventsTable branch either way.
-    if isinstance(table, EventsPersonSubTable):
+    # they carry person/group properties — match them before the EventsTable branch either way. The flag_evaluations
+    # tables carry the same blobs on their own rows, so they take the same branches. flag_evaluations has no group
+    # counterpart: it stores no group properties, so it exposes group keys alone.
+    if isinstance(table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
         prop_def_type = PropertyDefinition.Type.PERSON
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
         group_type_index = table.group_index
-    elif isinstance(table, EventsTable):
+    elif isinstance(table, EventsTable | FlagEvaluationsTable):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON

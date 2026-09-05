@@ -12,6 +12,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
     SavedQuery,
     StringJSONDatabaseField,
     StructDatabaseField,
@@ -35,7 +36,11 @@ from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import (
+    RESTRICTABLE_JSON_BLOB_COLUMNS,
+    mirrored_property_for_column,
+    restricted_property_keys_for_table_type,
+)
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -489,7 +494,8 @@ class ClickHousePrinter(BasePrinter):
     def visit_field_type(self, type: ast.FieldType):
         field_sql = super().visit_field_type(type)
         field_sql = self._maybe_stringify_events_json_field(type, field_sql)
-        return self._maybe_apply_json_drop_keys(type, field_sql)
+        field_sql = self._maybe_apply_json_drop_keys(type, field_sql)
+        return self._maybe_mask_mirrored_column(type, field_sql)
 
     def _maybe_stringify_events_json_field(self, type: ast.FieldType, field_sql: str) -> str:
         serialized = self._serialize_events_json_field(type, field_sql)
@@ -602,6 +608,30 @@ class ClickHousePrinter(BasePrinter):
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
+
+    def _maybe_mask_mirrored_column(self, type: ast.FieldType, field_sql: str) -> str:
+        """Reads a typed column back as NULL when it copies a restricted property.
+
+        The property paths mask a restricted read to NULL, and the same value sits in its own column on
+        `flag_evaluations`. Masking here covers every reference the printer emits, so a `WHERE` on the column
+        cannot narrow down a value the same user is refused on the property path.
+        """
+        if not self.context.restricted_properties:
+            return field_sql
+
+        resolved_field = type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, DatabaseField):
+            return field_sql
+
+        source_property = mirrored_property_for_column(type.table_type, resolved_field.name, self.context)
+        if source_property is None:
+            return field_sql
+
+        if source_property not in restricted_property_keys_for_table_type(type.table_type, self.context):
+            return field_sql
+
+        # Matches the constant the property path lowers to, so the two spellings stay indistinguishable.
+        return "NULL"
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""

@@ -144,7 +144,12 @@ Doing nothing means the first affected GDPR request becomes an escalation.
 
 ### Event removal with a HogQL predicate does not reach `flag_evaluations`
 
-`compile_hogql_predicate` resolves against the events HogQL table and emits events-specific physical columns. There is no HogQL table definition for `flag_evaluations`, so the fragment cannot run against it. Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
+`compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
+Its only axis of variation is legacy vs native-JSON events, so while the dag does compile one fragment per target, no target selects a different table root.
+Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
+The dag refuses rather than guessing.
+A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
+Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
 
 ## Producer prerequisite: person_id parity
 
@@ -155,6 +160,12 @@ The shadow-routing producer (`posthog-code/flag-evaluations-shadow-routing`) for
 If a future producer emitted rows before person resolution, leaving `person_id` unset, a person deletion would strand them.
 The fix would belong to the producer, not the scanner.
 Keeping the fork downstream of person resolution is the contract, tracked on #81002.
+
+Write-time parity is not sufficient on its own, because a later merge moves the person the sweep looks for.
+`squash_person_overrides` rewrites `person_id` on `EVENTS_TARGETS` only, so after person A merges into B the events rows carry B while the flag-evaluation rows still carry A.
+A deletion of B is queued under B's uuid, so it misses those rows and they survive with their `person_properties` until the TTL drops the part.
+The squash deletes the overrides right after applying them, so nothing can reconcile the divergence afterwards.
+Extending the squash to `FLAG_EVALUATIONS` is the fix, and it belongs to `posthog/dags/person_overrides.py` rather than to this table. Tracked on #93035.
 
 ## Related, and deliberately unchanged
 

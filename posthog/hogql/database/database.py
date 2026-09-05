@@ -90,6 +90,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -232,6 +233,8 @@ class HogQLDatabaseSources:
     is_hogql_warehouse_access_control_enabled: bool
     is_data_quality_enabled: bool
     is_billing_usage_records_enabled: bool
+    # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
+    include_flag_evaluations_table: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -423,6 +426,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
+                    # Pruned per org in _build_from_sources; see is_flag_evaluations_table_enabled.
+                    # The flag check must stay out of this cached, process-global tree.
+                    "flag_evaluations": TableNode(name="flag_evaluations", table=FlagEvaluationsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                     "session_replay_features": TableNode(
@@ -1446,6 +1452,9 @@ class Database(BaseModel):
             direct_connection_metadata=None,
             user_access_control=None,
             denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
+            # Resolving the org gate needs a feature-flag check, which is exactly the I/O this path
+            # exists to avoid, so the table is pruned here as the other gated tables are.
+            include_flag_evaluations_table=False,
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
@@ -1532,8 +1541,11 @@ class Database(BaseModel):
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
             from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
+            from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled  # noqa: PLC0415
 
             data_quality_enabled = is_data_quality_checks_enabled(team)
+            # A direct-connection catalog has no "posthog" node to hold the table.
+            include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -1775,6 +1787,7 @@ class Database(BaseModel):
             is_data_quality_enabled=data_quality_enabled,
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
+            include_flag_evaluations_table=include_flag_evaluations_table,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -1847,6 +1860,14 @@ class Database(BaseModel):
                 posthog_node = database.tables.children.get("posthog")
                 if posthog_node is not None:
                     posthog_node.children.pop("billing_usage_records", None)
+
+        # Removing the node, rather than denying the table at query time, is what keeps an org that
+        # lacks the flag from learning it exists: serialize(), information_schema and get_table()
+        # all read this tree. Must run before apply_schema_scope(), which snapshots the table names.
+        # The "posthog" node is absent on a direct-connection catalog.
+        if not sources.include_flag_evaluations_table:
+            if posthog_node := database.tables.children.get("posthog"):
+                posthog_node.children.pop("flag_evaluations", None)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
