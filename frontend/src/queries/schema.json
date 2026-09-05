@@ -27411,7 +27411,9 @@
                 "Medusa",
                 "Membrain",
                 "RecallAI",
-                "Tenjin"
+                "Tenjin",
+                "Folk",
+                "Cybersource"
             ],
             "type": "string"
         },
