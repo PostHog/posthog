@@ -337,10 +337,10 @@ class TestHoglandBedrockDisabled:
     def test_hogland_opts_out_of_direct_bedrock(self):
         # hogland boxes boot with the bedrock feature (CLAUDE_CODE_USE_BEDROCK=1);
         # the sandbox opts in to unsetting it so the agent uses the LLM gateway.
-        assert HoglandSandbox.disable_direct_bedrock is True
+        assert HoglandSandbox.should_unset_bedrock_env is True
 
     def test_env_prefix_unsets_bedrock_vars_when_requested(self):
-        prefix = build_agent_runtime_env_prefix(unset_bedrock=True)
+        prefix = build_agent_runtime_env_prefix(should_unset_bedrock_env=True)
         assert "-u CLAUDE_CODE_USE_BEDROCK" in prefix
         assert "-u AWS_CONTAINER_CREDENTIALS_FULL_URI" in prefix
 
