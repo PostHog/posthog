@@ -635,6 +635,20 @@ def _coalesce_empty(expr: ast.Expr) -> ast.Call:
     return ast.Call(name="coalesce", args=[expr, _sentinel("")], type=ast.StringType(nullable=False))
 
 
+def _in_and_has(column: ast.Expr, values: list[str]) -> list[ast.Expr]:
+    """The conjuncts `in(column, (..))` and `has([..], column)` for an IN over string constants.
+
+    `has([..], col)` is the shape ClickHouse serves from a bloom filter under transform_null_in=1 (it plans `in()` as
+    `nullIn()`, which no skip index handles), but it is a linear scan per row and a probe with hundreds of values keeps
+    nearly every granule. `in()` keeps the hash-set row filter and goes first so the short-circuit `and` skips `has` on
+    the rows it rejects.
+    """
+    return [
+        _call("in", [column, ast.Tuple(exprs=[_const(v) for v in values])]),
+        _call("has", [ast.Array(exprs=[_const(v) for v in values]), column]),
+    ]
+
+
 def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
 
@@ -1644,9 +1658,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         if prop.source.is_nullable:
             if node.op == ast.CompareOperationOp.In:
-                # ClickHouse's transform_null_in makes in() hard to index; flip to has([...], col) (safe: NULL already excluded).
-                array = ast.Array(exprs=[_const(v) for v in values])
-                return _call("and", [_call("has", [array, prop.bare_column()]), prop.is_not_null()])
+                return _call("and", [*_in_and_has(prop.bare_column(), values), prop.is_not_null()])
             tup = ast.Tuple(exprs=[_const(v) for v in values])
             return _call("ifNull", [_call("notIn", [prop.bare_column(), tup]), _const(True)])
 
@@ -1654,8 +1666,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if any(v in MAT_COL_NULL_SENTINELS for v in values):
             return None
         if node.op == ast.CompareOperationOp.In:
-            array = ast.Array(exprs=[_const(v) for v in values])
-            return _call("has", [array, prop.bare_column()])
+            return _call("and", _in_and_has(prop.bare_column(), values))
         tup = ast.Tuple(exprs=[_const(v) for v in values])
         return _call("notIn", [prop.bare_column(), tup])
 
@@ -1671,7 +1682,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if self._is_ai_column(prop.source):
             return None
 
-        values = self._extract_lower_in_values(node.right)
+        values = self._extract_string_constants(node.right)
         if not values:
             return None
 
@@ -1686,27 +1697,13 @@ class ClickHousePropertyResolver(CloningVisitor):
             indexed = _lower(prop.bare_column())
 
         if node.op == ast.CompareOperationOp.In:
-            return _call("has", [ast.Array(exprs=[_const(v) for v in values]), indexed])
+            return _call("and", _in_and_has(indexed, values))
         return _call("notIn", [indexed, ast.Tuple(exprs=[_const(v) for v in values])])
 
     @staticmethod
     def _extract_string_constants(node: ast.Expr) -> list[str] | None:
-        """A list of string values from an IN right-hand side (single constant or tuple/array of constants)."""
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return [node.value]
-        if isinstance(node, (ast.Tuple, ast.Array)):
-            values: list[str] = []
-            for value in node.exprs:
-                if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                    values.append(value.value)
-                else:
-                    return None
-            return values or None
-        return None
-
-    @staticmethod
-    def _extract_lower_in_values(node: ast.Expr) -> list[str] | None:
-        """Like _extract_string_constants but also accepts a constant list (from a `{placeholder}`)."""
+        """A list of string values from an IN right-hand side: a constant, a constant list (from a `{placeholder}` or a
+        query builder), or a tuple/array of constants."""
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return [node.value]
         if isinstance(node, ast.Constant) and isinstance(node.value, (list, tuple)):

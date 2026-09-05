@@ -1563,7 +1563,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['hello@posthog.com'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com')), has(['hello@posthog.com'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1603,7 +1603,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has([''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('')), has([''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1643,7 +1643,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com', 'null')), has(['hello@posthog.com', 'null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1683,7 +1683,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['hello@posthog.com', ''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com', '')), has(['hello@posthog.com', ''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1723,7 +1723,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com', 'other_value')), has(['hello@posthog.com', 'other_value'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1763,7 +1763,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('null')), has(['null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1803,7 +1803,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('NULL')), has(['NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1843,7 +1843,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['null', 'NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('null', 'NULL')), has(['null', 'NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1883,7 +1883,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), has(['hello@posthog.com'], events.mat_test_prop))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com')), has(['hello@posthog.com'], events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2043,7 +2043,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), has(['hello@posthog.com', 'other_value'], events.mat_test_prop))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com', 'other_value')), has(['hello@posthog.com', 'other_value'], events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2123,7 +2123,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), has(['NULL'], events.mat_test_prop))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('NULL')), has(['NULL'], events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2203,7 +2203,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['hello@posthog.com'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com')), has(['hello@posthog.com'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2243,7 +2243,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has([''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('')), has([''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2283,7 +2283,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com', 'null')), has(['hello@posthog.com', 'null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2323,7 +2323,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['hello@posthog.com', ''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com', '')), has(['hello@posthog.com', ''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2363,7 +2363,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com', 'other_value')), has(['hello@posthog.com', 'other_value'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2403,7 +2403,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('null')), has(['null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2443,7 +2443,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('NULL')), has(['NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2483,7 +2483,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(has(['null', 'NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('null', 'NULL')), has(['null', 'NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2523,7 +2523,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), has(['hello@posthog.com'], events.mat_test_prop))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com')), has(['hello@posthog.com'], events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2683,7 +2683,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), has(['hello@posthog.com', 'other_value'], events.mat_test_prop))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('hello@posthog.com', 'other_value')), has(['hello@posthog.com', 'other_value'], events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2763,7 +2763,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), has(['NULL'], events.mat_test_prop))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_in_test'), and(in(events.mat_test_prop, tuple('NULL')), has(['NULL'], events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2843,7 +2843,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_lower_in_test'), has(['hello@posthog.com'], lower(coalesce(events.mat_test_prop, ''))))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_lower_in_test'), and(in(lower(coalesce(events.mat_test_prop, '')), tuple('hello@posthog.com')), has(['hello@posthog.com'], lower(coalesce(events.mat_test_prop, '')))))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2883,7 +2883,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_lower_in_test'), has(['hello@posthog.com'], lower(events.mat_test_prop)))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_opt_lower_in_test'), and(in(lower(events.mat_test_prop), tuple('hello@posthog.com')), has(['hello@posthog.com'], lower(events.mat_test_prop))))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2930,7 +2930,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), has(['foo@example.com', 'bar@example.com'], lower(coalesce(where_optimization.pmat_email, '')))))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), and(in(lower(coalesce(where_optimization.pmat_email, '')), tuple('foo@example.com', 'bar@example.com')), has(['foo@example.com', 'bar@example.com'], lower(coalesce(where_optimization.pmat_email, ''))))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE in(lower(persons.properties___email),
@@ -2954,7 +2954,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_lower_bloom_events_test'), has(['foo@example.com', 'bar@example.com'], lower(coalesce(events.mat_email, ''))))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_lower_bloom_events_test'), and(in(lower(coalesce(events.mat_email, '')), tuple('foo@example.com', 'bar@example.com')), has(['foo@example.com', 'bar@example.com'], lower(coalesce(events.mat_email, '')))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2973,7 +2973,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_lower_ngram_events_test'), has(['foo@example.com', 'bar@example.com'], lower(coalesce(events.mat_email, ''))))
+  WHERE and(equals(events.team_id, 99999), equals(events.event, 'mat_col_lower_ngram_events_test'), and(in(lower(coalesce(events.mat_email, '')), tuple('foo@example.com', 'bar@example.com')), has(['foo@example.com', 'bar@example.com'], lower(coalesce(events.mat_email, '')))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
