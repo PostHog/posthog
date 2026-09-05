@@ -1377,3 +1377,29 @@ class TestCaptureAiInternal(SimpleTestCase):
         assert result.results[uid]["details"] == "misrouted_event"
         with self.assertRaises(CaptureInternalError):
             result.raise_for_status()
+
+
+class TestLaneErrorMessages(SimpleTestCase):
+    """An error must name the entry point the caller actually used, or it sends them
+    looking at the wrong function."""
+
+    def test_analytics_lane_errors_name_capture_internal(self) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch([_make_event()], token="", event_source="src")
+        assert "capture_internal (src)" in str(ctx.exception)
+        assert "capture_ai_internal" not in str(ctx.exception)
+
+    def test_ai_lane_errors_name_capture_ai_internal(self) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch(
+                [_make_event(event="$ai_generation")], token="", event_source="src", ai_lane=True
+            )
+        assert "capture_ai_internal (src)" in str(ctx.exception)
+
+    def test_ai_lane_replay_rejection_names_the_ai_entry_point(self) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch(
+                [_make_event(event="$snapshot")], token="tok", event_source="src", ai_lane=True
+            )
+        assert "capture_ai_internal" in str(ctx.exception)
+        assert "replay event" in str(ctx.exception)
