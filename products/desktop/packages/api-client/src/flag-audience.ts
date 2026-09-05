@@ -21,6 +21,8 @@ export interface FlagAudience {
   bucketing: "distinct_id" | "device_id";
   /** The bucketing key as display text: "the distinct ID", "the device ID", "the group key". */
   stability: string;
+  /** Person property checked before the rules for early access flags; null when off. */
+  enrollmentKey: string | null;
 }
 
 export interface FlagRule {
@@ -426,6 +428,14 @@ export function shapeFlagAudience(
     return { kind: "true" };
   };
 
+  // Early access flags check the enrollment person property before any rule:
+  // a true value returns true immediately, any other present value returns
+  // false, and an absent value falls through to the rules below.
+  const enrollmentKey =
+    filters.feature_enrollment === true
+      ? `$feature_enrollment/${flag.key}`
+      : null;
+
   const rules: FlagRule[] = groups.map((group) => ({
     conditions: group.properties.flatMap((property) => {
       const condition = shapeCondition(property, group.isGroup, people);
@@ -466,6 +476,7 @@ export function shapeFlagAudience(
       variants,
       bucketing,
       stability,
+      enrollmentKey,
     };
   }
 
@@ -485,6 +496,7 @@ export function shapeFlagAudience(
       variants,
       bucketing,
       stability,
+      enrollmentKey,
     };
   }
 
@@ -501,6 +513,7 @@ export function shapeFlagAudience(
       variants,
       bucketing,
       stability,
+      enrollmentKey,
     };
   }
 
@@ -532,7 +545,11 @@ export function shapeFlagAudience(
   const fallbackReachable = !rules.some((rule) =>
     catchAllRule(rule, deviceBucketed),
   );
-  if (fallbackReachable) {
+  if (enrollmentKey) {
+    sentences.push(
+      `${enrollmentKey} overrides these rules: a true value always gets true, and any other value gets false.`,
+    );
+  } else if (fallbackReachable) {
     sentences.push(
       deviceBucketed || rules.some((rule) => rule.isGroup)
         ? "A check without its bucketing key still gets false."
@@ -550,6 +567,7 @@ export function shapeFlagAudience(
     variants,
     bucketing,
     stability,
+    enrollmentKey,
   };
 }
 

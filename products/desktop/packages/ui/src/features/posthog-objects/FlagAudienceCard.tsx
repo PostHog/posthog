@@ -313,6 +313,16 @@ export function FlagAudienceCard({ audience }: { audience: FlagAudience }) {
             <span>Rules, checked in order. First match wins.</span>
             <span>Result</span>
           </div>
+          {audience.enrollmentKey && (
+            <div className="border-border border-b bg-(--blue-2) px-3 py-2 text-[12px] text-muted-foreground">
+              Early access: the{" "}
+              <span className="font-mono text-foreground">
+                {audience.enrollmentKey}
+              </span>{" "}
+              person property is checked before these rules. A true value gets
+              true; any other value gets false.
+            </div>
+          )}
           {audience.rules.map((rule, index) => (
             <RuleRow
               key={ruleKey(rule, index)}

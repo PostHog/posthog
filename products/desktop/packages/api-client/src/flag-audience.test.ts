@@ -91,6 +91,20 @@ describe("flag audience shaping", () => {
     expect(audience.stability).toBe("the device ID");
   });
 
+  it("states the enrollment override for early access flags", () => {
+    const audience = shapeFlagAudience(
+      flagWith({
+        feature_enrollment: true,
+        groups: [{ rollout_percentage: 100 }],
+      }),
+    );
+
+    expect(audience.enrollmentKey).toBe("$feature_enrollment/test-flag");
+    expect(audience.summary).toContain(
+      "$feature_enrollment/test-flag overrides these rules",
+    );
+  });
+
   it("renders a readable label for operators that only reach flags through the API", () => {
     const audience = shapeFlagAudience(
       flagWith({
