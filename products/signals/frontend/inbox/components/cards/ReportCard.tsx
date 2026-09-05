@@ -166,7 +166,11 @@ export function ReportCard({
     // Painted from the shared map the report lists fill; absent until (or unless) GitHub answers.
     const { ciStatusByReportId } = useValues(prCiStatusLogic)
     const ciStatus = preview ? null : ciStatusByReportId[report.id]
-    const prState = derivePrState(report.status, report.implementation_pr_merged === true)
+    const prState = derivePrState(
+        report.status,
+        report.implementation_pr_merged === true,
+        report.implementation_pr_state
+    )
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
