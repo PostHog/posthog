@@ -1212,12 +1212,10 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
 
 
 def _check_cohort_membership_via_personhog(person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import CheckCohortMembershipRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     resp = client.check_cohort_membership(CheckCohortMembershipRequest(person_id=person_id, cohort_ids=cohort_ids))
     membership_by_cohort: dict[int, bool] = {m.cohort_id: m.is_member for m in resp.memberships}
@@ -1264,12 +1262,10 @@ _LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
 
 
 def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import ListCohortMemberIdsRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     all_ids: list[int] = []
     cursor = 0
@@ -1306,12 +1302,10 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
 
 
 def _insert_cohort_members_via_personhog(cohort_id: int, person_ids: list[int], version: int | None) -> int:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import InsertCohortMembersRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     resp = client.insert_cohort_members(
         InsertCohortMembersRequest(
@@ -1353,12 +1347,10 @@ def insert_cohort_members(
 
 
 def _delete_cohort_member_via_personhog(cohort_id: int, person_id: int) -> bool:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import DeleteCohortMemberRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     resp = client.delete_cohort_member(DeleteCohortMemberRequest(cohort_id=cohort_id, person_id=person_id))
     return resp.deleted
@@ -1388,12 +1380,10 @@ _DELETE_BULK_MAX_ITERATIONS = 10_000
 def _delete_cohort_members_bulk_via_personhog(
     cohort_ids: list[int], batch_size: int, timeout: float | None = None
 ) -> int:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import DeleteCohortMembersBulkRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     total_deleted = 0
     for _ in range(_DELETE_BULK_MAX_ITERATIONS):
@@ -1434,12 +1424,10 @@ def delete_cohort_members_bulk(
 
 def _count_cohort_members_via_personhog(cohort_ids: list[int], consistency: ReadConsistency) -> int:
     from posthog.personhog_client import consistency_to_read_options
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import CountCohortMembersRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     resp = client.count_cohort_members(
         CountCohortMembersRequest(
