@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } f
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
@@ -78,17 +79,31 @@ export type joinsLogicType = MakeLogicType<joinsLogicValues, joinsLogicActions, 
 
 export const joinsLogic = kea<joinsLogicType>([
     path(['products', 'dataWarehouse', 'joinsLogic']),
-    loaders({
+    loaders(({ values }) => ({
         joins: [
             [] as DataWarehouseViewLink[],
             {
                 loadJoins: async () => {
-                    const joins = await api.dataWarehouseViewLinks.list()
-                    return joins.results
+                    try {
+                        const joins = await api.dataWarehouseViewLinks.list()
+                        return joins.results
+                    } catch (error) {
+                        // The taxonomic filter mounts this logic on ordinary scenes, so an expected
+                        // failure (a feature-gated 403 on a self-hosted instance) must not fall through
+                        // to the global loaders handler as an uncaught exception. Let the shared gate
+                        // still surface genuine defects.
+                        if (shouldReportApiFailure(error)) {
+                            throw error
+                        }
+                        // Keep the last good list. A suppressed failure on a refresh (after a join is
+                        // created, edited, or deleted) must not erase joins an earlier load already
+                        // holds; on the first load this is still the initial empty list.
+                        return values.joins
+                    }
                 },
             },
         ],
-    }),
+    })),
     connect(() => ({
         values: [databaseTableListLogic, ['allTablesMap']],
         actions: [databaseTableListLogic, ['hydrateTableFields']],
