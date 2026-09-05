@@ -134,12 +134,16 @@ def _refresh_cohort_count(conn: psycopg.Connection[Any], cohort_id: int) -> None
     The count the product shows is the same bare COUNT(*) this reads, so the repaired value is
     available on the connection already open here. Without this the cohort keeps showing the
     inflated size until its next recalculation.
+
+    Only a static cohort takes its size from this table. A cohort flipped back to dynamic keeps
+    its old rows here, and its size comes from ClickHouse instead, so the is_static filter stops
+    an obsolete membership total from replacing it. The surplus rows are still deleted.
     """
     with conn.cursor() as cur:
         cur.execute(COUNT_SQL, {"cohort_id": cohort_id})
         row = cur.fetchone()
     assert row is not None
-    Cohort.objects.filter(pk=cohort_id).update(count=int(row[0]))
+    Cohort.objects.filter(pk=cohort_id, is_static=True).update(count=int(row[0]))
 
 
 class Command(BaseCommand):

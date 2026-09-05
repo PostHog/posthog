@@ -78,12 +78,19 @@ def test_verify_leaves_the_surplus_rows_in_place(persons_conn):
     assert _members(persons_conn, 900) == [(11, 1), (11, 2)]
 
 
-def test_repair_corrects_the_size_the_cohort_page_shows(persons_conn, team):
-    cohort = Cohort.objects.create(team=team, name="static", is_static=True, count=3)
+@pytest.mark.parametrize(
+    "is_static,expected_count",
+    # A dynamic cohort keeps the rows of the static cohort it once was, but its size comes from
+    # ClickHouse, so the stored count of 3 has to survive the repair.
+    [(True, 2), (False, 3)],
+)
+def test_repair_corrects_the_size_only_where_this_table_is_the_source(persons_conn, team, is_static, expected_count):
+    cohort = Cohort.objects.create(team=team, name="members", is_static=is_static, count=3)
     for person_id, version in [(11, 1), (11, 2), (12, 1)]:
         _add_member(persons_conn, cohort.pk, person_id, version)
 
     call_command("cohortpeople_dedup", "--mode", "repair")
 
+    assert _members(persons_conn, cohort.pk) == [(11, 2), (12, 1)]
     cohort.refresh_from_db()
-    assert cohort.count == 2
+    assert cohort.count == expected_count
