@@ -819,6 +819,7 @@ path = "products.slack_app"
 depends_on = [
     "posthog",
     "products.alerts",
+    "products.error_tracking",
     "products.conversations",
     "products.dashboards",
     "products.product_analytics",
