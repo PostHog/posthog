@@ -19,14 +19,18 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { createSliceYielder } from 'lib/utils/async'
 import { createVersionChecker } from 'lib/utils/semver'
 
 import {
     DOMIndex,
     buildDOMIndex,
+    chainConsistencyProperties,
     hasNonToolbarShadowRoots,
     matchEventToElementUsingIndex,
     matchEventToElementUsingSelectors,
+    matchIsChainConsistent,
 } from '~/toolbar/elements/domElementIndex'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -260,17 +264,10 @@ export function computeAreaBounds(element: HTMLElement): HeatmapBoundsFilter {
 // a page and can't miss rows that shifted across page boundaries between scans
 const ELEMENT_STATS_AUTO_LOAD_LIMIT = 50000
 
-function yieldToMain(): Promise<void> {
-    return new Promise((resolve) => {
-        if ('scheduler' in window && typeof (window as any).scheduler?.yield === 'function') {
-            ;(window as any).scheduler.yield().then(resolve)
-        } else if (typeof (window as any).requestIdleCallback === 'function') {
-            ;(window as any).requestIdleCallback(() => resolve(), { timeout: 50 })
-        } else {
-            setTimeout(resolve, 0)
-        }
-    })
-}
+// one press of "Load all" covers at most this many pages. Each page re-runs the matcher over every
+// row loaded so far, so an uncapped run on a busy site grows its own cost with each page. The button
+// comes back when the cap is reached, so a longer range takes another press rather than a hung tab.
+export const LOAD_ALL_MAX_PAGES = 20
 
 export type ClickmapProcessingTrigger = 'initial' | 'auto-load' | 'pagination' | 'refresh' | 'toggle'
 
@@ -383,7 +380,9 @@ export interface heatmapToolbarMenuLogicValues {
         limit: number
         url: string | null
     } | null
+    loadAllPagesLoaded: number
     loadedElementStatsCount: number
+    loadingAllElementStats: boolean
     matchLinksByHref: boolean
     processedElements: CountedHTMLElement[]
     processingInputs: {
@@ -401,7 +400,6 @@ export interface heatmapToolbarMenuLogicValues {
         processed: number
         total: number
     } | null
-    samplingFactor: number
     scrollDepthPosthogJsError: 'disabled' | 'version' | null
     wantedDataAttributes: string[]
     windowHeight: number
@@ -575,19 +573,22 @@ export interface heatmapToolbarMenuLogicActions {
         processed: number
         total: number
     }
-    setSamplingFactor: (samplingFactor: number) => {
-        samplingFactor: number
-    }
     startAreaSelection: () => {
         value: true
     }
     startElementObservation: () => {
         value: true
     }
+    startLoadingAllElementStats: () => {
+        value: true
+    }
     stepAreaHover: (direction: 'down' | 'up') => {
         direction: 'down' | 'up'
     }
     stopElementObservation: () => {
+        value: true
+    }
+    stopLoadingAllElementStats: () => {
         value: true
     }
     toggleClickmapsEnabled: (enabled: boolean) => {
@@ -698,8 +699,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         enableHeatmap: true,
         disableHeatmap: true,
         toggleClickmapsEnabled: (enabled: boolean) => ({ enabled }),
-        setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
+        startLoadingAllElementStats: true,
+        stopLoadingAllElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         loadAllEnabled: true,
         maybeLoadClickmap: true,
@@ -808,6 +810,29 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 getElementStatsFailure: () => true, // so at least someone can recover from transient errors
             },
         ],
+        loadAllPagesLoaded: [
+            0,
+            {
+                startLoadingAllElementStats: () => 0,
+                getElementStatsSuccess: (state) => state + 1,
+            },
+        ],
+        loadingAllElementStats: [
+            false,
+            {
+                startLoadingAllElementStats: () => true,
+                stopLoadingAllElementStats: () => false,
+                // the last page ends the run; a page that carries no next link at all ends it too,
+                // so a refused request cannot leave the button reading "Stop loading" forever
+                getElementStatsSuccess: (state, { elementStats }) => state && !!elementStats.next,
+                getElementStatsFailure: () => false,
+                resetElementStats: () => false,
+                disableHeatmap: () => false,
+                // the run belongs to the page and pattern it started on
+                setHref: () => false,
+                setWildcardHref: () => false,
+            },
+        ],
         heatmapEnabled: [
             false,
             {
@@ -819,13 +844,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             true,
             {
                 toggleClickmapsEnabled: (_, { enabled }) => enabled,
-            },
-        ],
-        samplingFactor: [
-            1,
-            { persist: true },
-            {
-                setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
             },
         ],
         elementMetrics: [
@@ -910,7 +928,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                   date_from: values.commonFilters.date_from,
                                   date_to: values.commonFilters.date_to,
                                   paginate_response: true,
-                                  sampling_factor: values.samplingFactor,
                                   limit: limit ?? ELEMENT_STATS_PAGE_LIMIT,
                                   // the matchers only read the configured data attributes from each
                                   // element's attributes map, so let the server drop the rest
@@ -1056,7 +1073,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         processElements: async ({ trigger }, breakpoint) => {
-            const SLICE_BUDGET_MS = 10
             const startedAt = performance.now()
 
             const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled, heatmapAreaFilter } =
@@ -1084,16 +1100,19 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 cache as ElementProcessingCache,
                 href
             )
+            const useDiscriminators = !!toolbarPosthogJS.getFeatureFlag(FEATURE_FLAGS.HEATMAPS_CLICKMAP_DISCRIMINATORS)
             const eventsToProcess = elementStats.results
             const totalEvents = eventsToProcess.length
 
             const matchedElementByIdentity = (cache as ElementProcessingCache).matchedElementByIdentity
             const allTrimmedElements: CountedHTMLElement[] = []
+            let consistentClicks = 0
+            let inconsistentClicks = 0
             let indexMatchedCount = 0
             let fallbackMatchedCount = 0
             let matchCacheHitCount = 0
             let completed = false
-            let sliceStart = performance.now()
+            const maybeYield = createSliceYielder()
 
             try {
                 for (let i = 0; i < totalEvents; i++) {
@@ -1117,7 +1136,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                               }
                             : null
                     } else {
-                        matched = matchEventToElementUsingIndex(event, dataAttributes, matchLinksByHref, domIndex)
+                        matched = matchEventToElementUsingIndex(event, domIndex, {
+                            dataAttributes,
+                            matchLinksByHref,
+                            useDiscriminators,
+                        })
                         if (matched) {
                             indexMatchedCount += 1
                         } else {
@@ -1139,6 +1162,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     if (matched) {
+                        if (matchIsChainConsistent(matched.element, event.elements, domIndex)) {
+                            consistentClicks += event.count
+                        } else {
+                            inconsistentClicks += event.count
+                        }
                         const trimmed = trimElement(matched.element, { cursorPointerCache })
                         // the server already filters chains by the area selector, but chains can
                         // match DOM nodes outside the chosen area (stale markup, repeated
@@ -1155,11 +1183,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         }
                     }
 
-                    if (performance.now() - sliceStart > SLICE_BUDGET_MS) {
-                        actions.setProcessingProgress(i + 1, totalEvents)
-                        await yieldToMain()
+                    if (await maybeYield(() => actions.setProcessingProgress(i + 1, totalEvents))) {
                         breakpoint()
-                        sliceStart = performance.now()
                     }
                 }
 
@@ -1183,6 +1208,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     trigger,
                     cache_hit: cacheHit,
                     completed,
+                    ...chainConsistencyProperties({
+                        useDiscriminators,
+                        consistentClicks,
+                        inconsistentClicks,
+                        matchedClicks: allTrimmedElements.reduce((total, element) => total + element.count, 0),
+                        totalClicks: eventsToProcess.reduce((total, row) => total + row.count, 0),
+                    }),
                 })
             }
         },
@@ -1355,10 +1387,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setCommonFilters: () => {
             actions.loadAllEnabled()
         },
-        setSamplingFactor: () => {
-            actions.maybeLoadClickmap()
-        },
-
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
                 actions.maybeLoadClickmap()
@@ -1371,6 +1399,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 cache.lastHref = undefined
                 cache.visibilityCache = new WeakMap()
             }
+        },
+
+        startLoadingAllElementStats: () => {
+            // the first page starts the run; getElementStatsSuccess requests the next one
+            actions.loadMoreElementStats()
         },
 
         loadMoreElementStats: () => {
@@ -1395,6 +1428,17 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             // trigger refetches, so an auto-load result can never re-trigger itself.
             if (trigger === 'initial' && elementStats?.next && values.heatmapEnabled && values.clickmapsEnabled) {
                 actions.getElementStats(null, ELEMENT_STATS_AUTO_LOAD_LIMIT)
+            } else if (
+                values.loadingAllElementStats &&
+                elementStats?.next &&
+                values.heatmapEnabled &&
+                values.clickmapsEnabled
+            ) {
+                if (values.loadAllPagesLoaded >= LOAD_ALL_MAX_PAGES) {
+                    actions.stopLoadingAllElementStats()
+                } else {
+                    actions.getElementStats(elementStats.next)
+                }
             }
         },
 
@@ -1577,9 +1621,9 @@ export function dedupeByChainIdentity(events: ElementsEventType[]): ElementsEven
     const seen = new Set<string>()
     const deduped: ElementsEventType[] = []
     for (const event of events) {
-        // the server hashes the raw chain before attribute filtering, so distinct chains that
-        // serialize identically after trimming stay distinct; the serialized-content fallback is
-        // transitional for servers that still return hash as null — delete once that's none of them
+        // the hash identifies the chain as the server grouped it, so two rows share it only when
+        // the server already counted them as one; the serialized-content fallback is transitional
+        // for servers that still return hash as null, delete once that's none of them
         const identity = `${event.type}:${event.hash ?? JSON.stringify(event.elements)}`
         if (seen.has(identity)) {
             continue

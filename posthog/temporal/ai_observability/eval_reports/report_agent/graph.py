@@ -1,6 +1,7 @@
 """LangGraph agent for evaluation report generation using create_react_agent."""
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import structlog
@@ -47,6 +48,7 @@ def _compute_metrics(
     period_end: str,
     previous_period_start: str,
     output_type: str = "boolean",
+    true_is_failure: bool = False,
     evaluation_target: str = GENERATION_TARGET,
 ) -> EvalReportMetrics | None:
     """Compute report metrics directly via HogQL (independent of agent state).
@@ -59,7 +61,7 @@ def _compute_metrics(
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
-        definition = get_outcome_definition(output_type)
+        definition = get_outcome_definition(output_type, true_is_failure=true_is_failure)
 
         result_counts, total = _fetch_period_summary(
             team_id, evaluation_id, ts_start, ts_end, definition, evaluation_target
@@ -222,6 +224,7 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
 def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
+    detector_evaluation_ids: Sequence[str] = (),
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -244,6 +247,7 @@ def run_eval_report_agent(
         inputs.period_end,
         inputs.previous_period_start,
         output_type=inputs.output_type,
+        true_is_failure=inputs.true_is_failure,
         evaluation_target=evaluation_target,
     )
 
@@ -289,6 +293,7 @@ def run_eval_report_agent(
         period_start=inputs.period_start,
         period_end=inputs.period_end,
         report_prompt_guidance=inputs.report_prompt_guidance,
+        true_is_failure=inputs.true_is_failure,
     )
 
     agent = create_react_agent(
@@ -311,6 +316,8 @@ def run_eval_report_agent(
         "evaluation_type": inputs.evaluation_type,
         "evaluation_target": evaluation_target,
         "output_type": inputs.output_type,
+        "true_is_failure": inputs.true_is_failure,
+        "detector_evaluation_ids": list(detector_evaluation_ids),
         "period_start": inputs.period_start,
         "period_end": inputs.period_end,
         "previous_period_start": inputs.previous_period_start,

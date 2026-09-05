@@ -65,8 +65,26 @@ static CASE_INSENSITIVE_ILLEGAL_IDS: LazyLock<HashSet<String>> =
 static CASE_SENSITIVE_ILLEGAL_IDS: LazyLock<HashSet<String>> =
     LazyLock::new(|| with_quoted(BARE_CASE_SENSITIVE_ILLEGAL_IDS));
 
+/// Whether JavaScript's `String.prototype.trim` would strip this char.
+/// Deliberately not Rust's `str::trim`, which also strips U+0085: the
+/// two sides must agree on which ids are illegal.
+fn is_js_whitespace(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\u{000B}' | '\u{000C}' | ' ' | '\u{00A0}' | '\u{FEFF}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\n'
+                | '\r'
+                | '\u{2028}'
+                | '\u{2029}'
+    )
+}
+
 pub fn is_distinct_id_illegal(id: &str) -> bool {
-    id.trim().is_empty()
+    id.trim_matches(is_js_whitespace).is_empty()
         || CASE_INSENSITIVE_ILLEGAL_IDS.contains(&id.to_lowercase())
         || CASE_SENSITIVE_ILLEGAL_IDS.contains(id)
 }

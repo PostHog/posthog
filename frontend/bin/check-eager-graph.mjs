@@ -61,15 +61,41 @@ const ROOTS = [
         ],
     },
     {
+        // index.tsx imports App and bootApp as sibling dynamic imports, so neither alone is what
+        // a logged-out page downloads: measure the deduplicated union of all three closures.
+        root: ['src/index.tsx', 'src/scenes/App.tsx', 'src/scenes/bootApp.ts'],
+        label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
+        // The backend preloads the App closure for logged-out pages too (preload-manifest.json
+        // `js`), so this is the whole JS cost of /login. 2026-09-03: 5.14 MiB eager output = 2.55 MiB
+        // JS (37 chunks) + the three entries' stylesheets (2.60 MiB, of which only index's is linked
+        // at runtime; the others are esbuild's per-entry copies). Before this stack the JS alone was
+        // 7.5 MiB. ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
+        budgetBytes: 5_900_000,
+        forbidden: [
+            'node_modules/monaco-editor/',
+            // Authenticated-only code. Either of these on the App path means a component that
+            // logged-out pages render has grown a static import into the logged-in app.
+            'src/layout/navigation-3000/navigationLogic.tsx',
+            'src/scenes/dashboard/dashboardLogic.tsx',
+        ],
+    },
+    {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // 2026-07-07: 8.02 MiB eager output after moving all @posthog/brand/hoggies usage in
-        // eager code to PNG stubs (lib/brand/hoggies) — the inline-SVG modules are now a
-        // forbidden module below. ~21% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 10_185_000,
+        // 2026-09-03: 7.64 MiB eager output after moving DASHBOARD_WIDGET_PREVIEWS out of the
+        // widget catalog and importing MathAvailability from ActionFilterRow/types instead of the
+        // component. ~15% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 9_200_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
+            // Widget previews render product UI (recordings player, error tracking list, logs) and
+            // are only needed by the add-widget modal; the recordings player logic pulls in rrweb.
+            {
+                pattern: 'products/dashboards/frontend/widgets/previews/',
+                verifyPrefix: 'products/dashboards/frontend/widgets/',
+            },
+            'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
             // See the entry root's note: inline-SVG hoggies must stay off the eager path.
             {
                 pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/svg/',
@@ -251,25 +277,34 @@ for (const verifySubstr of new Set(ROOTS.flatMap((r) => r.forbidden.map(forbidde
     }
 }
 
-for (const { root, label, budgetBytes, forbidden } of ROOTS) {
-    const entry = entryChunk(root)
-    if (!entry) {
-        const candidates = Object.values(outputs)
-            .map((c) => c.entryPoint)
-            .filter((e) => e && e.endsWith(path.basename(root)))
-            .slice(0, 5)
-        const message = `Root '${root}' is not an entry chunk in the metafile. Was it moved, or is it no longer a code-split boundary? Candidates: ${candidates.join(', ')}`
+for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
+    // A root is one entry module, or several whose closures are downloaded together.
+    const rootModules = Array.isArray(rootSpec) ? rootSpec : [rootSpec]
+    const root = rootModules.join(' + ')
+    const entries = rootModules.map((module) => ({ module, entry: entryChunk(module) }))
+    const missing = entries.filter(({ entry }) => !entry)
+    if (missing.length > 0) {
+        const message = missing
+            .map(({ module }) => {
+                const candidates = Object.values(outputs)
+                    .map((c) => c.entryPoint)
+                    .filter((e) => e && e.endsWith(path.basename(module)))
+                    .slice(0, 5)
+                return `Root '${module}' is not an entry chunk in the metafile. Was it moved, or is it no longer a code-split boundary? Candidates: ${candidates.join(', ')}`
+            })
+            .join('\n')
         report.errors.push(message)
         fail(message)
         continue
     }
+    const eagerChunks = new Set(entries.flatMap(({ entry }) => [...eagerChunkClosure(entry)]))
 
     // Attribute each input module the bytes it actually contributes to the eager chunks —
     // tree-shaken modules contribute nothing, so a barrel only counts its used exports.
     const eagerBytesByFile = new Map()
     const cssBundlesSeen = new Set()
     let totalBytes = 0
-    for (const chunk of eagerChunkClosure(entry)) {
+    for (const chunk of eagerChunks) {
         totalBytes += outputs[chunk].bytes
         // esbuild attaches a JS chunk's stylesheet via `cssBundle`, not an `imports` edge, so
         // the chunk walk never reaches it — but it's downloaded before render, so count each
@@ -306,7 +341,15 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     }
     const forbiddenHits = []
     if (hitFiles.size > 0) {
-        const { parentOf } = eagerClosure(inputs, root)
+        // One parent map across all root modules; a module reachable from several keeps its first chain.
+        const parentOf = new Map()
+        for (const module of rootModules) {
+            for (const [child, parent] of eagerClosure(inputs, module).parentOf) {
+                if (!parentOf.has(child)) {
+                    parentOf.set(child, parent)
+                }
+            }
+        }
         for (const [module, hit] of hitFiles) {
             forbiddenHits.push({ module, chain: chainTo(parentOf, hit) })
         }

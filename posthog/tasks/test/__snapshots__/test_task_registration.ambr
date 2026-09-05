@@ -156,5 +156,6 @@
     'posthog.tasks.usage_report.send_all_org_usage_reports',
     'posthog.tasks.usage_report.send_report_to_billing_service',
     'posthog.tasks.warehouse.validate_data_warehouse_table_columns',
+    'posthog.tasks.wizard_blocklist.revoke_blocklisted_gateway_credentials',
   ])
 # ---

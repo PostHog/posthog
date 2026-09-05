@@ -242,6 +242,9 @@ SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
 SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
     rf"(?P<name>--mcpServers)\s+(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
 )
+SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
+    r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
+)
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
@@ -256,7 +259,8 @@ def sandbox_repo_path(repository: str) -> str:
 
 def redact_sandbox_command(command: str) -> str:
     redacted = SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
-    return SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN.sub(r"\g<name> <redacted>", redacted)
+    redacted = SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN.sub(r"\g<name> <redacted>", redacted)
+    return SENSITIVE_FILE_HEREDOC_PATTERN.sub(r"\g<prefix><redacted>\g<suffix>", redacted)
 
 
 def build_agent_runtime_env_prefix(
@@ -641,7 +645,11 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
-            for source, target in (("totalMs", "server_total"), ("httpReadyMs", "http_ready")):
+            for source, target in (
+                ("totalMs", "server_total"),
+                ("httpReadyMs", "http_ready"),
+                ("launcherToProcessMs", "launcher_to_process"),
+            ):
                 duration = boot.get(source) if isinstance(boot, dict) else None
                 if isinstance(duration, int | float) and not isinstance(duration, bool):
                     phases[target] = max(0, int(duration))

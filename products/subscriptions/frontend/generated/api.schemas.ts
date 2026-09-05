@@ -255,7 +255,7 @@ export interface SubscriptionApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
     start_date: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -406,7 +406,7 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
     start_date?: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -480,6 +480,11 @@ export interface AIReportQueryDiagnosticApi {
      * @nullable
      */
     error_type: string | null
+    /**
+     * Stable query API error code when available; null on success and for unclassified errors.
+     * @nullable
+     */
+    error_code?: string | null
     /**
      * Human-readable failure reason, present only for query errors safe to surface to the subscription owner (e.g. an unresolved field name); null on success and for internal errors, which expose error_type only.
      * @nullable
