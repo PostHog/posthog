@@ -550,7 +550,7 @@ async def emit_signal(
         weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
         extra: Optional product-specific metadata. Its top-level scalar values (truncated) are
             flattened onto the `signal_emission_started` and `signal_emitted` analytics events
-            alongside the core `source_*` keys (which win on conflict) — see
+            alongside the core `source_*`, `team_id`, and `project_id` keys (which win on conflict) — see
             `_telemetry_props_from_extra` — so per-source attribution (e.g. the scout harness's
             `scout_run_id` / `skill_name`) is queryable downstream without a schema change.
             Nested lists/dicts are never forwarded.
@@ -631,6 +631,8 @@ async def emit_signal(
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
+                "team_id": team.id,
+                "project_id": str(team.uuid),
             },
             groups=groups(organization, team),
         )
@@ -721,6 +723,8 @@ async def emit_signal(
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
+                "team_id": team.id,
+                "project_id": str(team.uuid),
             },
             groups=groups(organization, team),
         )
