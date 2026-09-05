@@ -277,23 +277,25 @@ fn test_propdef_type_variants_collapse_to_one_entry() {
     // Only the read filter inserts a differing non-null type, and it carries
     // the type Postgres stored, so the cache follows it.
     assert_eq!(cache.insert(retyped.clone()), InsertOutcome::Replaced);
-    assert_eq!(cache.insert(retyped), InsertOutcome::Unchanged);
     assert_eq!(cache.propdefs_len(), 1);
 }
 
-// A re-insert of state the cache already holds must not reach quick_cache: an
-// insert over a resident key takes the shard write lock and fires the eviction
-// hook, so the read filter refreshing every dropped row would show up as
-// eviction churn while the cache sits far below capacity.
+// Re-inserting an identical update writes exactly what it did before the
+// outcome bookkeeping existed: the eventdef bucket guard still rejects it, and
+// the other two subcaches still push it through quick_cache, which counts as a
+// replacement so the dashboard can subtract it from the eviction counter.
 #[rstest]
-#[case::eventdefs(make_event_def("unchanged_eventdefs"))]
-#[case::eventprops(make_event_prop("unchanged_eventprops_evt", "unchanged_eventprops_prop"))]
-#[case::propdefs(make_prop_def("unchanged_propdefs"))]
-fn test_reinsert_of_covered_update_is_unchanged(#[case] update: Update) {
+#[case::eventdefs(make_event_def("reinsert_eventdefs"), InsertOutcome::Unchanged)]
+#[case::eventprops(
+    make_event_prop("reinsert_eventprops_evt", "reinsert_eventprops_prop"),
+    InsertOutcome::Replaced
+)]
+#[case::propdefs(make_prop_def("reinsert_propdefs"), InsertOutcome::Replaced)]
+fn test_reinsert_of_identical_update(#[case] update: Update, #[case] expected: InsertOutcome) {
     let cache = Cache::new(10, 10, 10);
 
     assert_eq!(cache.insert(update.clone()), InsertOutcome::Inserted);
-    assert_eq!(cache.insert(update.clone()), InsertOutcome::Unchanged);
+    assert_eq!(cache.insert(update.clone()), expected);
     assert!(cache.contains_key(&update));
     assert_eq!(
         cache.eventdefs_len() + cache.eventprops_len() + cache.propdefs_len(),
