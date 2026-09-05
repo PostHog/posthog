@@ -70,6 +70,13 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Data warehouse schema',
         },
+        WarehouseDestinations: {
+            import: () => import('./frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),
+            projectBased: true,
+            name: 'Warehouse destinations',
+            description: 'Manage where your warehouse sources write the rows they sync.',
+            iconType: 'data_warehouse',
+        },
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
@@ -90,6 +97,7 @@ export const manifest: ProductManifest = {
             'DataWarehouseSourceSchema',
             'dataWarehouseSourceSchema',
         ],
+        '/data-management/warehouse-destinations': ['WarehouseDestinations', 'warehouseDestinations'],
         '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
         '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
@@ -156,6 +164,7 @@ export const manifest: ProductManifest = {
             const queryString = params.toString()
             return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
         },
+        warehouseDestinations: (): string => '/data-management/warehouse-destinations',
         dataWarehouseSourceConnect: (kind?: string): string =>
             `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
@@ -202,6 +211,15 @@ export const manifest: ProductManifest = {
             href: urls.models(),
             sceneKey: 'Models',
             sceneKeys: ['Models'],
+        },
+        {
+            path: 'Warehouse destinations',
+            category: 'Pipeline',
+            iconType: 'data_warehouse',
+            href: urls.warehouseDestinations(),
+            flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
+            sceneKey: 'WarehouseDestinations',
+            sceneKeys: ['WarehouseDestinations'],
         },
         {
             path: 'Managed viewsets',
