@@ -97,7 +97,7 @@ tools:
             production-named environments (including regional suffixes), falling back to the busiest persistent one when
             none match; ephemeral per-PR preview environments never join a default scope. selected_environments lists
             the exact names used. Repeat environment to scope to exact names; the API trims and deduplicates them, keeps
-            real transient names, drops unknown names, and returns empty metrics if no requested names match. Pass
+            real transient names, and rejects blank or unknown names with a 400 response. Pass
             github_team (a slug from github_teams) to narrow the PR-scoped lead-time figures to that team's authors —
             deploy counts stay repo-wide. deploy_data_available is false when the deployments endpoints aren't synced on
             the GitHub source; the fix is enabling them, not re-querying.

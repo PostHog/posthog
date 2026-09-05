@@ -266,11 +266,11 @@ export interface DoraOverviewApi {
     open_to_deploy_series: LeadTimeBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
-    /** Display label for the selected environments, comma-separated, 'persistent' when no persistent environments were discovered, or 'No matching environments' when an explicit filter contained no real environment names. Use selected_environments for exact names. */
+    /** Display label for the selected environments, comma-separated, 'persistent' when no persistent environments were discovered. Use selected_environments for exact names. */
     environment_scope: string
     /** Distinct persistent environments from the metric scan window or the 30 days before its end, whichever starts earlier, most-deployed first. Transient environments are omitted. */
     environments: string[]
-    /** Exact environment names used for these metrics. Defaults to all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment. Explicit filters are trimmed, deduplicated, and limited to real names in the source, including transient names. Empty when none match. */
+    /** Exact environment names used for these metrics. Defaults to all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment. Explicit filters are trimmed and deduplicated. DRF rejects blank or unknown names; real transient names are allowed. */
     selected_environments: string[]
     /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
     has_membership_data: boolean
@@ -1743,7 +1743,7 @@ export type EngineeringAnalyticsDoraParams = {
      */
     date_to?: string
     /**
-     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to include all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment when none match. Explicit names are trimmed, deduplicated, and validated against the source; unknown names are ignored without broadening the scope.
+     * Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit to include all persistent environments marked production or named prod/production (including regional suffixes), falling back to the busiest persistent environment when none match. Explicit names are trimmed, deduplicated, and validated against the source, including transient environments. Blank or unknown names are rejected with a 400 response.
      */
     environment?: string[]
     /**

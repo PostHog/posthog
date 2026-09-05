@@ -301,7 +301,7 @@ _PRODUCTION_ENVIRONMENTS_SELECT = """
         __DATE_TO_CREATED__
 """
 
-_REQUESTED_ENVIRONMENTS_SELECT = """
+_ENVIRONMENT_CHOICES_SELECT = """
     SELECT groupUniqArray(environment) AS environments
     FROM __DEPLOYMENTS_SOURCE__ AS d
     WHERE d.created_at >= {environment_scan_floor}
@@ -610,7 +610,7 @@ def query_dora_overview(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    environments_filter: list[str] | None = None,
+    validated_environments: list[str] | None = None,
     github_team: str | None = None,
     granularity: Granularity | None = None,
 ) -> DoraOverview:
@@ -623,7 +623,7 @@ def query_dora_overview(
     if deploy_sources is None:
         return _empty_overview(
             deploy_data_available=False,
-            environment_scope=", ".join(environments_filter) if environments_filter else "persistent",
+            environment_scope=", ".join(validated_environments) if validated_environments else "persistent",
             environments=[],
             has_membership_data=has_membership_data,
             github_teams=github_teams,
@@ -637,7 +637,7 @@ def query_dora_overview(
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
-        "environment_scan_floor": ast.Constant(value=min(prev_from - _DEPLOY_SCAN_SLACK, end - _ENVIRONMENT_LOOKBACK)),
+        "environment_scan_floor": ast.Constant(value=_environment_scan_floor(date_from, end)),
         "deploy_scan_floor": ast.Constant(value=prev_from - _DEPLOY_SCAN_SLACK),
         "merge_scan_floor": ast.Constant(value=prev_from - _MERGE_SCAN_LOOKBACK),
     }
@@ -650,7 +650,6 @@ def query_dora_overview(
         placeholders=placeholders,
         date_to_filter=_date_to_clause(date_to, "d.created_at"),
     )
-    requested_environments = _normalize_requested_environments(environments_filter)
     production_environments = (
         _query_production_environments(
             curated,
@@ -658,22 +657,11 @@ def query_dora_overview(
             placeholders=placeholders,
             date_to_filter=_date_to_clause(date_to, "d.created_at"),
         )
-        if not environments_filter
-        else []
-    )
-    validated_environments = (
-        _query_requested_environments(
-            curated,
-            deploy_sources.deployments,
-            requested_environments=requested_environments,
-            placeholders=placeholders,
-            date_to_filter=_date_to_clause(date_to, "d.created_at"),
-        )
-        if requested_environments
+        if validated_environments is None
         else []
     )
     env_scope = _resolve_environment_scope(
-        validated_environments if environments_filter else None,
+        validated_environments,
         environments,
         production_environments,
     )
@@ -780,8 +768,9 @@ def _query_environments(
     return [str(name) for name, _ in (response.results or []) if name]
 
 
-def _normalize_requested_environments(environments_filter: list[str] | None) -> list[str]:
-    return list(dict.fromkeys(name.strip() for name in environments_filter or [] if name.strip()))
+def _environment_scan_floor(date_from: datetime, date_to: datetime) -> datetime:
+    prev_from = date_from - (date_to - date_from)
+    return min(prev_from - _DEPLOY_SCAN_SLACK, date_to - _ENVIRONMENT_LOOKBACK)
 
 
 def _query_production_environments(
@@ -803,28 +792,33 @@ def _query_production_environments(
     return sorted(str(name) for name in names or [] if name)
 
 
-def _query_requested_environments(
-    curated: CuratedGitHubSource,
-    deployments_source: str,
+def query_dora_environment_choices(
     *,
-    requested_environments: list[str],
-    placeholders: dict[str, ast.Expr],
-    date_to_filter: str,
+    curated: CuratedGitHubSource,
+    environments: list[str],
+    date_from: datetime,
+    date_to: datetime | None,
 ) -> list[str]:
-    placeholders["requested_environments"] = ast.Tuple(
-        exprs=[ast.Constant(value=name) for name in requested_environments]
-    )
-    sql = _REQUESTED_ENVIRONMENTS_SELECT.replace("__DEPLOYMENTS_SOURCE__", deployments_source).replace(
-        "__DATE_TO_CREATED__", date_to_filter
+    deploy_sources = curated.deploy_sources()
+    if deploy_sources is None or not environments:
+        return []
+    end = date_to or datetime.now(tz=date_from.tzinfo)
+    placeholders: dict[str, ast.Expr] = {
+        "environment_scan_floor": ast.Constant(value=_environment_scan_floor(date_from, end)),
+        "requested_environments": ast.Tuple(exprs=[ast.Constant(value=name) for name in environments]),
+    }
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = _ENVIRONMENT_CHOICES_SELECT.replace("__DEPLOYMENTS_SOURCE__", deploy_sources.deployments).replace(
+        "__DATE_TO_CREATED__", _date_to_clause(date_to, "d.created_at")
     )
     response = curated.run(
         sql,
-        query_type="engineering_analytics.dora_requested_environments",
+        query_type="engineering_analytics.dora_environment_choices",
         placeholders=placeholders,
     )
     names = response.results[0][0] if response.results else []
-    existing = {str(name) for name in names or [] if name}
-    return [name for name in requested_environments if name in existing]
+    return sorted(str(name) for name in names or [] if name)
 
 
 def _query_github_teams(curated: CuratedGitHubSource, members_source: str | None) -> list[str]:

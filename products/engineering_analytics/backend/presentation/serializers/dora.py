@@ -1,5 +1,6 @@
 """Payloads for the DORA deploy-metrics read."""
 
+from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -7,6 +8,23 @@ from products.engineering_analytics.backend.facade.contracts import (
     DoraOverview,
     LeadTimeBucket,
 )
+
+
+class DoraEnvironmentQuerySerializer(serializers.Serializer):
+    environment = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+        help_text="Deploy environments to scope to. Names are trimmed and deduplicated; blank or unknown names "
+        "are rejected. Real transient environments are allowed. Omit to use the production default.",
+    )
+
+    def validate_environment(self, value: list[str]) -> list[str]:
+        names = list(dict.fromkeys(value))
+        choice = serializers.ChoiceField(choices=self.context["get_environment_choices"](names))
+        for name in names:
+            choice.run_validation(name)
+        return names
 
 
 class DeploymentFrequencyBucketSerializer(DataclassSerializer):
@@ -107,8 +125,7 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "environment_scope": {
                 "help_text": "Display label for the selected environments, comma-separated, 'persistent' when no "
-                "persistent environments were discovered, or 'No matching environments' when an explicit filter "
-                "contained no real environment names. Use selected_environments for exact names."
+                "persistent environments were discovered. Use selected_environments for exact names."
             },
             "environments": {
                 "help_text": "Distinct persistent environments from the metric scan window or the 30 days before "
@@ -117,8 +134,8 @@ class DoraOverviewSerializer(DataclassSerializer):
             "selected_environments": {
                 "help_text": "Exact environment names used for these metrics. Defaults to all persistent "
                 "environments marked production or named prod/production (including regional suffixes), "
-                "falling back to the busiest persistent environment. Explicit filters are trimmed, deduplicated, "
-                "and limited to real names in the source, including transient names. Empty when none match."
+                "falling back to the busiest persistent environment. Explicit filters are trimmed and deduplicated. "
+                "DRF rejects blank or unknown names; real transient names are allowed."
             },
             "has_membership_data": {
                 "help_text": "True when the optional team-membership snapshot is synced. When false, a "
