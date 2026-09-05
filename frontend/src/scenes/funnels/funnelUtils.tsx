@@ -1049,10 +1049,43 @@ export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | 
     return (series?.length || 0) > 1
 }
 
+export interface IncompleteFunnelDataWarehouseStep {
+    index: number
+    label: string
+    missingFields: string[]
+}
+
+export function getIncompleteFunnelDataWarehouseSteps(
+    series: FunnelsQuery['series'] | null | undefined
+): IncompleteFunnelDataWarehouseStep[] {
+    return (series || [])
+        .map((step, index): IncompleteFunnelDataWarehouseStep | null => {
+            if (!isFunnelsDataWarehouseNode(step)) {
+                return null
+            }
+
+            const missingFields = [
+                !step.table_name ? 'Table' : null,
+                !step.id_field ? 'Unique ID' : null,
+                !step.timestamp_field ? 'Timestamp' : null,
+                !step.aggregation_target_field ? 'Aggregation target' : null,
+            ].filter((field): field is string => field !== null)
+
+            if (missingFields.length === 0) {
+                return null
+            }
+
+            const stepName = step.custom_name || step.name || step.table_name
+            const stepLabel = `Step ${index + 1}`
+            return {
+                index,
+                label: stepName ? `${stepLabel} — ${stepName}` : stepLabel,
+                missingFields,
+            }
+        })
+        .filter((step): step is IncompleteFunnelDataWarehouseStep => step !== null)
+}
+
 export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series'] | null | undefined): boolean {
-    return (series || []).some(
-        (step) =>
-            isFunnelsDataWarehouseNode(step) &&
-            (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
-    )
+    return getIncompleteFunnelDataWarehouseSteps(series).length > 0
 }

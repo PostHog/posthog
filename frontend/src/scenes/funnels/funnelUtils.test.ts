@@ -27,6 +27,7 @@ import {
     getBreakdownStepValues,
     getClampedFunnelStepRange,
     getIncompleteConversionWindowStartDate,
+    getIncompleteFunnelDataWarehouseSteps,
     getLastFilledStep,
     getMeanAndStandardDeviation,
     getReferenceStep,
@@ -1180,6 +1181,41 @@ describe('isFunnelWithIncompleteDataWarehouseStep', () => {
         },
     ])('returns $expected for $scenario', ({ series, expected }) => {
         expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('getIncompleteFunnelDataWarehouseSteps', () => {
+    it('names each missing field and labels the step', () => {
+        const series = [
+            { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
+            {
+                kind: NodeKind.FunnelsDataWarehouseNode,
+                id: 'warehouse_orders',
+                custom_name: 'Orders',
+                table_name: 'warehouse_orders',
+                id_field: 'order_id',
+            },
+        ] as FunnelsQuery['series']
+
+        expect(getIncompleteFunnelDataWarehouseSteps(series)).toEqual([
+            { index: 1, label: 'Step 2 — Orders', missingFields: ['Timestamp', 'Aggregation target'] },
+        ])
+    })
+
+    it('returns no steps when every data warehouse step is complete', () => {
+        const series = [
+            {
+                kind: NodeKind.FunnelsDataWarehouseNode,
+                id: 'warehouse_orders',
+                name: 'Orders',
+                table_name: 'warehouse_orders',
+                timestamp_field: 'created_at',
+                id_field: 'order_id',
+                aggregation_target_field: 'customer_id',
+            },
+        ] as FunnelsQuery['series']
+
+        expect(getIncompleteFunnelDataWarehouseSteps(series)).toEqual([])
     })
 })
 
