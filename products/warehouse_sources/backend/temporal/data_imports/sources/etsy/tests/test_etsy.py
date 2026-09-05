@@ -77,8 +77,8 @@ class _FakeSession:
             raise AssertionError(f"unexpected extra GET: {url} {params}")
         return self._get_responses.pop(0)
 
-    def post(self, url: str, json: Optional[dict[str, Any]] = None, timeout: Optional[float] = None) -> Response:  # noqa: A002 — matches requests' keyword name
-        self.post_bodies.append(dict(json or {}))
+    def post(self, url: str, data: Optional[dict[str, Any]] = None, timeout: Optional[float] = None) -> Response:
+        self.post_bodies.append(dict(data or {}))
         if not self._post_responses:
             raise AssertionError("unexpected extra token request")
         return self._post_responses.pop(0)
