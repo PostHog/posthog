@@ -5,9 +5,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { markChunkFailureReload, reloadedForChunkFailureRecently } from 'lib/utils/chunkReloadGuard'
 
-// After this long the shell is almost certainly stuck (a stale-deploy chunk that
-// never resolves), so reload once, or explain the wait and offer a reload.
-const RETRY_PROMPT_DELAY_MS = 8000
+// After this long the shell is almost certainly stuck (a stale-deploy chunk that never resolves).
+// The same deadline decides both recoveries below: the automatic reload, and the message that
+// takes its place once the guard blocks the reload.
+const STALLED_SHELL_DELAY_MS = 8000
 
 /**
  * Suspense fallback for the authenticated shell chunk. It shows a spinner, then reloads the
@@ -27,7 +28,7 @@ export function AuthenticatedShellFallback({ showSpinner }: { showSpinner: boole
     const [showRetryPrompt, setShowRetryPrompt] = useState(false)
 
     useEffect(() => {
-        const retryTimer = window.setTimeout(() => {
+        const stallTimer = window.setTimeout(() => {
             // A stalled chunk can still arrive, so reload only while the stamp persists to stop the
             // next reload. A browser that cannot store the stamp would otherwise reload every 8s.
             const autoReload = !reloadedForChunkFailureRecently() && markChunkFailureReload()
@@ -38,8 +39,8 @@ export function AuthenticatedShellFallback({ showSpinner }: { showSpinner: boole
                 return
             }
             setShowRetryPrompt(true)
-        }, RETRY_PROMPT_DELAY_MS)
-        return () => clearTimeout(retryTimer)
+        }, STALLED_SHELL_DELAY_MS)
+        return () => clearTimeout(stallTimer)
     }, [])
 
     return (
