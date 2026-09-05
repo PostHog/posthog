@@ -1,7 +1,13 @@
 {% extends "email/base.html" %}
 {% block section %}
-    <p>
-        As requested, we've deleted your organization <strong>{{ organization_name }}</strong>{% if project_names %} and its project{{ project_names|length|pluralize }}: <strong>{{ project_names|join:", " }}</strong>{% endif %}.
-    </p>
+    {% if requested_by_you %}
+        <p>
+            As requested, we've deleted your organization <strong>{{ organization_name }}</strong>{% if project_names %} and its project{{ project_names|length|pluralize }}: <strong>{{ project_names|join:", " }}</strong>{% endif %}.
+        </p>
+    {% else %}
+        <p>
+            The organization <strong>{{ organization_name }}</strong> has been deleted. You no longer have access to it.
+        </p>
+    {% endif %}
     <p>This can't be undone, but hey, if you ever want to start fresh, we'll be here.</p>
 {% endblock %} {% block heading %}Organization deleted{% endblock %}

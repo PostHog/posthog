@@ -151,6 +151,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "posthog_ai_access_requested": "72",
     "wizard_pr_ready": "74",
     "loop_run_summary": "77",
+    "account_deleted": "80",
 }
 
 

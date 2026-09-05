@@ -261,6 +261,7 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
                 user_id=inputs.user_id,
                 organization_name=inputs.organization_name,
                 project_names=inputs.project_names,
+                member_user_ids=inputs.member_user_ids,
             ),
             start_to_close_timeout=EMAIL_ACTIVITY_TIMEOUT,
             heartbeat_timeout=EMAIL_HEARTBEAT_TIMEOUT,

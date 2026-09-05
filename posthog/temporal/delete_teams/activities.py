@@ -195,13 +195,18 @@ async def send_project_deleted_email_activity(inputs: ProjectEmailInputs) -> Non
         await database_sync_to_async_pool(_send_project_deleted_email)(inputs.user_id, inputs.project_name)
 
 
-def _send_organization_deleted_email(user_id: int, organization_name: str, project_names: list[str]) -> None:
+def _send_organization_deleted_email(
+    user_id: int, organization_name: str, project_names: list[str], member_user_ids: list[int]
+) -> None:
     from posthog.email import is_email_available
     from posthog.tasks.email import send_organization_deleted_email
 
     if is_email_available():
         send_organization_deleted_email.delay(
-            user_id=user_id, organization_name=organization_name, project_names=project_names
+            user_id=user_id,
+            organization_name=organization_name,
+            project_names=project_names,
+            member_user_ids=member_user_ids,
         )
 
 
@@ -209,5 +214,5 @@ def _send_organization_deleted_email(user_id: int, organization_name: str, proje
 async def send_organization_deleted_email_activity(inputs: OrganizationEmailInputs) -> None:
     async with Heartbeater():
         await database_sync_to_async_pool(_send_organization_deleted_email)(
-            inputs.user_id, inputs.organization_name, inputs.project_names
+            inputs.user_id, inputs.organization_name, inputs.project_names, inputs.member_user_ids
         )

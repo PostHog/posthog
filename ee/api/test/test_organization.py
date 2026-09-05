@@ -91,6 +91,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             user_id=self.user.id,
             organization_name="X",
             project_names=[team.name],
+            member_user_ids=[self.user.id],
         )
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")

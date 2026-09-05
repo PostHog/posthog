@@ -139,6 +139,7 @@ from posthog.session.activity import (
 from posthog.session.models import Session
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.tasks.email import (
+    send_account_deleted_email,
     send_email_change_emails,
     send_password_changed_email,
     send_two_factor_auth_disabled_email,
@@ -1171,7 +1172,12 @@ class UserViewSet(
 
     def perform_destroy(self, user: User) -> None:
         report_user_deleted_account(user)
+        # Hold the recipient before the row goes: the account is hard-deleted, so nothing
+        # is left to look up afterwards.
+        email, first_name, distinct_id = user.email, user.first_name, user.distinct_id or str(user.uuid)
         super().perform_destroy(user)
+        if is_email_available():
+            send_account_deleted_email.delay(email=email, first_name=first_name, distinct_id=distinct_id)
 
     @extend_schema(responses=UserGithubLoginSerializer)
     @action(methods=["GET"], detail=True, url_path="github_login")
