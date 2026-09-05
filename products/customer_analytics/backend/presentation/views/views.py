@@ -168,6 +168,19 @@ def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
     return cast(UserAccessControl, _ScopeGatedAccessControl(view.user_access_control, scopes))
 
 
+def _token_may_read_resource(view: Any, resource: str) -> bool:
+    """Whether the request's token may read ``resource``.
+
+    ``_ScopeGatedAccessControl`` covers the secondary resources that resolve through object access
+    checks or queryset filtering. A read that reaches neither, such as a HogQL lookup keyed by team,
+    needs this explicit check instead. Session auth carries no scopes and keeps its access.
+    """
+    scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
+    if scopes is None:
+        return True
+    return "*" in scopes or f"{resource}:read" in scopes or f"{resource}:write" in scopes
+
+
 # drf-spectacular auto-describes the pk path param for a model-backed viewset as
 # "A UUID string identifying this <model>.". These viewsets reach the model through the
 # facade (no ``queryset``), so the description is declared explicitly to keep the generated
@@ -1518,6 +1531,9 @@ class AccountViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    # The default derivation only knows list and retrieve. A custom read action left out of this
+    # list gets no scope at all, which refuses every scoped token that calls it.
+    scope_object_read_actions = ["list", "retrieve", "summaries", "meetings"]
     serializer_class = AccountSerializer
     queryset = None
     bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
@@ -1759,6 +1775,8 @@ class AccountViewSet(
         if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         search = request.query_params.get("search", "").strip() or None
+        # gong_url comes from a synced warehouse table, so account:read alone must not reveal it.
+        include_gong_urls = _token_may_read_resource(self, "external_data_source")
 
         def fetch(offset: int, limit: int) -> tuple[list[contracts.MeetingView], int]:
             result = api.list_account_meetings(
@@ -1768,6 +1786,7 @@ class AccountViewSet(
                 offset=offset,
                 limit=limit,
                 search=search,
+                include_gong_urls=include_gong_urls,
             )
             return result if result is not None else ([], 0)
 
