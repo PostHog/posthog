@@ -100,6 +100,7 @@ pub async fn top_queries(
                   count(DISTINCT s.instance)::bigint AS instances
            FROM ts_query_stats s
            WHERE s.server_id = $1 AND s.collected_at >= $2 AND s.collected_at < $3 AND ($4::text IS NULL OR s.datname = $4)
+             AND s.toplevel
            GROUP BY 1, 2, 3)
          SELECT a.*, q.query, q.fingerprint,
                 round((a.total_ms / nullif(sum(a.total_ms) OVER (), 0) * 100)::numeric, 2)::float8 AS pct_of_total_time
@@ -263,6 +264,41 @@ async fn log_sampling_settings(db: &Db, server: &str) -> Result<LogSampling> {
         hard_threshold_ms: get("log_min_duration_statement", -1.0),
         enabled: sample_floor_ms >= 0.0 && rate > 0.0,
     })
+}
+
+/// Slow-query findings the pgcollector checks job persisted: what fired, for which team,
+/// and why. `status` is pending | open | resolved, or None for everything but resolved.
+pub async fn findings(
+    db: &Db,
+    server: Option<&str>,
+    team: Option<&str>,
+    status: Option<&str>,
+    from: Ts,
+    to: Ts,
+    limit: i64,
+) -> Result<Value> {
+    Ok(json!(opt(db,
+        "SELECT f.id, f.server_id, f.datname, f.rule, f.severity, f.status, f.team, f.rotation, f.slack_channel, f.method,
+                f.queryid, f.fingerprint, f.attribution, f.stats, f.seen_count, f.miss_count,
+                f.first_detected, f.last_detected, f.resolved_at, left(q.query, 500) AS query
+         FROM query_findings f
+         LEFT JOIN LATERAL (SELECT query FROM cur_queries q WHERE q.server_id = f.server_id AND q.queryid = f.queryid AND q.datname = f.datname LIMIT 1) q ON true
+         WHERE ($1::text IS NULL OR f.server_id = $1) AND ($2::text IS NULL OR f.team = $2)
+           AND (CASE WHEN $3::text IS NULL THEN f.status <> 'resolved' ELSE f.status = $3 END)
+           AND f.last_detected >= $4 AND f.last_detected < $5
+         ORDER BY f.status = 'open' DESC, f.last_detected DESC LIMIT $6",
+        &[&server, &team, &status, &from, &to, &limit]).await?))
+}
+
+pub async fn finding_detail(db: &Db, id: i64) -> Result<Value> {
+    let rows = opt(db,
+        "SELECT f.*, q.query, q.fingerprint AS query_fingerprint, q.first_seen AS query_first_seen
+         FROM query_findings f
+         LEFT JOIN LATERAL (SELECT query, fingerprint, first_seen FROM cur_queries q WHERE q.server_id = f.server_id AND q.queryid = f.queryid AND q.datname = f.datname ORDER BY first_seen LIMIT 1) q ON true
+         WHERE f.id = $1", &[&id]).await?;
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("finding {id} not found"))
 }
 
 pub async fn wait_events(db: &Db, server: &str, from: Ts, to: Ts, bucket: &str) -> Result<Value> {

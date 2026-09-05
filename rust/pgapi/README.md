@@ -14,10 +14,14 @@ curl "localhost:3400/api/v1/servers/<id>/queries?since=1h&order=total_exec_time"
 ```
 
 MCP client config (Claude Code / Desktop): `{"type": "http", "url": "http://localhost:3400/mcp"}`.
-17 tools: `list_servers`, `server_overview`, `top_queries`, `query_detail`,
+18 tools: `list_servers`, `server_overview`, `top_queries`, `query_detail`,
 `wait_events`, `current_activity`, `table_stats`, `index_stats`,
 `vacuum_status`, `events`, `settings`, `schema`, `log_errors`, `system_stats`,
+`query_findings` (slow queries attributed to teams by the collector's checks job),
 `collector_health`, `describe_stats_schema`, `query_stats_db` (guarded raw SQL).
+
+Findings over REST: `/api/v1/findings?team=team-x&status=open&since=7d`,
+`/api/v1/servers/<id>/findings`, `/api/v1/findings/<id>`; the UI has a Findings page.
 
 ## Authentication
 

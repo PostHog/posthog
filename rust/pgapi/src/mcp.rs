@@ -105,6 +105,18 @@ pub struct SettingsArg {
     pub non_default_only: Option<bool>,
 }
 #[derive(Deserialize, schemars::JsonSchema)]
+pub struct FindingsArg {
+    /// Restrict to one server; default all.
+    pub server: Option<String>,
+    /// Team slug as in owners.yaml (e.g. "team-ingestion"), or "unowned".
+    pub team: Option<String>,
+    /// pending | open | resolved. Default: everything not resolved.
+    pub status: Option<String>,
+    /// Look-back on last detection, e.g. "24h", "7d". Default 24h.
+    pub since: Option<String>,
+    pub limit: Option<i64>,
+}
+#[derive(Deserialize, schemars::JsonSchema)]
 pub struct SqlArg {
     /// A single read-only SELECT/WITH statement against the stats database. Call describe_stats_schema first for table shapes.
     pub sql: String,
@@ -321,6 +333,26 @@ impl PgMcp {
     async fn collector_health(&self) -> Result<CallToolResult, McpError> {
         ok(q::collector_health(&self.state.db).await.map_err(err)?)
     }
+    #[tool(
+        description = "Slow-query findings: new heavy queries and regressions the collector attributed to a team (rule, why it fired, which tables decided the owner, stats, query text). Use to answer \"what has my team been alerted about\" or to check a query before shipping it."
+    )]
+    async fn query_findings(
+        &self,
+        Parameters(a): Parameters<FindingsArg>,
+    ) -> Result<CallToolResult, McpError> {
+        let (f, t) = range(&a.since.clone().or_else(|| Some("24h".into())))?;
+        ok(q::findings(
+            &self.state.db,
+            a.server.as_deref(),
+            a.team.as_deref(),
+            a.status.as_deref(),
+            f,
+            t,
+            a.limit.unwrap_or(50).clamp(1, 500),
+        )
+        .await
+        .map_err(err)?)
+    }
     #[tool(description = "Tables and columns of the stats database, for use with query_stats_db.")]
     async fn describe_stats_schema(&self) -> Result<CallToolResult, McpError> {
         ok(q::schema_of_stats_db(&self.state.db).await.map_err(err)?)
@@ -343,7 +375,7 @@ impl ServerHandler for PgMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
-            .with_instructions("Read-only access to PostHog's Postgres telemetry (pgcollector). Start with list_servers, then server_overview; drill into top_queries / query_detail for performance, current_activity for live issues, vacuum_status and events for maintenance. query_stats_db runs arbitrary read-only SQL against the stats database.")
+            .with_instructions("Read-only access to PostHog's Postgres telemetry (pgcollector). Start with list_servers, then server_overview; drill into top_queries / query_detail for performance, query_findings for slow queries attributed to teams, current_activity for live issues, vacuum_status and events for maintenance. query_stats_db runs arbitrary read-only SQL against the stats database.")
     }
 }
 

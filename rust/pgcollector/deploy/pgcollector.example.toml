@@ -30,3 +30,14 @@ sizes = { enabled = false }
 fallback_rotation = "infra"
 # dir = "/etc/pgcollector/ownership"   # table_owners.json + overrides.yaml overlay
 
+# Slow-query checks: attribute heavy new queries and regressions to the owning team.
+# Off by default. With alerting = false findings are only persisted (shadow mode).
+[checks]
+enabled = true
+interval = "10m"
+window = "1h"
+alerting = false
+# mute = [1234567890]                            # fingerprints that never produce findings
+[checks.thresholds]
+share_pct = 2.0
+mean_ms = 500
