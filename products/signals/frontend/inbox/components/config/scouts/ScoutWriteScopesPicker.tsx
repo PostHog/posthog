@@ -64,7 +64,9 @@ export function ScoutWriteScopesPicker({
                 {SCOUT_ALWAYS_GRANTED_ROWS.map((row) => (
                     <div key={row.label} className="flex items-center gap-2">
                         <IconCheck className="size-3.5 shrink-0 text-success" />
-                        <span className={compact ? 'text-xs text-default' : 'text-sm text-default'}>{row.label}</span>
+                        <span className={compact ? 'shrink-0 text-xs text-default' : 'shrink-0 text-sm text-default'}>
+                            {row.label}
+                        </span>
                         <span className="min-w-0 truncate text-[11.5px] text-muted">{row.description}</span>
                     </div>
                 ))}
