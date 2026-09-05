@@ -9,6 +9,7 @@
 import type { SignalReport } from "@posthog/shared/domain-types";
 import {
   type FlagAudience,
+  type FlagCondition,
   flagReachLabel,
   type ResolvedPerson,
   shapeFlagAudience,
@@ -117,6 +118,8 @@ export interface EvidencePreview {
   experimentResults?: ExperimentResultsPresentation;
   /** Who a feature flag reaches, as a readable rules table. */
   flagAudience?: FlagAudience;
+  /** Conditions every check must meet before the rules apply, such as a survey's URL. */
+  displayConditions?: FlagCondition[];
   /**
    * A dashboard's tiles, each resolvable to a live insight chart, so a full
    * page can render the metrics themselves rather than describe them.
@@ -1762,6 +1765,89 @@ export function shapeEventDefinitionPreview(
   };
 }
 
+const SURVEY_WORDING = { on: "Shown to", off: "Not shown to anyone." };
+
+const URL_MATCH_LABELS: Record<string, string> = {
+  exact: "is",
+  is_not: "is not",
+  icontains: "contains",
+  not_icontains: "does not contain",
+  regex: "matches",
+  not_regex: "does not match",
+};
+
+function surveyAudience(
+  survey: Schemas.Survey,
+  running: boolean,
+): FlagAudience {
+  const flag = isRecord(survey.targeting_flag) ? survey.targeting_flag : null;
+  const filters = isRecord(flag?.filters) ? flag.filters : null;
+  // Without a targeting flag the survey shows to everyone who meets the
+  // display conditions, which the evaluator models as one 100% rule.
+  return shapeFlagAudience(
+    {
+      key: survey.name,
+      filters: filters ?? { groups: [{ rollout_percentage: 100 }] },
+      active: running,
+    },
+    new Map(),
+    SURVEY_WORDING,
+  );
+}
+
+function surveyDisplayConditions(survey: Schemas.Survey): FlagCondition[] {
+  const conditions = isRecord(survey.conditions) ? survey.conditions : {};
+  const out: FlagCondition[] = [];
+  const url = conciseValue(conditions.url);
+  if (url) {
+    out.push({
+      subject: "URL",
+      operator: URL_MATCH_LABELS[String(conditions.urlMatchType)] ?? "contains",
+      values: [{ label: url }],
+    });
+  }
+  const selector = conciseValue(conditions.selector);
+  if (selector) {
+    out.push({
+      subject: "Element",
+      operator: "matches",
+      values: [{ label: selector }],
+    });
+  }
+  const devices = Array.isArray(conditions.deviceTypes)
+    ? conditions.deviceTypes.map(String)
+    : [];
+  if (devices.length > 0) {
+    out.push({
+      subject: "Device",
+      operator: conditions.deviceTypesMatchType === "is_not" ? "is not" : "is",
+      values: devices.map((label) => ({ label })),
+    });
+  }
+  const linkedFlag = isRecord(survey.linked_flag)
+    ? conciseValue(survey.linked_flag.key)
+    : null;
+  if (linkedFlag) {
+    out.push({
+      subject: "Flag",
+      operator: "evaluates to",
+      values: [
+        { label: linkedFlag },
+        { label: conciseValue(conditions.linkedFlagVariant) ?? "true" },
+      ],
+    });
+  }
+  const wait = conditions.seenSurveyWaitPeriodInDays;
+  if (typeof wait === "number" && wait > 0) {
+    out.push({
+      subject: "Last survey seen",
+      operator: "more than",
+      values: [{ label: `${wait} days ago` }],
+    });
+  }
+  return out;
+}
+
 export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
   let detail: string | undefined;
   let status: EvidencePreview["status"];
@@ -1781,6 +1867,8 @@ export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
     title: survey.name,
     detail,
     status,
+    flagAudience: surveyAudience(survey, status.label === "Running"),
+    displayConditions: surveyDisplayConditions(survey),
     sections: [
       ...detailSection("Survey", [
         ["State", survey.archived ? "Archived" : null],

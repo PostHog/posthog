@@ -2,6 +2,7 @@ import {
   ArrowElbowDownRightIcon,
   ArrowSquareOutIcon,
   FlaskIcon,
+  GlobeIcon,
   KeyIcon,
   PowerIcon,
   UserIcon,
@@ -9,6 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import type {
   FlagAudience,
+  FlagCondition,
   FlagResult,
   FlagRule,
   FlagValue,
@@ -233,6 +235,22 @@ function Step({
   );
 }
 
+function Conditions({ conditions }: { conditions: FlagCondition[] }) {
+  return conditions.map((condition, conditionIndex) => (
+    <div
+      key={`${condition.subject}:${conditionIndex}`}
+      className="flex flex-wrap items-center gap-x-1.5 gap-y-1"
+    >
+      {conditionIndex > 0 && <span className="text-muted-foreground">and</span>}
+      <span className="font-medium text-foreground">{condition.subject}</span>
+      <span className="text-muted-foreground">{condition.operator}</span>
+      {condition.values.map((value, valueIndex) => (
+        <ValueChip key={`${value.label}:${valueIndex}`} value={value} />
+      ))}
+    </div>
+  ));
+}
+
 function RuleStep({
   index,
   rule,
@@ -270,23 +288,7 @@ function RuleStep({
       {rule.conditions.length === 0 && (
         <span className="font-medium">{everyone}</span>
       )}
-      {rule.conditions.map((condition, conditionIndex) => (
-        <div
-          key={`${condition.subject}:${conditionIndex}`}
-          className="flex flex-wrap items-center gap-x-1.5 gap-y-1"
-        >
-          {conditionIndex > 0 && (
-            <span className="text-muted-foreground">and</span>
-          )}
-          <span className="font-medium text-foreground">
-            {condition.subject}
-          </span>
-          <span className="text-muted-foreground">{condition.operator}</span>
-          {condition.values.map((value, valueIndex) => (
-            <ValueChip key={`${value.label}:${valueIndex}`} value={value} />
-          ))}
-        </div>
-      ))}
+      <Conditions conditions={rule.conditions} />
     </Step>
   );
 }
@@ -296,11 +298,27 @@ function RuleStep({
  * structure: a headline, then the rules as a first-match-wins flow where
  * every step ends in its result.
  */
+export interface AudienceCardCopy {
+  title: string;
+  /** Shown when the object is off; explains what the rules below mean then. */
+  off: string;
+}
+
+const FLAG_COPY: AudienceCardCopy = {
+  title: "Who gets this",
+  off: "The flag is off. The rules below apply when the flag is turned on.",
+};
+
 export function FlagAudienceCard({
   audience,
+  displayConditions = [],
+  copy = FLAG_COPY,
   action,
 }: {
   audience: FlagAudience;
+  /** Conditions every check must meet before the rules, such as a survey's URL. */
+  displayConditions?: FlagCondition[];
+  copy?: AudienceCardCopy;
   /** Rendered beside the eyebrow; the page passes the edit-in-task control. */
   action?: ReactNode;
 }) {
@@ -310,7 +328,7 @@ export function FlagAudienceCard({
       <CardContent className="p-0">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-5 py-4">
           <div className="min-w-0 flex-1 basis-64">
-            <Eyebrow>Who gets this</Eyebrow>
+            <Eyebrow>{copy.title}</Eyebrow>
             <div className="mt-1.5 flex items-start gap-2.5">
               <Dot
                 color={audience.disabled ? "var(--gray-8)" : "var(--green-9)"}
@@ -327,7 +345,7 @@ export function FlagAudienceCard({
         {audience.disabled && (
           <div className="flex items-center gap-2.5 border-border border-t bg-muted px-5 py-2.5 text-[12.5px] text-muted-foreground">
             <PowerIcon size={14} className="shrink-0" />
-            The flag is off. The rules below apply when the flag is turned on.
+            {copy.off}
           </div>
         )}
 
@@ -342,6 +360,18 @@ export function FlagAudienceCard({
             <span>Result</span>
           </div>
           <div className="divide-y divide-border">
+            {displayConditions.length > 0 && (
+              <Step
+                marker={<GlobeIcon size={12} />}
+                result={
+                  <span className="text-[11px] text-muted-foreground">
+                    all must match
+                  </span>
+                }
+              >
+                <Conditions conditions={displayConditions} />
+              </Step>
+            )}
             {audience.enrollmentKey && (
               <Step
                 marker={<KeyIcon size={12} />}

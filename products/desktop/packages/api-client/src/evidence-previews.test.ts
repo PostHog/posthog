@@ -979,6 +979,37 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  it("describes who sees a running survey from its targeting flag and display conditions", () => {
+    const preview = shapeSurveyPreview({
+      id: "srv-12",
+      name: "Checkout survey",
+      start_date: "2026-08-01T00:00:00Z",
+      targeting_flag: {
+        key: "survey-targeting-checkout",
+        filters: {
+          groups: [
+            {
+              properties: [{ key: "plan", operator: "exact", value: "pro" }],
+              rollout_percentage: 25,
+            },
+          ],
+        },
+      },
+      conditions: { url: "/checkout", urlMatchType: "icontains" },
+    } as unknown as Schemas.Survey);
+
+    expect(preview.flagAudience?.headline).toBe(
+      "Shown to 25% of people matching one condition.",
+    );
+    expect(preview.displayConditions).toEqual([
+      {
+        subject: "URL",
+        operator: "contains",
+        values: [{ label: "/checkout" }],
+      },
+    ]);
+  });
+
   it("describes a survey that has not started as a draft", () => {
     const preview = shapeSurveyPreview({
       id: "srv-11",
@@ -987,6 +1018,7 @@ describe("evidence preview shaping", () => {
     expect(preview).toMatchObject({
       title: "Checkout survey",
       status: { label: "Draft", tone: "neutral" },
+      flagAudience: { headline: "Not shown to anyone." },
     });
   });
 });
