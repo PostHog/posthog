@@ -569,6 +569,25 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
 /**
  * Create a new password for the sharing configuration.
  */
+export const CanvasesSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+export const CanvasesSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Create a new password for the sharing configuration.
+ */
 export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod
     .object({
         enabled: zod.boolean().optional(),

@@ -1,3 +1,4 @@
+from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
 import products.tasks.backend.presentation.views.api as tasks
@@ -34,6 +35,14 @@ def register_routes(routers: RouterRegistry) -> None:
         tasks.TaskRunLivingArtifactViewSet,
         "project_task_run_living_artifacts",
         ["team_id", "task_id", "run_id"],
+    )
+    # Public sharing of a run artifact, addressed by any version's manifest id. The sharing
+    # viewset is core; the `parent_lookup_` name hands the id to it like a nested parent.
+    project_tasks_router.register(
+        r"artifacts/(?P<parent_lookup_artifact_id>[^/.]+)/sharing",
+        sharing.TaskArtifactSharingConfigurationViewSet,
+        "project_task_artifact_sharing",
+        ["team_id", "task_id"],
     )
     project_tasks_router.register(
         r"thread_messages", channels.TaskThreadMessageViewSet, "project_task_thread_messages", ["team_id", "task_id"]

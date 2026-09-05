@@ -3026,6 +3026,46 @@ export interface WarmTaskResumeResponseApi {
     run_id: string
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface TaskArtifactSharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
+    /** @nullable */
+    readonly access_token: string | null
+    settings?: unknown
+    password_required?: boolean
+    readonly share_passwords: readonly SharePasswordApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /**
+     * Manifest id of the upload the public link serves. Null until the file is shared.
+     * @nullable
+     */
+    readonly shared_artifact_id: string | null
+    /**
+     * Manifest id of the file's newest upload. Differs from shared_artifact_id when there are changes to publish.
+     * @nullable
+     */
+    readonly latest_artifact_id: string | null
+}
+
 export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */

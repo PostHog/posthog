@@ -375,6 +375,18 @@ tools:
     tasks-artifacts-list:
         operation: tasks_artifacts_list
         enabled: false
+    tasks-artifacts-sharing-list:
+        operation: tasks_artifacts_sharing_list
+        enabled: false
+    tasks-artifacts-sharing-passwords-create:
+        operation: tasks_artifacts_sharing_passwords_create
+        enabled: false
+    tasks-artifacts-sharing-passwords-destroy:
+        operation: tasks_artifacts_sharing_passwords_destroy
+        enabled: false
+    tasks-artifacts-sharing-refresh-create:
+        operation: tasks_artifacts_sharing_refresh_create
+        enabled: false
     tasks-comments-list:
         operation: tasks_comments_list
         enabled: false

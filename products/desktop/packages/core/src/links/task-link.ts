@@ -21,11 +21,19 @@ export interface TaskLinkCommentAnchor {
   itemId?: string;
 }
 
+export interface TaskLinkArtifactAnchor {
+  itemId: string;
+}
+
 export interface TaskLinkPayload {
   taskId: string;
   taskRunId?: string;
   comment?: TaskLinkCommentAnchor;
+  /** An artifact tab to open once the task is showing (a shared artifact link). */
+  artifact?: TaskLinkArtifactAnchor;
 }
+
+const ARTIFACT_SCOPE = "task_artifact";
 
 export interface TaskLinkEvents {
   [TaskLinkEvent.OpenTask]: TaskLinkPayload;
@@ -65,29 +73,31 @@ export class TaskLinkService extends TypedEventEmitter<TaskLinkEvents> {
     }
 
     const threadId = searchParams.get("comment");
+    const scope = searchParams.get("scope") ?? undefined;
+    const itemId = searchParams.get("item") ?? undefined;
     const comment: TaskLinkCommentAnchor | undefined = threadId
-      ? {
-          threadId,
-          scope: searchParams.get("scope") ?? undefined,
-          itemId: searchParams.get("item") ?? undefined,
-        }
+      ? { threadId, scope, itemId }
       : undefined;
-    return this.openTask({ taskId, taskRunId, comment });
+    // A comment anchor already carries its target, so `scope`/`item` only name
+    // a bare artifact to open when no thread is being focused.
+    const artifact: TaskLinkArtifactAnchor | undefined =
+      !comment && scope === ARTIFACT_SCOPE && itemId ? { itemId } : undefined;
+    return this.openTask({ taskId, taskRunId, comment, artifact });
   }
 
   /** Routes the main window to a task, queueing until the renderer is ready. */
   public openTask(payload: TaskLinkPayload): boolean {
-    const { taskId, taskRunId, comment } = payload;
+    const { taskId, taskRunId, comment, artifact } = payload;
     const hasListeners = this.listenerCount(TaskLinkEvent.OpenTask) > 0;
 
     if (hasListeners) {
       this.log.info(
-        `Emitting task link event: taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${comment?.threadId ?? "none"}`,
+        `Emitting task link event: taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${comment?.threadId ?? "none"}, artifact=${artifact?.itemId ?? "none"}`,
       );
       this.emit(TaskLinkEvent.OpenTask, payload);
     } else {
       this.log.info(
-        `Queueing task link (renderer not ready): taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${comment?.threadId ?? "none"}`,
+        `Queueing task link (renderer not ready): taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${comment?.threadId ?? "none"}, artifact=${artifact?.itemId ?? "none"}`,
       );
       this.pendingDeepLink = payload;
     }

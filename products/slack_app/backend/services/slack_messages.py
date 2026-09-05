@@ -733,10 +733,10 @@ def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
 
 
 def _desktop_bridge_url(task_id: UUID) -> str:
-    # `/code/task/<id>` is the public bridge scene (see `CodeTaskLink`), not the desktop
+    # `/desktop/task/<id>` is the public bridge scene (see `CodeTaskLink`), not the desktop
     # app's own route. `unfurl=false` keeps our unfurler off it — the footer already names
     # the run right beside the link.
-    return _public_url(f"/code/task/{task_id}?{UNFURL_OPT_OUT_PARAM}=false")
+    return _public_url(f"/desktop/task/{task_id}?{UNFURL_OPT_OUT_PARAM}=false")
 
 
 def _public_url(path: str) -> str:

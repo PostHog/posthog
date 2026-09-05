@@ -8,6 +8,7 @@ import type {
   CanvasActionDefinition,
   CanvasActionResult,
   CanvasDraft,
+  CanvasSharing,
   CanvasSource,
   CanvasStateEntry,
   CanvasStateScope,
@@ -133,6 +134,16 @@ export interface IDashboardsService {
     id: string;
     prompt: string;
   }): Promise<CanvasAgentRequestResult>;
+  // The canvas's public-sharing state; null when the backend has no sharing
+  // route for canvases, so the UI can hide the section instead of erroring.
+  getSharing(id: string): Promise<CanvasSharing | null>;
+  setSharing(input: {
+    id: string;
+    enabled?: boolean;
+    allowForking?: boolean;
+  }): Promise<CanvasSharing>;
+  // Copy the canvas into the caller's personal space and return the copy.
+  fork(id: string): Promise<DashboardRecord>;
 }
 
 export interface ICanvasDataService {

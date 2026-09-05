@@ -9,6 +9,7 @@ from products.canvas.backend.layout import (
     validate_layout as validate_layout,
     validate_layout_references as validate_layout_references,
 )
+from products.canvas.backend.sharing import canvas_is_shareable as canvas_is_shareable
 from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,
     TEACHING_CANVAS_NAME as TEACHING_CANVAS_NAME,

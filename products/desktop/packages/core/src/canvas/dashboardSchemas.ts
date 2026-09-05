@@ -40,6 +40,8 @@ export const dashboardRecordSchema = z.object({
   currentVersionId: z.string().nullish(),
   // The live (last successful, still-eligible) build.
   publishedBuildId: z.string().nullish(),
+  // The build the public link is pinned to; null while not shared publicly.
+  sharedBuildId: z.string().nullish(),
 });
 export type DashboardRecord = z.infer<typeof dashboardRecordSchema>;
 
@@ -238,3 +240,25 @@ export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
 export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
   id: z.string().min(1),
 });
+
+// A canvas's public-sharing state, as the sharing API returns it. The access
+// token is the public link's path segment (`/shared/<token>`); it exists even
+// while sharing is off so enabling never changes the link.
+export const canvasSharingSchema = z.object({
+  enabled: z.boolean(),
+  accessToken: z.string().nullable(),
+  passwordRequired: z.boolean(),
+  // Whether anyone with the public link may copy the canvas into their project.
+  allowForking: z.boolean(),
+});
+export type CanvasSharing = z.infer<typeof canvasSharingSchema>;
+
+export const setCanvasSharingInput = z.object({
+  id: z.string().min(1),
+  enabled: z.boolean().optional(),
+  allowForking: z.boolean().optional(),
+});
+
+// Copy a canvas into the caller's own space: the published source becomes the
+// fork's first version, and the original is untouched.
+export const forkCanvasInput = z.object({ id: z.string().min(1) });

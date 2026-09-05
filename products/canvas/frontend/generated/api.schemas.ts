@@ -167,6 +167,11 @@ export interface CanvasApi {
      * @nullable
      */
     readonly published_build_id: string | null
+    /**
+     * Id of the build the public link serves, pinned when sharing was turned on or the link was updated. Null while the canvas is not shared publicly.
+     * @nullable
+     */
+    readonly shared_build_id: string | null
     /** For component-kind canvases: the head version's placement contract (size, optional configSchema). Null for other kinds and unpublished components. */
     readonly component_meta: CanvasComponentMetaApi | null
     readonly created_by: UserBasicApi
@@ -174,6 +179,16 @@ export interface CanvasApi {
     readonly updated_at: string
     /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
     readonly url: string
+    /**
+     * Id of the canvas this one was copied from, when it was created through fork. Null otherwise.
+     * @nullable
+     */
+    readonly forked_from_canvas_id: string | null
+    /**
+     * Id of the source version the copy started from. Null unless the canvas was created through fork.
+     * @nullable
+     */
+    readonly forked_from_version_id: string | null
 }
 
 export interface PaginatedCanvasListApi {
@@ -1397,6 +1412,19 @@ export interface CanvasActionDefinitionApi {
 export interface CanvasActionsResponseApi {
     /** Registered verbs, sorted by name. */
     actions: CanvasActionDefinitionApi[]
+}
+
+/**
+ * Payload for copying a canvas into the caller's personal space. Exactly one source is given.
+ */
+export interface CanvasForkApi {
+    /** Id of a canvas in this project to copy. The caller must be able to open it. */
+    source_canvas_id?: string
+    /**
+     * Access token of a public canvas link to copy from, possibly from another project. The share must allow copies (settings.allowForking).
+     * @maxLength 400
+     */
+    share_token?: string
 }
 
 export type CanvasesListParams = {

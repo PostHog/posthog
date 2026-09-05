@@ -268,10 +268,13 @@ export const urls = {
     experimentsStaffTools: (): string => '/experiments/staff',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
-    codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
+    // Public bridges into PostHog Desktop. The old /code/... shapes redirect here (see `redirects`).
+    codeCanvasLink: (channelId: string, dashboardId: string): string => `/desktop/canvas/${channelId}/${dashboardId}`,
+    // Its own segment rather than `/desktop/canvas/fork/<token>`, which the two-id canvas route would swallow.
+    codeCanvasFork: (shareToken: string): string => `/desktop/canvas-fork/${shareToken}`,
     codeChannelLink: (channelId: string, taskId?: string): string =>
-        `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
-    codeTaskLink: (taskId: string): string => `/code/task/${taskId}`,
+        `/desktop/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
+    codeTaskLink: (taskId: string): string => `/desktop/task/${taskId}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',

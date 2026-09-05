@@ -18,20 +18,23 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, organization_disallows_public_sharing
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
+    canvas_is_shareable,
     default_layout,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
@@ -53,6 +56,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
     CanvasFixRequestResultSerializer,
+    CanvasForkSerializer,
     CanvasLayoutPatchSerializer,
     CanvasLayoutPublishResponseSerializer,
     CanvasLayoutPublishSerializer,
@@ -184,11 +188,27 @@ class CanvasActionInvokeThrottle(CanvasStateWriteThrottle):
     rate = "60/min"
 
 
-class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class CanvasForkThrottle(SimpleRateThrottle):
+    """Per user. A copy uploads source and queues a build, and a share token lets
+    anyone with the link trigger one, so the ceiling is low."""
+
+    scope = "canvas_fork"
+    rate = "20/hour"
+
+    def get_cache_key(self, request: Request, view: Any) -> str:
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class CanvasViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
     Source is versioned per publish and built server-side; the canvas app
     renders the published build's artifact from the isolated artifact origin.
+
+    Access is the intersection of two rules: the space the canvas is filed in
+    (a personal space is only its owner's) and per-object access control,
+    which the mixin layers on top and which defaults to editor until rules exist.
     """
 
     scope_object = "canvas"
@@ -228,6 +248,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "publish_layout",
         "patch_layout",
         "home",
+        "fork",
     ]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -237,14 +258,18 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return [*super().get_throttles(), CanvasStateWriteThrottle()]
         if self.action == "invoke_action":
             return [*super().get_throttles(), CanvasActionInvokeThrottle()]
+        if self.action == "fork":
+            return [*super().get_throttles(), CanvasForkThrottle()]
         return super().get_throttles()
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Invoking a verb writes the target resource, so a scoped credential
         # must hold that resource's scope — canvas:write alone is not consent
-        # to create tasks or annotations.
+        # to create tasks or annotations. Every other action defers to the
+        # access-control mixin, which claims the access_control:* scopes for the
+        # routes it adds; returning None here would 403 every scoped caller.
         if getattr(view, "action", None) != "invoke_action":
-            return None
+            return super().dangerously_get_required_scopes(request, view)
         verb = request.data.get("verb") if isinstance(request.data, dict) else None
         entry = CANVAS_ACTIONS.get(verb) if isinstance(verb, str) else None
         if entry is None:
@@ -1231,6 +1256,124 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if canvas.current_source_version is None:
             return default_layout()
         return build_service.read_source_project(canvas.current_source_version)
+
+    @extend_schema(
+        operation_id="canvases_fork_create",
+        request=CanvasForkSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=CanvasSerializer, description="The copy, filed in the caller's personal space."
+            ),
+            403: OpenApiResponse(
+                description="Sandbox tokens cannot copy canvases, or the share does not allow copies."
+            ),
+            404: OpenApiResponse(description="No canvas the caller can open matches the source."),
+            409: OpenApiResponse(description="The source canvas has no published build to copy."),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=False)
+    def fork(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy a canvas into the caller's personal space.
+
+        The copy gets its own source, version history, and build; the original
+        is untouched. The source is either a canvas in this project the caller
+        can open, copied from its published version, or a public share link
+        (`share_token`) whose owner allowed copies, which may come from another
+        project and is copied from the version the link shows.
+        """
+        user = self._request_user()
+        if user is None or self._is_sandbox_authenticated(request):
+            return Response(
+                {"detail": "Copies are made by people; sandbox tokens cannot copy canvases."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # A copy is a new canvas, so it needs the same resource-level rights as
+        # POST canvases/. The permission layer only applies that rule to the
+        # `create` action, where a grant on one specific canvas cannot stand in
+        # for permission to make another.
+        if not self.user_access_control.check_access_level_for_resource("canvas", required_level="editor"):
+            return Response(
+                {"detail": "You do not have editor access to canvases, so you can't make a copy."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        payload = CanvasForkSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        resolved = self._fork_source(payload.validated_data)
+        if isinstance(resolved, Response):
+            return resolved
+        source, build = resolved
+        channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, user.id)
+        try:
+            fork = build_service.fork_canvas(
+                source,
+                build,
+                team_id=self.team_id,
+                channel_id=channel_id,
+                created_by=user,
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasNotPublished:
+            return Response(
+                {"detail": "This canvas hasn't been published yet, so there is nothing to copy."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except build_service.CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas source storage is temporarily unavailable; the copy was not made."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        self._report_canvas_action(
+            "canvas forked",
+            fork.canvas,
+            source_canvas_id=str(source.id),
+            source_version_id=str(fork.version.id),
+            cross_team=source.team_id != self.team_id,
+            via_share_token="share_token" in payload.validated_data,
+        )
+        return Response(CanvasSerializer(fork.canvas).data, status=status.HTTP_201_CREATED)
+
+    def _fork_source(self, data: dict[str, Any]) -> tuple[Canvas, CanvasBuild | None] | Response:
+        """The canvas a fork request names and the build to copy, or the refusal to send back."""
+        source_canvas_id = data.get("source_canvas_id")
+        if source_canvas_id is not None:
+            source = self.get_queryset().filter(pk=source_canvas_id).first()
+            # The queryset carries the space rule only. Per-object access control is applied to
+            # list responses and, for detail routes, by the object permission DRF runs inside
+            # get_object() — neither reaches a detail-less action, so check it here. A copy reads
+            # the source rather than changing it, so viewer is the level it needs.
+            if source is None or not self.user_access_control.check_access_level_for_object(source, "viewer"):
+                return Response({"detail": "Canvas not found in this project."}, status=status.HTTP_404_NOT_FOUND)
+            return source, source.published_build
+        share = (
+            SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q(), canvas__isnull=False)
+            .select_related("canvas", "canvas__shared_build")
+            .filter(access_token=data["share_token"])
+            .first()
+        )
+        shared_canvas = share.canvas if share is not None else None
+        # The last check is the owning organization's public-sharing switch. Every other reader of a
+        # share token fails closed on it while the rows stay enabled, and a copy outlives the link.
+        if (
+            share is None
+            or shared_canvas is None
+            or not canvas_is_shareable(shared_canvas)
+            or organization_disallows_public_sharing(share)
+        ):
+            return Response({"detail": "This link doesn't point at a shared canvas."}, status=status.HTTP_404_NOT_FOUND)
+        if not (share.settings or {}).get("allowForking"):
+            return Response(
+                {"detail": "The owner of this canvas hasn't allowed copies."}, status=status.HTTP_403_FORBIDDEN
+            )
+        # Password unlock lives in the public page's session, which this authenticated
+        # endpoint cannot see, so a password-protected share cannot be copied yet.
+        if share.password_required:
+            return Response(
+                {"detail": "Password-protected canvases can't be copied."}, status=status.HTTP_403_FORBIDDEN
+            )
+        return shared_canvas, shared_canvas.shared_build
 
     @extend_schema(
         operation_id="canvases_home_create",

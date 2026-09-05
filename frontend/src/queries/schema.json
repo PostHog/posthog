@@ -51798,6 +51798,9 @@
         "SharingConfigurationSettings": {
             "additionalProperties": false,
             "properties": {
+                "allowForking": {
+                    "type": "boolean"
+                },
                 "detailed": {
                     "type": "boolean"
                 },

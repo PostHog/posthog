@@ -769,7 +769,7 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
-def _organization_disallows_public_sharing(sharing_configuration: SharingConfiguration) -> bool:
+def organization_disallows_public_sharing(sharing_configuration: SharingConfiguration) -> bool:
     """Returns True when the organization has disabled public sharing under the
     ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
     even though individual `SharingConfiguration` rows remain `enabled=True`.
@@ -807,7 +807,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
-                if _organization_disallows_public_sharing(sharing_configuration):
+                if organization_disallows_public_sharing(sharing_configuration):
                     raise AuthenticationFailed(detail="Sharing access token is invalid.")
 
                 self.sharing_configuration = sharing_configuration
@@ -868,7 +868,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             if sharing_configuration.access_token != payload.get("access_token"):
                 return None
 
-            if _organization_disallows_public_sharing(sharing_configuration):
+            if organization_disallows_public_sharing(sharing_configuration):
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
 
             self.sharing_configuration = sharing_configuration

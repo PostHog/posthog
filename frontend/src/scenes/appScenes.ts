@@ -123,6 +123,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.EventFiltering]: () => import('./data-pipelines/event-filtering/EventFilterScene'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.CodeCanvasLink]: () => import('./code-canvas/CodeCanvasLink'),
+    [Scene.CodeCanvasFork]: () => import('./code-canvas/CodeCanvasFork'),
     [Scene.CodeChannelLink]: () => import('./code-canvas/CodeChannelLink'),
     [Scene.CodeTaskLink]: () => import('./code-canvas/CodeTaskLink'),
     [Scene.VercelConnect]: () => import('./authentication/vercel/VercelConnect'),

@@ -134,11 +134,16 @@ import type {
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
+  normalizeTaskArtifactSharing,
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
+  type TaskArtifactSharing,
+  type TaskArtifactSharingDTO,
   type TaskRunArtifactDTO,
 } from "./task-normalization";
+
+export type { TaskArtifactSharing } from "./task-normalization";
 
 interface HogQLGrid {
   results: unknown[][];
@@ -4117,6 +4122,56 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as { url: string };
     return data.url;
+  }
+
+  /**
+   * The public-sharing state of a run file, addressed by the manifest id of
+   * any of its uploads. Null when the backend has no sharing route for artifacts.
+   */
+  async getTaskArtifactSharing(
+    taskId: string,
+    artifactId: string,
+  ): Promise<TaskArtifactSharing | null> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/artifacts/${encodeURIComponent(artifactId)}/sharing/`;
+    // The fetcher throws on every non-2xx, so the missing route has to be read off the error.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${path}`),
+        path,
+      });
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+    return normalizeTaskArtifactSharing(
+      (await response.json()) as TaskArtifactSharingDTO,
+    );
+  }
+
+  async updateTaskArtifactSharing(
+    taskId: string,
+    artifactId: string,
+    enabled: boolean,
+  ): Promise<TaskArtifactSharing> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/artifacts/${encodeURIComponent(artifactId)}/sharing/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify({ enabled }) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update artifact sharing: ${response.statusText}`,
+      );
+    }
+    return normalizeTaskArtifactSharing(
+      (await response.json()) as TaskArtifactSharingDTO,
+    );
   }
 
   async getResourceComments(

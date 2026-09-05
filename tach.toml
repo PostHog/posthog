@@ -910,6 +910,8 @@ depends_on = [
     "products.tasks",
     # The annotations.create action verb (via the annotations facade).
     "products.annotations",
+    # Per-object access control on the canvas viewset.
+    "products.access_control",
 ]
 layer = "modules"
 
@@ -964,6 +966,16 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.activity_visibility.*",
+]
+from = [
+    "products.canvas",
+]
+
+# The generic sharing API delegates "who may share a canvas" and "what a public
+# link serves" to this narrow, product-owned boundary.
+[[interfaces]]
+expose = [
+    "backend\\.sharing.*",
 ]
 from = [
     "products.canvas",
@@ -1374,6 +1386,17 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.models\\.(Channel|SandboxEnvironment|Task|TaskRun|TaskThreadMessage)",
+]
+from = [
+    "products.tasks",
+]
+
+# The shared activity log delegates task channel visibility to this narrow,
+# product-owned boundary, mirroring what canvas does for its own rows. Kept out of
+# the facade so the activity viewset does not pull the whole tasks API surface.
+[[interfaces]]
+expose = [
+    "backend\\.activity_visibility.*",
 ]
 from = [
     "products.tasks",

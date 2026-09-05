@@ -28,7 +28,7 @@ function channelDeepLink(channelId: string, taskId?: string): string {
 
 /**
  * Public, unauthenticated bridge for desktop-app "channel" share links
- * (`/code/channel/<channelId>` and `/code/channel/<channelId>/tasks/<taskId>`). On mount it
+ * (`/desktop/channel/<channelId>` and `/desktop/channel/<channelId>/tasks/<taskId>`). On mount it
  * deep-links into the desktop app via the `posthog-code(-dev)://` custom scheme; for visitors
  * without the app it shows an explanation, a manual "open" button (in case the browser blocks
  * the auto-redirect), and a download link. Channels and their threads only exist in the desktop

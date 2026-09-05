@@ -134,6 +134,38 @@ function normalizeArtifactMetadata(
   };
 }
 
+/** A sharing configuration as the sharing API returns it. */
+export interface TaskArtifactSharingDTO {
+  enabled: boolean;
+  access_token: string | null;
+  password_required?: boolean;
+  shared_artifact_id?: string | null;
+  latest_artifact_id?: string | null;
+}
+
+/** A file's public-sharing state. The token is the public link's path segment. */
+export interface TaskArtifactSharing {
+  enabled: boolean;
+  accessToken: string | null;
+  passwordRequired: boolean;
+  /** The upload the public link serves; null until the file is shared. */
+  sharedArtifactId: string | null;
+  /** The file's newest upload; differs from sharedArtifactId when there are changes to publish. */
+  latestArtifactId: string | null;
+}
+
+export function normalizeTaskArtifactSharing(
+  sharing: TaskArtifactSharingDTO,
+): TaskArtifactSharing {
+  return {
+    enabled: sharing.enabled,
+    accessToken: sharing.access_token,
+    passwordRequired: sharing.password_required ?? false,
+    sharedArtifactId: sharing.shared_artifact_id ?? null,
+    latestArtifactId: sharing.latest_artifact_id ?? null,
+  };
+}
+
 export function normalizeTaskRunArtifact(
   artifact: TaskRunArtifactDTO,
 ): TaskRunArtifact {

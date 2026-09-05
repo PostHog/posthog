@@ -1,5 +1,6 @@
 import { DragDropProvider } from "@dnd-kit/react";
 import type { Task } from "@posthog/shared/domain-types";
+import { useOpenRequestedArtifact } from "@posthog/ui/features/deep-links/useOpenRequestedArtifact";
 import type React from "react";
 import { useCallback, useEffect } from "react";
 import { useDragDropHandlers } from "../hooks/useDragDropHandlers";
@@ -171,6 +172,7 @@ export const PanelLayout: React.FC<PanelLayoutProps> = ({ taskId, task }) => {
   const dragDropHandlers = useDragDropHandlers(taskId);
 
   usePanelKeyboardShortcuts(taskId);
+  useOpenRequestedArtifact(taskId);
 
   useEffect(() => {
     if (!layout) {

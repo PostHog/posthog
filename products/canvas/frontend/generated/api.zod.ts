@@ -1239,3 +1239,30 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
             .describe('The candidate source project to validate.'),
     })
     .describe('Payload for validating a candidate source project without publishing it.')
+
+/**
+ * Copy a canvas into the caller's personal space.
+ *
+ * The copy gets its own source, version history, and build; the original
+ * is untouched. The source is either a canvas in this project the caller
+ * can open, copied from its published version, or a public share link
+ * (`share_token`) whose owner allowed copies, which may come from another
+ * project and is copied from the version the link shows.
+ */
+export const canvasesForkCreateBodyShareTokenMax = 400
+
+export const CanvasesForkCreateBody = /* @__PURE__ */ zod
+    .object({
+        source_canvas_id: zod
+            .uuid()
+            .optional()
+            .describe('Id of a canvas in this project to copy. The caller must be able to open it.'),
+        share_token: zod
+            .string()
+            .max(canvasesForkCreateBodyShareTokenMax)
+            .optional()
+            .describe(
+                'Access token of a public canvas link to copy from, possibly from another project. The share must allow copies (settings.allowForking).'
+            ),
+    })
+    .describe("Payload for copying a canvas into the caller's personal space. Exactly one source is given.")

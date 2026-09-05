@@ -2306,6 +2306,30 @@ export const TasksWarmResumeCreateBody = /* @__PURE__ */ zod
     .describe('Request body for warming a successor to an existing terminal task run.')
 
 /**
+ * Create a new password for the sharing configuration.
+ */
+export const TasksArtifactsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * The sharing viewset mounted under a task artifact. Only the route differs: the parents are
+ * a task and an artifact rather than a field on the sharing model, which the schema generator
+ * could not type on its own.
+ */
+export const TasksArtifactsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
  * Create a new run for a specific task without starting execution.
  * @summary Create task run
  */

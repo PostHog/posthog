@@ -2007,7 +2007,7 @@ def _resolve_tasks_state(
 
     site_url = (settings.SITE_URL or "").rstrip("/")
     # Only the desktop link answers to the viewer, the same check the reply footer's
-    # desktop link uses. It goes through the `/code/task` web bridge, which opens the app
+    # desktop link uses. It goes through the `/desktop/task` web bridge, which opens the app
     # when installed and offers a download when not. The web link is always shown — the
     # task page enforces access itself.
     can_open_desktop_links = viewer_has_code_access(integration, slack_user_id)
@@ -2022,7 +2022,7 @@ def _resolve_tasks_state(
         run = runs_by_task.get(str(t.id))
         mapping: Mapping[str, Any] = mapping_by_task.get(str(t.id), {})
         posthog_url = f"{site_url}/project/{t.team_id}/tasks/{t.id}"
-        desktop_url = f"{site_url}/code/task/{t.id}" if can_open_desktop_links else None
+        desktop_url = f"{site_url}/desktop/task/{t.id}" if can_open_desktop_links else None
         all_items.append(
             TaskItem(
                 title=t.title,

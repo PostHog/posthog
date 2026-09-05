@@ -551,6 +551,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    // Copying needs a signed-in member of the receiving project, so this one stays behind login.
+    [Scene.CodeCanvasFork]: { layout: 'app-raw' },
     [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
@@ -652,6 +654,17 @@ export const redirects: Record<
     // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
     // ?review= / ?reviews_scope= deep links that PR status comments bake in
     '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
+    // The desktop bridges moved from /code/... to /desktop/...; links already shared keep their
+    // query params (?fork=1, ?comment=, ?scope=&item=)
+    '/code/canvas/:channelId/:dashboardId': ({ channelId, dashboardId }, searchParams, hashParams) =>
+        combineUrl(urls.codeCanvasLink(channelId, dashboardId), searchParams, hashParams).url,
+    '/code/canvas-fork/:shareToken': ({ shareToken }) => urls.codeCanvasFork(shareToken),
+    '/code/channel/:channelId': ({ channelId }, searchParams, hashParams) =>
+        combineUrl(urls.codeChannelLink(channelId), searchParams, hashParams).url,
+    '/code/channel/:channelId/tasks/:taskId': ({ channelId, taskId }, searchParams, hashParams) =>
+        combineUrl(urls.codeChannelLink(channelId, taskId), searchParams, hashParams).url,
+    '/code/task/:taskId': ({ taskId }, searchParams, hashParams) =>
+        combineUrl(urls.codeTaskLink(taskId), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     // New dashboards open in a modal on the list page. `/dashboard/new` is a guessed URL,
@@ -912,6 +925,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],
+    [urls.codeCanvasFork(':shareToken')]: [Scene.CodeCanvasFork, 'codeCanvasFork'],
     [urls.codeChannelLink(':channelId')]: [Scene.CodeChannelLink, 'codeChannelLink'],
     [urls.codeChannelLink(':channelId', ':taskId')]: [Scene.CodeChannelLink, 'codeChannelThreadLink'],
     [urls.codeTaskLink(':taskId')]: [Scene.CodeTaskLink, 'codeTaskLink'],

@@ -37,7 +37,7 @@ _CANVAS_URL_HELP_TEXT = (
 def canvas_url(canvas: Canvas) -> str:
     # The same shape the thread-message announcements use; the route deep-links
     # into the desktop app and renders in the web app.
-    return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
+    return f"{settings.SITE_URL}/desktop/canvas/{canvas.channel_id}/{canvas.id}"
 
 
 class CanvasComponentSizeSerializer(serializers.Serializer):
@@ -115,9 +115,24 @@ class CanvasSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
     )
+    shared_build_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the build the public link serves, pinned when sharing was turned on or the link was updated. Null while the canvas is not shared publicly.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
+    forked_from_canvas_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the canvas this one was copied from, when it was created through fork. Null otherwise.",
+    )
+    forked_from_version_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the source version the copy started from. Null unless the canvas was created through fork.",
+    )
 
     class Meta:
         model = Canvas
@@ -134,11 +149,14 @@ class CanvasSerializer(serializers.ModelSerializer):
             "pinned_at",
             "current_version_id",
             "published_build_id",
+            "shared_build_id",
             "component_meta",
             "created_by",
             "created_at",
             "updated_at",
             "url",
+            "forked_from_canvas_id",
+            "forked_from_version_id",
         ]
         read_only_fields = fields
 
@@ -153,6 +171,28 @@ class CanvasSerializer(serializers.ModelSerializer):
         if canvas.kind != Canvas.KIND_COMPONENT or canvas.current_source_version is None:
             return None
         return canvas.current_source_version.component_meta
+
+
+class CanvasForkSerializer(serializers.Serializer):
+    """Payload for copying a canvas into the caller's personal space. Exactly one source is given."""
+
+    source_canvas_id = serializers.UUIDField(
+        required=False,
+        help_text="Id of a canvas in this project to copy. The caller must be able to open it.",
+    )
+    share_token = serializers.CharField(
+        required=False,
+        max_length=400,
+        help_text=(
+            "Access token of a public canvas link to copy from, possibly from another project. "
+            "The share must allow copies (settings.allowForking)."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if bool(attrs.get("source_canvas_id")) == bool(attrs.get("share_token")):
+            raise serializers.ValidationError("Provide exactly one of source_canvas_id or share_token.")
+        return attrs
 
 
 class CanvasCreateSerializer(serializers.Serializer):
