@@ -559,6 +559,12 @@ export function MenuFilterCombobox({
         let base: MenuFilterEntry[]
         if (!q) {
             base = indexed
+        } else if (readsResolvedEntries) {
+            // Recent/Pinned rows come from the user's saved lists and never reach an
+            // endpoint, so the client Fuse is the only search they get. Without this
+            // branch the endpoint passthrough below keeps every saved row, because each
+            // row carries its source group (Events, Cohorts, ...) and those do fetch.
+            base = fuseMatchEntries(indexed, q)
         } else {
             // The endpoint is the search authority for endpoint-backed
             // groups (e.g. Cohorts use `name__icontains` server-side, plus
@@ -620,7 +626,17 @@ export function MenuFilterCombobox({
             return assembled
         }
         return base
-    }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, suggestedPrefix, showChips, activeChip, drillTo])
+    }, [
+        indexed,
+        searchQuery,
+        readsResolvedEntries,
+        selectedRowId,
+        recentsPinnedPrefix,
+        suggestedPrefix,
+        showChips,
+        activeChip,
+        drillTo,
+    ])
 
     // O(1) row -> rendered-position lookup, rebuilt with `filtered`. Avoids an
     // O(n) `indexOf` per commit and the stale-index risk if `filtered`'s identity

@@ -46,10 +46,16 @@ function renderCombobox(): ReturnType<typeof render> {
     )
 }
 
-function makeEntry(groupType: TaxonomicFilterGroupType, name: string, groupName: string): any {
+function makeEntry(groupType: TaxonomicFilterGroupType, name: string, groupName: string, endpoint?: string): any {
     return {
         item: { name },
-        group: { type: groupType, name: groupName, getName: (t: any) => t?.name, getValue: (t: any) => t?.name },
+        group: {
+            type: groupType,
+            name: groupName,
+            getName: (t: any) => t?.name,
+            getValue: (t: any) => t?.name,
+            ...(endpoint ? { endpoint } : {}),
+        },
         name,
     }
 }
@@ -794,6 +800,33 @@ describe('MenuFilterCombobox', () => {
         // The recent does not match the query, so it must not lead the list.
         expect(screen.queryByText('my_recent_event')).not.toBeInTheDocument()
     })
+
+    it.each(['Recent', 'Pinned'])(
+        'filters the %s category by the query, endpoint-backed rows included',
+        async (label) => {
+            const user = userEvent.setup()
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            // Saved rows carry their source group, and those groups fetch from an endpoint —
+            // but the rows themselves never reach it, so the query must filter them here.
+            const savedEntries = [
+                makeEntry(TaxonomicFilterGroupType.Events, 'browser_opened', 'Events', 'api/event_definitions'),
+                makeEntry(TaxonomicFilterGroupType.Events, 'checkout_started', 'Events', 'api/event_definitions'),
+            ]
+
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                searchQuery: 'browser',
+                recentEntries: label === 'Recent' ? savedEntries : undefined,
+                pinnedEntries: label === 'Pinned' ? savedEntries : undefined,
+            })
+
+            await user.click(screen.getByLabelText('Filter category'))
+            await user.click(await within(await openedCategoryPopup()).findByText(label))
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('browser_opened'))).toBe(true))
+            expect(rowTexts().some((t) => t.includes('checkout_started'))).toBe(false)
+        }
+    )
 
     it('tags recents and pinned rows with their source recency', async () => {
         apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
