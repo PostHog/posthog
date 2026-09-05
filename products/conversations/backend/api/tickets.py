@@ -36,7 +36,13 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, set_tags_on_object
+from posthog.api.tagged_item import (
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemSerializerMixin,
+    TaggedItemViewSetMixin,
+    set_tags_on_object,
+)
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -639,6 +645,11 @@ class _TicketUpdateDiff:
         parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
     ),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
+    # The mixin action's default schema documents integer ids; tickets are keyed by UUID.
+    bulk_update_tags=extend_schema(
+        request=BulkUpdateTagsUUIDRequestSerializer,
+        responses={200: BulkUpdateTagsUUIDResponseSerializer},
+    ),
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
@@ -660,6 +671,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
+    # ``bulk_tag_activity_scope`` stays unset: TaggedItem changes are already mirrored onto the
+    # ticket's activity stream (RELATED_OBJECT_ACTIVITY_LOGGERS), so a bulk entry would double-log.
+    bulk_update_tags_request_serializer_class = BulkUpdateTagsUUIDRequestSerializer
 
     # Which search branch safely_get_queryset applied, for the latency histogram.
     _search_path: str | None = None

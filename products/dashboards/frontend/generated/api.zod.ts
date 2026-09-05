@@ -3453,6 +3453,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
  */
 export const dashboardsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const dashboardsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const dashboardsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const DashboardsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -3464,7 +3468,10 @@ export const DashboardsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(dashboardsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(dashboardsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set.'),
 })
 
 export const dashboardsCreateFromTemplateJsonCreateBodyNameMax = 400
