@@ -568,6 +568,9 @@ tools:
     external-data-sources-revenue-analytics-config-partial-update:
         operation: external_data_sources_revenue_analytics_config_partial_update
         enabled: false
+    external-data-sources-source-icons-retrieve:
+        operation: external_data_sources_source_icons_retrieve
+        enabled: false
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create
         enabled: false

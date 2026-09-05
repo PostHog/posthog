@@ -51,6 +51,22 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     return results
 
 
+@functools.cache
+def build_source_icon_map() -> dict[str, str]:
+    """Map each source type to its icon path.
+
+    Icon-only surfaces (the SQL editor tree, the source tables) need one string per source, not the
+    full field schemas that make ``build_source_configs`` over 1 MB. So read ``iconPath`` straight off
+    each source config instead of building the whole catalog. Memoized like the catalog because it only
+    changes when source code ships.
+    """
+    return {
+        str(source_type): source.get_source_config.iconPath
+        for source_type, source in SourceRegistry.get_all_sources().items()
+        if source.get_source_config.iconPath
+    }
+
+
 class PublicSourceConfigViewSet(viewsets.ViewSet):
     """
     Public (unauthenticated) endpoint that returns the full SourceConfig

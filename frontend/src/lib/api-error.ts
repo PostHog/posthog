@@ -245,14 +245,14 @@ export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set(
  * 0 would make them treat a connectivity blip as a client error.
  */
 export class NetworkError extends ApiError {
-    constructor(
-        public reason: NetworkFailureReason,
-        cause?: unknown
-    ) {
+    constructor(public reason: NetworkFailureReason) {
         super(NETWORK_ERROR_MESSAGES[reason])
         // Sets the `type` posthog-js reports in `$exception_list`, which is what
         // `dropUnactionableNetworkExceptions` and error tracking grouping rules match on.
         this.name = 'NetworkError'
-        this.cause = cause
+        // The original `TypeError` is deliberately not attached as `cause`: posthog-js walks the cause
+        // chain into `$exception_list`, which would put the browser's engine-specific wording ("Failed
+        // to fetch", "Load failed") back in — the exact fragmentation `NETWORK_ERROR_MESSAGES` normalizes
+        // away, splitting one defect into a separate error tracking issue per browser engine.
     }
 }

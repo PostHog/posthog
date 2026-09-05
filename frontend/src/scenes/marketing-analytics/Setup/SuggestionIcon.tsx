@@ -5,8 +5,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
-import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { sourceIconsLogic } from 'products/data_warehouse/frontend/shared/logics/sourceIconsLogic'
 
 const SEVERITY_LABEL: Record<Suggestion['severity'], string> = {
     error: 'Blocking — a metric is unavailable or wrong until this is fixed',
@@ -27,17 +27,16 @@ function SeverityGlyph({ severity }: { severity: Suggestion['severity'] }): JSX.
     return <IconWarning className={severity === 'error' ? 'text-danger text-lg' : 'text-warning text-lg'} />
 }
 
-/** Checking the catalogue first because `SourceIcon` renders a skeleton while
- * `availableSources` is null — which is also its terminal state when the wizard
- * endpoint 403s, so no warehouse access would mean a skeleton forever.
+/** Checking the icon map first because `SourceIcon` renders a skeleton while the map is
+ * still loading, and a platform absent from the map has no logo to show.
  *
  * `disableTooltip` because SourceIcon otherwise links to its docs page, and the row
  * already has a primary action.
  */
 export function usePlatformLogo(integration: string | null): JSX.Element | null {
-    const { availableSources } = useValues(availableSourcesLogic)
+    const { sourceIcons } = useValues(sourceIconsLogic)
 
-    if (!integration || !availableSources?.[integration]) {
+    if (!integration || !sourceIcons?.[integration]) {
         return null
     }
     return <SourceIcon type={integration} size="small" disableTooltip />

@@ -42,9 +42,9 @@ describe('SuggestionIcon', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/external_data_sources/wizard': () => [
+                '/api/environments/:team_id/external_data_sources/source_icons': () => [
                     200,
-                    { GoogleAds: { name: 'GoogleAds', iconPath: '/static/services/google-ads.png' } },
+                    { GoogleAds: '/static/services/google-ads.png' },
                 ],
             },
         })
@@ -79,10 +79,9 @@ describe('SuggestionIcon', () => {
         expect(slotIn(container).querySelector('svg')).toBeTruthy()
     })
 
-    it('falls back when the platform is absent from the source catalogue', async () => {
-        // `availableSources` is also null when the wizard endpoint 403s, and SourceIcon
-        // renders an indefinite skeleton in that state rather than giving up — which is
-        // why `usePlatformLogo` checks the catalogue itself.
+    it('falls back when the platform is absent from the icon map', async () => {
+        // A platform missing from the icon map has no logo, so `usePlatformLogo` returns null
+        // and the row shows the severity glyph instead of an indefinite skeleton.
         const { container } = render(<SuggestionIcon suggestion={suggestion({ integration: 'NotARealPlatform' })} />)
 
         await waitFor(() => expect(slotIn(container).querySelector('svg')).toBeTruthy())

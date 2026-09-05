@@ -8381,6 +8381,18 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert "NotARealSource" in response.json()["message"]
 
+    def test_get_source_icons_returns_flat_icon_map(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/source_icons")
+        assert response.status_code == 200
+        payload = response.json()
+        # A flat source-type -> icon-path map, not the full config: icon-only surfaces must not pull
+        # the field schemas that make the wizard catalog over 1 MB.
+        assert payload["Stripe"] == "/static/services/stripe.png"
+        assert all(isinstance(icon_path, str) for icon_path in payload.values())
+        directives = response.headers["Cache-Control"].split(", ")
+        assert "private" in directives
+        assert "max-age=600" in directives
+
     @parameterized.expand(
         [
             # name, endpoint suffix, body
