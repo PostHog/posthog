@@ -14,10 +14,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use cohort_core::hogvm::analysis::{analyze_condition, Projection, ReadPath};
+use cohort_core::hogvm::analysis::{analyze_condition, GlobalRoot, Projection, ReadPath};
 use cohort_core::{
     build_behavioral_globals, classify_vm_error, evaluate_detailed, CohortStreamEvent, EvalOutcome,
-    VmErrorClass,
+    GlobalsPlan, VmErrorClass,
 };
 use serde_json::{json, Map, Value};
 
@@ -211,6 +211,35 @@ fn every_parity_fixture_decides_the_same_way_from_its_claimed_reads() {
     }
 }
 
+/// The root-level counterpart of [`project_globals`].
+fn project_roots(globals: &Value, plan: GlobalsPlan) -> Value {
+    Value::Object(
+        globals
+            .as_object()
+            .expect("a fixture's globals are an object")
+            .iter()
+            .filter(|(key, _)| GlobalRoot::parse(key).is_some_and(|root| plan.reads(root)))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+
+/// The path-level equivalence above never runs `GlobalsPlan::of`. A plan that lost the root of a
+/// multi-segment path, claiming `person.properties.plan` but not `person`, would drop that root.
+#[test]
+fn every_parity_fixture_decides_the_same_way_from_its_planned_roots() {
+    for fixture in &fixtures() {
+        let plan = GlobalsPlan::of(&analyze_condition(&fixture.bytecode).projection);
+        let projected = project_roots(&fixture.globals, plan);
+        assert_eq!(
+            matched(&fixture.bytecode, projected, &fixture.name),
+            fixture.expected,
+            "fixture `{}` decided differently once its globals held only the planned roots {plan:?}",
+            fixture.name,
+        );
+    }
+}
+
 /// The conditions the compiler lowers through jumps must narrow to a read set.
 ///
 /// This is the regression that matters most: while the interpreter refused branches, every one of
@@ -278,7 +307,8 @@ fn an_absent_group_type_root_claims_no_reads_and_raises_either_way() {
         paths.iter().map(ReadPath::render).collect::<Vec<_>>()
     );
 
-    let full = build_behavioral_globals(&event()).expect("the event's payloads are valid JSON");
+    let full = build_behavioral_globals(&event(), GlobalsPlan::FULL)
+        .expect("the event's payloads are valid JSON");
     let projected = project_globals(&full, &paths);
     assert_eq!(
         projected,

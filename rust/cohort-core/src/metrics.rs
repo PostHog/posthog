@@ -16,6 +16,10 @@ pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
 /// sustained non-zero level**, it signals drift between that kind's Python hash extractor and the
 /// Rust bounds. The two extractors are independent, so alert per `kind` rather than on the sum.
 pub const FILTER_CATALOG_INVALID_SHAPE_HASH: &str = "filter_catalog_invalid_shape_hash_total";
+/// Behavioral conditions analyzed at freeze, labelled by `outcome`: `reads` when the read set
+/// narrowed, otherwise the `FullColumnsReason` that widened it (counter). A catalog whose conditions
+/// mostly widen saves nothing, so watch the `reads` share rather than the absolute rate.
+pub const FILTER_CATALOG_CONDITION_PROJECTION: &str = "filter_catalog_condition_projection_total";
 /// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
 pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
 /// Cohorts excluded because they sit in a cohort-reference cycle (counter).

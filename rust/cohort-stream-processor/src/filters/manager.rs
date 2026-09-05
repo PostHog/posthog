@@ -13,6 +13,7 @@ use metrics::{counter, gauge};
 use rand::Rng;
 use sqlx::PgPool;
 use tokio::sync::Notify;
+use tokio::task::JoinError;
 use tracing::{debug, info, warn};
 
 use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
@@ -154,13 +155,28 @@ impl CatalogHandle {
                 "filter catalog dropped cohort rows outside REALTIME_COHORT_TEAM_ALLOWLIST",
             );
         }
-        let catalog = build_catalog_from_rows(rows, self.cascade_enabled);
+        // The freeze parses every cohort's filter JSON and analyzes every behavioral condition's
+        // bytecode, both proportional to catalog size.
+        let cascade_enabled = self.cascade_enabled;
+        let build =
+            tokio::task::spawn_blocking(move || build_catalog_from_rows(rows, cascade_enabled));
+        let catalog = unwrap_build(build.await)?;
         let stats = CatalogStats {
             teams: catalog.team_count(),
             unique_conditions: catalog.total_unique_conditions(),
         };
         self.store(catalog);
         Ok(stats)
+    }
+}
+
+/// Panic: resume the unwind, since swallowing it would leave the pipeline on a stale catalog.
+/// Cancellation: reachable only at teardown, so an error rather than panic telemetry.
+fn unwrap_build(result: Result<FilterCatalog, JoinError>) -> Result<FilterCatalog, FilterError> {
+    match result {
+        Ok(catalog) => Ok(catalog),
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(_) => Err(FilterError::CatalogBuildAbandoned),
     }
 }
 
@@ -468,5 +484,30 @@ mod tests {
 
         assert!(handle.is_loaded());
         assert_eq!(handle.load().team_count(), stats.teams);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cancelled_catalog_build_is_an_error_and_a_panicking_one_unwinds() {
+        let never = tokio::spawn(async {
+            std::future::pending::<FilterCatalog>().await;
+        });
+        never.abort();
+        let cancelled = never.await.map(|()| FilterCatalog::new());
+        assert!(
+            matches!(
+                unwrap_build(cancelled),
+                Err(FilterError::CatalogBuildAbandoned)
+            ),
+            "a cancelled build must report an abandoned build, not panic",
+        );
+
+        let panicked = tokio::spawn(async { panic!("catalog build boom") }).await;
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drop(unwrap_build(panicked));
+        }));
+        assert!(
+            unwound.is_err(),
+            "a build panic must resume the unwind, not be swallowed into an Err",
+        );
     }
 }

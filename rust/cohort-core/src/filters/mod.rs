@@ -10,7 +10,7 @@ use thiserror::Error;
 pub use catalog::{FilterCatalog, Generation};
 pub use leaf_classifier::{classify_leaf, LeafClass, LeafDropReason};
 pub use loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow, REALTIME_COHORTS_SQL};
-pub use reverse_index::{LeafStateMeta, TeamFilters, TeamFiltersBuilder};
+pub use reverse_index::{EventNameBucket, LeafStateMeta, TeamFilters, TeamFiltersBuilder};
 pub use tree::{
     parse_cohort_tree, BehavioralLeafConfig, BehavioralValue, BoolOp, CohortLeaf,
     CohortRefLeafConfig, CohortTree, FilterNode, LeafSink, PersonLeafConfig,
@@ -32,4 +32,7 @@ pub enum FilterError {
 
     #[error("cohort {cohort_id} filters has no `properties`")]
     MissingProperties { cohort_id: i32 },
+
+    #[error("the catalog build did not run")]
+    CatalogBuildAbandoned,
 }
