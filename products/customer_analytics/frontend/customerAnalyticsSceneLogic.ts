@@ -11,9 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
-    ActionsNode,
     AnyEntityNode,
-    EventsNode,
     InsightVizNode,
     LifecycleDataWarehouseNode,
     FunnelsDataWarehouseNode,
@@ -398,11 +396,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         dauSeries: [
             (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
             (
-                activityEvent: EventsNode | ActionsNode | null,
+                activityEvent: AnyEntityNode,
                 businessType: BusinessType,
                 selectedGroupType: GroupTypeIndex
             ): AnyEntityNode | null => {
-                if (!activityEvent) {
+                if (Object.keys(activityEvent).length === 0) {
                     return null
                 }
                 if (businessType === 'b2c') {
@@ -421,11 +419,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         wauSeries: [
             (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
             (
-                activityEvent: EventsNode | ActionsNode | null,
+                activityEvent: AnyEntityNode,
                 businessType: BusinessType,
                 selectedGroupType: GroupTypeIndex
             ): AnyEntityNode | null => {
-                if (!activityEvent) {
+                if (Object.keys(activityEvent).length === 0) {
                     return null
                 }
                 if (businessType === 'b2b') {
@@ -444,11 +442,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         mauSeries: [
             (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
             (
-                activityEvent: EventsNode | ActionsNode | null,
+                activityEvent: AnyEntityNode,
                 businessType: BusinessType,
                 selectedGroupType: GroupTypeIndex
             ): AnyEntityNode | null => {
-                if (!activityEvent) {
+                if (Object.keys(activityEvent).length === 0) {
                     return null
                 }
                 if (businessType === 'b2b') {
@@ -566,14 +564,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 dateRange: { date_from: string | null; date_to: string | null },
                 filterTestAccounts: boolean
             ): InsightDefinition[] => {
-                // Backend guarantees activity event exists, but add safety check
-                if (!dauSeries || !wauSeries || !mauSeries) {
-                    return []
-                }
                 return [
                     {
                         name: `Active ${customerLabel.plural} (daily/weekly/monthly)`,
                         className: 'row-span-2 h-[576px]',
+                        requiredSeries: { dauSeries },
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
@@ -582,9 +577,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 // Label each line distinctly here rather than on the shared
                                 // selectors, which are reused by other single-metric charts.
                                 series: [
-                                    { ...dauSeries, custom_name: 'Daily active' },
-                                    { ...wauSeries, custom_name: 'Weekly active' },
-                                    { ...mauSeries, custom_name: 'Monthly active' },
+                                    { ...(dauSeries as AnyEntityNode), custom_name: 'Daily active' },
+                                    { ...(wauSeries as AnyEntityNode), custom_name: 'Weekly active' },
+                                    { ...(mauSeries as AnyEntityNode), custom_name: 'Monthly active' },
                                 ],
                                 interval: 'day',
                                 dateRange: {
@@ -613,12 +608,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     {
                         name: `Weekly active ${customerLabel.plural}`,
                         className: 'h-[284px]',
+                        requiredSeries: { wauSeries },
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.TrendsQuery,
                                 tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                series: [wauSeries],
+                                series: [wauSeries as AnyEntityNode],
                                 interval: 'day',
                                 dateRange: {
                                     date_from: '-7d',
@@ -648,12 +644,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     {
                         name: `Monthly active ${customerLabel.plural}`,
                         className: 'h-[284px]',
+                        requiredSeries: { mauSeries },
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.TrendsQuery,
                                 tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                series: [mauSeries],
+                                series: [mauSeries as AnyEntityNode],
                                 interval: 'day',
                                 dateRange: {
                                     date_to: null,
