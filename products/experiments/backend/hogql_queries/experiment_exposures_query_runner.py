@@ -307,11 +307,18 @@ class ExperimentExposuresQueryRunner(QueryRunner):
     def _evaluate_exposure_coverage(self, builder: ExperimentQueryBuilder) -> ExposureCoverage | None:
         """
         Flag callers that only ever got an error back, so they never became exposures.
-        Skipped for stopped experiments (the fix, bootstrapping the SDK, only helps while
-        running) and for custom exposure events (exposures then come from an event the
-        flag-call outcomes say nothing about).
+        Skipped unless the experiment is running (the fix, bootstrapping the SDK, only helps
+        while it collects data) and for custom exposure events (exposures then come from an
+        event the flag-call outcomes say nothing about).
         """
-        if self.window_end_date is not None:
+        # The window carries the state the query knows: an end date is a stopped experiment,
+        # a missing start date one that never launched.
+        if self.window_end_date is not None or self.window_start is None:
+            return None
+        # Pause has no place in the query. A paused experiment's flag is deactivated, so the
+        # flags service skips it and SDKs report a missing flag on every call: errors the
+        # pause created, which bootstrapping cannot undo.
+        if self.experiment.is_paused:
             return None
         criteria = normalize_to_exposure_criteria(self.exposure_criteria)
         if criteria is not None and not is_default_exposure_config(criteria.exposure_config):

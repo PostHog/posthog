@@ -1968,7 +1968,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(coverage.error_reasons, {"timeout": 5})
 
     @freeze_time("2024-01-07T12:00:00Z")
-    def test_exposure_coverage_skipped_when_experiment_has_ended(self):
+    def test_exposure_coverage_skipped_unless_the_window_is_a_running_experiment(self):
         # Bootstrapping the SDK only helps while the experiment is still collecting data.
         journeys: dict = {}
         for index in range(96):
@@ -1977,20 +1977,56 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             journeys.update(self._flag_call_journey(f"user_timeout_{index}", "timeout"))
         journeys_for(journeys, self.team)
 
-        def _runner(end_date: str | None) -> ExperimentExposuresQueryRunner:
+        def _runner(*, start_date: str | None, end_date: str | None) -> ExperimentExposuresQueryRunner:
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=self.experiment.id,
+                experiment_name=self.experiment.name,
+                feature_flag=model_to_dict(self.feature_flag),
+                start_date=start_date,
+                end_date=end_date,
+                exposure_criteria=None,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        started = self.experiment.start_date.isoformat()
+        ended = self.experiment.end_date.isoformat()
+        self.assertIsNone(_runner(start_date=started, end_date=ended).calculate().exposure_coverage)
+        self.assertIsNone(_runner(start_date=None, end_date=None).calculate().exposure_coverage)
+        self.assertIsNotNone(_runner(start_date=started, end_date=None).calculate().exposure_coverage)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_coverage_skipped_while_the_experiment_is_paused(self):
+        # Pausing deactivates the flag, so the flags service stops serving it and every caller
+        # reports a missing flag. That gap is the pause, not an SDK that needs bootstrapping.
+        self.experiment.end_date = None
+        self.experiment.save()
+
+        journeys: dict = {}
+        for index in range(96):
+            journeys.update(self._flag_call_journey(f"user_ok_{index}", None))
+        for index in range(5):
+            journeys.update(self._flag_call_journey(f"user_timeout_{index}", "timeout"))
+        journeys_for(journeys, self.team)
+
+        def _coverage():
             query = ExperimentExposureQuery(
                 kind="ExperimentExposureQuery",
                 experiment_id=self.experiment.id,
                 experiment_name=self.experiment.name,
                 feature_flag=model_to_dict(self.feature_flag),
                 start_date=self.experiment.start_date.isoformat(),
-                end_date=end_date,
+                end_date=None,
                 exposure_criteria=None,
             )
-            return ExperimentExposuresQueryRunner(team=self.team, query=query)
+            return ExperimentExposuresQueryRunner(team=self.team, query=query).calculate().exposure_coverage
 
-        self.assertIsNone(_runner(self.experiment.end_date.isoformat()).calculate().exposure_coverage)
-        self.assertIsNotNone(_runner(None).calculate().exposure_coverage)
+        self.assertIsNotNone(_coverage())
+
+        self.feature_flag.active = False
+        self.feature_flag.save()
+
+        self.assertIsNone(_coverage())
 
     @freeze_time("2024-01-07T12:00:00Z")
     def test_exposure_coverage_skipped_for_custom_exposure_event(self):
