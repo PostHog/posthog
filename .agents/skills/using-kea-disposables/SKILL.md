@@ -21,7 +21,7 @@ Every kea logic in this repo has `cache.disposables` injected by the local `disp
 
 ```ts
 cache.disposables.add(
-    setup,    // () => () => void — runs immediately; MUST return a cleanup function
+    setup,    // (onCleanup) => () => void — runs immediately; MUST return a cleanup function
     key?,     // string — re-adding with the same key disposes the previous one first
     options?, // { pauseOnPageHidden?: boolean } — default true: cleanup runs on hide, setup re-runs on show
 )
@@ -39,6 +39,26 @@ afterMount(({ actions, cache }) => {
     })
 }),
 ```
+
+## Setups that can throw part way
+
+A setup that throws loses its return value, so the manager gets no cleanup and the resources the
+setup already created run for the rest of the page session. Register each resource with the
+`onCleanup` argument as you take it, and the manager keeps those cleanups even when the setup
+throws later:
+
+```ts
+cache.disposables.add((onCleanup) => {
+  const node = document.createElement('div')
+  parent.appendChild(node)
+  onCleanup(() => node.remove())
+
+  const thing = new ThirdPartyThing(node) // may throw
+  return () => thing.destroy()
+})
+```
+
+Registered cleanups run after the returned cleanup, in reverse order of registration.
 
 ## Choosing a key
 

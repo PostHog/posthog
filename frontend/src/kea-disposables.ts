@@ -1,7 +1,12 @@
 import type { BuiltLogic, KeaPlugin } from 'kea'
 
 export type DisposableFunction = () => void
-export type SetupFunction = () => DisposableFunction
+/**
+ * Registers a cleanup while setup is still running. Use it for each resource the setup takes
+ * ownership of, so a setup that throws part way still gives back what it already created.
+ */
+export type CleanupRegistrar = (cleanup: DisposableFunction) => void
+export type SetupFunction = (onCleanup: CleanupRegistrar) => DisposableFunction
 
 export type DisposableOptions = {
     pauseOnPageHidden?: boolean
@@ -55,12 +60,30 @@ const safeCleanup = (cleanup: DisposableFunction, logicPath: string): void => {
     }
 }
 
+const runCleanups = (cleanups: DisposableFunction[], logicPath: string): void => {
+    // Reverse order, so a resource is released before whatever it was built on.
+    for (let i = cleanups.length - 1; i >= 0; i--) {
+        safeCleanup(cleanups[i], logicPath)
+    }
+    cleanups.length = 0
+}
+
 const safeSetup = (setup: SetupFunction, logicPath: string): DisposableFunction | null => {
+    const registered: DisposableFunction[] = []
     try {
-        return setup()
+        const cleanup = setup((fn) => registered.push(fn))
+        if (registered.length === 0) {
+            return cleanup
+        }
+        return () => {
+            safeCleanup(cleanup, logicPath)
+            runCleanups(registered, logicPath)
+        }
     } catch (error) {
         console.error(`[KEA] Disposable setup failed in logic ${logicPath}:`, error)
-        return null
+        // A setup that throws part way can already own live resources. Return the cleanups it
+        // registered before the throw, so the manager still holds a way to release them.
+        return registered.length > 0 ? () => runCleanups(registered, logicPath) : null
     }
 }
 

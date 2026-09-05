@@ -53,6 +53,7 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import type { CleanupRegistrar } from '~/kea-disposables'
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
@@ -2131,8 +2132,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.rootFrame.innerHTML = '' // Clear the previously drawn frames
             }
 
+            const rootFrame = values.rootFrame
+
             if (
-                !values.rootFrame ||
+                !rootFrame ||
                 windowId === undefined ||
                 !values.playableSnapshotsByWindowId[windowId] ||
                 values.playableSnapshotsByWindowId[windowId].length < 2
@@ -2184,7 +2187,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
-                root: values.rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
                 insertStyleRules: [
                     ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
@@ -2210,12 +2212,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             cache.disposables.add(
-                () => {
+                (onCleanup: CleanupRegistrar) => {
                     // rrweb throws synchronously on malformed events while building the initial DOM;
                     // the config.onError callback only covers its async internal errors. Without this
                     // catch the throw escapes the listener and the player buffers forever.
                     try {
-                        const replayer = new Replayer(values.playableSnapshotsByWindowId[windowId], config)
+                        // rrweb replaces every child of its root node. Give it a node of its own
+                        // rather than the React-rendered frame, so React never commits against
+                        // children that rrweb has already swapped out.
+                        const replayerRoot = document.createElement('div')
+                        replayerRoot.className = 'PlayerFrame__replayerRoot'
+                        rootFrame.appendChild(replayerRoot)
+                        onCleanup(() => replayerRoot.remove())
+
+                        const replayer = new Replayer(values.playableSnapshotsByWindowId[windowId], {
+                            ...config,
+                            root: replayerRoot,
+                        })
                         const iframeCleanups: (() => void)[] = []
 
                         replayer.on('fullsnapshot-rebuilded', () => {
@@ -2261,7 +2274,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             setupErrorHandlers()
                         })
 
-                        actions.setPlayer({ replayer, windowId })
+                        // `setPlayer` drives a seek and a play, and the kea update flushes React
+                        // synchronously. Leave the current stack first, so React is not re-entered
+                        // while it is still committing the frame this setup runs from.
+                        let cancelled = false
+                        onCleanup(() => {
+                            cancelled = true
+                        })
+                        queueMicrotask(() => {
+                            if (!cancelled) {
+                                actions.setPlayer({ replayer, windowId })
+                            }
+                        })
 
                         return () => {
                             canvasPlugin.destroy()

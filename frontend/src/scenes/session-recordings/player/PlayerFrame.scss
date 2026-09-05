@@ -25,6 +25,11 @@
         background-size: 16px 16px;
     }
 
+    // rrweb owns this node and rebuilds its children, so it must not add a box of its own.
+    .PlayerFrame__replayerRoot {
+        display: contents;
+    }
+
     .PlayerFrame__content {
         position: absolute;
 
