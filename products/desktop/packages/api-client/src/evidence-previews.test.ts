@@ -611,37 +611,41 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
-  it("renders negated criteria as their negative meaning", () => {
-    const sections = cohortCriteriaSection({
-      properties: {
-        type: "AND",
-        values: [
-          {
-            type: "AND",
-            values: [
-              {
-                type: "behavioral",
-                value: "performed_event",
-                key: "checkout",
-                negation: true,
-              },
-              {
-                type: "cohort",
-                value: "Power users",
-                negation: true,
-              },
-              {
-                type: "person",
-                key: "email",
-                operator: "icontains",
-                value: "@example.com",
-                negation: true,
-              },
-            ],
-          },
-        ],
+  it("renders negated criteria and resolved cohort names", () => {
+    const sections = cohortCriteriaSection(
+      {
+        properties: {
+          type: "AND",
+          values: [
+            {
+              type: "AND",
+              values: [
+                {
+                  type: "behavioral",
+                  value: "performed_event",
+                  key: "checkout",
+                  negation: true,
+                },
+                {
+                  type: "cohort",
+                  value: 42,
+                  negation: true,
+                },
+                { type: "cohort", value: 77 },
+                {
+                  type: "person",
+                  key: "email",
+                  operator: "icontains",
+                  value: "@example.com",
+                  negation: true,
+                },
+              ],
+            },
+          ],
+        },
       },
-    });
+      new Map([["42", "Power users"]]),
+    );
     expect(sections).toEqual([
       {
         title: "Membership criteria",
@@ -649,7 +653,7 @@ describe("evidence preview shaping", () => {
           {
             label: "Criteria",
             value:
-              "Did not complete checkout and Is not in cohort Power users and email does not contain @example.com",
+              "Did not complete checkout and Is not in cohort Power users and Is in cohort 77 and email does not contain @example.com",
           },
         ],
       },

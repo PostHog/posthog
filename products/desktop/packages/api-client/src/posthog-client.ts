@@ -88,6 +88,7 @@ import {
   formatDay,
   gridRows,
   hogqlEscape,
+  referencedCohortIds,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
@@ -1151,6 +1152,7 @@ function optionalString(value: unknown): string | null {
 const DRF_GENERIC_NOT_FOUND_DETAIL = "Not found.";
 /** One request per targeted distinct id; flags listing more stay raw past this. */
 const MAX_RESOLVED_FLAG_PEOPLE = 10;
+const MAX_RESOLVED_COHORTS = 10;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -6934,10 +6936,30 @@ export class PostHogAPIClient {
    * back to a static reference. Query-backed kinds (hogql, insight) resolve
    * in the UI instead, where chart shaping lives.
    */
+  /** Names of the cohorts a cohort's criteria reference, so the criteria read as prose. */
+  private async resolveCohortNames(
+    projectId: string,
+    filters: unknown,
+  ): Promise<Map<string, string>> {
+    const ids = referencedCohortIds(filters).slice(0, MAX_RESOLVED_COHORTS);
+    const entries = await Promise.all(
+      ids.map((id) =>
+        this.api
+          .get("/api/projects/{project_id}/cohorts/{id}/", {
+            path: { project_id: projectId, id: Number(id) },
+          })
+          .then((cohort) => [id, cohort.name ?? id] as const)
+          .catch(() => null),
+      ),
+    );
+    return new Map(entries.filter((entry) => entry !== null));
+  }
+
   /**
    * People behind the distinct ids a flag targets, keyed by distinct id. A
    * lookup that fails leaves its id unresolved so the raw id still renders.
    */
+
   private async resolveFlagPeople(
     projectId: string,
     flag: Schemas.FeatureFlag,
@@ -7286,7 +7308,10 @@ export class PostHogAPIClient {
           "/api/projects/{project_id}/cohorts/{id}/",
           { path: { project_id: projectId, id: numericId } },
         );
-        return shapeCohortPreview(cohort);
+        return shapeCohortPreview(
+          cohort,
+          await this.resolveCohortNames(projectId, cohort.filters),
+        );
       }
       case "action": {
         if (numericId === null) return null;
