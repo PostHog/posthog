@@ -67,6 +67,12 @@ export function withoutPostHogInit(href: string): string {
 
 // A pattern that does not end in a wildcard only matches the URLs it spells out. A trailing slash is
 // the common way to get this by accident, and it drops every deeper page from the match.
+// a trailing slash is the common way to land on a pattern that matches nothing, and it takes its own
+// advice: the fix is to remove it or cover what sits below it, not to add a wildcard anywhere
+export function endsWithTrailingSlash(wildcardHref: string): boolean {
+    return wildcardHref.endsWith('/')
+}
+
 export function isTooSpecificWildcardHref(wildcardHref: string): boolean {
     // judge the stored string, not a trimmed copy of it: the match runs on what is in the box, so a
     // pattern ending in a space matches nothing and must still warn
@@ -78,6 +84,7 @@ export interface currentPageLogicValues {
     autoWildcardEnabled: boolean
     href: string
     wildcardHref: string
+    wildcardHrefEndsWithSlash: boolean
     wildcardHrefTooSpecific: boolean
 }
 
@@ -101,6 +108,7 @@ export interface currentPageLogicActions {
 export interface currentPageLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         wildcardHrefTooSpecific: (wildcardHref: string) => boolean
+        wildcardHrefEndsWithSlash: (wildcardHref: string) => boolean
     }
 }
 
@@ -142,6 +150,10 @@ export const currentPageLogic = kea<currentPageLogicType>([
         wildcardHrefTooSpecific: [
             (s) => [s.wildcardHref],
             (wildcardHref: string): boolean => isTooSpecificWildcardHref(wildcardHref),
+        ],
+        wildcardHrefEndsWithSlash: [
+            (s) => [s.wildcardHref],
+            (wildcardHref: string): boolean => endsWithTrailingSlash(wildcardHref),
         ],
     })),
 
