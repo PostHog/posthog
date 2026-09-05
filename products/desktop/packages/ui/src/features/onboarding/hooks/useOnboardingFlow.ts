@@ -12,6 +12,7 @@ import {
   nearestActiveStep,
   type OnboardingStep,
   stepDirection,
+  stepGatePending,
 } from "@posthog/core/onboarding/steps";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -134,7 +135,8 @@ export function useOnboardingFlow() {
     ],
   );
 
-  const { data: githubUserIntegrations } = useUserGithubIntegrations();
+  const { data: githubUserIntegrations, isPending: githubIntegrationsPending } =
+    useUserGithubIntegrations();
   // The install-cli step only offers git and gh, so a ready toolchain skips it.
   // InstallCliStep reuses these cached results when the step does render.
   const trpc = useHostTRPC();
@@ -165,9 +167,12 @@ export function useOnboardingFlow() {
       gitStatus.installed && ghStatus.installed && ghStatus.authenticated,
     );
   }, [cliReady, localWorkspaces, gitStatus, ghStatus]);
-  const hasGithubIntegration = githubUserIntegrations
-    ? githubUserIntegrations.length > 0
-    : undefined;
+  // Read the pending state, not the data: the query retries and then leaves
+  // `data` undefined, which would hold the install-cli gate open for the rest
+  // of the session. A failed lookup keeps the step, same as an unanswered one.
+  const hasGithubIntegration = githubIntegrationsPending
+    ? undefined
+    : (githubUserIntegrations?.length ?? 0) > 0;
   // Counted off the store rather than through useProjects, whose auto-select
   // effect would then run in a second place and re-clear the query cache.
   const orgProjectsMap = useAuthStateValue((state) => state.orgProjectsMap);
@@ -205,25 +210,24 @@ export function useOnboardingFlow() {
     );
   }, [consent]);
 
+  // A failed lookup keeps the step, same as an unanswered one, but it answers
+  // the gate. Otherwise the step shows with its view never recorded.
   const consentRequired =
-    consentRequirement?.organizationId === consent.organizationId
-      ? consentRequirement?.required
-      : undefined;
+    consent.status === "error"
+      ? true
+      : consentRequirement?.organizationId === consent.organizationId
+        ? consentRequirement?.required
+        : undefined;
   const sampledConsentRequirement =
     consentRequirement?.organizationId === consent.organizationId
       ? consentRequirement
       : undefined;
 
-  const activeSteps = useMemo(
-    () =>
-      computeActiveSteps({
-        hasGithubIntegration,
-        cliReady,
-        projectCount,
-        consentRequired,
-      }),
+  const stepGates = useMemo(
+    () => ({ hasGithubIntegration, cliReady, projectCount, consentRequired }),
     [hasGithubIntegration, cliReady, projectCount, consentRequired],
   );
+  const activeSteps = useMemo(() => computeActiveSteps(stepGates), [stepGates]);
 
   useEffect(() => {
     if (!activeSteps.includes(currentStep)) {
@@ -259,6 +263,7 @@ export function useOnboardingFlow() {
   return {
     currentStep,
     currentIndex,
+    currentStepPending: stepGatePending(currentStep, stepGates),
     totalSteps: activeSteps.length,
     activeSteps,
     isFirstStep,
