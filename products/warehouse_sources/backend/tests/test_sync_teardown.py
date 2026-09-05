@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.utils import timezone
 
 import psycopg
@@ -149,6 +150,27 @@ class TestDisableChokepointDispatch:
             mock_lookup.assert_not_called()
 
         mock_lookup.assert_called_once()
+
+    def test_a_failed_running_job_lookup_leaves_the_committed_write_alone(
+        self, team, django_capture_on_commit_callbacks
+    ):
+        schema, _job = _create_schema_with_running_job(team)
+
+        with (
+            patch(TASK_DELAY) as mock_delay,
+            patch(
+                f"{SCHEMA_MODULE}._schema_ids_with_running_jobs",
+                side_effect=OperationalError("canceling statement due to statement timeout"),
+            ),
+            # The hook runs from the commit, so a raise that escapes it would abandon the external
+            # cleanup the caller still does after its atomic block.
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(deleted=True)
+
+        schema.refresh_from_db()
+        assert schema.deleted is True
+        mock_delay.assert_not_called()
 
     def test_soft_delete_save_dispatches_with_deleted_reason(self, team, django_capture_on_commit_callbacks):
         schema, _job = _create_schema_with_running_job(team)

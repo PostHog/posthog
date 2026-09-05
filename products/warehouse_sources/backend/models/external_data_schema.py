@@ -129,7 +129,11 @@ def _schedule_sync_teardowns(schemas: Iterable[tuple[uuid.UUID, int]], *, delete
                     exclude_workflow_id=exclude_workflow_id,
                 )
 
-    transaction.on_commit(_dispatch)
+    # robust=True: the hook runs from the commit itself, so a raise leaves the caller's `atomic()`
+    # block. Source `destroy()` deletes the webhook, the Temporal schedules and the S3 data after
+    # that block, and its row is already committed as deleted, so a repeat request gets a 404 and
+    # those steps never run. `sweep_stopped_schema_syncs` re-dispatches a teardown missed here.
+    transaction.on_commit(_dispatch, robust=True)
 
 
 def _schema_ids_with_running_jobs(*, team_id: int, schema_ids: Iterable[uuid.UUID]) -> set[uuid.UUID]:
