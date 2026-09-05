@@ -282,6 +282,10 @@ class ErrorTrackingAlertDestination:
     channel_type: str
     integration_id: int | None
     config: dict
+    last_delivered_at: datetime | None
+    last_failure_at: datetime | None
+    last_error: str
+    consecutive_failures: int
     created_at: datetime
     updated_at: datetime
 
