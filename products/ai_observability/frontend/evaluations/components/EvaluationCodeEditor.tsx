@@ -10,6 +10,7 @@ import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
+import { evaluationIsDetector } from '../constants'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationTarget } from '../types'
@@ -187,16 +188,18 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
     session: HOG_EVAL_COMMON_GLOBALS_BY_TARGET.session,
 }
 
-function HogTestResultsPanel(): JSX.Element | null {
-    const { hogTestResults, hogTestResultsLoading, hogTestMessage } = useValues(llmEvaluationLogic)
+export function HogTestResultsPanel(): JSX.Element | null {
+    const { hogTestResults, hogTestResultsLoading, hogTestMessage, evaluation } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
 
     if (!hogTestResults && !hogTestResultsLoading) {
         return null
     }
 
-    const passed = hogTestResults?.filter((r) => r.result === true).length ?? 0
-    const failed = hogTestResults?.filter((r) => r.result === false).length ?? 0
+    // Every result here belongs to `evaluation`, so its polarity applies to the whole panel.
+    const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
+    const passed = hogTestResults?.filter((r) => r.result === !trueIsFailure).length ?? 0
+    const failed = hogTestResults?.filter((r) => r.result === trueIsFailure).length ?? 0
     const na = hogTestResults?.filter((r) => r.result === null && !r.error).length ?? 0
     const errors = hogTestResults?.filter((r) => r.error !== null).length ?? 0
 
@@ -256,7 +259,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                                     </LemonTag>
                                 )
                             }
-                            return row.result ? (
+                            return row.result !== trueIsFailure ? (
                                 <LemonTag type="success" icon={<IconCheck />}>
                                     Pass
                                 </LemonTag>
@@ -329,6 +332,7 @@ export function EvaluationCodeEditor(): JSX.Element {
 
     const source = evaluation.evaluation_config.source
     const isSessionTarget = evaluation.target === 'session'
+    const trueIsFailure = evaluationIsDetector(evaluation)
 
     return (
         <div className="space-y-4">
@@ -457,7 +461,8 @@ export function EvaluationCodeEditor(): JSX.Element {
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>
-                        Return <code>true</code> (pass) or <code>false</code> (fail)
+                        Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or <code>false</code> (
+                        {trueIsFailure ? 'pass' : 'fail'})
                         {evaluation.output_config.allows_na ? (
                             <>
                                 {' '}

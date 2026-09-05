@@ -139,10 +139,10 @@
   const queryCell = q => el('span', { class: 'q', title: q || '' }, q || el('span', { class: 'muted' }, '(text not captured)'));
 
   // ---------- simple SVG line chart ----------
-  // series: [{name, color, points: [[Date, number]]}]
+  // series: [{name, color, points: [[Date, number | null]]}]; a null y breaks the line.
   function chart(series, { yfmt = v => fmt.dec(v, 1) } = {}) {
     const W = 800, H = 140, P = { l: 48, r: 8, t: 8, b: 20 };
-    const all = series.flatMap(s => s.points);
+    const all = series.flatMap(s => s.points).filter(p => p[1] != null);
     if (!all.length) return el('div', { class: 'empty' }, 'no data points');
     const xs = all.map(p => +p[0]), ys = all.map(p => p[1]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1, y1 = Math.max(...ys, 0) || 1;
@@ -154,11 +154,15 @@
     for (const [i, x] of [x0, (x0 + x1) / 2, x1].entries()) { const t = n('text', { x: X(x), y: H - 4, 'text-anchor': i === 0 ? 'start' : i === 1 ? 'middle' : 'end', fill: '#8b93a1', 'font-size': 10 }); t.textContent = fmt.time(new Date(x)); svg.append(t); }
     for (const s of series) {
       const pts = [...s.points].sort((a, b) => a[0] - b[0]);
-      svg.append(n('path', { d: pts.map((p, i) => (i ? 'L' : 'M') + X(+p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' '), fill: 'none', stroke: s.color, 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }));
+      let d = '', pen = false;
+      for (const p of pts) { if (p[1] == null) { pen = false; continue; } d += (pen ? 'L' : 'M') + X(+p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1); pen = true; }
+      svg.append(n('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }));
     }
     return el('div', {}, svg, el('div', { class: 'legend' }, series.map(s => el('span', {}, el('i', { style: `background:${s.color}` }), s.name))));
   }
   const COLORS = ['#7aa2f7', '#6cc38b', '#e0af68', '#f7768e', '#bb9af7', '#7dcfff', '#ff9e64', '#9ece6a'];
+  const bucketFor = range => range === '15m' ? '10s' : range === '7d' ? '1h' : range === '24h' ? '5m' : '1m';
+  const BUCKET_LABEL = { '10s': '10 seconds', '1m': 'minute', '5m': '5 minutes', '1h': 'hour' };
 
   // ---------- pages ----------
   const pages = {};
@@ -218,19 +222,31 @@
 
   pages.query = async () => {
     const qid = state.params.queryid;
-    const d = await api(`/servers/${state.server}/queries/${qid}`, { since: state.range });
+    const bucket = bucketFor(state.range);
+    const d = await api(`/servers/${state.server}/queries/${qid}`, { since: state.range, bucket });
     const t = d.texts[0] || {};
-    const byMin = {};
-    for (const r of d.series) { const k = r.minute; (byMin[k] ||= { calls: 0, total: 0 }); byMin[k].calls += r.calls || 0; byMin[k].total += r.total_ms || 0; }
-    const pts = Object.entries(byMin).map(([m, v]) => [new Date(m), v]);
-    const lat = d.latency_from_logs || {};
+    const byBucket = {};
+    for (const r of d.series) { const k = r.bucket; (byBucket[k] ||= { calls: 0, total: 0 }); byBucket[k].calls += r.calls || 0; byBucket[k].total += r.total_ms || 0; }
+    const pts = Object.entries(byBucket).map(([m, v]) => [new Date(m), v]);
+    const lat = d.latency_from_logs;
+    const per = BUCKET_LABEL[bucket] || bucket;
+    // A quantile needs roughly 1/(1-q) samples before it is more than the bucket's max, so each line skips buckets below its own floor.
+    // Buckets below a line's floor become null points, which chart() draws as gaps rather than bridging.
+    const QUANTILES = [['p50', COLORS[0], 5], ['p90', COLORS[4], 20], ['p99', COLORS[3], 100]];
+    const qseries = lat ? QUANTILES.map(([k, color, min]) => ({ name: k, color, points: (d.latency_series || []).map(r => [new Date(r.bucket), r.sampled >= min ? r[k] : null]) })).filter(s => s.points.some(p => p[1] != null)) : [];
+    const samp = d.log_sampling || {};
+    const latencyNote = lat
+      ? `${fmt.num(lat.samples)} sampled statements in range (${fmt.dec(samp.rate * 100, 1)}% sample${samp.sample_floor_ms > 0 ? ` of statements over ${fmt.ms(samp.sample_floor_ms)}` : ''}) · range p50 ${fmt.ms(lat.p50)} · p90 ${fmt.ms(lat.p90)} · p99 ${fmt.ms(lat.p99)} · max ${fmt.ms(lat.max_ms)}`
+      : samp.enabled === false ? 'mean only: statement sampling is off on this server (log_min_duration_sample / log_statement_sample_rate)'
+      : 'mean only: no sampled durations in this range (needs log_min_duration_sample and the logs collector)';
     return [
       el('h1', {}, 'Query ', el('span', { class: 'mono' }, qid), el('span', { class: 'sub' }, t.datname || '')),
       panel('Text', el('pre', {}, t.query || '(not captured yet)'), t.truncated ? el('div', { class: 'muted' }, 'truncated at 10 KB') : null),
       el('div', { class: 'grid two', style: 'margin-top:12px' },
-        panel('Calls per minute', chart([{ name: 'calls', color: COLORS[0], points: pts.map(([m, v]) => [m, v.calls]) }], { yfmt: fmt.num })),
-        panel('Mean time per minute', chart([{ name: 'mean ms', color: COLORS[2], points: pts.map(([m, v]) => [m, v.calls ? v.total / v.calls : 0]) }], { yfmt: v => fmt.ms(v) })),
-        panel('Latency from sampled statement log', lat.samples ? el('div', { class: 'grid tiles' }, tile('samples', fmt.num(lat.samples)), tile('p50', fmt.ms(lat.p50)), tile('p90', fmt.ms(lat.p90)), tile('p95', fmt.ms(lat.p95)), tile('p99', fmt.ms(lat.p99)), tile('max', fmt.ms(lat.max_ms))) : el('div', { class: 'empty' }, 'no sampled durations in this range (needs log_min_duration_sample and the logs collector)')),
+        panel(`Calls per ${per}`, chart([{ name: 'calls', color: COLORS[0], points: pts.map(([m, v]) => [m, v.calls]) }], { yfmt: fmt.num })),
+        panel(`Latency per ${per}`,
+          chart([{ name: 'mean', color: COLORS[2], points: pts.map(([m, v]) => [m, v.calls ? v.total / v.calls : 0]) }, ...qseries], { yfmt: v => fmt.ms(v) }),
+          el('div', { class: 'muted', style: 'margin-top:6px; font-size:11px' }, latencyNote)),
         panel('Wait events while running', table(d.wait_events, [{ key: 'wait_event_type', label: 'type', fmt: v => v || 'CPU' }, { key: 'wait_event', label: 'event', fmt: v => v || '–' }, { key: 'samples', label: 'samples', num: true, fmt: fmt.num }])),
       ),
       el('div', { style: 'margin-top:12px' }, panel('Slowest logged samples', table(d.slowest_samples, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'log_stream', label: 'instance' }, { key: 'usename', label: 'user' }, { key: 'duration_ms', label: 'duration', num: true, fmt: fmt.ms }, { key: 'query', label: 'statement', render: r => queryCell(r.query) }]))),
@@ -257,7 +273,7 @@
   };
 
   pages.waits = async () => {
-    const d = await api(`/servers/${state.server}/waits`, { since: state.range, bucket: state.range === '15m' ? '10s' : state.range === '7d' ? '1h' : state.range === '24h' ? '5m' : '1m' });
+    const d = await api(`/servers/${state.server}/waits`, { since: state.range, bucket: bucketFor(state.range) });
     const byEv = {};
     for (const r of d.sampled) { const k = `${r.wait_event_type}:${r.wait_event}`; (byEv[k] ||= []).push([new Date(r.bucket), r.avg_active_sessions]); }
     const top = Object.entries(byEv).map(([k, pts]) => [k, pts.reduce((a, p) => a + p[1], 0), pts]).sort((a, b) => b[1] - a[1]).slice(0, 8);

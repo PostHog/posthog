@@ -150,7 +150,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
     listeners(({ actions }) => ({
         devLogin: async ({ email }) => {
             // Dynamic import to avoid a circular dependency: loginLogic statically imports this logic.
-            const { loginLogic, handleLoginRedirect } = await import('scenes/authentication/login/loginLogic')
+            const { loginLogic, redirectAfterLogin } = await import('scenes/authentication/login/loginLogic')
             loginLogic.actions.clearGeneralError()
             try {
                 await api.create<any>('api/login/dev', { email })
@@ -159,8 +159,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
                 loginLogic.actions.setGeneralError(code || 'dev_login_failed', detail || 'Dev login failed')
                 return
             }
-            handleLoginRedirect()
-            window.location.reload()
+            redirectAfterLogin()
         },
         createFreshAccount: async () => {
             try {

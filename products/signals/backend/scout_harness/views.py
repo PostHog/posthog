@@ -353,6 +353,22 @@ def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | No
     ]
 
 
+def _to_report_evidence(entries: list[dict] | None) -> list[ReportEvidence] | None:
+    """Map validated evidence entries to `ReportEvidence`s for the report tools. `weight` is omitted
+    when unset so the dataclass default stands. Empty/None yields None, which the edit path reads as
+    "no evidence supplied"."""
+    if not entries:
+        return None
+    return [
+        ReportEvidence(
+            description=entry["description"],
+            source_id=entry["source_id"],
+            **({"weight": entry["weight"]} if entry.get("weight") is not None else {}),
+        )
+        for entry in entries
+    ]
+
+
 def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
     """Map validated `suggested_reviewers` entries to `ReviewerInput`s for the report tools. `user_uuid`
     is a `UUID` (from `UUIDField`) — stringified here so the tool layer has no DRF dependency. Empty/None
@@ -994,14 +1010,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def emit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
         data = request.validated_data
-        evidence = [
-            ReportEvidence(
-                description=entry["description"],
-                source_id=entry["source_id"],
-                **({"weight": entry["weight"]} if entry.get("weight") is not None else {}),
-            )
-            for entry in data["evidence"]
-        ]
+        evidence = _to_report_evidence(data["evidence"]) or []
         try:
             result = emit_report_sync(
                 # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
@@ -1047,7 +1056,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Edit an existing report for a run",
         description=(
-            "Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target "
+            "Rewrite a report's title/summary, append a note or fresh evidence, and/or set its suggested "
+            "reviewers. Can target "
             "ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to "
             "this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it "
             "replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can "
@@ -1074,6 +1084,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 title=data.get("title"),
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
+                append_evidence=_to_report_evidence(data.get("append_evidence")),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
                 charts=_to_report_charts(data.get("charts")),
                 suggested_prompts=data.get("suggested_prompts"),
@@ -1086,6 +1097,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "report_id": result.report_id,
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
+                    "evidence_appended": result.evidence_appended,
                     "reviewers_set": result.reviewers_set,
                     "charts_set": result.charts_set,
                     "suggested_prompts_set": result.suggested_prompts_set,
@@ -1225,7 +1237,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
             "to walk past the cap. Entries whose `expires_at` has passed are excluded unless "
-            "`include_expired=true`. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
+            "`include_expired=true`, and are hard-deleted by a daily janitor once their expiry is "
+            "more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
             "from returning every entry's full prose. Results capped at 1000."
         ),

@@ -61,10 +61,10 @@ database "posthog" {
       type = "Nullable(Int64)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_metrics"
-      topic_list           = "kafka_topic_list = 'clickhouse_metrics'"
-      group_name           = "kafka_group_name = 'clickhouse-metrics-avro-new'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro-new"
+      format               = "Avro"
       num_consumers        = 8
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
@@ -138,10 +138,10 @@ database "posthog" {
       type = "Int32"
     }
     engine "kafka" {
-      broker_list          = "warpstream_traces"
-      topic_list           = "kafka_topic_list = 'clickhouse_traces'"
-      group_name           = "kafka_group_name = 'clickhouse-traces-avro'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_traces"
+      topic_list           = "clickhouse_traces"
+      group_name           = "clickhouse-traces-avro"
+      format               = "Avro"
       num_consumers        = 8
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
@@ -3989,4 +3989,40 @@ SQL
       type = "SimpleAggregateFunction(max, Decimal(18, 6))"
     }
   }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

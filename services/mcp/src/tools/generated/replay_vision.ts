@@ -161,6 +161,8 @@ const visionObservationsSearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/search/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 limit: params.limit,
                 max_score: params.max_score,
                 min_score: params.min_score,
@@ -249,6 +251,9 @@ const visionScannersCreate = (): ToolBase<ReturnType<typeof VisionScannersCreate
         }
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
+        }
+        if (params.creation_method !== undefined) {
+            body['creation_method'] = params.creation_method
         }
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
@@ -761,6 +766,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         }
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
+        }
+        if (params.creation_method !== undefined) {
+            body['creation_method'] = params.creation_method
         }
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
