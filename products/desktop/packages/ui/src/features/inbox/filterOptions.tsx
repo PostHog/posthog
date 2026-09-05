@@ -187,15 +187,35 @@ function sortReviewerOptionsByName(
   });
 }
 
+function getSuggestedReviewerBaseName(
+  reviewer: Pick<SuggestedReviewerFilterOption, "name" | "email">,
+): string {
+  return (
+    normalizeString(reviewer.name) ||
+    normalizeString(reviewer.email) ||
+    "Unknown user"
+  );
+}
+
 export function getSuggestedReviewerDisplayName(
   reviewer: Pick<SuggestedReviewerFilterOption, "name" | "email" | "isMe">,
 ): string {
-  const baseLabel =
-    normalizeString(reviewer.name) ||
-    normalizeString(reviewer.email) ||
-    "Unknown user";
+  const baseLabel = getSuggestedReviewerBaseName(reviewer);
 
   return reviewer.isMe ? `${baseLabel} (Me)` : baseLabel;
+}
+
+/**
+ * Label for a person in the inbox scope picker. The signed-in user keeps a
+ * named row there beside the pinned "For you" row: both show the same reports,
+ * but only the named row pins the inbox to that person.
+ */
+export function getInboxScopeOptionLabel(
+  reviewer: Pick<SuggestedReviewerFilterOption, "name" | "email" | "isMe">,
+): string {
+  const baseLabel = getSuggestedReviewerBaseName(reviewer);
+
+  return reviewer.isMe ? `${baseLabel} (you)` : baseLabel;
 }
 
 export function buildSuggestedReviewerFilterOptions(
