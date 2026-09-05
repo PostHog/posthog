@@ -148,6 +148,14 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
                 ExternalDataJob.objects.create(
                     team=self.team, pipeline=source, schema=schema, status=job_status, rows_synced=10
                 )
+                ExternalDataJob.objects.create(
+                    team=self.team,
+                    pipeline=source,
+                    schema=None,
+                    status=job_status,
+                    rows_synced=10,
+                    workflow_run_id=f"{label}_schemaless_run",
+                )
             saved_queries[label] = saved_query
             sources[label] = source
 

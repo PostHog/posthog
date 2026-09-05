@@ -367,7 +367,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
                         WHERE edj.team_id = %s AND edj.status = 'Running' AND edj.created_at >= %s
-                          AND (edsrc.id IS NULL OR edsrc.id = ANY(%s::uuid[]))
+                          AND edj.pipeline_id = ANY(%s::uuid[])
                     ),
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
@@ -461,7 +461,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
                         WHERE edj.team_id = %s AND edj.status = 'Completed' AND edj.created_at >= %s
-                          AND (edsrc.id IS NULL OR edsrc.id = ANY(%s::uuid[]))
+                          AND edj.pipeline_id = ANY(%s::uuid[])
                     ),
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
