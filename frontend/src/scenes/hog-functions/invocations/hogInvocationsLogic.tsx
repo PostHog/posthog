@@ -551,6 +551,11 @@ const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
 async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
     const tier = pickSparklineTier(filters)
     const { bucketExpr } = tier
+    const buckets = generateSparklineBuckets(filters, tier)
+    // One row per bucket per status. Without an explicit limit the executor applies its own default
+    // (`DEFAULT_RETURNED_ROWS`, 100), and because the rows come back oldest first, the chart keeps
+    // the start of the window and reads as flat zero for every later bucket.
+    const rowLimit = Math.max(buckets.length, 1) * Object.keys(SPARKLINE_STATUS_COLORS).length
 
     // Filters reference the SELECT aliases (status / error_kind) so we don't
     // re-wrap in argMax inline — that would collide with the alias and
@@ -602,6 +607,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
         )
         GROUP BY bucket, status
         ORDER BY bucket
+        LIMIT ${rowLimit}
     `
     const response = await api.queryHogQL(
         query,
@@ -625,10 +631,6 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
         const cell = (cellsByBucket[key] = cellsByBucket[key] ?? { running: 0, succeeded: 0, failed: 0, canceled: 0 })
         cell[status] = (cell[status] ?? 0) + Number(n ?? 0)
     }
-    // Walk every bucket in the filter range — not just the ones CH returned
-    // data for — so the chart's x-axis spans the user's selected window even
-    // when activity is concentrated in a tiny slice of it.
-    const buckets = generateSparklineBuckets(filters, tier)
     const timezone = teamTimezone()
     const dates = buckets.map((key) => dayjs.tz(key, timezone).toISOString())
     const buildValues = (status: RunStatus): number[] => buckets.map((key) => cellsByBucket[key]?.[status] ?? 0)
