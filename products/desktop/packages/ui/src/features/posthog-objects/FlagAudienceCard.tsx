@@ -169,11 +169,18 @@ function RuleRow({
   variants: FlagVariant[];
 }) {
   return (
-    <div className="grid grid-cols-[22px_1fr_auto] items-center gap-x-3 border-border border-b px-3 py-2.5 last:border-b-0">
+    <div
+      className={`grid grid-cols-[22px_1fr_auto] items-center gap-x-3 border-border border-b px-3 py-2.5 last:border-b-0 ${rule.reachable === false ? "opacity-50" : ""}`}
+    >
       <span className="flex size-5 items-center justify-center rounded-md border border-border bg-muted font-semibold text-[11px] text-foreground">
         {index + 1}
       </span>
       <div className="flex min-w-0 flex-col gap-1 text-[13px]">
+        {rule.reachable === false && (
+          <span className="text-[11px] text-muted-foreground italic">
+            Unreachable — an earlier condition matches everyone at 100%
+          </span>
+        )}
         {rule.conditions.length === 0 ? (
           <span>Everyone</span>
         ) : (

@@ -38,6 +38,29 @@ describe("flag audience shaping", () => {
     );
   });
 
+  it("marks rules after a 100% catch-all as unreachable", () => {
+    const audience = shapeFlagAudience(
+      flagWith({
+        multivariate: { variants: [{ key: "a" }, { key: "b" }] },
+        groups: [
+          { rollout_percentage: 100 },
+          {
+            properties: [{ key: "plan", operator: "exact", value: "pro" }],
+            rollout_percentage: 50,
+            variant: "b",
+          },
+        ],
+      }),
+    );
+
+    expect(audience.rules.map((rule) => rule.reachable)).toEqual([
+      true,
+      false,
+    ]);
+    // The shadowed rule must not promise its variant in the summary.
+    expect(audience.summary).not.toContain("b");
+  });
+
   it("renders a readable label for operators that only reach flags through the API", () => {
     const audience = shapeFlagAudience(
       flagWith({

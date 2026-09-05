@@ -330,7 +330,7 @@ describe("evidence preview shaping", () => {
     } as unknown as Schemas.FeatureFlag);
 
     expect(preview.flagAudience?.rules).toEqual([
-      {
+      expect.objectContaining({
         conditions: [
           {
             subject: "plan",
@@ -340,7 +340,7 @@ describe("evidence preview shaping", () => {
         ],
         share: 25,
         result: { kind: "variant", key: "test" },
-      },
+      }),
     ]);
   });
 

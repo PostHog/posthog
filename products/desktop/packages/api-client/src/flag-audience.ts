@@ -23,6 +23,8 @@ export interface FlagRule {
   /** Rollout percentage within the matched audience. */
   share: number;
   result: FlagResult;
+  /** False when an earlier catch-all for the same aggregation shadows this rule. */
+  reachable: boolean;
 }
 
 export type FlagResult =
@@ -146,6 +148,8 @@ interface ConditionGroup {
   rollout: number;
   variant: string | null;
   isGroup: boolean;
+  /** The resolved aggregation index: a number for group targeting, null for person. */
+  aggregationIndex: number | null;
 }
 
 function conditionGroups(flag: Schemas.FeatureFlag): ConditionGroup[] {
@@ -171,6 +175,7 @@ function conditionGroups(flag: Schemas.FeatureFlag): ConditionGroup[] {
       rollout,
       variant: asString(group.variant),
       isGroup: typeof groupIndex === "number",
+      aggregationIndex: typeof groupIndex === "number" ? groupIndex : null,
     };
   });
 }
@@ -281,7 +286,8 @@ function describeAudience(
   if (rule.conditions.length === 0) {
     return rule.share < 100
       ? { label: `${rule.share}% of ${noun}`, plural: true }
-      : { label: "everyone", plural: true };
+      : // "everyone" takes a singular verb in the summary sentence.
+        { label: "everyone", plural: false };
   }
   if (rule.conditions.length === 1 && group.properties.length === 1) {
     const [condition] = rule.conditions;
@@ -383,7 +389,25 @@ export function shapeFlagAudience(
     }),
     share: group.rollout,
     result: matchResult(group.variant),
+    reachable: true,
   }));
+  // The evaluator checks condition sets in declaration order and returns on
+  // the first match, so an empty condition set at 100% shadows every later
+  // set of the same aggregation. Mirrors the web flag page's own warning.
+  const shadowedAggregations = new Set<string>();
+  groups.forEach((group, index) => {
+    const aggregation =
+      typeof group.aggregationIndex === "number"
+        ? `group:${group.aggregationIndex}`
+        : "person";
+    if (shadowedAggregations.has(aggregation)) {
+      rules[index].reachable = false;
+      return;
+    }
+    if (rules[index].conditions.length === 0 && group.rollout >= 100) {
+      shadowedAggregations.add(aggregation);
+    }
+  });
   const fallback: FlagResult = { kind: "false" };
 
   if (disabled) {
@@ -413,7 +437,7 @@ export function shapeFlagAudience(
     };
   }
 
-  const live = rules.filter((rule) => rule.share > 0);
+  const live = rules.filter((rule) => rule.share > 0 && rule.reachable);
   if (live.length === 0) {
     return {
       headline: "On for nobody yet.",
