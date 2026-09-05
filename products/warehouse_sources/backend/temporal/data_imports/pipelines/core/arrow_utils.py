@@ -44,9 +44,20 @@ DLT_TO_PA_TYPE_MAP: dict[
     "decimal": pa.float64(),
 }
 
+# Widest decimal Delta stores as a number. `ensure_delta_compatible_arrow_schema` turns every
+# decimal256 into a string, so a column past this keeps its digits but stops being numeric. Used
+# for customer-facing copy only: the decimal128 branch in `build_pyarrow_decimal_type` keeps its
+# own literal, because that boundary is pyarrow's limit rather than Delta's.
+# A declared NUMERIC(38, 0) stays numeric; only an inferred whole-number column reaches text a
+# digit early, because `_get_max_decimal_type` floors scale at 1 and sizes 38 digits as 39.
+DELTA_MAX_DECIMAL_PRECISION = 38
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
 MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
+
+# `external_data_job.Any_Source_Errors` keys on this fragment to pick the decimal-specific message
+# it shows the customer. Both sides read it from here so a reword cannot break the match silently.
+DECIMAL_OVERFLOW_FRAGMENT = "has decimal values that no longer fit its stored type"
 
 # pyarrow infers `int64` for Python `int` columns; values outside this range overflow with
 # "OverflowError: Python int too large to convert to C long" (Python ints are unbounded).
@@ -1135,7 +1146,8 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
     exact stored type makes the merge cast a no-op: fitting values are rounded to the column's
     scale, and a value whose integer part can't fit is surfaced as SchemaColumnTypeChangedException
     so the sync stops and the table can be reset and re-synced (which recreates the column with
-    adequate integer headroom).
+    adequate integer headroom, as long as the source column fits ``DELTA_MAX_DECIMAL_PRECISION``
+    digits; a wider one is re-created as text, because Delta stores no decimal past that).
     """
     delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
     for delta_field in delta_arrow_schema:
@@ -1160,9 +1172,12 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
         aligned = _fit_decimal_values_to_type(values, target)
         if aligned is None:
             raise SchemaColumnTypeChangedException(
-                f"Source column type changed: '{delta_field.name}' has decimal values that no longer "
-                f"fit its stored type {delta_field.type}. Reset and fully re-sync this table to adopt "
-                f"a wider type."
+                f"Source column type changed: '{delta_field.name}' {DECIMAL_OVERFLOW_FRAGMENT} "
+                f"{delta_field.type}. Set a precision and scale on that column in your source, then "
+                f"reset and fully re-sync this table and re-enable the sync. Without a declared "
+                f"precision each batch infers its own type and the re-sync can fail the same way. "
+                f"Up to {DELTA_MAX_DECIMAL_PRECISION} digits stays a number. A wider column still "
+                f"syncs, but lands as text."
             )
         pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
 

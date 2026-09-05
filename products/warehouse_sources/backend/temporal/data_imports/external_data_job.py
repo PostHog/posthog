@@ -56,6 +56,9 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_v3_lock_skipped_metric,
     get_version_check_skipped_metric,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DECIMAL_OVERFLOW_FRAGMENT,
+)
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
     PostImportWorkflowInputs,
@@ -148,6 +151,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "The incremental field configured for this table doesn't exist in the data the source returns. "
         "Edit the table's sync method, pick a valid incremental field, then re-enable the sync."
     ),
+    # The decimal case of the entry below, and it has to stay above it: the first matching key wins.
+    # The general message promises that a reset adopts the new type, which is wrong for a column wider
+    # than Delta stores as a number: the reset re-creates it as text and downstream aggregations break.
+    DECIMAL_OVERFLOW_FRAGMENT: (
+        "A decimal column no longer fits the type we stored for it. Set a precision and scale on "
+        "that column in your source, then reset and fully re-sync this table and re-enable the "
+        "sync. Without a declared precision the re-sync can fail the same way part-way through. "
+        "Up to 38 digits stays a number. A wider column still syncs, but lands as text."
+    ),
     # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
     # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger
     # decimals than the stored type can hold. delta-rs can't widen a column in place, so every retry
@@ -225,6 +237,19 @@ def _is_app_db_failure(internal_error: str) -> bool:
     """
     normalized = internal_error.lower()
     return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
+
+
+def _friendly_error_override(internal_error: str, non_retryable_errors: dict[str, str | None]) -> str | None:
+    """The message to show the customer instead of the raw error, or None to keep the raw one.
+
+    First match wins, so an entry that narrows another one has to sit above it. A ``None`` value is
+    deliberate rather than a gap: the raw error already carries detail a fixed sentence can't, such
+    as the offending column and its stored type.
+    """
+    for error, friendly_error in non_retryable_errors.items():
+        if error_message_matches(internal_error, [error]):
+            return friendly_error
+    return None
 
 
 def _fail_stale_running_schema(
@@ -359,15 +384,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         )
 
         if has_non_retryable_error:
-            friendly_errors = [
-                friendly_error
-                for error, friendly_error in non_retryable_errors.items()
-                if error_message_matches(internal_error_normalized, [error])
-            ]
+            friendly_error = _friendly_error_override(internal_error_normalized, non_retryable_errors)
 
-            if friendly_errors and friendly_errors[0] is not None:
-                logger.exception(friendly_errors[0])
-                inputs.latest_error = friendly_errors[0]
+            if friendly_error is not None:
+                logger.exception(friendly_error)
+                inputs.latest_error = friendly_error
 
             # Computed after the friendly error so the teardown records the same message
             # the job will show. Excluding this workflow keeps the disable's teardown from

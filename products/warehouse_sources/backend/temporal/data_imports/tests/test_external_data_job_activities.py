@@ -1,4 +1,5 @@
 import asyncio
+import decimal
 
 import pytest
 from posthog.test.base import BaseTest
@@ -6,6 +7,8 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+import pyarrow as pa
+import deltalake
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment
@@ -19,12 +22,21 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
+    Any_Source_Errors,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
+    _friendly_error_override,
     _is_app_db_failure,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DECIMAL_OVERFLOW_FRAGMENT,
+    SchemaColumnTypeChangedException,
+    align_incoming_decimals_to_delta,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -74,6 +86,70 @@ class TestIsAppDbFailure(SimpleTestCase):
         # str(ApplicationError) is what the workflow stores as internal_error, so build the input
         # the same way rather than hand-writing the prefix this depends on.
         assert _is_app_db_failure(str(ApplicationError(message, type=exc_type))) is expected
+
+
+class TestFriendlyErrorOverride(SimpleTestCase):
+    def _map(self, shape: str) -> dict[str, str | None]:
+        # Production never looks up the bare map: both call sites merge the source's own entries over
+        # it, and every SQL source redefines "Source column type changed". Cover the merged shape
+        # too, since that is where the ordering the decimal entry depends on has to hold. Built here
+        # rather than in the class body so constructing a source stays out of module import.
+        if shape == "bare":
+            return Any_Source_Errors
+        return {**Any_Source_Errors, **PostgresSource().get_non_retryable_errors()}
+
+    @parameterized.expand(
+        [
+            (f"{shape}_{case}", shape, internal_error, expected)
+            for shape in ("bare", "merged_postgres")
+            for case, internal_error, expected in [
+                # A decimal column that outgrew its stored type gets its own message. The general
+                # entry would tell the customer a reset adopts the new type, which re-creates the
+                # column as text once the source is wider than Delta stores as a number.
+                (
+                    "decimal",
+                    f"Source column type changed: 'unit_price' {DECIMAL_OVERFLOW_FRAGMENT} decimal128(30, 12).",
+                    "A decimal column no longer fits",
+                ),
+                # Every other shape of the same failure still gets the general message.
+                (
+                    "widened_int",
+                    "Source column type changed: 'total_cost' has values that no longer fit its stored type int64",
+                    "A column's type changed in your source",
+                ),
+            ]
+        ]
+    )
+    def test_the_decimal_case_gets_its_own_message(
+        self, _name: str, shape: str, internal_error: str, expected: str
+    ) -> None:
+        override = _friendly_error_override(internal_error, self._map(shape))
+
+        assert override is not None and override.startswith(expected)
+
+    def test_the_message_the_pipeline_raises_reaches_the_decimal_entry(self) -> None:
+        # Build the real exception rather than a copy of its text, so a reword that stops matching
+        # fails here instead of in production. Assert the classification too: without it the test
+        # would still pass if the message matched no key at all, which is the worse regression, since
+        # the failure would stop being non-retryable and every schedule would retry it forever.
+        table = pa.table({"amount": pa.array([decimal.Decimal("1234.5")], type=pa.decimal128(18, 4))})
+        stored = deltalake.Schema.from_arrow(pa.schema([pa.field("amount", pa.decimal128(3, 2))]))
+
+        with pytest.raises(SchemaColumnTypeChangedException) as excinfo:
+            align_incoming_decimals_to_delta(table, stored)
+
+        assert error_message_matches(str(excinfo.value), Any_Source_Errors.keys())
+        override = _friendly_error_override(str(excinfo.value), Any_Source_Errors)
+        assert override is not None and override.startswith("A decimal column no longer fits")
+
+    def test_the_customer_message_carries_no_pipeline_internals(self) -> None:
+        # The point of mapping this entry: a customer of any source reads it, so it must not leak
+        # pyarrow type syntax or the raw exception text.
+        message = Any_Source_Errors[DECIMAL_OVERFLOW_FRAGMENT]
+
+        assert message is not None
+        assert "decimal128" not in message and "decimal256" not in message
+        assert "Source column type changed" not in message
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
