@@ -43,9 +43,10 @@ REVIEW_RESOURCE_NAME = "Review"
 EARLY_FRAUD_WARNING_RESOURCE_NAME = "EarlyFraudWarning"
 SHIPPING_RATE_RESOURCE_NAME = "ShippingRate"
 
-# Vendor API version the sync pipeline pins by default. One constant so the source's version
+# Vendor API versions a source can pin. One constant per version so the source's version
 # declaration (`StripeSource.supported_versions`) and the request layer share a single label.
 STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
+STRIPE_API_VERSION_DAHLIA = "2026-08-26.dahlia"
 
 # CustomerPaymentMethodHistory metadata columns. Every row is one observation of a payment
 # method: either a `payment_method.*` webhook event, or a row from the initial attached-payment-

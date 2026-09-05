@@ -67,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SETUP_INTENT_RESOURCE_NAME,
     SHIPPING_RATE_RESOURCE_NAME,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_DAHLIA,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
@@ -1879,3 +1880,58 @@ class TestStripeNestedSweepResume:
 
         assert "starting_after" not in nested_params[0]
         assert [row["id"] for row in rows] == ["txn_1"]
+
+
+class TestStripeApiVersionDispatch:
+    @parameterized.expand([(STRIPE_API_VERSION_ACACIA,), (STRIPE_API_VERSION_DAHLIA,)])
+    def test_get_rows_sends_the_pin_to_the_client(self, api_version):
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList([])))
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with (
+            patch.object(stripe_module, "StripeClient") as client_cls,
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=api_version,
+                )
+            )
+
+        assert client_cls.call_args.kwargs["stripe_version"] == api_version
+
+    def test_supported_versions_all_have_a_declared_label(self):
+        assert StripeSource.supported_versions == (STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_DAHLIA)
+        assert StripeSource.default_version == STRIPE_API_VERSION_DAHLIA
+
+    @parameterized.expand(
+        [
+            ("pinned to the older version", STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_ACACIA),
+            ("pinned to the newer version", STRIPE_API_VERSION_DAHLIA, STRIPE_API_VERSION_DAHLIA),
+            # A source row with no pin (nullable column) resolves to the default.
+            ("unpinned", None, STRIPE_API_VERSION_DAHLIA),
+        ]
+    )
+    def test_webhook_management_sends_the_pin(self, _name, pinned, expected):
+        config = StripeSourceConfig.from_dict(
+            {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}}
+        )
+        source = StripeSource()
+        mock_client = MagicMock()
+        mock_client.webhook_endpoints.list.return_value.auto_paging_iter.return_value = iter([])
+
+        with patch.object(stripe_module, "StripeClient", return_value=mock_client) as client_cls:
+            source.create_webhook(config, "https://x", team_id=1, api_version=pinned)
+            source.sync_webhook_events(config, "https://x", team_id=1, eligible_schema_names=[], api_version=pinned)
+            source.get_external_webhook_info(config, "https://x", team_id=1, api_version=pinned)
+            source.delete_webhook(config, "https://x", team_id=1, api_version=pinned)
+
+        assert [call.kwargs["stripe_version"] for call in client_cls.call_args_list] == [expected] * 4
