@@ -1306,11 +1306,11 @@ class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
 
 class TestLLMPromptLabelsAPI(APIBaseTest):
     def test_list_prompts_filtered_by_label(self) -> None:
-        p1_v1 = self.create_prompt_version(name="prompt-alpha", prompt="Alpha v1", version=1, is_latest=False)
-        p1_v2 = self.create_prompt_version(name="prompt-alpha", prompt="Alpha v2", version=2, is_latest=True)
-        p2_v1 = self.create_prompt_version(name="prompt-beta", prompt="Beta v1", version=1, is_latest=True)
+        self.create_prompt_version(name="prompt-alpha", prompt="Alpha v1", version=1, is_latest=False)
+        self.create_prompt_version(name="prompt-alpha", prompt="Alpha v2", version=2, is_latest=True)
+        self.create_prompt_version(name="prompt-beta", prompt="Beta v1", version=1, is_latest=True)
 
-        # Tag p1_v1 with 'production' and p2_v1 with 'staging'
+        # Tag prompt-alpha v1 with 'production' and prompt-beta v1 with 'staging'
         self._set_label("prompt-alpha", "production", 1)
         self._set_label("prompt-beta", "staging", 1)
 

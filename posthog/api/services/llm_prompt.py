@@ -110,11 +110,11 @@ def get_active_prompt_queryset(team: Team) -> QuerySet[LLMPrompt]:
 
 
 def get_prompts_by_label_queryset(team: Team, label_name: str) -> QuerySet[LLMPrompt]:
-    labeled_version_ids = LLMPromptLabel.objects.filter(
+    labeled_prompt_ids = LLMPromptLabel.objects.filter(
         team=team,
         name=label_name,
-    ).values_list("version_id", flat=True)
-    return get_active_prompt_queryset(team).filter(id__in=labeled_version_ids)
+    ).values_list("prompt_id", flat=True)
+    return get_active_prompt_queryset(team).filter(id__in=labeled_prompt_ids)
 
 
 def get_latest_prompts_queryset(team: Team) -> QuerySet[LLMPrompt]:
