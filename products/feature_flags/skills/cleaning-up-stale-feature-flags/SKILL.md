@@ -44,7 +44,14 @@ A single page silently under-reports the flags the user can clean up.
 
 ### 2. Assess each candidate
 
-For each stale flag, gather context before recommending action:
+Each flag costs one `posthog:feature-flag-get-definition` call, so assess 20 flags at a time.
+Sort your list by `updated_at`, oldest first, so the first batch holds the strongest removal candidates.
+After each batch, present the findings and state how many flags remain.
+Ask the user before you assess the next batch.
+A large project can hold thousands of stale flags.
+An unbounded pass can use up the tool and context budget before the user sees any findings.
+
+For each flag in the batch, gather context before recommending action:
 
 **Check if it's tied to an experiment:**
 
@@ -60,9 +67,10 @@ A flag last updated years ago with no recent calls is a stronger removal candida
 
 **Summarize for the user:**
 
-Cover every flag you collected in step 1, not only the first page.
-State the total count, and say so plainly if you shorten the table, so the user knows how many flags are left out.
-For each stale flag, present:
+State the total count from step 1, so the user knows how many stale flags the project holds.
+Cover every flag in the batch you assessed.
+Say plainly how many flags you did not assess yet, and offer to continue.
+For each flag in the batch, present:
 
 - Flag key and description
 - Why it's considered stale (no calls in N days, or fully rolled out for N days)
@@ -141,7 +149,7 @@ User: "Can you help me clean up our stale feature flags?"
 Agent steps:
 - Call posthog:feature-flag-get-all with active: "STALE" and limit: 100
 - Follow the `next` link until it is null, so the list holds all `count` stale flags
-- For each stale flag, call posthog:feature-flag-get-definition to check experiment_set and dependencies
+- For the first 20 flags, oldest first, call posthog:feature-flag-get-definition to check experiment_set and dependencies
 - Present findings:
 
    "I found 7 stale feature flags in your project:
@@ -199,12 +207,13 @@ Agent steps:
 - **Disabled flags are not stale.** Don't recommend disabling flags that are already intentionally disabled — they may be kept for emergency reactivation.
 - **Experiment flags need extra care.** If a flag is tied to an active or recently completed experiment, the user likely wants to keep it until they've analyzed results.
 - **Seasonal flags may return.** Flags like "black-friday-sale" might look stale but are intentionally reused. Ask the user before removing these.
+- **Assess in batches.** The list is cheap to collect, but each assessment costs one call per flag. State the total, assess 20 flags at a time, and ask the user before you continue.
 - **Code cleanup is the real win.** Removing the flag from PostHog is the easy part. The value comes from removing the dead code paths.
 
 ## Related tools
 
 - `posthog:feature-flag-get-all`: List and search feature flags (supports `active: "STALE"` filter; paginated, so follow `next` for the full set)
-- `posthog:feature-flag-get-definition`: Get full flag details including experiment associations
+- `posthog:feature-flag-get-definition`: Get full flag details including experiment associations (one call per flag, so assess in batches)
 - `posthog:feature-flags-status-retrieve`: Get the status and reason for a single flag
 - `posthog:feature-flag-disable`: Turn a flag off without touching its targeting
 - `posthog:delete-feature-flag`: Soft-delete a flag
