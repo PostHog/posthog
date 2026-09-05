@@ -2,6 +2,7 @@ import {
   Archive,
   ArrowSquareOut,
   Buildings,
+  ChatCircleDots,
   DiscordLogo,
   FolderSimple,
   Gear,
@@ -41,6 +42,7 @@ import {
 } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
@@ -69,11 +71,106 @@ interface ProjectSwitcherProps {
 }
 
 /** The account / project / org menu. */
+interface ProjectSwitcherAccountActionsProps {
+  handleArchived: () => void;
+  handleDiscord: () => void;
+  handleFeedback: () => void;
+  handleKeyboardShortcuts: () => void;
+  handleLogout: () => void;
+  handleOpenExternal: (url: string) => void;
+  handleSettings: () => void;
+  handleViewChangelog: () => void;
+  showArchived: boolean;
+}
+
+function ProjectSwitcherAccountActions({
+  handleArchived,
+  handleDiscord,
+  handleFeedback,
+  handleKeyboardShortcuts,
+  handleLogout,
+  handleOpenExternal,
+  handleSettings,
+  handleViewChangelog,
+  showArchived,
+}: ProjectSwitcherAccountActionsProps) {
+  return (
+    <>
+      <DropdownMenuItem onClick={handleDiscord}>
+        <DiscordLogo size={14} className="text-gray-11" />
+        Join our Discord
+        <ArrowSquareOut size={14} className="ml-auto text-gray-11" />
+      </DropdownMenuItem>
+
+      <DropdownMenuItem onClick={handleViewChangelog}>
+        <Gift size={14} className="text-gray-11" />
+        View changelog
+      </DropdownMenuItem>
+
+      <DropdownMenuItem onClick={handleFeedback}>
+        <ChatCircleDots size={14} className="text-gray-11" />
+        Send feedback…
+      </DropdownMenuItem>
+
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>
+          <Info size={14} className="text-gray-11" />
+          Learn more
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent side="right" sideOffset={4}>
+          <DropdownMenuItem
+            onClick={() => handleOpenExternal(EXTERNAL_LINKS.website)}
+          >
+            <ArrowSquareOut size={14} className="text-gray-11" />
+            Website
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => handleOpenExternal(EXTERNAL_LINKS.privacy)}
+          >
+            <ShieldCheck size={14} className="text-gray-11" />
+            Privacy Policy
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleKeyboardShortcuts}>
+            <Keyboard size={14} className="text-gray-11" />
+            Keyboard Shortcuts
+            <DropdownMenuShortcut>
+              {isMac ? "⌘/" : "Ctrl+/"}
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+
+      {showArchived && (
+        <DropdownMenuItem onClick={handleArchived}>
+          <Archive size={14} className="text-gray-11" />
+          Archived
+        </DropdownMenuItem>
+      )}
+
+      <DropdownMenuItem onClick={handleSettings}>
+        <Gear size={14} className="text-gray-11" />
+        Settings
+        <DropdownMenuShortcut>{isMac ? "⌘," : "Ctrl+,"}</DropdownMenuShortcut>
+      </DropdownMenuItem>
+
+      <DropdownMenuSeparator />
+
+      <DropdownMenuItem onClick={handleLogout}>
+        <SignOut size={14} className="text-gray-11" />
+        Log out
+      </DropdownMenuItem>
+    </>
+  );
+}
+
 export function ProjectSwitcher({
   appearance = "row",
   onNavigateToSettings,
 }: ProjectSwitcherProps = {}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const openFeedback = useFeedbackStore((state) => state.open);
 
   const holdPeek = useHoldSidebarPeek();
   const handleOpenChange = (next: boolean): void => {
@@ -209,6 +306,11 @@ export function ProjectSwitcher({
     setPopoverOpen(false);
   };
 
+  const handleFeedback = () => {
+    setPopoverOpen(false);
+    openFeedback();
+  };
+
   const handleLogout = () => {
     setPopoverOpen(false);
     logoutMutation.mutate();
@@ -340,68 +442,17 @@ export function ProjectSwitcher({
 
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem onClick={handleDiscord}>
-              <DiscordLogo size={14} className="text-gray-11" />
-              Join our Discord
-              <ArrowSquareOut size={14} className="ml-auto text-gray-11" />
-            </DropdownMenuItem>
-
-            <DropdownMenuItem onClick={handleViewChangelog}>
-              <Gift size={14} className="text-gray-11" />
-              View changelog
-            </DropdownMenuItem>
-
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Info size={14} className="text-gray-11" />
-                Learn more
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent side="right" sideOffset={4}>
-                <DropdownMenuItem
-                  onClick={() => handleOpenExternal(EXTERNAL_LINKS.website)}
-                >
-                  <ArrowSquareOut size={14} className="text-gray-11" />
-                  Website
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => handleOpenExternal(EXTERNAL_LINKS.privacy)}
-                >
-                  <ShieldCheck size={14} className="text-gray-11" />
-                  Privacy Policy
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleKeyboardShortcuts}>
-                  <Keyboard size={14} className="text-gray-11" />
-                  Keyboard Shortcuts
-                  <DropdownMenuShortcut>
-                    {isMac ? "⌘/" : "Ctrl+/"}
-                  </DropdownMenuShortcut>
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-
-            {showArchived && (
-              <DropdownMenuItem onClick={handleArchived}>
-                <Archive size={14} className="text-gray-11" />
-                Archived
-              </DropdownMenuItem>
-            )}
-
-            <DropdownMenuItem onClick={handleSettings}>
-              <Gear size={14} className="text-gray-11" />
-              Settings
-              <DropdownMenuShortcut>
-                {isMac ? "⌘," : "Ctrl+,"}
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-
-            <DropdownMenuSeparator />
-
-            <DropdownMenuItem onClick={handleLogout}>
-              <SignOut size={14} className="text-gray-11" />
-              Log out
-            </DropdownMenuItem>
+            <ProjectSwitcherAccountActions
+              handleArchived={handleArchived}
+              handleDiscord={handleDiscord}
+              handleFeedback={handleFeedback}
+              handleKeyboardShortcuts={handleKeyboardShortcuts}
+              handleLogout={handleLogout}
+              handleOpenExternal={handleOpenExternal}
+              handleSettings={handleSettings}
+              handleViewChangelog={handleViewChangelog}
+              showArchived={showArchived}
+            />
           </Box>
         </Box>
       </DropdownMenuContent>

@@ -181,6 +181,10 @@ import {
   type IAnalytics,
 } from "@posthog/platform/analytics";
 import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
+import {
   HOST_CAPABILITIES,
   type HostCapabilities,
 } from "@posthog/platform/host-capabilities";
@@ -334,6 +338,7 @@ import { hostTrpcClient } from "./web-trpc";
 
 interface WebBindings {
   [HOST_TRPC_CLIENT]: HostTrpcClient;
+  [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
   [PI_SESSION_PROVIDER]: PiSessionProvider;
   [LOCAL_PI_SESSION_FACTORY]: PiSessionFactory;
   [CLOUD_TASK_CLIENT]: CloudTaskClient;
@@ -419,6 +424,10 @@ export const container = new TypedContainer<WebBindings>({
 // Keystone: the same typed host client the renderer binds — served in-process
 // here (web-trpc.ts) instead of over Electron IPC.
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
+container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
+  captureScreenshot: () => Promise.resolve(null),
+  readRecentLogs: () => Promise.resolve(null),
+});
 container.bind(LOCAL_PI_SESSION_FACTORY).to(TrpcPiSessionFactory);
 container.bind(CLOUD_TASK_CLIENT).to(TrpcCloudTaskClient);
 container.bind(PI_RUNNER).to(TrpcPiRunner);
@@ -524,18 +533,11 @@ container.bind(IMPERATIVE_QUERY_CLIENT).toConstantValue(queryClient);
 container.bind(AUTH_SIDE_EFFECTS).to(WebAuthSideEffects);
 
 // Interactive MCP App iframe host. Electron isolates the proxy with a custom
-// privileged scheme; web gets a separate origin for free via a blob URL of the
-// same (host-agnostic) proxy HTML. The blob is created once, lazily.
+// privileged scheme; web loads the same host-agnostic proxy HTML through a
+// data URL. The iframe sandbox keeps it on an opaque origin.
 container.bind(MCP_APP_HOST_COMPONENT).toConstantValue(McpAppHost);
-let sandboxProxyUrl: string | null = null;
-container.bind(MCP_SANDBOX_PROXY_URL).toConstantValue(() => {
-  if (!sandboxProxyUrl) {
-    sandboxProxyUrl = URL.createObjectURL(
-      new Blob([sandboxProxyHtml], { type: "text/html" }),
-    );
-  }
-  return sandboxProxyUrl;
-});
+const sandboxProxyUrl = `data:text/html;charset=utf-8,${encodeURIComponent(sandboxProxyHtml)}`;
+container.bind(MCP_SANDBOX_PROXY_URL).toConstantValue(() => sandboxProxyUrl);
 
 // ── Post-login shell: the tokens __root.tsx resolves eagerly via useService ──
 // The shared app shell (packages/ui __root.tsx) mounts the full desktop surface
