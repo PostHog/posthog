@@ -1,9 +1,7 @@
 import { Component, type ReactNode } from 'react'
 
+import { markChunkFailureReload, reloadedForChunkFailureRecently } from 'lib/utils/chunkReloadGuard'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-
-const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
-const RELOAD_GUARD_WINDOW_MS = 20_000
 
 interface State {
     error: unknown
@@ -34,25 +32,13 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         if (!isChunkLoadError(error)) {
             return
         }
-        let lastReload = 0
-        try {
-            lastReload = Number(window.localStorage.getItem(RELOAD_GUARD_KEY) ?? 0)
-        } catch {
-            // localStorage may be unavailable (e.g. Safari private mode) - treat as no prior reload
-        }
-        if (lastReload && Date.now() - lastReload < RELOAD_GUARD_WINDOW_MS) {
+        if (reloadedForChunkFailureRecently()) {
             console.error('[ChunkLoadErrorBoundary] Recently reloaded; surfacing error instead of looping.')
             this.setState({ surface: true })
             return
         }
         console.warn('[ChunkLoadErrorBoundary] Chunk-load failure (likely stale deploy); reloading.')
-        try {
-            window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
-        } catch {
-            // localStorage may throw QuotaExceededError (Safari private mode, full storage).
-            // Skip the guard and reload anyway - without the timestamp the worst case is
-            // a reload loop, which only happens if the chunk itself keeps failing.
-        }
+        markChunkFailureReload()
         if (this.props.reload) {
             this.props.reload()
         } else {
