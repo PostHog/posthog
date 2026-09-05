@@ -25,7 +25,9 @@
 
             <compatibility>26.3</compatibility>
             <!-- The funnel correlation query intentionally uses a materialized CTE
-                 to avoid re-running the actor subquery across UNION branches. -->
+                 to avoid re-running the actor subquery across UNION branches. HogQL now sends
+                 enable_materialized_cte=0 per query, so this value applies only to queries that
+                 send no setting (see posthog/hogql/constants.py for why). -->
             <enable_materialized_cte>1</enable_materialized_cte>
             <!-- Keep inserts synchronous. Production configures async inserts explicitly
                  (currently off); the 26.3 compatibility default turns them on, which makes

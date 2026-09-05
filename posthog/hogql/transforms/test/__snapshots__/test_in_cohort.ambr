@@ -9,7 +9,7 @@
     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, XX), equals(cohortpeople.version, 0))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_0)s), equals(__in_cohort.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -31,7 +31,7 @@
     WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(__in_cohort.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -53,7 +53,7 @@
     WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(__in_cohort.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -75,7 +75,7 @@
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -99,7 +99,7 @@
     HAVING greater(sum(cohortpeople.sign), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1), equals(events.event, %(hogql_val_0)s)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -125,7 +125,7 @@
     HAVING greater(sum(cohortpeople.sign), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1), equals(events.event, %(hogql_val_0)s), equals(in_cohort__XX.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -149,7 +149,7 @@
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -171,7 +171,7 @@
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -208,7 +208,7 @@
         SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto'))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_6)s), equals(__in_cohort.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -236,7 +236,7 @@
     WHERE and(equals(cohortpeople.team_id, 99999), or(and(equals(cohortpeople.cohort_id, XX), equals(cohortpeople.version, 0)), and(equals(cohortpeople.cohort_id, XX), equals(cohortpeople.version, 0))))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_0)s), equals(__in_cohort.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -285,7 +285,7 @@
         SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto'))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_12)s), equals(__in_cohort.matched, 1)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -318,7 +318,7 @@
     HAVING greater(sum(cohortpeople.sign), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1), equals(events.event, %(hogql_val_0)s)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -354,7 +354,7 @@
         SETTINGS optimize_aggregation_in_order=1, join_algorithm='auto'))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1), equals(events.event, %(hogql_val_6)s)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
@@ -387,7 +387,7 @@
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1), equals(events.event, %(hogql_val_0)s)) 
   LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, enable_materialized_cte=0, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event 
