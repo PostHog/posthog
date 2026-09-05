@@ -1383,11 +1383,9 @@ class WebauthnBackend(BaseBackend):
             # Decode credential ID
             credential_id_bytes = base64url_to_bytes(credential_id)
 
-            # Find the credential
+            # Find the credential. Unverified credentials are looked up too and gated below.
             credential = (
-                WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True)
-                .select_related("user")
-                .first()
+                WebauthnCredential.objects.filter(credential_id=credential_id_bytes).select_related("user").first()
             )
 
             if not credential:
@@ -1395,6 +1393,15 @@ class WebauthnBackend(BaseBackend):
                 return None
 
             user = credential.user
+
+            # An unverified credential (minted by signup before the emailed code proved the
+            # address, or added from settings) may only reach the login policy while the
+            # account's email is itself unverified, because the policy refuses a session until
+            # that code is entered. For every other account, require the ceremony-verified flag.
+            if not credential.verified and user.is_email_verified is not False:
+                structlog_logger.warning("webauthn_login_credential_unverified", user_id=user.pk)
+                return None
+
             # Check if user is active
             if not user.is_active:
                 structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)

@@ -1962,6 +1962,50 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_email_verified, True)
 
+    @parameterized.expand(
+        [
+            ("none_keeps_passkey", None),
+            ("true_keeps_passkey", True),
+            ("false_deletes_passkey", False),
+        ]
+    )
+    def test_password_reset_deletes_pre_registered_passkey_only_for_unverified_account(self, _name, initial_state):
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.user.is_email_verified = initial_state
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"reset-credential-id",
+            label="Test passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        social_auth = UserSocialAuth.objects.create(user=self.user, provider="github", uid="stale-github")
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, True)
+        if initial_state is False:
+            self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
+            self.assertFalse(UserSocialAuth.objects.filter(id=social_auth.id).exists())
+            self.assertFalse(self.user.passkeys_enabled_for_2fa)
+        else:
+            self.assertTrue(WebauthnCredential.objects.filter(user=self.user).exists())
+            self.assertTrue(UserSocialAuth.objects.filter(id=social_auth.id).exists())
+            self.assertTrue(self.user.passkeys_enabled_for_2fa)
+
     def test_password_reset_does_not_clear_pending_email(self):
         self.user.is_email_verified = False
         self.user.pending_email = "new-address@example.com"
