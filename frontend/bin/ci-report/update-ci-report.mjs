@@ -17,6 +17,8 @@ export const SECTIONS = [
     { id: 'trunk-lane', title: 'Trunk lane' },
     { id: 'complexity-python', title: 'Complexity (Python)' },
     { id: 'complexity-ts', title: 'Complexity (TypeScript)' },
+    { id: 'duplication-python', title: 'Duplication (Python)' },
+    { id: 'duplication-ts', title: 'Duplication (TypeScript)' },
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
     { id: 'toolbar-size', title: 'Toolbar bundle' },

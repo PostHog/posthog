@@ -1,0 +1,87 @@
+name: Duplication lint
+
+on:
+    pull_request:
+        paths:
+            - '**.py'
+            - '**.ts'
+            - '**.tsx'
+            - '.github/workflows/ci-duplication.yml'
+            - '.github/scripts/post-duplication-section.mjs'
+            - 'bin/lint_duplication.py'
+            - 'bin/lint-duplication.limits.json'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+    # The poster steps write sections of the shared CI report comment (mirrors ci-frontend.yml / ci-ai.yml).
+    pull-requests: write
+
+jobs:
+    duplication:
+        name: Duplication lint
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 10
+        # Advisory while the gate proves itself; promote to blocking once it
+        # has run clean across open PRs for a while.
+        continue-on-error: true
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Fetch PR base for the clone baseline
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
+              # The clone baseline is the branch point, so both histories must reach it.
+              # Master moves fast enough that a couple of days puts the fork point past
+              # any small fixed depth; deepen until it resolves, with a cap.
+              run: |
+                  for depth in 200 2000 20000; do
+                      git fetch --no-tags --depth=$depth origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                      # The checked-out PR ref is shallow too; deepen its side as well
+                      # or merge-base never resolves.
+                      git fetch --no-tags --depth=$depth origin "$GITHUB_REF"
+                      if git merge-base "origin/$BASE_REF" HEAD > /dev/null 2>&1; then
+                          break
+                      fi
+                  done
+                  git merge-base "origin/$BASE_REF" HEAD || echo "merge-base unresolved at depth $depth; the lint falls back to the base tip"
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+            - name: Lint for new duplication
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
+              run: |
+                  if [ ! -f bin/lint_duplication.py ]; then
+                      echo "bin/lint_duplication.py not present on this branch; skipping"
+                      exit 0
+                  fi
+                  python3 bin/lint_duplication.py --base "origin/$BASE_REF" --report-dir .
+            # always() so findings still reach the comment when the lint step fails.
+            # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
+            - name: Post CI report — duplication (Python)
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  # The status file (written before the scans) lets the poster mark a failed
+                  # scan; the findings file is the success path. Either one is enough to post.
+                  if [ -f .github/scripts/post-duplication-section.mjs ] && { [ -f duplication-scan-status.json ] || [ -f duplication-findings-python.json ]; }; then
+                      node .github/scripts/post-duplication-section.mjs python duplication-findings-python.json
+                  else
+                      echo "Skipping the duplication report section: script or findings not on this branch"
+                  fi
+            - name: Post CI report — duplication (TypeScript)
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-duplication-section.mjs ] && { [ -f duplication-scan-status.json ] || [ -f duplication-findings-ts.json ]; }; then
+                      node .github/scripts/post-duplication-section.mjs typescript duplication-findings-ts.json
+                  else
+                      echo "Skipping the duplication report section: script or findings not on this branch"
+                  fi
