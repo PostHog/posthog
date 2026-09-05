@@ -38,7 +38,9 @@ import {
   getObjectKind,
   POSTHOG_OBJECT_ICON_COLOR,
 } from "@posthog/ui/utils/objectKinds";
+import { EditFlagInTaskPopover } from "./EditFlagInTaskPopover";
 import { ExperimentResultsSummary } from "./ExperimentResultsSummary";
+import { FlagAudienceCard } from "./FlagAudienceCard";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
 
 const CHART_ERROR_MESSAGE =
@@ -174,6 +176,9 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
   const stats = (preview.stats ?? []).filter((stat) => stat.value);
   return (
     <div className="flex flex-col gap-3">
+      {preview.flagAudience && (
+        <FlagAudienceCard audience={preview.flagAudience} />
+      )}
       {stats.length > 0 ? (
         <StatStrip stats={stats} />
       ) : preview.facts && preview.facts.length > 0 ? (
@@ -218,6 +223,8 @@ export interface PostHogObjectViewProps {
   objectId: string;
   /** Shown while the preview loads or when the object has no live name. */
   fallbackName: string;
+  /** The task this object appears in; enables sending edits back to it. */
+  taskId?: string;
   url: string | null;
   /** Omitted when the page isn't backed by a run artifact (chip-opened). */
   occurrenceCount?: number;
@@ -230,6 +237,7 @@ export function PostHogObjectPageView({
   objectKind,
   objectId,
   fallbackName,
+  taskId,
   url,
   occurrenceCount,
   state,
@@ -300,6 +308,9 @@ export function PostHogObjectPageView({
               >
                 Open in PostHog ↗
               </Button>
+            )}
+            {objectKind === "flag" && taskId && preview?.title && (
+              <EditFlagInTaskPopover taskId={taskId} flagKey={preview.title} />
             )}
           </div>
         </header>
@@ -385,11 +396,13 @@ export function PostHogObjectPageView({
 export function PostHogObjectPage({
   metadata,
   fallbackName,
+  taskId,
 }: {
   /** Only kind + id when opened from an inline reference chip. */
   metadata: Pick<PostHogObjectArtifactMetadata, "object_kind" | "object_id"> &
     Partial<Omit<PostHogObjectArtifactMetadata, "object_kind" | "object_id">>;
   fallbackName: string;
+  taskId?: string;
 }) {
   const query = useAuthenticatedQuery(
     evidencePreviewQueryKey({
@@ -424,6 +437,7 @@ export function PostHogObjectPage({
       objectKind={metadata.object_kind}
       objectId={metadata.object_id}
       fallbackName={fallbackName}
+      taskId={taskId}
       url={url}
       occurrenceCount={metadata.occurrence_count}
       state={state}
