@@ -9,6 +9,7 @@ the caller may read (ee.billing.grants); billing checks the token and returns th
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -17,6 +18,7 @@ from django.db import models
 from django.http import StreamingHttpResponse
 
 import requests
+from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -26,6 +28,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.permissions import OrganizationMemberPermissions
@@ -53,6 +56,22 @@ def fetch_invoice_document(url: str) -> requests.Response:
     """Open the provider's PDF for streaming. Its own function so tests can stub it apart from the
     calls to billing."""
     return requests.get(url, stream=True, timeout=(5, 60))
+
+
+async def document_chunks(upstream: requests.Response) -> AsyncIterator[bytes]:
+    """The document as it arrives from the provider, one chunk at a time.
+
+    Under ASGI, Django reads a synchronous iterator to its end before it sends the first byte, so
+    the whole document would sit in memory. An asynchronous iterator goes out chunk by chunk. Each
+    read blocks on the provider, so it runs in a worker thread.
+    """
+    chunks = upstream.iter_content(chunk_size=64 * 1024)
+    read_chunk = sync_to_async(lambda: next(chunks, None), thread_sensitive=False)
+    try:
+        while (chunk := await read_chunk()) is not None:
+            yield chunk
+    finally:
+        upstream.close()
 
 
 def _iso(timestamp: Optional[int]) -> Optional[str]:
@@ -643,9 +662,11 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         upstream = fetch_invoice_document(url)
         if upstream.status_code != 200:
             raise NotFound(f"No document for invoice {invoice_id}.")
-        response = StreamingHttpResponse(upstream.iter_content(chunk_size=64 * 1024), content_type="application/pdf")
-        response["Content-Disposition"] = f'attachment; filename="{invoice_id}.pdf"'
-        return response
+        return streaming_response(
+            document_chunks(upstream),
+            content_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{invoice_id}.pdf"'},
+        )
 
     @extend_schema(
         operation_id="billing_limits_retrieve",

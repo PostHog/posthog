@@ -342,19 +342,35 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
 
     @patch("ee.api.billing_public.fetch_invoice_document")
     @patch("ee.billing.billing_manager.requests.get")
-    def test_invoice_content_streams_the_pdf_without_exposing_the_link(self, mock_billing_get, mock_upstream_get):
+    async def test_invoice_content_streams_the_pdf_without_exposing_the_link(self, mock_billing_get, mock_upstream_get):
         mock_billing_get.return_value = _response(
             {"status": "ok", "customer_id": 42, "url": "https://pay.example/in_1/pdf"}
         )
+        read_from_provider: list[bytes] = []
+
+        def provider_chunks():
+            for chunk in (b"%PDF-1.4", b"..."):
+                read_from_provider.append(chunk)
+                yield chunk
+
         upstream = MagicMock()
         upstream.status_code = 200
-        upstream.iter_content.return_value = iter([b"%PDF-1.4", b"..."])
+        upstream.iter_content.return_value = provider_chunks()
         mock_upstream_get.return_value = upstream
-        response = self.client.get(self._url("invoices/in_1/content/"))
+        await self.async_client.aforce_login(self.user)
+
+        # The ASGI client, because that is how PostHog serves requests and where a synchronous
+        # body is read whole before the first byte goes out.
+        response = await self.async_client.get(self._url("invoices/in_1/content/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Content-Type"], "application/pdf")
-        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4...")
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="in_1.pdf"')
+        body = response.streaming_content.__aiter__()
+        first = await body.__anext__()
+        self.assertEqual((first, read_from_provider), (b"%PDF-1.4", [b"%PDF-1.4"]))
+        self.assertEqual(first + b"".join([chunk async for chunk in body]), b"%PDF-1.4...")
         self.assertEqual(mock_upstream_get.call_args.args[0], "https://pay.example/in_1/pdf")
+        upstream.close.assert_called_once()
 
     @patch("ee.billing.billing_manager.requests.get")
     def test_limits_pass_through(self, mock_get):
