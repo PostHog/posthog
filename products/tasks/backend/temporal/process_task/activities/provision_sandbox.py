@@ -347,12 +347,18 @@ def _resolve_sandbox_github_token(
 ) -> str:
     """Decide which GitHub credential (if any) a fresh sandbox gets.
 
-    A repo-less run that requested read-only access is resolved FIRST: _build_task attaches the
-    team's GitHub integration to every task, so has_github_credentials is true whenever the team
-    has GitHub connected at all — resolved the other way around, the write-capable installation
-    token would reach a run that asked for read-only. The read-only mint is best-effort (empty
-    string on failure, never the full token); the full credential path keeps its raise-on-failure
-    contract for repo-backed runs that can't work without credentials.
+    A repo-less run that requested read-only access is resolved FIRST: a task whose team has GitHub
+    connected can carry the team integration, so has_github_credentials is true for it. Resolved the
+    other way around, the write-capable installation token would reach a run that asked for
+    read-only. The read-only mint is best-effort (empty string on failure, never the full token);
+    the full credential path keeps its raise-on-failure contract for repo-backed runs that can't
+    work without credentials.
+
+    Everything else follows the attached integration, including a repo-less signals run: a scout or
+    scout-chat task never gets one (`github_resolution_allowed` in `Task._build_task` refuses to
+    resolve one, and `update_task` keeps it unattachable afterwards), while a report discussion gets
+    one only after the create-time Desktop gate passed. So a repo-less run with no integration
+    stays credential-less, and an entitled discussion can clone a private repository and push.
     """
     if ctx.github_read_access and not has_repo:
         github_token = get_readonly_github_token(ctx.team_id) or ""
@@ -364,9 +370,6 @@ def _resolve_sandbox_github_token(
             else "Read-only GitHub token unavailable, continuing without GitHub access",
         )
         return github_token
-
-    if not has_repo and task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
-        return ""
 
     should_inject_github_token = ctx.has_github_credentials and (
         has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
