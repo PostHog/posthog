@@ -6,8 +6,9 @@ Four quadrants, honestly named (SPEC §4):
   window, within the environment scope. Computed directly.
 - Lead time: ``merge_to_deploy_seconds`` — a merged PR's wait until the first
   successful deployment that *contains* its merge. Containment is resolved through
-  the deploy's head commit: the deploy's SHA is some merged PR's ``merge_commit_sha``,
-  and every merge at or before that head merge is on board. Success time alone
+  the deploy's head commit: its SHA resolves to a merged PR through ``merge_commit_sha``
+  or the workflow-run builder's ``commit_pr_number`` fallback. Every merge at or before
+  that head merge is on board. Success time alone
   cannot decide this — deploys ship pre-built images, so a deploy routinely
   succeeds *after* a merge it does not contain. The field name says merge-to-deploy,
   not the full commit-to-deploy DORA definition (pre-merge time is measured elsewhere).
@@ -48,7 +49,10 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries._workflow_filters import window_pair_predicates
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    run_started_floor_constant,
+    window_pair_predicates,
+)
 
 # PRs merged this long before the scan window are outside lead-time attribution: the PR snapshot
 # holds every PR ever, so the deployed-PR join needs a floor. On a continuous-deploy repo a merge
@@ -81,6 +85,7 @@ _DEPLOYS_CTE = """
             d.id AS id,
             any(d.sha) AS sha,
             any(d.environment) AS environment,
+            any(d.created_at) AS created_at,
             minOrNullIf(s.created_at, s.state = 'success') AS first_success_at,
             minOrNullIf(s.created_at, s.state IN ('failure', 'error')) AS first_failure_at
         FROM __DEPLOYMENTS_SOURCE__ AS d
@@ -156,10 +161,19 @@ _FREQUENCY_SERIES_SELECT = """
 # merged PR, and that PR's merged_at says which merges the deploy contains. The sanctioned
 # merge_commit_sha exception (SPEC §6): gated on merged_at (an open PR carries a throwaway
 # test-merge SHA) and collapsed to one row per deployment (min breaks a shared-SHA tie).
-# Deploys whose SHA is no PR's merge commit (direct pushes) resolve no head and attribute nothing.
+# Missing merge SHAs can resolve through the shared workflow-run attribution, restricted to the
+# same repo's default branch. Direct merge-SHA evidence wins over inferred commit-message evidence,
+# so the candidate PR must carry no merge commit at all: one that names a commit other than the
+# deployed SHA is evidence the suffix is lying, not evidence the deploy carries that PR.
+# The candidate PR must also merge INTO that branch: a cherry-pick keeps the original subject line,
+# so a release-branch PR's (#N) suffix can ride a default-branch commit and hand the deploy an
+# earlier head merge than the one it really contains.
+# The merge is bounded by the deployment REQUEST, not its success: GitHub fixes the deployed SHA
+# when it creates the record, so a PR merging while the deploy runs cannot have produced that
+# commit. Crediting it would over-attribute — every merge at or before it reads as contained.
 # Bot merges stay in as heads on purpose: a bot's merge commit still names what a deploy contains.
 _DEPLOY_HEADS_CTE = """
-    deploy_heads AS (
+    merge_heads AS (
         SELECT
             d.id AS id,
             any(d.first_success_at) AS first_success_at,
@@ -171,6 +185,36 @@ _DEPLOY_HEADS_CTE = """
             AND hp.merged_at IS NOT NULL
             AND hp.merged_at >= {merge_scan_floor}
         GROUP BY d.id
+    ),
+    workflow_heads AS (
+        SELECT
+            d.id AS id,
+            any(d.first_success_at) AS first_success_at,
+            min(hp.merged_at) AS head_merged_at
+        FROM deploys AS d
+        INNER JOIN __RUNS_SOURCE__ AS r ON r.head_sha = d.sha
+        INNER JOIN __PR_SOURCE__ AS hp ON hp.number = r.commit_pr_number
+        WHERE d.first_success_at IS NOT NULL
+            AND d.sha != ''
+            AND d.id NOT IN (SELECT id FROM merge_heads)
+            AND hp.merge_commit_sha = ''
+            AND r.run_started_at >= {merge_scan_floor}
+            AND NOT r.is_merge_queue
+            AND hp.default_branch != ''
+            AND r.head_branch = hp.default_branch
+            AND hp.base_branch = r.head_branch
+            AND r.repo_owner = hp.repo_owner AND r.repo_name = hp.repo_name
+            AND hp.merged_at IS NOT NULL
+            AND hp.merged_at >= {merge_scan_floor}
+            AND hp.merged_at <= r.created_at
+            AND hp.merged_at <= d.created_at
+        GROUP BY d.id
+        HAVING uniqExact(r.commit_pr_number) = 1
+    ),
+    deploy_heads AS (
+        SELECT id, first_success_at, head_merged_at FROM merge_heads
+        UNION ALL
+        SELECT id, first_success_at, head_merged_at FROM workflow_heads
     )
 """
 
@@ -550,9 +594,11 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
         scan.placeholders["github_team"] = ast.Constant(value=github_team)
         team_filter = _TEAM_FILTER.replace("__MEMBERS_SOURCE__", members_source)
     pr_source = scan.curated.pr_source()
-    attribution_ctes = f"{scan.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE}".replace(
-        "__PR_SOURCE__", pr_source
-    ).replace("__TEAM_FILTER__", team_filter)
+    attribution_ctes = (
+        f"{scan.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE}".replace("__PR_SOURCE__", pr_source)
+        .replace("__RUNS_SOURCE__", scan.curated.run_source(started_floor=True))
+        .replace("__TEAM_FILTER__", team_filter)
+    )
 
     windows = window_pair_predicates("deployed_at", date_to=scan.date_to)
     merged_window = window_pair_predicates("merged_at", date_to=scan.date_to)
@@ -640,6 +686,7 @@ def query_dora_overview(
         "environment_scan_floor": ast.Constant(value=_environment_scan_floor(date_from, end)),
         "deploy_scan_floor": ast.Constant(value=prev_from - _DEPLOY_SCAN_SLACK),
         "merge_scan_floor": ast.Constant(value=prev_from - _MERGE_SCAN_LOOKBACK),
+        "run_started_floor": run_started_floor_constant(prev_from - _MERGE_SCAN_LOOKBACK),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
