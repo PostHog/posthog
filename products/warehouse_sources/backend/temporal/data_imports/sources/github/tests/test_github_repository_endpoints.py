@@ -4,11 +4,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 import pyarrow as pa
 import requests
 from parameterized import parameterized
+
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
@@ -496,6 +499,33 @@ class TestMergeCommitSha:
         payload = github_request.call_args.kwargs["json"]
         assert re.findall(r"pr(\d+): pullRequest", payload["query"]) == ["7"]
         assert payload["variables"] == {"owner": "acme", "name": "widgets"}
+
+    @parameterized.expand([("advertised reset", 900, 900), ("no reset header", None, 60)])
+    def test_graphql_rate_limit_carries_a_wait_that_outlasts_the_window(
+        self, _name: str, reset_in: int | None, expected_retry_after: int
+    ) -> None:
+        now = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
+        rate_limited = mock.Mock()
+        rate_limited.status_code = 200
+        rate_limited.headers = (
+            {"x-ratelimit-reset": str(int((now + timedelta(seconds=reset_in)).timestamp()))}
+            if reset_in is not None
+            else {}
+        )
+        rate_limited.json.return_value = {
+            "data": None,
+            "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}],
+        }
+
+        with freeze_time(now), mock.patch.object(github, "github_request", return_value=rate_limited):
+            with pytest.raises(GitHubRateLimitError) as raised:
+                # Called past the retry decorator, so the assertion does not wait out the reset it
+                # is asserting on.
+                github._fetch_merge_commit_shas.__wrapped__("acme/widgets", [7], "tok", mock.Mock())
+
+        # A GithubRetryableError here would fall to the backoff capped at 30s, which the hourly
+        # GraphQL window outlasts.
+        assert raised.value.retry_after == expected_retry_after
 
     def test_pull_requests_still_sync_when_graphql_is_unavailable(self) -> None:
         # The rest of the row is good, so a denied or unreachable GraphQL call must not fail the

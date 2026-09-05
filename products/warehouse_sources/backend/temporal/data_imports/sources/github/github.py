@@ -1278,6 +1278,34 @@ def _merge_commit_document(numbers: list[int]) -> str:
     return f"query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
 
 
+def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, Any]) -> None:
+    """Map GraphQL's own primary rate limit onto the error the REST path raises.
+
+    GraphQL reports that limit as a 200 whose `errors` carry type RATE_LIMITED. `raise_if_github_rate_limited`
+    cannot see that shape, because it only inspects 429 and 403 responses. Without this mapping the retry
+    falls back to the plain backoff, which is capped at 30 seconds and so cannot outlast the hourly window
+    the GraphQL limit resets on.
+    """
+    errors = body.get("errors")
+    if not isinstance(errors, list):
+        return
+    if not any(isinstance(error, dict) and error.get("type") == "RATE_LIMITED" for error in errors):
+        return
+
+    try:
+        reset_at: int | None = int(response.headers.get("x-ratelimit-reset", ""))
+    except (ValueError, TypeError):
+        reset_at = None
+    # A response without a usable reset header still needs a wait longer than the plain backoff, for
+    # the same reason.
+    retry_after = max(1, reset_at - int(time.time())) if reset_at is not None else 60
+    raise GitHubRateLimitError(
+        f"Github GraphQL rate limit exceeded (resets at {reset_at})",
+        reset_at=reset_at,
+        retry_after=retry_after,
+    )
+
+
 @retry(
     retry=retry_if_exception_type(_GITHUB_RETRYABLE_ERRORS),
     stop=stop_after_attempt(5),
@@ -1321,11 +1349,13 @@ def _fetch_merge_commit_shas(
     response.raise_for_status()
 
     body = response.json()
+    _raise_if_graphql_rate_limited(response, body)
+
     pull_requests = (body.get("data") or {}).get("repository")
     if pull_requests is None:
         # GraphQL answers 200 with a null `data` and an `errors` array for the failures REST would
-        # have given a status code, its own rate limit among them. Retry rather than read the empty
-        # body as "none of these pull requests has a merge commit".
+        # have given a status code. Retry rather than read the empty body as "none of these pull
+        # requests has a merge commit".
         raise GithubRetryableError(f"Github GraphQL returned no repository data: errors={body.get('errors')}")
     return {
         number: pull_requests[f"pr{number}"]["mergeCommit"]["oid"]
