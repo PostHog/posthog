@@ -8,6 +8,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 
 import psycopg
+from structlog.testing import capture_logs
 
 from posthog.persons_db import persons_db_connection
 
@@ -99,3 +100,24 @@ def test_repair_corrects_the_size_only_where_this_table_is_the_source(persons_co
     assert _members(persons_conn, cohort.pk) == [(11, 2), (12, 1)]
     cohort.refresh_from_db()
     assert cohort.count == expected_count
+
+
+def test_the_command_refuses_a_silently_defaulted_persons_database(monkeypatch):
+    # Unset, posthog.persons_db builds a localhost URL from PG*. On a deployed pod those point
+    # at the main cluster, so the repair DELETE would land on the wrong database.
+    monkeypatch.delenv("PERSONS_DB_WRITER_URL", raising=False)
+    monkeypatch.delenv("PERSONS_DB_READER_URL", raising=False)
+
+    with pytest.raises(CommandError, match="PERSONS_DB_WRITER_URL is not set"):
+        call_command("cohortpeople_dedup", "--mode", "repair")
+
+
+def test_the_command_logs_the_database_it_targets(persons_conn):
+    with capture_logs() as logs:
+        call_command("cohortpeople_dedup", "--mode", "verify")
+
+    target = [entry for entry in logs if entry["event"] == "cohortpeople_dedup.target"]
+    assert len(target) == 1, "every run must say which database it targets"
+    assert target[0]["dbname"]
+    # A raw URL is how the credentials would reach the log, so the entry must name the parts.
+    assert "://" not in str(target[0])

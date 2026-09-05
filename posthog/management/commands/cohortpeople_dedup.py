@@ -41,9 +41,11 @@ put the pace under the primary's write load.
 
 from __future__ import annotations
 
+import os
 import time
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -51,7 +53,7 @@ import psycopg
 import structlog
 from psycopg import sql
 
-from posthog.persons_db import persons_db_connection
+from posthog.persons_db import persons_db_connection, persons_db_url
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -147,6 +149,32 @@ def _refresh_cohort_count(conn: psycopg.Connection[Any], cohort_id: int) -> None
     Cohort.objects.filter(pk=cohort_id, is_static=True).update(count=int(row[0]))
 
 
+def _assert_explicit_target(writer: bool) -> None:
+    """Refuse a silently defaulted database, and log the one chosen.
+
+    posthog.persons_db falls back to a localhost URL built from PG* when neither persons URL is
+    set, and on a deployed pod PG* usually point at the main cluster. A repair run would then
+    delete rows from whatever posthog_cohortpeople resolves to there, and the deletes are not
+    recoverable. Host and dbname are logged, and no credentials, because that is what tells the
+    operator the shell is pointed at the persons database.
+    """
+    if not os.getenv("PERSONS_DB_WRITER_URL") and not os.getenv("PERSONS_DB_READER_URL"):
+        var = "PERSONS_DB_WRITER_URL" if writer else "PERSONS_DB_READER_URL"
+        raise CommandError(
+            f"{var} is not set, so the persons-DB URL would fall back to a localhost default "
+            "built from PG*. Refusing to run: on a deployed pod that default points somewhere "
+            "else entirely. Set the variable explicitly."
+        )
+    parts = urlsplit(persons_db_url(writer=writer))
+    logger.info(
+        "cohortpeople_dedup.target",
+        host=parts.hostname,
+        port=parts.port,
+        dbname=(parts.path or "/").lstrip("/"),
+        role="writer" if writer else "reader",
+    )
+
+
 class Command(BaseCommand):
     help = "Remove surplus posthog_cohortpeople rows for (cohort_id, person_id) pairs held more than once"
 
@@ -185,6 +213,7 @@ class Command(BaseCommand):
             raise CommandError("--batch-size must be at least 1")
 
         repair = mode == "repair"
+        _assert_explicit_target(repair)
         with persons_db_connection(writer=repair, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute(sql.SQL("SET statement_timeout = {}").format(sql.Literal(options["statement_timeout_ms"])))
