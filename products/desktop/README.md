@@ -1,7 +1,7 @@
 > [!IMPORTANT]
 > Interested in the PostHog desktop app? [Join the waitlist](https://posthog.com/desktop) or hop into our [Discord](https://discord.gg/aSrHKVNVdR).
 
-**[Download the latest version](https://github.com/PostHog/posthog/releases?q=desktop-v)**
+**[Download the latest version](https://github.com/PostHog/posthog/releases?q=desktop-)**
 
 Found a bug or want to share feedback? [Open an issue](https://github.com/PostHog/posthog/issues/new) on GitHub.
 
