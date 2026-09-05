@@ -5,6 +5,8 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { groupsModel } from '~/models/groupsModel'
+
 import { experimentLogic } from '../experimentLogic'
 
 /**
@@ -14,6 +16,7 @@ import { experimentLogic } from '../experimentLogic'
  */
 export function ExposureCoverageWarning(): JSX.Element | null {
     const { experiment, exposures } = useValues(experimentLogic)
+    const { aggregationLabel } = useValues(groupsModel)
     const { reportExperimentExposureCoverageWarningShown } = useActions(eventUsageLogic)
 
     const coverage = exposures?.exposure_coverage
@@ -29,18 +32,22 @@ export function ExposureCoverageWarning(): JSX.Element | null {
     }
 
     const reasons = Object.keys(coverage.error_reasons).map((reason) => reason.replace(/_/g, ' '))
+    // Read the aggregation off the flag, as the backend does: it counts whatever entity the flag
+    // evaluates on, so a group experiment reports groups rather than people.
+    const groupTypeIndex = experiment.feature_flag?.filters?.aggregation_group_type_index
+    const entities = groupTypeIndex != null ? aggregationLabel(groupTypeIndex).plural : 'people'
 
     return (
         <LemonBanner type="warning" className="mt-4">
-            <div className="font-semibold">Some people never got a variant</div>
+            <div className="font-semibold">Some {entities} never got a variant</div>
             <p className="m-0">
-                <strong>{coverage.errored_percentage.toFixed(1)}%</strong> of the people who checked this flag only got
-                an error back. They are missing from your exposures.
+                <strong>{coverage.errored_percentage.toFixed(1)}%</strong> of the {entities} that checked this flag only
+                got an error back. They are missing from your exposures.
                 {reasons.length > 0 && <> Reported errors: {reasons.join(', ')}.</>}
             </p>
             <p className="m-0 mt-1">
                 The actual gap can be larger. An SDK that reads a flag before flags have loaded sends no event at all,
-                so those people appear in neither count.{' '}
+                so those {entities} appear in neither count.{' '}
                 <Link to="https://posthog.com/docs/feature-flags/bootstrapping" target="_blank">
                     Bootstrap your flags
                 </Link>{' '}
