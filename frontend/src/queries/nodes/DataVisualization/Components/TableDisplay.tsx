@@ -123,8 +123,7 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.BoxPlot,
                     icon: <IconGraph />,
                     label: 'Box plot',
-                    disabledReason:
-                        numericalColumns.length < 6 ? 'Requires six numeric summary columns' : undefined,
+                    disabledReason: numericalColumns.length < 6 ? 'Requires six numeric summary columns' : undefined,
                 },
                 {
                     value: ChartDisplayType.TwoDimensionalHeatmap,
