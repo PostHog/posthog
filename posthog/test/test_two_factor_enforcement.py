@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, TestCase
 
 from rest_framework.exceptions import PermissionDenied
@@ -23,6 +23,7 @@ from posthog.auth import (
 from posthog.helpers.two_factor_session import (
     TWO_FACTOR_ENFORCEMENT_FROM_DATE,
     clear_two_factor_session_flags,
+    is_two_factor_enforcement_in_effect,
     is_two_factor_session_expired,
     is_two_factor_verified_in_session,
     set_two_factor_verified_in_session,
@@ -101,6 +102,12 @@ class TestTwoFactorSessionUtils(TestCase):
     def test_is_two_factor_session_expired_without_session_created_timestamp(self):
         request = self._create_request()
         self.assertTrue(is_two_factor_session_expired(request))
+
+    def test_is_two_factor_enforcement_in_effect_without_session(self):
+        # OpenAPI schema generation drives permissions over a mock request that has no session.
+        request = HttpRequest()
+        self.assertFalse(hasattr(request, "session"))
+        self.assertFalse(is_two_factor_enforcement_in_effect(request))
 
 
 class TestSessionAuthenticationTwoFactor(TestCase):
