@@ -376,6 +376,7 @@ export interface heatmapToolbarMenuLogicValues {
         url: string | null
     } | null
     loadedElementStatsCount: number
+    loadingAllElementStats: boolean
     matchLinksByHref: boolean
     processedElements: CountedHTMLElement[]
     processingInputs: {
@@ -576,10 +577,16 @@ export interface heatmapToolbarMenuLogicActions {
     startElementObservation: () => {
         value: true
     }
+    startLoadingAllElementStats: () => {
+        value: true
+    }
     stepAreaHover: (direction: 'down' | 'up') => {
         direction: 'down' | 'up'
     }
     stopElementObservation: () => {
+        value: true
+    }
+    stopLoadingAllElementStats: () => {
         value: true
     }
     toggleClickmapsEnabled: (enabled: boolean) => {
@@ -692,6 +699,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         toggleClickmapsEnabled: (enabled: boolean) => ({ enabled }),
         setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
+        startLoadingAllElementStats: true,
+        stopLoadingAllElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         loadAllEnabled: true,
         maybeLoadClickmap: true,
@@ -798,6 +807,18 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             {
                 getElementStatsSuccess: (_, { elementStats }) => elementStats.next !== null,
                 getElementStatsFailure: () => true, // so at least someone can recover from transient errors
+            },
+        ],
+        loadingAllElementStats: [
+            false,
+            {
+                startLoadingAllElementStats: () => true,
+                stopLoadingAllElementStats: () => false,
+                // the last page is the end of the run, and a failed page must not spin forever
+                getElementStatsSuccess: (state, { elementStats }) => state && elementStats.next !== null,
+                getElementStatsFailure: () => false,
+                resetElementStats: () => false,
+                disableHeatmap: () => false,
             },
         ],
         heatmapEnabled: [
@@ -1380,6 +1401,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
         },
 
+        startLoadingAllElementStats: () => {
+            // the first page starts the run; getElementStatsSuccess requests the next one
+            actions.loadMoreElementStats()
+        },
+
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
@@ -1402,6 +1428,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             // trigger refetches, so an auto-load result can never re-trigger itself.
             if (trigger === 'initial' && elementStats?.next && values.heatmapEnabled && values.clickmapsEnabled) {
                 actions.getElementStats(null, ELEMENT_STATS_AUTO_LOAD_LIMIT)
+            } else if (
+                values.loadingAllElementStats &&
+                elementStats?.next &&
+                values.heatmapEnabled &&
+                values.clickmapsEnabled
+            ) {
+                actions.getElementStats(elementStats.next)
             }
         },
 

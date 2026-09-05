@@ -109,11 +109,13 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         processingProgress,
         areaSelectionActive,
         heatmapAreaFilter,
+        loadingAllElementStats,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
         patchHeatmapFilters,
-        loadMoreElementStats,
+        startLoadingAllElementStats,
+        stopLoadingAllElementStats,
         setMatchLinksByHref,
         toggleClickmapsEnabled,
         setHeatmapFixedPositionMode,
@@ -336,16 +338,32 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             </div>
                             <div className="flex items-center gap-2">
                                 <LemonButton
-                                    icon={<IconSync />}
+                                    icon={loadingAllElementStats ? <Spinner textColored /> : <IconSync />}
                                     type="secondary"
                                     size="small"
-                                    onClick={loadMoreElementStats}
-                                    loading={elementStatsLoading}
+                                    active={loadingAllElementStats}
+                                    onClick={() => {
+                                        if (loadingAllElementStats) {
+                                            stopLoadingAllElementStats()
+                                            posthog.capture('heatmap_load_all_stopped_on_heatmap', {
+                                                loadedElementStatsCount,
+                                            })
+                                            return
+                                        }
+                                        startLoadingAllElementStats()
+                                        posthog.capture('heatmap_load_all_started_on_heatmap')
+                                    }}
+                                    loading={elementStatsLoading && !loadingAllElementStats}
+                                    tooltip={
+                                        loadingAllElementStats
+                                            ? 'Stop after the page being loaded now. What loaded so far stays on the heatmap.'
+                                            : 'Loads every remaining page of click data. A long date range or a busy site can take a while.'
+                                    }
                                     disabledReason={
                                         canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
                                     }
                                 >
-                                    Load more
+                                    {loadingAllElementStats ? 'Stop loading' : 'Load all'}
                                 </LemonButton>
                                 <Tooltip
                                     title={

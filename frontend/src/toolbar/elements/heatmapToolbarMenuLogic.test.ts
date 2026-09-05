@@ -393,6 +393,68 @@ describe('heatmapToolbarMenuLogic', () => {
             }
         })
 
+        it('loads every remaining page when load all starts, and ends the run on the last page', async () => {
+            jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: 'http://localhost/api/element/stats?offset=100', previous: null },
+            } as any)
+            const page = jest
+                .spyOn(toolbarApi.elementStats, 'page')
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    data: { results: [], next: 'http://localhost/api/element/stats?offset=200', previous: null },
+                } as any)
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    data: { results: [], next: null, previous: null },
+                } as any)
+
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
+                'getElementStatsSuccess',
+                'getElementStatsSuccess',
+            ])
+
+            await expectLogic(logic, () => logic.actions.startLoadingAllElementStats()).toDispatchActions([
+                'getElementStatsSuccess',
+                'getElementStatsSuccess',
+            ])
+
+            expect(page).toHaveBeenCalledTimes(2)
+            expect(logic.values.loadingAllElementStats).toBe(false)
+        })
+
+        it('requests no more pages after the run is stopped', async () => {
+            // every page reports another page, so only the stop can end the run
+            jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: 'http://localhost/api/element/stats?offset=100', previous: null },
+            } as any)
+            const page = jest.spyOn(toolbarApi.elementStats, 'page').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: 'http://localhost/api/element/stats?offset=200', previous: null },
+            } as any)
+
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
+                'getElementStatsSuccess',
+                'getElementStatsSuccess',
+            ])
+
+            await expectLogic(logic, () => logic.actions.startLoadingAllElementStats()).toDispatchActions([
+                'getElementStatsSuccess',
+            ])
+            logic.actions.stopLoadingAllElementStats()
+            expect(logic.values.loadingAllElementStats).toBe(false)
+
+            // long enough for the page already in flight to land and try to queue another
+            await new Promise((resolve) => setTimeout(resolve, 500))
+            expect(page).toHaveBeenCalledTimes(2)
+        })
+
         it('retries the initial load via load more after a stats fetch failure', async () => {
             // Deliberate loader failure — kea-loaders would log it
             silenceKeaLoadersErrors()
