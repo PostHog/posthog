@@ -372,6 +372,20 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
         self.assertEqual(mock_upstream_get.call_args.args[0], "https://pay.example/in_1/pdf")
         upstream.close.assert_called_once()
 
+    @patch("ee.api.billing_public.fetch_invoice_document")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_invoice_content_is_a_404_when_the_provider_has_no_document(self, mock_billing_get, mock_upstream_get):
+        mock_billing_get.return_value = _response(
+            {"status": "ok", "customer_id": 42, "url": "https://pay.example/in_1/pdf"}
+        )
+        upstream = MagicMock(status_code=404)
+        mock_upstream_get.return_value = upstream
+        response = self.client.get(self._url("invoices/in_1/content/"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["detail"], "No document for invoice in_1.")
+        upstream.iter_content.assert_not_called()
+        upstream.close.assert_called_once()
+
     @patch("ee.billing.billing_manager.requests.get")
     def test_limits_pass_through(self, mock_get):
         mock_get.return_value = _response(LIMITS)

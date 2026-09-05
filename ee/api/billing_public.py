@@ -661,6 +661,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         url = self._manager().get_public_invoice_pdf_url(organization, grants, invoice_id)
         upstream = fetch_invoice_document(url)
         if upstream.status_code != 200:
+            upstream.close()
             raise NotFound(f"No document for invoice {invoice_id}.")
         return streaming_response(
             document_chunks(upstream),
