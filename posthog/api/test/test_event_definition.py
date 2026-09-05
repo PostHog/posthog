@@ -7,7 +7,9 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dateutil.parser
@@ -103,6 +105,31 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("boolean", "true"),
+            ("number", "5"),
+            ("object", '{"a": 1}'),
+        ]
+    )
+    def test_list_event_definitions_ignores_non_list_tags_filter(self, _name, tags_value):
+        response = self.client.get("/api/projects/@current/event_definitions/", data={"tags": tags_value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    @parameterized.expand(
+        [
+            ("limit", "limit=9223372036854775808"),
+            ("offset", "offset=9223372036854775808"),
+        ]
+    )
+    def test_list_event_definitions_accepts_out_of_range_bigint_pagination(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    @parameterized.expand(
+        [
             ("repeated", "names=installed_app&names=purchase&names=missing_event"),
             ("comma_separated", "names=installed_app,purchase,missing_event"),
         ]
@@ -154,6 +181,17 @@ class TestEventDefinitionAPI(APIBaseTest):
                     ("installed_app", "2020-01-01T00:00:00Z"),
                     ("entered_free_trial", "2020-01-01T23:00:00Z"),
                     ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
+            (
+                "ordering=-last_seen_at::date",
+                [
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("installed_app", "2020-01-01T00:00:00Z"),
                     ("purchase", "2019-12-30T00:00:00Z"),
                     ("rated_app", "2019-12-21T00:00:00Z"),
                     ("watched_movie", None),
@@ -234,6 +272,39 @@ class TestEventDefinitionAPI(APIBaseTest):
             assert response.json()["count"] == 306
             assert len(response.json()["results"]) == (100 if i < 2 else 6)  # Each page has 100 except the last one
             assert response.json()["results"][0]["name"] == f"z_event_{event_checkpoints[i]}"
+
+    def test_list_reads_only_the_requested_page_from_postgres(self):
+        EventDefinition.objects.bulk_create(
+            [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=10")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 306
+        page_fetches = [
+            query["sql"]
+            for query in captured.captured_queries
+            if "FROM posthog_eventdefinition" in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        assert page_fetches
+        assert all("LIMIT 10" in sql for sql in page_fetches)
+
+        expected_names = sorted(f"z_event_{i}" for i in range(1, 301))
+        for offset in (0, 11, 300, 301):
+            with self.subTest(offset=offset):
+                response = self.client.get(
+                    "/api/projects/@current/event_definitions/",
+                    data={"search": "z_event", "ordering": "-last_seen_at", "limit": 10, "offset": offset},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["count"] == 300
+                assert [row["name"] for row in response.json()["results"]] == expected_names[offset : offset + 10]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=missing_event&limit=10")
+        assert response.json()["count"] == 0
+        assert response.json()["results"] == []
 
     def test_cant_see_event_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
