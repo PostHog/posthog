@@ -31,6 +31,7 @@ from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, date_to_start_of_interval
 from posthog.hogql_queries.utils.utils import get_start_of_interval_hogql
 
+from .conversion_goal_conditions import ConversionGoal, conversion_goal_condition
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
 
 # Weekly by default, because a daily grain over a 90-day range is 90 cohort rows per breakdown value.
@@ -80,6 +81,7 @@ _FIRST_SESSION_AT = "first_session_at"
 # the breakdown value is read off.
 _COHORT_AT = "cohort_at"
 _ACTIVITY_INDEX = "activity_index"
+_ACTIVITY_LAST_AT = "activity_last_at"
 _COHORT_INDEX = "cohort_index"
 _COHORT_SIZE = "cohort_size"
 _INTERVALS_FROM_BASE = "intervals_from_base"
@@ -234,6 +236,38 @@ class MarketingAnalyticsRetentionQueryRunner(
             ),
         ]
 
+    @cached_property
+    def return_goal(self) -> ConversionGoal | None:
+        """The goal the columns count, or None when they count any pageview."""
+        if not self.query.returnGoalId:
+            return None
+        return self._resolve_conversion_goal(self.query.returnGoalId)
+
+    def _return_condition(self) -> ast.Expr:
+        """True for an event row that counts as coming back.
+
+        Any pageview by default, which is what makes a cohort's own period read as 100%: arriving is
+        itself a pageview. Under a goal the columns count converters, so period 0 stops being a
+        tautology and becomes "converted in the week they arrived".
+
+        Deliberately not `_touchpoint_condition()`. A return counts no matter which channel brought the
+        person back, because the question is whether the people this channel acquired stayed, not which
+        tag their later sessions carry.
+        """
+        goal = self.return_goal
+        if goal is None:
+            return self._pageview_condition()
+
+        condition = conversion_goal_condition(goal, self.team)
+        if condition is None:
+            # Validation already dropped the goals with nothing to match on, so what is left is an
+            # action-based goal whose action was deleted.
+            raise ValueError(
+                f"Conversion goal '{goal.conversion_goal_name}' points to an action that no longer exists. "
+                "Update the goal in marketing analytics settings, or pick another one."
+            )
+        return condition
+
     def _event_filters(self) -> list[ast.Expr]:
         """Applied to every arm, so the cohort side and the activity side select the same population."""
         exprs: list[ast.Expr] = []
@@ -350,11 +384,18 @@ class MarketingAnalyticsRetentionQueryRunner(
                     alias=_ACTIVITY_INDEX,
                     expr=self._interval_index_expr(ast.Field(chain=["events", "timestamp"])),
                 ),
+                # The bucket index alone can't order an activity against the acquisition inside the same
+                # bucket, and the matrix has to reject a return that came first. The latest one is the
+                # one that decides it: if even that precedes acquisition, none of them followed it.
+                ast.Alias(
+                    alias=_ACTIVITY_LAST_AT,
+                    expr=ast.Call(name="max", args=[ast.Field(chain=["events", "timestamp"])]),
+                ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    self._pageview_condition(),
+                    self._return_condition(),
                     *self._range_conditions(ast.Field(chain=["events", "timestamp"])),
                     ast.CompareOperation(
                         left=ast.Field(chain=["events", "person_id"]),
@@ -425,6 +466,16 @@ class MarketingAnalyticsRetentionQueryRunner(
                         constraint_type="ON",
                     ),
                 ),
+            ),
+            # Per activity row, so it can't go in the `having` below. Only period 0 can hold an activity
+            # older than the acquisition it is counted against, because any later bucket starts after the
+            # acquiring session does. Dropping those keeps period 0 meaning "came back in the period they
+            # arrived" rather than "was seen in that period at all". The acquiring pageview itself sits at
+            # `cohort_at`, so the default any-pageview column still reads 100%.
+            where=ast.CompareOperation(
+                left=ast.Field(chain=[_ACTIVITY_CTE, _ACTIVITY_LAST_AT]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Field(chain=[_ACQUISITION_CTE, _COHORT_AT]),
             ),
             group_by=[
                 ast.Field(chain=[_ACQUISITION_CTE, _BREAKDOWN_VALUE]),
@@ -659,6 +710,7 @@ class MarketingAnalyticsRetentionQueryRunner(
             otherBreakdownCount=max(distinct_breakdowns - self.breakdown_limit, 0),
             truncatedCohorts=self.truncated_cohorts,
             totalCohortSize=sum(row.cohortSize for row in rows),
+            returnGoalName=self.return_goal.conversion_goal_name if self.return_goal else None,
             hogql=response.hogql,
             timings=response.timings,
             modifiers=self.modifiers,

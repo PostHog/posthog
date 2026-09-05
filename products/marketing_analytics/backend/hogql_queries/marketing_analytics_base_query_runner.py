@@ -743,6 +743,37 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
         return conversion_goals
 
+    def _resolve_conversion_goal(
+        self, goal_id: str
+    ) -> ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3:
+        """The requested goal, found among the team's configured goals.
+
+        Data warehouse goals are rejected rather than silently miscounted: their conversions live in a
+        warehouse table keyed by distinct_id, but the queries that resolve a goal here read one `events`
+        scan grouped by person_id, so there is nothing to join them on.
+        """
+        all_goals = self._get_team_conversion_goals()
+        goals, skipped_goals = self._filter_invalid_conversion_goals(all_goals)
+        self._valid_conversion_goals_count = len(goals)
+
+        for goal in goals:
+            if goal.conversion_goal_id == goal_id:
+                if goal.kind == "DataWarehouseNode":
+                    raise ValueError(
+                        f"Conversion goal '{goal.conversion_goal_name}' is backed by a data warehouse table, "
+                        "which this query can't count. Pick an event or action goal."
+                    )
+                return goal
+
+        # Only one goal is queried at a time, so another goal being unusable is not this query's problem.
+        # Only report it when it's the goal that was actually asked for.
+        skipped = next((g for g in all_goals if g.conversion_goal_id == goal_id), None)
+        if skipped is not None:
+            reason = next((s.message for s in skipped_goals if s.conversion_goal_id == goal_id), None)
+            raise ValueError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be used here")
+
+        raise ValueError(f"Conversion goal '{goal_id}' not found for this team")
+
     @property
     def _conversion_goal_error(self) -> Optional[str]:
         """The skipped goals as one message for the response's `error` field."""

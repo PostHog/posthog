@@ -22,7 +22,8 @@
     activity AS (
     SELECT
       events.person_id AS actor_id,
-      dateDiff('week', toStartOfWeek(toDateTime('2023-01-01 00:00:00'), 0), toStartOfWeek(events.timestamp, 0)) AS activity_index
+      dateDiff('week', toStartOfWeek(toDateTime('2023-01-01 00:00:00'), 0), toStartOfWeek(events.timestamp, 0)) AS activity_index,
+      max(events.timestamp) AS activity_last_at
     FROM
       events
     WHERE
@@ -53,6 +54,8 @@
     FROM
       acquisition
       INNER JOIN activity ON equals(activity.actor_id, acquisition.actor_id)
+    WHERE
+      greaterOrEquals(activity.activity_last_at, acquisition.cohort_at)
     GROUP BY
       acquisition.breakdown_value,
       cohort_index,
