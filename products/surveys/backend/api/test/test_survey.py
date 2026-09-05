@@ -147,6 +147,44 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
 
+    def test_survey_level_translations_persist_button_labels(self):
+        # Regression: the appearance-level submit/back button labels are translatable in the
+        # editor, but were previously dropped on save because validate_translations only kept
+        # name + thank-you fields, so per-language button copy silently reverted after saving.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Customer feedback survey",
+                "type": "popover",
+                "appearance": {
+                    "allowGoBack": True,
+                    "submitButtonText": "Submit",
+                    "backButtonText": "Back",
+                },
+                "questions": [{"type": "open", "question": "Any feedback?"}],
+                "translations": {
+                    "es": {
+                        "name": "Encuesta de comentarios",
+                        "submitButtonText": "Enviar",
+                        "backButtonText": "Atrás",
+                    },
+                    "pt": {
+                        "submitButtonText": "Enviar",
+                        "backButtonText": "Voltar",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.translations is not None
+        assert survey.translations["es"]["submitButtonText"] == "Enviar"
+        assert survey.translations["es"]["backButtonText"] == "Atrás"
+        assert survey.translations["pt"]["submitButtonText"] == "Enviar"
+        assert survey.translations["pt"]["backButtonText"] == "Voltar"
+
     @parameterized.expand(
         [
             ("empty_string", "", False),
