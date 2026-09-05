@@ -57,6 +57,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
         agent_model="gpt-5",
         max_sandboxes=4,
         trials=1,
+        case_timeout_seconds=900,
     )
     await reporter.suite_started("cli_mcp/eval_workflow::eval_verify_event_before_query")
     await reporter.experiment_started("sandboxed-cli-mcp-verify-event-cli", 1, tmp_path)
@@ -159,6 +160,26 @@ def test_exec_commands_wrapping_no_inner_tool_stay_under_the_raw_name() -> None:
     spans = _collect_spans(parsed)
 
     assert spans == [("tool_call: exec", [{"tool": "exec", "input": {"command": "schema query-trends series"}}])]
+
+
+def test_tool_call_spans_are_split_when_one_agent_message_has_multiple_calls() -> None:
+    parsed = ParsedLog(
+        generations=[
+            GenerationDescriptor(
+                output_content=[
+                    {"type": "tool_use", "id": "1", "name": "query-retention", "input": {}},
+                    {"type": "tool_use", "id": "2", "name": "execute-sql", "input": {}},
+                ],
+            )
+        ]
+    )
+
+    spans = _collect_spans(parsed)
+
+    assert spans == [
+        ("tool_call: query-retention", [{"tool": "query-retention", "input": {}}]),
+        ("tool_call: execute-sql", [{"tool": "execute-sql", "input": {}}]),
+    ]
 
 
 def _collect_spans(parsed: ParsedLog) -> list[tuple[str, Any]]:
