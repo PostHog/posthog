@@ -35,6 +35,21 @@ import {
 
 import { SeekTarget, planNextBatch } from './snapshot-store/planNextBatch'
 
+export type PermanentSnapshotLoadError = 'unauthorized' | 'forbidden' | 'notFound' | 'deleted'
+
+// Which request failed. The snapshots API answers 404 for two unrelated conditions, and only the
+// request tells them apart, so permanentSnapshotLoadError needs this alongside the status.
+type SnapshotLoadErrorRequest = 'listing' | 'fetch'
+
+// Terminal responses from the snapshots API: the recording is gone, or this user can never read it.
+// A 404 qualifies only when listing the sources — see permanentSnapshotLoadError.
+const PERMANENT_SNAPSHOT_LOAD_STATUSES: Record<number, PermanentSnapshotLoadError> = {
+    401: 'unauthorized',
+    403: 'forbidden',
+    404: 'notFound',
+    410: 'deleted',
+}
+
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
 const MAX_V2_POLLING_INTERVAL_MS = 60000
 const POLLING_INACTIVITY_TIMEOUT_MS = 5 * MAX_V2_POLLING_INTERVAL_MS
@@ -54,14 +69,15 @@ export interface snapshotDataLogicValues {
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
-    isSnapshotUnauthorized: boolean
     loadAllMode: boolean
     loadingSources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'>[]
+    permanentSnapshotLoadError: PermanentSnapshotLoadError | null
     pollingInterval: number
     recordingDeletedAt: number | null
     recordingDeletedBy: string | null
     seekTarget: SeekTarget | null
     snapshotLoadError: Error | null
+    snapshotLoadErrorRequest: SnapshotLoadErrorRequest | null
     snapshotSources: SessionRecordingSnapshotSource[] | null
     snapshotSourcesLoading: boolean
     snapshotStore: SnapshotStore
@@ -223,7 +239,10 @@ export interface snapshotDataLogicMeta {
         isRecordingDeleted: (snapshotLoadError: Error | null) => boolean
         recordingDeletedAt: (snapshotLoadError: Error | null) => number | null
         recordingDeletedBy: (snapshotLoadError: Error | null) => string | null
-        isSnapshotUnauthorized: (snapshotLoadError: Error | null) => boolean
+        permanentSnapshotLoadError: (
+            snapshotLoadError: Error | null,
+            snapshotLoadErrorRequest: SnapshotLoadErrorRequest | null
+        ) => PermanentSnapshotLoadError | null
     }
 }
 
@@ -321,6 +340,18 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadSnapshotsForSource: () => null,
                 loadSnapshotsForSourceSuccess: () => null,
                 loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
+                loadSnapshotSources: () => null,
+                loadSnapshotSourcesFailure: (_, { errorObject }) => errorObject ?? null,
+            },
+        ],
+        snapshotLoadErrorRequest: [
+            null as SnapshotLoadErrorRequest | null,
+            {
+                loadSnapshotsForSource: () => null,
+                loadSnapshotsForSourceSuccess: () => null,
+                loadSnapshotsForSourceFailure: () => 'fetch',
+                loadSnapshotSources: () => null,
+                loadSnapshotSourcesFailure: () => 'listing',
             },
         ],
     })),
@@ -445,10 +476,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             cache.playbackWindowId = windowId
             const previousTarget = selectors.seekTarget(previousState)
             const targetChanged = previousTarget?.timestamp !== timestamp || previousTarget?.windowId !== windowId
-            // A genuinely new target grants fresh retries after the permanent-failure cap, unless the
-            // failure is a 401. Reseeking can never fix that, so it must keep counting toward the cap,
-            // otherwise a permanently-unauthorized source buffers forever.
-            if (targetChanged && !values.isSnapshotUnauthorized) {
+            // A genuinely new target grants fresh retries after the failure cap. A terminal failure
+            // needs no guard here, because it gives up without spending the budget at all.
+            if (targetChanged) {
                 cache.loadFailureCount = 0
             }
             actions.loadNextSnapshotSource()
@@ -596,6 +626,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadSnapshotsForSourceFailure: async (_, breakpoint) => {
+            if (values.permanentSnapshotLoadError) {
+                // Another attempt returns the same terminal response, so spend no retries on it.
+                actions.snapshotSourceLoadExhausted()
+                return
+            }
             cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
             if (cache.loadFailureCount > 3) {
                 // Give up loudly: nothing else retries this source, so without a terminal action the
@@ -749,12 +784,27 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             },
         ],
 
-        // A missing session doesn't resolve by retrying, so a source failing this way should
-        // never be handed a fresh retry budget.
-        isSnapshotUnauthorized: [
-            (s) => [s.snapshotLoadError],
-            (snapshotLoadError: Error | null): boolean => {
-                return snapshotLoadError instanceof ApiError && snapshotLoadError.status === 401
+        // A recording that is missing, deleted, or closed to this user never comes back by loading
+        // it again, so a source failing this way must never be handed a fresh retry budget.
+        permanentSnapshotLoadError: [
+            (s) => [s.snapshotLoadError, s.snapshotLoadErrorRequest],
+            (
+                snapshotLoadError: Error | null,
+                snapshotLoadErrorRequest: SnapshotLoadErrorRequest | null
+            ): PermanentSnapshotLoadError | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return 'deleted'
+                }
+                if (!(snapshotLoadError instanceof ApiError) || !snapshotLoadError.status) {
+                    return null
+                }
+                // Fetching one source also answers 404 when the client asks for a block that the
+                // recording no longer has under that key, which happens when the source list goes
+                // stale. Re-listing the sources fixes that, so keep it recoverable.
+                if (snapshotLoadError.status === 404 && snapshotLoadErrorRequest !== 'listing') {
+                    return null
+                }
+                return PERMANENT_SNAPSHOT_LOAD_STATUSES[snapshotLoadError.status] ?? null
             },
         ],
     })),

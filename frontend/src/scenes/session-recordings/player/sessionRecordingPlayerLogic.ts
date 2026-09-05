@@ -74,7 +74,7 @@ import {
 } from './commenting/playerFrameCommentOverlayLogic'
 import { clipWindowSeconds } from './controller/clipRange'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { snapshotDataLogic } from './snapshotDataLogic'
+import { PermanentSnapshotLoadError, snapshotDataLogic } from './snapshotDataLogic'
 import {
     addAssetError,
     DoctorDiagnostics,
@@ -560,7 +560,7 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
-    isSnapshotUnauthorized: boolean // snapshotDataLogic
+    permanentSnapshotLoadError: PermanentSnapshotLoadError | null // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -638,6 +638,7 @@ export interface sessionRecordingPlayerLogicValues {
     rootFrame: HTMLDivElement | null
     roughAnimationFPS: number
     scale: number
+    snapshotRetryCount: number
     seekIndicator: {
         direction: 'backward' | 'forward'
         seconds: number
@@ -748,6 +749,33 @@ export interface sessionRecordingPlayerLogicActions {
     ) => {
         error: string
         errorObject?: any
+    } // snapshotDataLogic
+    loadSnapshotsForSourceSuccess: (
+        snapshotsForSource:
+            | {
+                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  sources?: undefined
+              }
+            | {
+                  source?: undefined
+                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+              },
+        payload?: {
+            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+        }
+    ) => {
+        snapshotsForSource:
+            | {
+                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  sources?: undefined
+              }
+            | {
+                  source?: undefined
+                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+              }
+        payload?: {
+            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+        }
     } // snapshotDataLogic
     retrySnapshotLoading: () => {
         value: true
@@ -1138,6 +1166,17 @@ export interface sessionRecordingPlayerLogicMeta {
     }
 }
 
+const PLAYER_ERROR_FOR_PERMANENT_SNAPSHOT_ERROR: Record<PermanentSnapshotLoadError, string> = {
+    unauthorized: 'snapshotUnauthorized',
+    forbidden: 'snapshotForbidden',
+    notFound: 'recordingNotFound',
+    deleted: 'recordingDeleted',
+}
+
+function snapshotPlayerError(permanent: PermanentSnapshotLoadError | null, recoverable: string): string {
+    return permanent ? PLAYER_ERROR_FOR_PERMANENT_SNAPSHOT_ERROR[permanent] : recoverable
+}
+
 export type sessionRecordingPlayerLogicType = MakeLogicType<
     sessionRecordingPlayerLogicValues,
     sessionRecordingPlayerLogicActions,
@@ -1159,7 +1198,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotStore',
                 'allSourcesLoaded',
                 'storeVersion',
-                'isSnapshotUnauthorized',
+                'permanentSnapshotLoadError',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -1191,6 +1230,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'loadSnapshots',
                 'loadSnapshotsForSourceFailure',
+                'loadSnapshotsForSourceSuccess',
                 'loadSnapshotSourcesFailure',
                 'snapshotSourceLoadExhausted',
                 'retrySnapshotLoading',
@@ -1461,6 +1501,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 setPlayerError: (_, { reason }) => (reason.trim().length ? reason : null),
                 clearPlayerError: () => null,
+            },
+        ],
+        // Counts the retries the person asked for, so the overlay can stop promising that one more
+        // attempt will work.
+        snapshotRetryCount: [
+            0,
+            {
+                retryLoadingSnapshots: (count) => count + 1,
+                loadSnapshotsForSourceSuccess: () => 0,
             },
         ],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
@@ -2621,7 +2670,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setPlayerError(
-                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotsForSourceFailure'
+                    snapshotPlayerError(values.permanentSnapshotLoadError, 'loadSnapshotsForSourceFailure')
                 )
             }
         },
@@ -2629,7 +2678,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setPlayerError(
-                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotSourcesFailure'
+                    snapshotPlayerError(values.permanentSnapshotLoadError, 'loadSnapshotSourcesFailure')
                 )
             }
         },
@@ -2638,7 +2687,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
             actions.setPlayerError(
-                values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
+                snapshotPlayerError(values.permanentSnapshotLoadError, 'snapshotSourceLoadExhausted')
             )
         },
         snapshotProcessingFailed: () => {

@@ -71,16 +71,81 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 }
 
 // Failures that a fresh load attempt can fix (a snapshot API or blob fetch that failed in transit),
-// as opposed to a recording whose data is genuinely unplayable.
+// as opposed to a recording whose data is genuinely unplayable. Terminal responses from the
+// snapshots API get their own player error, so they never land here and never offer a retry.
 const RECOVERABLE_SNAPSHOT_ERRORS = [
     'loadSnapshotsForSourceFailure',
     'loadSnapshotSourcesFailure',
     'snapshotSourceLoadExhausted',
 ]
 
+interface PlayerErrorCopy {
+    title: string
+    description: string
+}
+
+// Terminal responses from the snapshots API. Neither a retry nor a page reload brings the data back,
+// so the overlay offers neither.
+const PERMANENT_SNAPSHOT_ERROR_COPY: Record<string, PlayerErrorCopy> = {
+    snapshotUnauthorized: {
+        title: "We're unable to play this recording",
+        description: 'Your session has expired. Sign in again to keep watching this recording.',
+    },
+    snapshotForbidden: {
+        title: "We're unable to play this recording",
+        description: "You don't have access to this recording. Ask an admin of this project for access.",
+    },
+    recordingNotFound: {
+        title: 'This recording is no longer available',
+        description:
+            'PostHog has no data for this recording. It has passed the retention period for your project, or it never finished uploading.',
+    },
+    recordingDeleted: {
+        title: 'This recording was deleted',
+        description: 'Someone permanently deleted this recording, so there is nothing left to play.',
+    },
+}
+
+// After this many retries the person has enough evidence that retrying does not work.
+const MAX_OFFERED_SNAPSHOT_RETRIES = 2
+
+function playerErrorCopy(playerError: string | null, retryCount: number): PlayerErrorCopy {
+    if (playerError && playerError in PERMANENT_SNAPSHOT_ERROR_COPY) {
+        return PERMANENT_SNAPSHOT_ERROR_COPY[playerError]
+    }
+    if (playerError === 'noPlayableFullSnapshot') {
+        return {
+            title: "We're unable to play this recording",
+            description:
+                'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.',
+        }
+    }
+    if (playerError && RECOVERABLE_SNAPSHOT_ERRORS.includes(playerError)) {
+        return {
+            title: "We couldn't load this recording",
+            description:
+                retryCount >= MAX_OFFERED_SNAPSHOT_RETRIES
+                    ? "Retrying hasn't helped. Contact support and we'll look into this recording."
+                    : "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support.",
+        }
+    }
+    return {
+        title: "We're unable to play this recording",
+        description:
+            'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.',
+    }
+}
+
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion, sessionPlayerMetaData } =
-        useValues(sessionRecordingPlayerLogic)
+    const {
+        currentPlayerState,
+        endReached,
+        logicProps,
+        playerError,
+        isWaitingForIngestion,
+        sessionPlayerMetaData,
+        snapshotRetryCount,
+    } = useValues(sessionRecordingPlayerLogic)
     const { setPlay, retryLoadingSnapshots } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
@@ -121,27 +186,20 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
         const isUnauthorized = playerError === 'snapshotUnauthorized'
         const isRecoverable = !!playerError && RECOVERABLE_SNAPSHOT_ERRORS.includes(playerError)
+        const isPermanent = !!playerError && playerError in PERMANENT_SNAPSHOT_ERROR_COPY
+        const canRetry = isRecoverable && snapshotRetryCount < MAX_OFFERED_SNAPSHOT_RETRIES
+        const { title, description } = playerErrorCopy(playerError, snapshotRetryCount)
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
                 <IconWarning className="text-danger text-5xl" />
-                <div className="font-bold text-text-3000 text-lg">
-                    {isRecoverable ? "We couldn't load this recording" : "We're unable to play this recording"}
-                </div>
-                <div className="text-secondary text-sm text-center">
-                    {isMissingFullSnapshot
-                        ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
-                        : isUnauthorized
-                          ? 'Your session has expired. Sign in again to keep watching this recording.'
-                          : isRecoverable
-                            ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
-                            : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
-                </div>
+                <div className="font-bold text-text-3000 text-lg">{title}</div>
+                <div className="text-secondary text-sm text-center">{description}</div>
                 {isUnauthorized && (
                     <LemonButton to={urls.login()} type="primary" fullWidth center>
                         Sign in
                     </LemonButton>
                 )}
-                {isRecoverable && (
+                {canRetry && (
                     <LemonButton
                         onClick={(e) => {
                             e.stopPropagation()
@@ -154,7 +212,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                         Retry
                     </LemonButton>
                 )}
-                {!isMissingFullSnapshot && !isUnauthorized && !isRecoverable && (
+                {!isMissingFullSnapshot && !isPermanent && !isRecoverable && (
                     <LemonButton
                         onClick={() => {
                             window.location.reload()
