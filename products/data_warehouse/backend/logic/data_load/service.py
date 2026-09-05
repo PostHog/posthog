@@ -11,7 +11,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from temporalio.client import (
     Client as TemporalClient,
     Schedule,
@@ -25,6 +25,7 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
@@ -62,6 +63,122 @@ def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, i
     return (int(jitter_seconds // 3600), int((jitter_seconds % 3600) // 60))
 
 
+# Jitter windows a schema's anchor is drawn from, smallest first; the first one its sync
+# frequency fits inside wins.
+JITTER_BUCKETS = (
+    timedelta(minutes=5),
+    timedelta(minutes=30),
+    timedelta(hours=1),
+    timedelta(hours=6),
+    timedelta(hours=12),
+    timedelta(days=1),
+)
+
+
+# Cap on how long after its parent's anchor a fan-out child fires. Parent list syncs
+# complete in ~1min at p50 fleet-wide, so the margin absorbs task-queue delay, not sync
+# work; hour-scale queue backlogs exceed any offset smaller than the interval, and those
+# cycles just read the previous snapshot (identical to unaligned behavior).
+FANOUT_ALIGN_DELAY_CAP = timedelta(minutes=30)
+# Siblings of one parent are spread inside this window so they don't all fan out against
+# the vendor's rate limit at the same second.
+FANOUT_SIBLING_STAGGER_WINDOW = timedelta(minutes=15)
+
+
+@frozen
+class ScheduleAnchor:
+    """Time of day a schema's schedule fires at, as hour and minute past that hour."""
+
+    hour: int
+    minute: int
+
+    @property
+    def time_of_day(self) -> timedelta:
+        return timedelta(hours=self.hour, minutes=self.minute)
+
+
+def _sync_anchor(external_data_schema: ExternalDataSchema) -> ScheduleAnchor:
+    """Where the schema's schedule fires, before any parent alignment."""
+    sync_time_of_day: time | str | None = external_data_schema.sync_time_of_day
+    # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
+    if sync_time_of_day is not None:
+        t = datetime.strptime(str(sync_time_of_day), "%H:%M:%S").time()
+        return ScheduleAnchor(hour=t.hour, minute=t.minute)
+
+    # Apply a one-time jitter based on the sync frequency to avoid all jobs syncing at the same time
+    interval: timedelta | None = external_data_schema.sync_frequency_interval
+    if interval is not None:
+        rng = random.Random(str(external_data_schema.id))
+        for bucket in JITTER_BUCKETS:
+            if interval <= bucket:
+                hour, minute = _jitter_timedelta(bucket, rng)
+                return ScheduleAnchor(hour=hour, minute=minute)
+
+    return ScheduleAnchor(hour=0, minute=0)
+
+
+def _fanout_aligned_anchor(external_data_schema: ExternalDataSchema) -> ScheduleAnchor | None:
+    """Anchor for a fan-out child: shortly after its warehouse parent's anchor, or None.
+
+    A child that reads its parent from the synced Delta table fans out over that table's
+    last completed snapshot, so an independently jittered anchor leaves the snapshot up to
+    a full interval old at child start. Firing the child FANOUT_ALIGN_DELAY_CAP after the
+    parent's anchor (plus a per-child stagger) means it usually reads a snapshot minutes
+    old instead. Alignment is a pure function of the two schema rows, so every schedule
+    rebuild recomputes the same anchor.
+
+    Not gated on the reuse feature flag: a flag flip doesn't rebuild external Temporal
+    schedule objects, so a flag-dependent anchor would silently drift from the flag state.
+    On the API path the aligned time is harmless because the parent is re-fetched fresh.
+
+    None means "no alignment applies", falling back to the jittered anchor: the schema has
+    no warehouse parent, the user pinned an explicit sync_time_of_day, the parent row is
+    missing, the intervals don't nest, or the parent is itself an aligned child (no such
+    chains exist; aligning to an unaligned anchor would silently misalign the grandchild).
+    """
+    from products.warehouse_sources.backend.facade.models import (
+        ExternalDataSchema,  # noqa: PLC0415 deferred because warehouse_sources modules import this module, matching the file's other facade imports
+    )
+    from products.warehouse_sources.backend.facade.sources import (
+        warehouse_parent_schema_names,  # noqa: PLC0415 deferred for the same cycle
+    )
+
+    child_interval: timedelta | None = external_data_schema.sync_frequency_interval
+    if external_data_schema.sync_time_of_day is not None or child_interval is None:
+        return None
+
+    source_type = external_data_schema.source.source_type
+    parent_names = warehouse_parent_schema_names(source_type, external_data_schema.name)
+    # Multi-parent children have no single grid to align to; none exist.
+    if len(parent_names) != 1:
+        return None
+    if warehouse_parent_schema_names(source_type, parent_names[0]):
+        return None
+
+    parent = ExternalDataSchema.objects.filter(
+        team_id=external_data_schema.team_id,
+        source_id=external_data_schema.source_id,
+        name=parent_names[0],
+        deleted=False,
+    ).first()
+    # A paused parent keeps alignment: its anchor is unchanged, and conditioning on
+    # should_sync would require a schedule rebuild on every parent pause/resume.
+    if parent is None:
+        return None
+    parent_interval: timedelta | None = parent.sync_frequency_interval
+    if parent_interval is None or parent_interval > child_interval or child_interval % parent_interval != timedelta(0):
+        return None
+
+    parent_offset = _sync_anchor(parent).time_of_day % parent_interval
+    align_delay = min(FANOUT_ALIGN_DELAY_CAP, child_interval / 4)
+    stagger_hour, stagger_minute = _jitter_timedelta(
+        FANOUT_SIBLING_STAGGER_WINDOW, random.Random(str(external_data_schema.id))
+    )
+    total = parent_offset + align_delay + timedelta(hours=stagger_hour, minutes=stagger_minute)
+    total_minutes = int(total.total_seconds()) // 60
+    return ScheduleAnchor(hour=total_minutes // 60, minute=total_minutes % 60)
+
+
 def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: bool = True):
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
@@ -69,39 +186,13 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: boo
         external_data_source_id=external_data_schema.source_id,
     )
 
-    hour = 0
-    minute = 0
-    sync_time_of_day: time | str | None = external_data_schema.sync_time_of_day
-    # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
-    if sync_time_of_day is not None:
-        time_str = sync_time_of_day
-        t = datetime.strptime(str(time_str), "%H:%M:%S").time()
-        hour = t.hour
-        minute = t.minute
-    else:
-        # Apply a one-time jitter based on the sync frequency to avoid all jobs syncing at the same time
-        interval: timedelta | None = external_data_schema.sync_frequency_interval
-        if interval is not None:
-            rng = random.Random(str(external_data_schema.id))
-
-            if interval <= timedelta(minutes=5):
-                hour, minute = _jitter_timedelta(timedelta(minutes=5), rng)
-            elif interval <= timedelta(minutes=30):
-                hour, minute = _jitter_timedelta(timedelta(minutes=30), rng)
-            elif interval <= timedelta(hours=1):
-                hour, minute = _jitter_timedelta(timedelta(hours=1), rng)
-            elif interval <= timedelta(hours=6):
-                hour, minute = _jitter_timedelta(timedelta(hours=6), rng)
-            elif interval <= timedelta(hours=12):
-                hour, minute = _jitter_timedelta(timedelta(hours=12), rng)
-            elif interval <= timedelta(days=1):
-                hour, minute = _jitter_timedelta(timedelta(days=1), rng)
+    anchor = _fanout_aligned_anchor(external_data_schema) or _sync_anchor(external_data_schema)
 
     return to_temporal_schedule(
         external_data_schema,
         inputs,
-        hour_of_day=hour,
-        minute_of_hour=minute,
+        hour_of_day=anchor.hour,
+        minute_of_hour=anchor.minute,
         sync_frequency=external_data_schema.sync_frequency_interval,
         should_sync=should_sync,
     )
@@ -190,7 +281,8 @@ async def a_sync_external_data_job_workflow(
 ) -> ExternalDataSchema:
     temporal = await async_connect()
 
-    schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
+    # sync_to_async because parent-alignment inside get_sync_schedule reads the ORM.
+    schedule = await sync_to_async(get_sync_schedule)(external_data_schema, should_sync=should_sync)
 
     if create:
         try:
@@ -314,7 +406,8 @@ async def bulk_create_external_data_job_schedules(
 
     async def _create_one(external_data_schema: ExternalDataSchema, should_sync: bool) -> None:
         async with semaphore:
-            schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
+            # sync_to_async because parent-alignment inside get_sync_schedule reads the ORM.
+            schedule = await sync_to_async(get_sync_schedule)(external_data_schema, should_sync=should_sync)
             schedule_id = str(external_data_schema.id)
             try:
                 await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
@@ -384,7 +477,10 @@ async def bulk_update_external_data_job_schedules(
 
     async def _update_one(external_data_schema: ExternalDataSchema) -> str | None:
         async with semaphore:
-            schedule = get_sync_schedule(external_data_schema, should_sync=external_data_schema.should_sync)
+            # sync_to_async because parent-alignment inside get_sync_schedule reads the ORM.
+            schedule = await sync_to_async(get_sync_schedule)(
+                external_data_schema, should_sync=external_data_schema.should_sync
+            )
             try:
                 await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
             except temporalio.service.RPCError as e:
