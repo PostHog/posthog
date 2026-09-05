@@ -230,54 +230,12 @@ def _serialize_rich_content_node(
     options = options or NotebookMarkdownConversionOptions()
     node_type = _node_type(node)
 
-    if node_type == "text":
-        return escape_markdown_block_lines(_serialize_inline_node(node, options))
-
-    if node_type == "heading":
-        level = node.get("attrs", {}).get("level") if isinstance(node.get("attrs"), dict) else None
-        level = min(max(level, 1), 6) if isinstance(level, int) else 1
-        return f"{'#' * level} {_serialize_inline_content(_content_list(node), options)}"
-
-    if node_type == "paragraph":
-        return escape_markdown_block_lines(_serialize_inline_content(_content_list(node), options))
-
-    if node_type == "blockquote":
-        return _serialize_blockquote_node(node, list_depth, options)
+    serializer = _RICH_CONTENT_NODE_SERIALIZERS.get(node_type) if node_type is not None else None
+    if serializer is not None:
+        return serializer(node, list_depth, options)
 
     if node_type in LIST_NODE_TYPES:
         return _serialize_list(node, node_type == "orderedList", list_depth, options)
-
-    if node_type == "horizontalRule":
-        return "---"
-
-    if node_type == "codeBlock":
-        attrs = node.get("attrs")
-        language = attrs.get("language") if isinstance(attrs, dict) and isinstance(attrs.get("language"), str) else ""
-        text = "".join(
-            "\n" if _node_type(child) == "hardBreak" else str(child.get("text") or "") for child in _content_list(node)
-        )
-        return _serialize_code_node(text, language or None)
-
-    if node_type == "table":
-        return _serialize_table(node, options)
-
-    if node_type == "ph-text":
-        return _serialize_legacy_text_node(node)
-
-    if node_type == "ph-insight":
-        return _serialize_legacy_insight_node(node)
-
-    if node_type == "ph-dashboard":
-        return _serialize_legacy_dashboard_node(node)
-
-    if node_type == "query":
-        return _serialize_legacy_query_node(node)
-
-    if node_type == "ph-link":
-        return _serialize_legacy_link_node(node, options)
-
-    if node_type == "callout":
-        return _serialize_callout_node(node, options)
 
     if isinstance(node_type, str) and node_type in NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG:
         return _serialize_component_node(
@@ -294,6 +252,21 @@ def _serialize_rich_content_node(
         return child_markdown
 
     return _serialize_unknown_rich_content_node(node)
+
+
+def _serialize_heading_node(node: JSONContent, options: NotebookMarkdownConversionOptions) -> str:
+    level = node.get("attrs", {}).get("level") if isinstance(node.get("attrs"), dict) else None
+    level = min(max(level, 1), 6) if isinstance(level, int) else 1
+    return f"{'#' * level} {_serialize_inline_content(_content_list(node), options)}"
+
+
+def _serialize_code_block_node(node: JSONContent) -> str:
+    attrs = node.get("attrs")
+    language = attrs.get("language") if isinstance(attrs, dict) and isinstance(attrs.get("language"), str) else ""
+    text = "".join(
+        "\n" if _node_type(child) == "hardBreak" else str(child.get("text") or "") for child in _content_list(node)
+    )
+    return _serialize_code_node(text, language or None)
 
 
 def _serialize_legacy_text_node(node: JSONContent) -> str:
@@ -801,3 +774,26 @@ def _escape_markdown_image_alt(text: str) -> str:
 
 def _escape_markdown_image_src(text: str) -> str:
     return text.replace("\\", "\\\\").replace(")", "\\)")
+
+
+# Each serializer takes (node, list_depth, options) so the dispatch stays uniform. Handlers that
+# ignore a positional argument still accept it here.
+_RichContentNodeSerializer = Callable[[JSONContent, int, NotebookMarkdownConversionOptions], str]
+
+_RICH_CONTENT_NODE_SERIALIZERS: Mapping[str, _RichContentNodeSerializer] = {
+    "text": lambda node, _depth, options: escape_markdown_block_lines(_serialize_inline_node(node, options)),
+    "heading": lambda node, _depth, options: _serialize_heading_node(node, options),
+    "paragraph": lambda node, _depth, options: escape_markdown_block_lines(
+        _serialize_inline_content(_content_list(node), options)
+    ),
+    "blockquote": lambda node, list_depth, options: _serialize_blockquote_node(node, list_depth, options),
+    "horizontalRule": lambda _node, _depth, _options: "---",
+    "codeBlock": lambda node, _depth, _options: _serialize_code_block_node(node),
+    "table": lambda node, _depth, options: _serialize_table(node, options),
+    "ph-text": lambda node, _depth, _options: _serialize_legacy_text_node(node),
+    "ph-insight": lambda node, _depth, _options: _serialize_legacy_insight_node(node),
+    "ph-dashboard": lambda node, _depth, _options: _serialize_legacy_dashboard_node(node),
+    "query": lambda node, _depth, _options: _serialize_legacy_query_node(node),
+    "ph-link": lambda node, _depth, options: _serialize_legacy_link_node(node, options),
+    "callout": lambda node, _depth, options: _serialize_callout_node(node, options),
+}
