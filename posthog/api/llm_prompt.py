@@ -49,6 +49,7 @@ from posthog.api.services.llm_prompt import (
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
     get_prompt_labels,
+    get_prompts_by_label_queryset,
     publish_prompt_version,
     remove_prompt_label,
     resolve_versions_page,
@@ -225,7 +226,13 @@ class LLMPromptViewSet(
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
         params = self._get_list_params(request)
 
-        queryset = get_latest_prompts_queryset(self.team).annotate(
+        label = params.get("label", "").strip() if params.get("label") else ""
+        if label:
+            base_qs = get_prompts_by_label_queryset(self.team, label)
+        else:
+            base_qs = get_latest_prompts_queryset(self.team)
+
+        queryset = base_qs.annotate(
             prompt_size_bytes=Func(
                 Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
             ),
@@ -630,10 +637,13 @@ class LLMPromptViewSet(
         context = self.get_serializer_context()
         context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
+        serialized_prompts = serializer.data
+        for prompt in serialized_prompts:
+            self._track_prompt_fetch(prompt)
 
         if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response({"count": len(serializer.data), "results": serializer.data})
+            return self.get_paginated_response(serialized_prompts)
+        return Response({"count": len(serialized_prompts), "results": serialized_prompts})
 
     @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")

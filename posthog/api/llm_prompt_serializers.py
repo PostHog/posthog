@@ -165,6 +165,11 @@ class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
 
 
 class LLMPromptListQuerySerializer(serializers.Serializer):
+    label = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Filter prompts to those carrying this label, returning each prompt at its labeled version.",
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -186,6 +191,11 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         default="full",
         help_text=CONTENT_MODE_HELP,
     )
+
+    def validate_label(self, value: str) -> str:
+        if not value.strip():
+            return ""
+        return validate_prompt_label_name_value(value)
 
 
 class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
