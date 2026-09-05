@@ -24,6 +24,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
+    ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
 )
@@ -558,6 +559,7 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
+            claude_model_access=ctx.claude_model_access,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
@@ -579,6 +581,40 @@ def _invoke_start_agent_server(
                 "error": str(e),
             },
             cause=e,
+        )
+
+
+CLAUDE_SUBSCRIPTION_RELAY_CAPABILITY = "claude_subscription_relay"
+
+
+def _enforce_claude_subscription_relay_capability(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
+    """A sandbox image predating the credential relay ignores the own-subscription
+    marker and would silently bill PostHog credits. Fail the run instead; the error
+    is non-retryable, so no silent fallback ever happens."""
+    if ctx.claude_model_access != "own-subscription":
+        return
+    try:
+        result = sandbox.execute(
+            f"curl -s --max-time 5 {sandbox.agent_server_health_url()}",
+            timeout_seconds=10,
+        )
+        payload = json.loads(result.stdout or "{}")
+        capabilities = payload.get("capabilities")
+        supported = isinstance(capabilities, list) and CLAUDE_SUBSCRIPTION_RELAY_CAPABILITY in capabilities
+    except Exception:
+        logger.warning("claude_subscription_relay_capability_probe_failed", task_id=ctx.task_id, run_id=ctx.run_id)
+        supported = False
+    if not supported:
+        emit_agent_log(
+            ctx.run_id,
+            "warn",
+            "Agent-server build predates the Claude subscription relay; failing own-subscription run",
+        )
+        raise ProcessTaskFatalError(
+            "This sandbox build cannot use your Claude plan yet. Run the task again. "
+            'If the problem repeats, turn off "Use your Claude plan for cloud tasks".',
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError("agent-server lacks claude_subscription_relay capability"),
         )
 
 
@@ -740,6 +776,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 invoke_ms = invoke_timer.elapsed_ms
                 health_poll_ms = health_timer.elapsed_ms
             _record_agent_server_launch(sandbox, ctx, params)
+            _enforce_claude_subscription_relay_capability(sandbox, ctx)
 
         _record_network_enforcement_observation(ctx)
 
@@ -895,6 +932,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     ) as health_timer:
                         sandbox.wait_for_agent_server_ready(agentsh_domains)
                     _record_agent_server_launch(sandbox, ctx, params)
+                    _enforce_claude_subscription_relay_capability(sandbox, ctx)
         except Exception:
             if attempt > 1:
                 increment_agent_server_readiness_retry(

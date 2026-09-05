@@ -282,6 +282,7 @@ def build_agent_runtime_env_prefix(
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
+    claude_model_access: str | None = None,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -307,6 +308,10 @@ def build_agent_runtime_env_prefix(
         # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
         # the peers endpoints re-check authorization server-side regardless.
         "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
+        # Marker, not a secret: tells the agent-server whether the Claude runtime uses the
+        # user's Claude plan (token relayed from Desktop) or the PostHog gateway. Set in
+        # both states so a resumed sandbox can't keep a stale own-subscription marker.
+        "POSTHOG_CODE_CLAUDE_MODEL_ACCESS": claude_model_access,
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -560,6 +565,7 @@ class SandboxBase(ABC):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        claude_model_access: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 

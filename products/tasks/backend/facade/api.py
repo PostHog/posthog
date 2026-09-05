@@ -4671,6 +4671,7 @@ def bootstrap_task_run(
         "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
         "benjamin_enabled": validated_data.get("benjamin_enabled"),
+        "claude_model_access": validated_data.get("claude_model_access"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -7077,6 +7078,7 @@ def run_task(
         ("initial_permission_mode", initial_permission_mode),
         ("rtk_enabled", validated_data.get("rtk_enabled")),
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
+        ("claude_model_access", validated_data.get("claude_model_access")),
     ):
         if value is not None:
             extra_state = extra_state or {}

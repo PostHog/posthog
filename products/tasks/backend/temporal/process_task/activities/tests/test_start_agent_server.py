@@ -5,6 +5,7 @@ from django.db import OperationalError
 
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
+    ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
     SandboxTimeoutError,
@@ -15,6 +16,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     CollectAgentShadowResultInput,
     StartAgentServerInput,
     _agentsh_domains_for,
+    _enforce_claude_subscription_relay_capability,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
     _invoke_start_agent_server,
@@ -68,6 +70,7 @@ def _context(
     network_policy_fingerprint: str | None = None,
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
+    claude_model_access: str = "posthog-gateway",
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -85,6 +88,7 @@ def _context(
         network_policy_fingerprint=network_policy_fingerprint,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        claude_model_access=claude_model_access,
         _branch=branch,
     )
 
@@ -537,6 +541,49 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
     _ensure_repository_on_disk(_context(repository=None), sandbox)
 
     sandbox.execute.assert_not_called()
+
+
+def test_enforce_claude_subscription_relay_capability_skips_gateway_runs(mocker) -> None:
+    sandbox = mocker.Mock()
+
+    _enforce_claude_subscription_relay_capability(sandbox, _context(claude_model_access="posthog-gateway"))
+
+    sandbox.execute.assert_not_called()
+
+
+def test_enforce_claude_subscription_relay_capability_allows_advertised_build(mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(
+        stdout='{"capabilities": ["prewarmedResumeIdle", "claude_subscription_relay"]}',
+        stderr="",
+        exit_code=0,
+    )
+
+    _enforce_claude_subscription_relay_capability(sandbox, _context(claude_model_access="own-subscription"))
+
+    sandbox.execute.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        '{"capabilities": ["prewarmedResumeIdle"]}',
+        '{"capabilities": []}',
+        "{}",
+        "not-json",
+    ],
+)
+def test_enforce_claude_subscription_relay_capability_fails_old_builds(mocker, stdout) -> None:
+    # A sandbox image predating the relay would ignore the marker and silently
+    # bill PostHog credits, so an absent capability must fail the run instead.
+    sandbox = mocker.Mock()
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout=stdout, stderr="", exit_code=0)
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+
+    with pytest.raises(ProcessTaskFatalError, match="cannot use your Claude plan yet"):
+        _enforce_claude_subscription_relay_capability(sandbox, _context(claude_model_access="own-subscription"))
 
 
 def test_agent_shadow_flag_uses_server_side_organization_targeting(mocker) -> None:

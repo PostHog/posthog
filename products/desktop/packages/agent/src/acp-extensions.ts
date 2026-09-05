@@ -100,6 +100,10 @@ export const POSTHOG_NOTIFICATIONS = {
   CODEX_GOAL: "_posthog/codex_goal",
   /** Desktop → sandbox reply to an MCP relay request (docs/CLOUD-MCP-RELAY.md). */
   MCP_RESPONSE: "_posthog/mcp_response",
+  /** Sandbox → Desktop request for a credential (Claude subscription token relay). */
+  CREDENTIAL_REQUEST: "_posthog/credential_request",
+  /** Desktop → sandbox reply carrying the credential or an error. */
+  CREDENTIAL_RESPONSE: "_posthog/credential_response",
 } as const;
 
 export type SteerDeclineCause =

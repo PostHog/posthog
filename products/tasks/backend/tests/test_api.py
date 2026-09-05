@@ -3461,6 +3461,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ("rtk_enabled", False),
             ("benjamin_enabled", True),
             ("benjamin_enabled", False),
+            ("claude_model_access", "own-subscription"),
+            ("claude_model_access", "posthog-gateway"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -3475,10 +3477,10 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_200_OK
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
-        assert task_run.state[field] is value
+        assert task_run.state[field] == value
         mock_workflow.assert_called_once()
 
-    @parameterized.expand([("rtk_enabled",), ("benjamin_enabled",)])
+    @parameterized.expand([("rtk_enabled",), ("benjamin_enabled",), ("claude_model_access",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_omits_agent_toggle_when_not_set(self, field, mock_workflow):
         task = self.create_task()
@@ -11534,6 +11536,70 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         call_kwargs = mock_post.call_args[1]
         self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
         self.assertEqual(call_kwargs["json"]["params"]["error"], {"code": -32001, "message": "server process exited"})
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_credential_response_and_never_persists_the_token(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        # Clearly fake test value, shaped like a real Claude setup token.
+        token = "sk-ant-oat01-fake-test-token-0000000000000000"
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-8", "result": {"acknowledged": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        state_before = dict(run.state or {})
+
+        with self.assertLogs(level="DEBUG") as captured:
+            response = self.client.post(
+                self._command_url(task, run),
+                {
+                    "jsonrpc": "2.0",
+                    "method": "credential_response",
+                    "params": {
+                        "requestId": "cred-1",
+                        "credential": "claude_subscription_token",
+                        "token": token,
+                    },
+                    "id": "req-8",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "credential_response")
+        self.assertEqual(call_kwargs["json"]["params"]["token"], token)
+        # In flight only: the run's state is unchanged and no log record carries the token.
+        run.refresh_from_db()
+        self.assertEqual(run.state, state_before)
+        for record in captured.records:
+            self.assertNotIn(token, record.getMessage())
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_command_rejects_credential_response_with_token_and_error(self):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "credential_response",
+                "params": {
+                    "requestId": "cred-2",
+                    "credential": "claude_subscription_token",
+                    "token": "sk-ant-oat01-fake-test-token-0000000000000000",
+                    "error": "no_token",
+                },
+                "id": "req-9",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def _create_posthog_ai_task(self, created_by: User | None = None):
         return Task.objects.create(

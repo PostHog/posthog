@@ -698,6 +698,33 @@ class TestModalSandboxAgentServer:
         assert expected_env in command
 
     @pytest.mark.parametrize(
+        "claude_model_access, expected_env",
+        [
+            ("own-subscription", "POSTHOG_CODE_CLAUDE_MODEL_ACCESS=own-subscription"),
+            ("posthog-gateway", "POSTHOG_CODE_CLAUDE_MODEL_ACCESS=posthog-gateway"),
+            (None, None),
+        ],
+    )
+    def test_start_agent_server_claude_model_access_env(self, mock_sandbox: Any, claude_model_access, expected_env):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            claude_model_access=claude_model_access,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        if expected_env is not None:
+            assert expected_env in command
+        else:
+            assert "POSTHOG_CODE_CLAUDE_MODEL_ACCESS" not in command
+
+    @pytest.mark.parametrize(
         "keep_stream_open, expected_env_present",
         [
             (True, True),

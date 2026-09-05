@@ -45,6 +45,10 @@ export const CODEX_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CODEX_OWN_SUBSCRIPTION_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_FLAG;
+// Gates the cloud variant (Desktop relays a Claude token to the sandbox);
+// rolls out and rolls back independently of the local flag.
+export const CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG =
+  featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG;
 // Gates importing and relaying local MCP servers into cloud task runs.
 export const LOCAL_MCP_IMPORT_FLAG = featureFlagKeys.LOCAL_MCP_IMPORT_FLAG;
 /**

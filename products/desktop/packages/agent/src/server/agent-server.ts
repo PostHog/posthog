@@ -126,6 +126,7 @@ import {
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
+import { CredentialRelay } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
@@ -252,6 +253,15 @@ interface BuiltPrompt {
 }
 
 export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
+/** Advertised in GET /health; the backend fails an own-subscription run when absent. */
+export const CLAUDE_SUBSCRIPTION_RELAY_CAPABILITY = "claude_subscription_relay";
+
+/** Section-9 copy, shared with the backend's old-sandbox guard. Names the next
+ * step; never carries the token or any part of it. */
+export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
+  "This task is set to use your Claude plan, but the token did not arrive from PostHog Desktop. " +
+  "Open PostHog Desktop, check Settings > Claude subscription, and run the task again. " +
+  'To use PostHog credits instead, turn off "Use your Claude plan for cloud tasks".';
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -498,6 +508,9 @@ export class AgentServer {
   private readonly posthogExecPermissionRegex: RegExp;
   private readonly posthogExecPermissionRegexSource: string;
   private mcpRelayServer: McpRelayServer | null = null;
+  private readonly credentialRelay = new CredentialRelay({
+    emitEvent: (event) => this.broadcastEvent(event),
+  });
 
   /**
    * Start loopback relay endpoints for the run's designated desktop-only MCP
@@ -673,7 +686,10 @@ export class AgentServer {
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
         boot,
-        capabilities: [PREWARMED_RESUME_IDLE_CAPABILITY],
+        capabilities: [
+          PREWARMED_RESUME_IDLE_CAPABILITY,
+          CLAUDE_SUBSCRIPTION_RELAY_CAPABILITY,
+        ],
       });
     });
 
@@ -1012,6 +1028,8 @@ export class AgentServer {
       await this.eventStreamSender?.stop();
     }
 
+    this.credentialRelay.stop();
+
     if (this.server) {
       this.server.close();
       this.server = null;
@@ -1081,6 +1099,51 @@ export class AgentServer {
       this.logger.error(
         "Failed to flush telemetry after fatal error",
         telemetryError,
+      );
+    }
+  }
+
+  /**
+   * Mark the run failed when the creating Desktop never delivered the Claude
+   * subscription token. Never falls back to the PostHog gateway: billing the
+   * user's credits after they opted for their own plan is the worst outcome.
+   */
+  private async reportClaudeSubscriptionTokenMissing(
+    payload: JwtPayload,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
+        status: "failed",
+        error_message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+      });
+    } catch (error) {
+      this.logger.error(
+        "Failed to mark run failed after credential relay failure",
+        error,
+      );
+    }
+    try {
+      // The session is not up yet, so broadcastEvent buffers into the durable
+      // stream rather than a live SSE controller.
+      this.broadcastEvent({
+        type: "notification",
+        timestamp: new Date().toISOString(),
+        notification: {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
+          params: {
+            runtimeAdapter: this.getRuntimeAdapter(),
+            initializationPhase: "credential_relay",
+            reason,
+          },
+        },
+      });
+      await this.eventStreamSender?.stop();
+    } catch (error) {
+      this.logger.error(
+        "Failed to flush events after credential relay failure",
+        error,
       );
     }
   }
@@ -1596,6 +1659,26 @@ export class AgentServer {
         return { resolved: true };
       }
 
+      case POSTHOG_NOTIFICATIONS.CREDENTIAL_RESPONSE:
+      case "credential_response": {
+        // Params carry the Claude subscription token; log the requestId only.
+        const resolved = this.credentialRelay.resolve({
+          requestId: String(params.requestId),
+          token: typeof params.token === "string" ? params.token : undefined,
+          error: typeof params.error === "string" ? params.error : undefined,
+        });
+        this.logger.debug("Credential relay response received", {
+          requestId: String(params.requestId),
+          resolved,
+        });
+        if (!resolved) {
+          throw new Error(
+            `No pending credential request found for id: ${String(params.requestId)}`,
+          );
+        }
+        return { resolved: true };
+      }
+
       default:
         throw new Error(`Unknown method: ${method}`);
     }
@@ -1846,6 +1929,28 @@ export class AgentServer {
       sinks: telemetry ? [telemetry] : undefined,
     });
 
+    // Own-subscription runs bill the user's Claude plan: ask the creating
+    // Desktop for the token before the adapter exists, so the Claude env is
+    // built with CLAUDE_CODE_OAUTH_TOKEN and no gateway variables. A queued
+    // user_message waits: executeCommand runs only after this.session exists.
+    let claudeSubscriptionToken: string | null = null;
+    if (
+      this.config.claudeModelAccess === "own-subscription" &&
+      runtimeAdapter === "claude"
+    ) {
+      try {
+        claudeSubscriptionToken = await this.credentialRelay.request(
+          "claude_subscription_token",
+        );
+      } catch (error) {
+        // The message names the next step; the token itself is never in it.
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn("Claude subscription token relay failed", { reason });
+        await this.reportClaudeSubscriptionTokenMissing(payload, reason);
+        throw error;
+      }
+    }
+
     const acpConnection = createAcpConnection({
       adapter: runtimeAdapter,
       taskRunId: payload.run_id,
@@ -1856,7 +1961,14 @@ export class AgentServer {
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
       logger: this.logger,
-      claudeGatewayEnv: runtimeAdapter !== "codex" ? gatewayEnv : undefined,
+      claudeGatewayEnv:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken === null
+          ? gatewayEnv
+          : undefined,
+      claudeMachineAuth:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? { oauthToken: claudeSubscriptionToken }
+          : undefined,
       codexOptions:
         runtimeAdapter === "codex"
           ? {

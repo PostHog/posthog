@@ -47,6 +47,9 @@ const envSchema = z.object({
   POSTHOG_SANDBOX_ID: z.string().min(1).optional(),
   POSTHOG_CODE_RUNTIME_ADAPTER: z.enum(["claude", "codex"]).optional(),
   POSTHOG_CODE_MODEL: z.string().optional(),
+  POSTHOG_CODE_CLAUDE_MODEL_ACCESS: z
+    .enum(["posthog-gateway", "own-subscription"])
+    .optional(),
   POSTHOG_CODE_REASONING_EFFORT: z
     .enum(["off", "minimal", ...EFFORT_LEVELS])
     .optional(),
@@ -286,6 +289,7 @@ program
       ),
       runtimeAdapter: env.POSTHOG_CODE_RUNTIME_ADAPTER,
       model: env.POSTHOG_CODE_MODEL,
+      claudeModelAccess: env.POSTHOG_CODE_CLAUDE_MODEL_ACCESS,
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,
       contextWindow: env.POSTHOG_CODE_CONTEXT_WINDOW,
       fastMode: env.POSTHOG_CODE_FAST_MODE,

@@ -149,6 +149,19 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 | GitHub App      | Installation access tokens via the team's GitHub integration                                                      |
 | API permissions | `PostHogFeatureFlagPermission` + `APIScopePermission` on all endpoints                                            |
 
+### Claude subscription token relay
+
+A run created with `claude_model_access: "own-subscription"` (gated by the
+`posthog-code-claude-own-subscription-cloud` feature flag, fail-closed) bills the
+user's Claude plan instead of PostHog credits. The sandbox's agent-server asks
+the creating PostHog Desktop for the token with a `credential_request` event and
+receives it through the `/command/` proxy as a `credential_response` command.
+The token is a relayed secret: it moves in flight only, and no Postgres field,
+Redis key, log line, or analytics event ever holds it. If no token arrives
+within 120 seconds the run fails with instructions; it never falls back to
+PostHog credits silently. A sandbox build predating the relay fails the same
+way, guarded by the `claude_subscription_relay` capability in `GET /health`.
+
 ## Sandbox providers
 
 |                   | DockerSandbox                                                  | ModalSandbox                                                          |

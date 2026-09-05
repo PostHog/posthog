@@ -59,6 +59,12 @@ export interface AgentServerConfig {
   piRpcHostPath?: string;
   runtimeAdapter?: Adapter;
   model?: string;
+  /**
+   * How the Claude runtime pays for model use. "own-subscription" makes the
+   * server request a Claude token from the creating Desktop (credential
+   * relay) instead of using the PostHog gateway.
+   */
+  claudeModelAccess?: "posthog-gateway" | "own-subscription";
   reasoningEffort?: EffortLevel | "off" | "minimal";
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;

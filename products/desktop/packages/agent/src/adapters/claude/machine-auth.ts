@@ -3,6 +3,8 @@ import * as path from "node:path";
 
 export interface MachineClaudeAuth {
   configDir?: string;
+  /** Long-lived OAuth token (`sk-ant-oat01-…`) that bills the user's Claude plan. */
+  oauthToken?: string;
 }
 
 export const MACHINE_AUTH_STRIPPED_KEYS = [
@@ -43,6 +45,9 @@ export function applyMachineClaudeAuth(
 ): void {
   for (const key of MACHINE_AUTH_STRIPPED_KEYS) {
     delete env[key];
+  }
+  if (auth.oauthToken) {
+    env.CLAUDE_CODE_OAUTH_TOKEN = auth.oauthToken;
   }
   if (auth.configDir) {
     env.CLAUDE_CONFIG_DIR = auth.configDir;

@@ -150,6 +150,7 @@ class AgentServerLaunchMixin(SandboxBase):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
+        claude_model_access: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -169,6 +170,7 @@ class AgentServerLaunchMixin(SandboxBase):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            claude_model_access=claude_model_access,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
@@ -298,6 +300,7 @@ class AgentServerLaunchMixin(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        claude_model_access: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -381,6 +384,7 @@ class AgentServerLaunchMixin(SandboxBase):
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
+            claude_model_access=claude_model_access,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")

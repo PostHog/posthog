@@ -19,6 +19,7 @@ from products.tasks.backend.constants import (
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
+    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -156,6 +157,10 @@ class TaskProcessingContext:
     # and out-of-band consumers route deterministically for the run's whole life.
     sandbox_backend: str = "modal"
     dev_stack_preview_enabled: bool = False
+    # How the Claude runtime pays for model use. "own-subscription" makes the sandbox request
+    # a Claude token from the creating Desktop; "posthog-gateway" bills PostHog credits.
+    # Resolved fail-closed: flag off or non-Claude adapter always resolves to the gateway.
+    claude_model_access: str = "posthog-gateway"
 
     @property
     def mode(self) -> str:
@@ -447,6 +452,41 @@ def _is_rtk_enabled(
         return state_override
 
     return True
+
+
+def _resolve_claude_model_access(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> str:
+    """Resolve how the Claude runtime pays for model use. Fails closed: the
+    own-subscription path requires the run state to ask for it AND the cloud
+    feature flag to be on. Any flag-service error keeps the run on the PostHog
+    gateway, never silently on the subscription."""
+    if (state or {}).get("claude_model_access") != "own-subscription":
+        return "posthog-gateway"
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("claude_own_subscription_flag_check_failed", run_id=run_id, error=str(e))
+        enabled = False
+    if enabled:
+        log_with_activity_context(
+            "claude_own_subscription_flag_checked", run_id=run_id, claude_model_access="own-subscription"
+        )
+        return "own-subscription"
+    return "posthog-gateway"
 
 
 def _is_benjamin_enabled(
@@ -1350,6 +1390,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         origin_product=task.origin_product,
         state=state,
     )
+    claude_model_access = _resolve_claude_model_access(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    # The subscription path sets CLAUDE_CODE_OAUTH_TOKEN in the Claude env; a non-Claude
+    # adapter has no such env, so the marker must not survive as own-subscription.
+    if (state or {}).get("runtime_adapter") not in (None, "claude"):
+        claude_model_access = "posthog-gateway"
     emit_agent_log(
         run_id,
         "debug",
@@ -1482,6 +1532,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,
+        claude_model_access=claude_model_access,
         continue_as_new_enabled=_is_continue_as_new_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,

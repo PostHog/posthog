@@ -4,7 +4,7 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -451,6 +451,10 @@ class RunState(BaseModel, extra="allow"):
     reasoning_effort: ReasoningEffort | None = None
     context_window: str | None = None
     fast_mode: bool | None = None
+    # Marker, not a secret: "own-subscription" makes the sandbox request a Claude
+    # token from the creating Desktop at run start (the token itself never touches
+    # PostHog servers). Resolved server-side against the cloud feature flag.
+    claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
     resume_from_run_id: str | None = None
     same_run_resume: bool = False
     same_run_resume_idle: bool = False

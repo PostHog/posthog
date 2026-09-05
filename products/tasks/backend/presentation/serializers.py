@@ -3093,6 +3093,18 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "for this run."
         ),
     )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. Omitted or null uses the "
+            "PostHog gateway."
+        ),
+    )
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
@@ -3282,6 +3294,18 @@ class TaskRunBootstrapCreateRequestSerializer(
             "Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted "
             "or null lets the server decide from the feature flag; true or false pins the choice "
             "for this run."
+        ),
+    )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. Omitted or null uses the "
+            "PostHog gateway."
         ),
     )
 
@@ -3749,6 +3773,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "permission_response",
         "set_config_option",
         "mcp_response",
+        "credential_response",
         "pi/rpc",
         "queue_get",
         "queue_clear",
@@ -3758,6 +3783,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
     # Cap on the serialized mcp_response params (docs/CLOUD-MCP-RELAY.md): the relayed JSON-RPC
     # response payload plus envelope must fit in 300 KB. Params are forwarded to the sandbox
     # verbatim and never persisted or captured — they carry data from the user's private systems.
+    # credential_response params carry a provider token and get the same treatment.
     MAX_MCP_RESPONSE_PARAMS_BYTES = 300_000
 
     # A side question is forwarded into an agent turn, so its length is the direct lever on
@@ -3875,6 +3901,19 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 )
             if len(json.dumps(params)) > self.MAX_MCP_RESPONSE_PARAMS_BYTES:
                 raise serializers.ValidationError({"params": "mcp_response params exceed the 300 KB limit"})
+        elif method == "credential_response":
+            self._require_nonempty_string(params, "requestId")
+            self._require_nonempty_string(params, "credential")
+            token = params.get("token")
+            error = params.get("error")
+            if (token is None) == (error is None):
+                raise serializers.ValidationError(
+                    {"params": "credential_response requires exactly one of token or error"}
+                )
+            if token is not None and not isinstance(token, str):
+                raise serializers.ValidationError({"params": "token must be a string"})
+            if error is not None and not isinstance(error, str):
+                raise serializers.ValidationError({"params": "error must be a string"})
         return attrs
 
 
