@@ -47,6 +47,9 @@ Fork of `@anthropic-ai/claude-agent-acp`. Upstream repo: https://github.com/anth
 - SettingsManager `PreToolUse` hook for permission rules
 - `ensureLocalSettings` / `clearStatsigCache`
 - `ELECTRON_RUN_AS_NODE` / `ENABLE_TOOL_SEARCH` env vars
+- `machine-auth.ts` (`MachineClaudeAuth`, `applyMachineClaudeAuth`): strips gateway/telemetry env
+  and sets `CLAUDE_CONFIG_DIR` or `CLAUDE_CODE_OAUTH_TOKEN` so a session bills the user's own
+  Claude plan instead of the PostHog gateway
 
 ## Intentional Divergences
 

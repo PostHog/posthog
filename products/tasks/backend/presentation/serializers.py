@@ -3093,6 +3093,18 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "for this run."
         ),
     )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
+            "keep their billing choice and new runs use the PostHog gateway."
+        ),
+    )
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
@@ -3282,6 +3294,18 @@ class TaskRunBootstrapCreateRequestSerializer(
             "Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted "
             "or null lets the server decide from the feature flag; true or false pins the choice "
             "for this run."
+        ),
+    )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
+            "keep their billing choice and new runs use the PostHog gateway."
         ),
     )
 
@@ -3749,6 +3773,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "permission_response",
         "set_config_option",
         "mcp_response",
+        "credential_response",
         "pi/rpc",
         "queue_get",
         "queue_clear",
@@ -3875,6 +3900,22 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 )
             if len(json.dumps(params)) > self.MAX_MCP_RESPONSE_PARAMS_BYTES:
                 raise serializers.ValidationError({"params": "mcp_response params exceed the 300 KB limit"})
+        elif method == "credential_response":
+            self._require_nonempty_string(params, "requestId")
+            if len(params["requestId"]) > 128:
+                raise serializers.ValidationError({"params": "requestId exceeds the 128 character limit"})
+            if params.get("credential") != "claude_subscription_token":
+                raise serializers.ValidationError({"params": "Unsupported credential"})
+            token = params.get("token")
+            error = params.get("error")
+            if (token is None) == (error is None):
+                raise serializers.ValidationError(
+                    {"params": "credential_response requires exactly one of token or error"}
+                )
+            if token is not None and (not isinstance(token, str) or not token.strip() or len(token) > 4096):
+                raise serializers.ValidationError({"params": "token must contain between 1 and 4096 characters"})
+            if error is not None and error not in ("no_token", "store_unavailable"):
+                raise serializers.ValidationError({"params": "Unsupported credential error"})
         return attrs
 
 

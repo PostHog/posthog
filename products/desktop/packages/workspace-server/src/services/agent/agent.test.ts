@@ -318,6 +318,7 @@ describe("AgentService", () => {
     it.each([
       { action: "login" as const, expected: "'auth' 'login'" },
       { action: "logout" as const, expected: "'auth' 'logout'" },
+      { action: "setup-token" as const, expected: "'setup-token'" },
     ])(
       "describes the claude auth $action terminal",
       async ({ action, expected }) => {

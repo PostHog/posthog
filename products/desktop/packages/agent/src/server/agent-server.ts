@@ -126,6 +126,7 @@ import {
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
+import { CredentialRelay } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
@@ -135,7 +136,11 @@ import {
 } from "./pr-checkout";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
-import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
+import {
+  type CredentialResponseParams,
+  jsonRpcRequestSchema,
+  validateCommandParams,
+} from "./schemas";
 import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
@@ -252,6 +257,10 @@ interface BuiltPrompt {
 }
 
 export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
+export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
+  "This task is set to use your Claude plan, but the token did not arrive from PostHog Desktop. " +
+  "Open PostHog Desktop, check Settings > Claude subscription, and run the task again. " +
+  'To use PostHog credits instead, turn off "Use your Claude plan for cloud tasks".';
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -466,6 +475,7 @@ export class AgentServer {
   // often arrives while newSession() is still awaited (this.session is still null),
   // causing a second session to be created and duplicate Slack messages to be sent.
   private initializationPromise: Promise<void> | null = null;
+  private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
   /** ACP notifications emitted by newSession/resumeSession before this.session is assigned. */
@@ -498,6 +508,9 @@ export class AgentServer {
   private readonly posthogExecPermissionRegex: RegExp;
   private readonly posthogExecPermissionRegexSource: string;
   private mcpRelayServer: McpRelayServer | null = null;
+  private readonly credentialRelay = new CredentialRelay({
+    emitEvent: (event) => this.broadcastEvent(event),
+  });
 
   /**
    * Start loopback relay endpoints for the run's designated desktop-only MCP
@@ -522,6 +535,9 @@ export class AgentServer {
   }
 
   private detachSseController(controller: SseController): void {
+    if (this.initializingSseController === controller) {
+      this.initializingSseController = null;
+    }
     if (this.session?.sseController === controller) {
       this.session.sseController = null;
     }
@@ -698,6 +714,10 @@ export class AgentServer {
         );
       }
 
+      if (!this.isConfiguredRun(payload)) {
+        return c.json({ error: "Token does not match this task run" }, 403);
+      }
+
       let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
       const clearKeepalive = (): void => {
         if (keepaliveInterval) {
@@ -766,6 +786,7 @@ export class AgentServer {
         cancel: () => {
           clearKeepalive();
           this.logger.debug("SSE connection closed");
+          this.initializingSseController = null;
           if (this.session?.sseController) {
             this.session.sseController = null;
           }
@@ -798,7 +819,7 @@ export class AgentServer {
         );
       }
 
-      if (!this.session || this.session.payload.run_id !== payload.run_id) {
+      if (!this.isConfiguredRun(payload)) {
         return c.json({ error: "No active session for this run" }, 400);
       }
 
@@ -810,6 +831,13 @@ export class AgentServer {
       }
 
       const command = parseResult.data;
+      const isCredentialResponse =
+        command.method === "credential_response" ||
+        command.method === "posthog/credential_response" ||
+        command.method === POSTHOG_NOTIFICATIONS.CREDENTIAL_RESPONSE;
+      if (!isCredentialResponse && !this.session) {
+        return c.json({ error: "No active session for this run" }, 400);
+      }
       const paramsValidation = validateCommandParams(
         command.method,
         command.params ?? {},
@@ -830,10 +858,11 @@ export class AgentServer {
       }
 
       try {
-        const result = await this.executeCommand(
-          command.method,
-          (command.params as Record<string, unknown>) || {},
-        );
+        const result = isCredentialResponse
+          ? this.resolveCredentialResponse(
+              paramsValidation.data as CredentialResponseParams,
+            )
+          : await this.executeCommand(command.method, command.params ?? {});
         return c.json({
           jsonrpc: "2.0",
           id: command.id,
@@ -1005,11 +1034,13 @@ export class AgentServer {
 
   async stop(): Promise<void> {
     this.logger.debug("Stopping agent server...");
+    this.credentialRelay.stop();
+    await this.initializationPromise?.catch(() => undefined);
 
     if (this.session) {
       await this.cleanupSession({ completeEventStream: true });
     } else {
-      await this.eventStreamSender?.stop();
+      await this.eventStreamSender?.stop({ complete: false });
     }
 
     if (this.server) {
@@ -1085,6 +1116,33 @@ export class AgentServer {
     }
   }
 
+  private async reportClaudeSubscriptionTokenMissing(
+    reason: string,
+  ): Promise<void> {
+    try {
+      this.broadcastEvent({
+        type: "notification",
+        timestamp: new Date().toISOString(),
+        notification: {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
+          params: {
+            runtimeAdapter: this.getRuntimeAdapter(),
+            initializationPhase: "credential_relay",
+            reason,
+            message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+          },
+        },
+      });
+      await this.eventStreamSender?.stop({ complete: false });
+    } catch (error) {
+      this.logger.error(
+        "Failed to flush events after credential relay failure",
+        error,
+      );
+    }
+  }
+
   private authenticateRequest(
     getHeader: (name: string) => string | undefined,
   ): JwtPayload {
@@ -1106,6 +1164,23 @@ export class AgentServer {
 
     const token = authHeader.slice(7);
     return validateJwt(token, this.config.jwtPublicKey);
+  }
+
+  private isConfiguredRun(payload: JwtPayload): boolean {
+    return (
+      payload.task_id === this.config.taskId &&
+      payload.run_id === this.config.runId &&
+      payload.team_id === this.config.projectId
+    );
+  }
+
+  private resolveCredentialResponse(params: CredentialResponseParams): {
+    resolved: true;
+  } {
+    if (!this.credentialRelay.resolve(params)) {
+      throw new Error("No pending credential request found");
+    }
+    return { resolved: true };
   }
 
   private async executeCommand(
@@ -1605,6 +1680,12 @@ export class AgentServer {
     payload: JwtPayload,
     sseController: SseController | null,
   ): Promise<void> {
+    if (sseController) {
+      this.initializingSseController = sseController;
+      const events = this.pendingEvents;
+      this.pendingEvents = [];
+      for (const event of events) this.sendSseEvent(sseController, event);
+    }
     // Race condition guard: autoInitializeSession() starts first, but while it awaits
     // newSession() (which takes ~1-2s for MCP metadata fetch), the Temporal relay connects
     // to GET /events. That handler sees this.session === null and calls initializeSession()
@@ -1630,10 +1711,7 @@ export class AgentServer {
       this.httpReadyBootMs,
       this.config.launcherToProcessMs,
     );
-    this.initializationPromise = this._doInitializeSession(
-      payload,
-      sseController,
-    );
+    this.initializationPromise = this._doInitializeSession(payload);
     const initStartedAt = Date.now();
     try {
       await this.initializationPromise;
@@ -1666,6 +1744,7 @@ export class AgentServer {
     } finally {
       this.initializingTelemetry = undefined;
       this.initializationPromise = null;
+      this.initializingSseController = null;
     }
   }
 
@@ -1697,10 +1776,7 @@ export class AgentServer {
     return null;
   }
 
-  private async _doInitializeSession(
-    payload: JwtPayload,
-    sseController: SseController | null,
-  ): Promise<void> {
+  private async _doInitializeSession(payload: JwtPayload): Promise<void> {
     if (this.session) {
       await this.cleanupSession();
     }
@@ -1846,6 +1922,23 @@ export class AgentServer {
       sinks: telemetry ? [telemetry] : undefined,
     });
 
+    let claudeSubscriptionToken: string | null = null;
+    if (
+      this.config.claudeModelAccess === "own-subscription" &&
+      runtimeAdapter === "claude"
+    ) {
+      try {
+        claudeSubscriptionToken = await this.credentialRelay.request(
+          "claude_subscription_token",
+        );
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn("Claude subscription token relay failed", { reason });
+        await this.reportClaudeSubscriptionTokenMissing(reason);
+        throw error;
+      }
+    }
+
     const acpConnection = createAcpConnection({
       adapter: runtimeAdapter,
       taskRunId: payload.run_id,
@@ -1856,7 +1949,14 @@ export class AgentServer {
       onWireMessage: (message, eventId) =>
         this.handleAcpTransportMessage(message, eventId),
       logger: this.logger,
-      claudeGatewayEnv: runtimeAdapter !== "codex" ? gatewayEnv : undefined,
+      claudeGatewayEnv:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken === null
+          ? gatewayEnv
+          : undefined,
+      claudeMachineAuth:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? { oauthToken: claudeSubscriptionToken }
+          : undefined,
       codexOptions:
         runtimeAdapter === "codex"
           ? {
@@ -2081,12 +2181,12 @@ export class AgentServer {
       acpSessionId,
       acpConnection,
       clientConnection,
-      sseController,
+      sseController: this.initializingSseController,
       deviceInfo,
       logWriter,
       telemetry,
       permissionMode: initialPermissionMode,
-      hasDesktopConnected: sseController !== null,
+      hasDesktopConnected: this.initializingSseController !== null,
       sessionMeta: effectiveSessionMeta,
     };
     this.initializingTelemetry = undefined;
@@ -5536,8 +5636,10 @@ ${commonInstructions}
   private broadcastEvent(event: Record<string, unknown>): void {
     this.eventStreamSender?.enqueue(event);
 
-    if (this.session?.sseController) {
-      this.sendSseEvent(this.session.sseController, event);
+    const controller =
+      this.session?.sseController ?? this.initializingSseController;
+    if (controller) {
+      this.sendSseEvent(controller, event);
     } else {
       // Buffers events raised before a session exists yet (e.g. an MCP relay
       // request fired the instant the client subprocess starts, ahead of

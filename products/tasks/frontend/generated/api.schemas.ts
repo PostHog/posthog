@@ -2552,6 +2552,17 @@ export const InitialPermissionModeEnumApi = {
 } as const
 
 /**
+ * * `posthog-gateway` - posthog-gateway
+ * * `own-subscription` - own-subscription
+ */
+export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+
+export const ClaudeModelAccessEnumApi = {
+    PosthogGateway: 'posthog-gateway',
+    OwnSubscription: 'own-subscription',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
@@ -2651,6 +2662,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -2777,6 +2793,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3148,6 +3169,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -3722,6 +3748,7 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `credential_response` - credential_response
  * * `pi/rpc` - pi/rpc
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
@@ -3737,6 +3764,7 @@ export const TaskRunCommandRequestMethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    CredentialResponse: 'credential_response',
     PiRpc: 'pi/rpc',
     QueueGet: 'queue_get',
     QueueClear: 'queue_clear',
@@ -3759,6 +3787,7 @@ export interface TaskRunCommandRequestApi {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear

@@ -15,6 +15,7 @@ from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
+    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -29,7 +30,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_in_rollout,
     vm_sandbox_origin_rollout_percentages,
 )
-from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
@@ -45,6 +46,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
+    _resolve_claude_model_access,
     _resolve_modal_vm_sandbox,
     _resolve_sandbox_backend,
     get_task_processing_context,
@@ -906,6 +908,67 @@ class TestGetTaskProcessingContextActivity:
                     state={"rtk_enabled": False},
                 )
                 is False
+            )
+
+    @pytest.mark.parametrize(
+        "flag_value, state, expected",
+        [
+            (True, {"claude_model_access": "own-subscription"}, "own-subscription"),
+            (True, {"claude_model_access": "posthog-gateway"}, "posthog-gateway"),
+            (True, {}, "posthog-gateway"),
+        ],
+    )
+    def test_claude_model_access_requires_state_ask_and_flag(self, flag_value, state, expected):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            assert (
+                _resolve_claude_model_access(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    state=state,
+                )
+                == expected
+            )
+
+        if state.get("claude_model_access") == "own-subscription":
+            feature_enabled_mock.assert_called_once_with(
+                CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                distinct_id="distinct-id",
+                groups={"organization": "organization-id"},
+                group_properties={"organization": {"id": "organization-id"}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        else:
+            feature_enabled_mock.assert_not_called()
+
+    @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
+    def test_claude_model_access_never_changes_requested_billing(self, flag_value: object) -> None:
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+                return_value=flag_value,
+                side_effect=flag_value if isinstance(flag_value, Exception) else None,
+            ),
+            pytest.raises(ProcessTaskFatalError, match="Using your Claude plan for cloud tasks is unavailable"),
+        ):
+            _resolve_claude_model_access(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                state={"claude_model_access": "own-subscription"},
+            )
+
+    def test_claude_subscription_rejects_other_adapters(self) -> None:
+        with pytest.raises(ProcessTaskFatalError, match="requires the Claude runtime"):
+            _resolve_claude_model_access(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                state={"claude_model_access": "own-subscription", "runtime_adapter": "codex"},
             )
 
     @pytest.mark.parametrize("launched_value", [True, False])

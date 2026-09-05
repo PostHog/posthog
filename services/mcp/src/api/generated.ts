@@ -17303,6 +17303,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription
+     */
+    export type ClaudeModelAccessEnum = typeof ClaudeModelAccessEnum[keyof typeof ClaudeModelAccessEnum];
+
+
+    export const ClaudeModelAccessEnum = {
+      PosthogGateway: 'posthog-gateway',
+      OwnSubscription: 'own-subscription',
+    } as const;
+
+    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -17537,6 +17549,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -17935,6 +17952,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export type PropertyGroupOperatorEnum = typeof PropertyGroupOperatorEnum[keyof typeof PropertyGroupOperatorEnum];
@@ -85874,6 +85896,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export interface TaskRunCancelRequest {
@@ -85899,6 +85926,7 @@ export namespace Schemas {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
@@ -85914,6 +85942,7 @@ export namespace Schemas {
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
       McpResponse: 'mcp_response',
+      CredentialResponse: 'credential_response',
       PiRpc: 'pi/rpc',
       QueueGet: 'queue_get',
       QueueClear: 'queue_clear',
@@ -85936,6 +85965,7 @@ export namespace Schemas {
        * * `permission_response` - permission_response
        * * `set_config_option` - set_config_option
        * * `mcp_response` - mcp_response
+       * * `credential_response` - credential_response
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
        * * `queue_clear` - queue_clear

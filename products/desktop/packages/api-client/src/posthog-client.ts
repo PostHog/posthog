@@ -5,6 +5,7 @@ import type {
   CloudRunSource,
   ExecutionMode,
   McpServerConnection,
+  ModelAccess,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -970,6 +971,7 @@ export interface CloudRunOptions {
   autoPublish?: boolean;
   /** Only false is sent: opts the run out of rtk command-output compression. */
   rtkEnabled?: boolean;
+  claudeModelAccess?: ModelAccess;
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: ExecutionMode;
@@ -1119,6 +1121,9 @@ function buildCloudRunRequestBody(
   }
   if (options?.rtkEnabled === false) {
     body.rtk_enabled = false;
+  }
+  if (options?.claudeModelAccess) {
+    body.claude_model_access = options.claudeModelAccess;
   }
   if (options?.runSource) {
     body.run_source = options.runSource;

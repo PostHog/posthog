@@ -1,3 +1,4 @@
+import { CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 // Desktop host service bindings live here as features move into packages.
 // Importing the renderer container performs today's existing bindings.
 import "@renderer/di/container";
@@ -409,6 +410,13 @@ container.bind<UserNameProvider>(SPEECH_USER_NAME_PROVIDER).toConstantValue({
     }
     return undefined;
   },
+});
+
+container.bind(CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS).toConstantValue({
+  has: () => hostTrpcClient.claudeSubscriptionToken.has.query(),
+  save: (token: string) =>
+    hostTrpcClient.claudeSubscriptionToken.save.mutate({ token }),
+  clear: () => hostTrpcClient.claudeSubscriptionToken.clear.mutate(),
 });
 
 container.bind<ISpeechKeyStore>(SPEECH_KEY_STORE).toConstantValue({

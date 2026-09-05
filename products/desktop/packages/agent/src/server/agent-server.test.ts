@@ -2388,6 +2388,96 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("POST /command", () => {
+    it("delivers a subscription credential during HTTP session initialization", async () => {
+      const s = createServer({ claudeModelAccess: "own-subscription" });
+      const { app } = s as unknown as {
+        app: { fetch(request: Request): Promise<Response> | Response };
+      };
+      const authorization = `Bearer ${createToken()}`;
+      const response = await app.fetch(
+        new Request("http://localhost/events", {
+          headers: { Authorization: authorization },
+        }),
+      );
+      if (!response.body) throw new Error("Expected an event stream");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffered = "";
+      const nextEvent = async (): Promise<Record<string, unknown>> => {
+        for (;;) {
+          const end = buffered.indexOf("\n\n");
+          if (end >= 0) {
+            const frame = buffered.slice(0, end);
+            buffered = buffered.slice(end + 2);
+            if (frame.startsWith("data: ")) return JSON.parse(frame.slice(6));
+          } else {
+            const chunk = await reader.read();
+            if (chunk.done)
+              throw new Error("Event stream ended before initialization");
+            buffered += decoder.decode(chunk.value, { stream: true });
+          }
+        }
+      };
+      try {
+        let event = await nextEvent();
+        while (event.type !== "credential_request") event = await nextEvent();
+        const health = await app.fetch(new Request("http://localhost/health"));
+        expect((await health.json()).hasSession).toBe(false);
+        const body = JSON.stringify({
+          jsonrpc: "2.0",
+          id: "credential-reply",
+          method: "credential_response",
+          params: {
+            requestId: event.requestId,
+            credential: "claude_subscription_token",
+            token: "sk-ant-oat01-fake-test-token",
+          },
+        });
+        for (const overrides of [
+          { task_id: "other-task" },
+          { run_id: "other-run" },
+          { team_id: 2 },
+        ]) {
+          const denied = await app.fetch(
+            new Request("http://localhost/command", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${createToken(overrides)}`,
+                "Content-Type": "application/json",
+              },
+              body,
+            }),
+          );
+          expect(denied.status).toBe(400);
+        }
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const reply = await app.fetch(
+            new Request("http://localhost/command", {
+              method: "POST",
+              headers: {
+                Authorization: authorization,
+                "Content-Type": "application/json",
+              },
+              body,
+            }),
+          );
+          expect(await reply.json()).toEqual({
+            jsonrpc: "2.0",
+            id: "credential-reply",
+            result: { resolved: true },
+          });
+        }
+        while (event.type !== "connected") event = await nextEvent();
+        const ready = await app.fetch(new Request("http://localhost/health"));
+        expect((await ready.json()).hasSession).toBe(true);
+        expect(JSON.stringify(appendLogCalls)).not.toContain(
+          "sk-ant-oat01-fake-test-token",
+        );
+      } finally {
+        await reader.cancel();
+      }
+    });
+
     it("returns 401 without authorization", async () => {
       await createServer().start();
 

@@ -9,7 +9,9 @@ import type {
   AUTH_TOKEN_OVERRIDE,
 } from "@posthog/core/auth/identifiers";
 import type {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
+  ClaudeSubscriptionTokenStore,
   ICloudTaskAuth,
   MCP_RELAY_EXECUTOR,
   McpRelayExecutor,
@@ -387,6 +389,7 @@ export interface MainBindings {
   [MCP_PROXY_AUTH]: McpProxyAuth;
   [MCP_RELAY_SERVICE]: McpRelayService;
   [MCP_RELAY_EXECUTOR]: McpRelayExecutor;
+  [CLAUDE_SUBSCRIPTION_TOKEN_STORE]: ClaudeSubscriptionTokenStore;
 
   // Archive / suspension host ports
   [ARCHIVE_SESSION_CANCELLER]: SessionCanceller;

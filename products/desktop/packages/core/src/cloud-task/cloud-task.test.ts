@@ -1,4 +1,4 @@
-import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
+import { ANALYTICS_EVENTS, TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudTaskEvent } from "./schemas";
 
@@ -4406,5 +4406,264 @@ describe("CloudTaskEngine MCP relay", () => {
           ),
       ).toEqual([]);
     });
+  });
+});
+
+describe("CloudTaskEngine credential relay", () => {
+  let relayService: CloudTaskEngine;
+  let tokenStore: { get: ReturnType<typeof vi.fn> };
+  let analyticsMock: { track: ReturnType<typeof vi.fn> };
+  const commandResponse = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const scopedLog = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const loggerMock = { ...scopedLog, scope: vi.fn(() => scopedLog) };
+    analyticsMock = { track: vi.fn() };
+    tokenStore = { get: vi.fn() };
+    relayService = createCloudTaskEngine({
+      auth: mockAuthService as never,
+      analytics: analyticsMock as never,
+      logger: loggerMock,
+      claudeSubscriptionTokenStore: tokenStore as never,
+      streamFetch: fetchRouter,
+    });
+
+    mockNetFetch.mockReset();
+    commandResponse.mockReset();
+    commandResponse.mockImplementation(() =>
+      createJsonResponse({ result: {} }),
+    );
+    mockNetFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/command/")
+          ? commandResponse()
+          : createJsonResponse({ id: "run-1", status: "in_progress" }),
+      ),
+    );
+    mockStreamFetch.mockReset();
+    mockStreamTokenFetch.mockReset();
+    mockStreamTokenFetch.mockImplementation(() =>
+      Promise.resolve(
+        createJsonResponse({ token: "test-token", stream_base_url: null }),
+      ),
+    );
+    mockAuthService.authenticatedFetch.mockReset();
+    vi.stubGlobal("fetch", fetchRouter);
+    mockAuthService.authenticatedFetch.mockImplementation(
+      async (input: string | Request, init?: RequestInit) => {
+        return fetchRouter(input, {
+          ...init,
+          headers: {
+            ...(init?.headers ?? {}),
+            Authorization: "Bearer token",
+          },
+        });
+      },
+    );
+  });
+
+  afterEach(() => {
+    relayService.unwatchAll();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function credentialRequestSseLine(
+    overrides: Partial<{ requestId: string; expiresAt: string }> = {},
+  ): string {
+    const event = {
+      type: "credential_request",
+      requestId: overrides.requestId ?? "cred-req-1",
+      credential: "claude_subscription_token",
+      expiresAt:
+        overrides.expiresAt ?? new Date(Date.now() + 120_000).toISOString(),
+    };
+    return `data: ${JSON.stringify(event)}\n\n`;
+  }
+
+  function watchRun(runId: string, designated = true): void {
+    if (designated) {
+      relayService.designateClaudeSubscription({
+        taskId: "task-1",
+        runId,
+        apiHost: "https://app.example.com",
+        teamId: 2,
+      });
+    }
+    relayService.watch({
+      taskId: "task-1",
+      runId,
+      apiHost: "https://app.example.com",
+      teamId: 2,
+      resumeFromEntryCount: 0,
+    });
+  }
+
+  function commandPosts(): Array<{ method: string; params: unknown }> {
+    return mockNetFetch.mock.calls
+      .filter(([url]) => (url as string).includes("/command/"))
+      .map(
+        ([, init]) =>
+          JSON.parse((init as RequestInit).body as string) as {
+            method: string;
+            params: unknown;
+          },
+      );
+  }
+
+  it("answers a credential request with the stored token", async () => {
+    const token = "sk-ant-oat01-fake-test-token";
+    tokenStore.get.mockResolvedValue(token);
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    watchRun("run-1");
+
+    await vi.advanceTimersByTimeAsync(0);
+    const post = commandPosts()[0];
+    expect(post.method).toBe("credential_response");
+    expect(post.params).toEqual({
+      requestId: "cred-req-1",
+      credential: "claude_subscription_token",
+      token,
+    });
+    expect(analyticsMock.track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+      { credential: "claude_subscription_token", outcome: "sent" },
+    );
+  });
+
+  it("ignores a duplicate request with the same requestId", async () => {
+    const token = "sk-ant-oat01-fake-test-token";
+    tokenStore.get.mockResolvedValue(token);
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(
+        credentialRequestSseLine() + credentialRequestSseLine(),
+      ),
+    );
+    watchRun("run-1");
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(commandPosts()).toHaveLength(1);
+  });
+
+  it("reports no_token when the store has no token", async () => {
+    tokenStore.get.mockResolvedValue(null);
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    watchRun("run-1");
+
+    await vi.advanceTimersByTimeAsync(0);
+    const post = commandPosts()[0];
+    expect(post.method).toBe("credential_response");
+    expect(post.params).toEqual({
+      requestId: "cred-req-1",
+      credential: "claude_subscription_token",
+      error: "no_token",
+    });
+    expect(analyticsMock.track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+      { credential: "claude_subscription_token", outcome: "no_token" },
+    );
+  });
+
+  it.each(["expired", "malformed", "observer", "other-project"])(
+    "does not disclose a token for an %s request",
+    async (scenario) => {
+      tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+      mockStreamFetch.mockResolvedValueOnce(
+        createOpenSseResponse(
+          credentialRequestSseLine({
+            expiresAt:
+              scenario === "expired"
+                ? new Date(Date.now() - 1_000).toISOString()
+                : scenario === "malformed"
+                  ? "not-a-date"
+                  : new Date(Date.now() + 120_000).toISOString(),
+          }),
+        ),
+      );
+      if (scenario === "other-project") {
+        relayService.designateClaudeSubscription({
+          taskId: "task-1",
+          runId: "run-1",
+          apiHost: "https://app.example.com",
+          teamId: 3,
+        });
+      }
+      watchRun("run-1", scenario === "expired" || scenario === "malformed");
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(commandPosts()).toHaveLength(0);
+      expect(tokenStore.get).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retries transient delivery failures until accepted without reporting an early success", async () => {
+    tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    commandResponse.mockReturnValueOnce(
+      new Response("unavailable", { status: 503 }),
+    );
+    watchRun("run-1");
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(commandPosts()).toHaveLength(1);
+    expect(analyticsMock.track).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(commandPosts()).toHaveLength(2);
+    expect(analyticsMock.track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+      {
+        credential: "claude_subscription_token",
+        outcome: "sent",
+      },
+    );
+  });
+
+  it("stops retries at the credential deadline", async () => {
+    tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(
+        credentialRequestSseLine({
+          expiresAt: new Date(Date.now() + 1_500).toISOString(),
+        }),
+      ),
+    );
+    commandResponse.mockImplementation(
+      () => new Response("unavailable", { status: 503 }),
+    );
+    watchRun("run-1");
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(commandPosts()).toHaveLength(2);
+    expect(analyticsMock.track).not.toHaveBeenCalled();
+  });
+
+  it("handles secure-store errors without exposing their contents", async () => {
+    tokenStore.get.mockRejectedValue(new Error("secret-store-value"));
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    watchRun("run-1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(commandPosts()).toMatchObject([
+      {
+        method: "credential_response",
+        params: {
+          requestId: "cred-req-1",
+          credential: "claude_subscription_token",
+          error: "no_token",
+        },
+      },
+    ]);
   });
 });

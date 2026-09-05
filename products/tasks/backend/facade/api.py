@@ -428,6 +428,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "ai_stage",
         "auto_publish",
         "benjamin_enabled",
+        "claude_model_access",
         "context_window",
         "custom_image_id",
         "fast_mode",
@@ -3960,6 +3961,14 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
+        if not run.is_terminal or (
+            SandboxSession.objects.for_team(team_id)
+            .filter(task_run=run, ended_at__isnull=True, ttl_expires_at__gt=django_timezone.now())
+            .exists()
+        ):
+            raise RuntimeError("Task run is still stopping. Try again shortly.")
+        return False
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
@@ -4671,6 +4680,7 @@ def bootstrap_task_run(
         "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
         "benjamin_enabled": validated_data.get("benjamin_enabled"),
+        "claude_model_access": validated_data.get("claude_model_access"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -6762,6 +6772,8 @@ def warm_task_resume_sandbox(
         return None
 
     previous_state = parse_run_state(previous_run.state)
+    if previous_state.claude_model_access == "own-subscription":
+        return None
     resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
     resolved_model = model or previous_state.model
     resolved_reasoning_effort = reasoning_effort or previous_state.reasoning_effort
@@ -6946,7 +6958,11 @@ def run_task(
             internal=task.internal,
         )
 
-    warm_run = _idling_warm_run_for_task(task)
+    claude_model_access = validated_data.get("claude_model_access")
+    if claude_model_access is None and previous_state is not None:
+        claude_model_access = previous_state.claude_model_access
+
+    warm_run = _idling_warm_run_for_task(task) if claude_model_access != "own-subscription" else None
     if warm_run is not None:
         warm_state = warm_run.state or {}
         # Both directions. A request that states no resume source must not be handed a successor
@@ -7077,6 +7093,7 @@ def run_task(
         ("initial_permission_mode", initial_permission_mode),
         ("rtk_enabled", validated_data.get("rtk_enabled")),
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
+        ("claude_model_access", claude_model_access),
     ):
         if value is not None:
             extra_state = extra_state or {}
