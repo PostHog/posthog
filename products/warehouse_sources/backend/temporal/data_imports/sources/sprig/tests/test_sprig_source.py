@@ -18,3 +18,23 @@ class TestValidateCredentials:
         ok, error = SprigSource().validate_credentials(_config(), team_id=1)
         assert ok is expected_ok
         assert (error is None) is expected_ok
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.sprig.com/v2/environments"),
+            ("forbidden_after_redirect", "403 Client Error: Forbidden for url: https://sprig.com"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _label: str, observed_error: str) -> None:
+        assert any(key in observed_error for key in SprigSource().get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.sprig.com/v2/studies"),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.sprig.com/v2/studies"),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _label: str, other_error: str) -> None:
+        assert not any(key in other_error for key in SprigSource().get_non_retryable_errors())

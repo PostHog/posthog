@@ -52,8 +52,10 @@ class BillComSource(ResumableSource[BillComSourceConfig, BillComResumeConfig]):
         return {
             "BILL sign-in failed": "BILL could not sign you in. Please check your email, password, organization ID, and developer key.",
             "BILL sign-in did not return a session ID": "BILL did not start an API session. Please check your developer key and try again.",
-            "401 Client Error: Unauthorized for url: https://gateway": "Your BILL API session could not be renewed. Please check your credentials and reconnect.",
-            "403 Client Error: Forbidden for url: https://gateway": "Your BILL user does not have access to this data. Please check the user's permissions and try again.",
+            # `requests` builds the message from the URL after redirects, so match the stable status
+            # text only — a redirect off the API host makes any host-anchored key miss.
+            "401 Client Error: Unauthorized": "Your BILL API session could not be renewed. Please check your credentials and reconnect.",
+            "403 Client Error: Forbidden": "Your BILL user does not have access to this data. Please check the user's permissions and try again.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
