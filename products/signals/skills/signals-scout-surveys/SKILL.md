@@ -255,6 +255,7 @@ Direct calls (read-only):
 - `survey-stats` — per-survey response statistics: `shown` / `dismissed` / `sent` counts, unique respondents, conversion rates, timing. Date-filterable.
 - `survey-get` — full survey config for a candidate: questions (with ids and types), `type` (popover / widget / api — affects how `survey shown` semantics read), targeting (`linked_flag_id` / `targeting_flag_id` / `linked_insight_id` / `conditions`), schedule (`start_date`, `end_date`), iteration config, `updated_at`. Read this before drawing conclusions about score changes — question wording changes invalidate trend comparisons.
 - `surveys-get-all` — last-resort discovery. Each survey object is 30–50 KB and busy projects have 100+ active surveys; calling this with `limit > 5` will blow your token budget. Prefer the profile's `recent_surveys` for the roster, then `surveys-global-stats` + an `execute-sql` ranking query (see "Get oriented" above) to find the candidate set, then `survey-get` per id. Use `surveys-get-all {"search": "..."}` if you need to resolve a name from a memory entry.
+- `surveys-summarize-responses-create` — PostHog's own cached LLM summary of a survey's responses. Pass `question_id` for a per-question theme summary, omit it for the survey-wide headline, `force_refresh: true` to bypass the cache. Use it as a cheap first read of what a candidate's responses are about. It does not apply this skill's theme bar (internal-test stripping, ≥ 3 distinct respondents), so confirm a theme against the response SQL before you report it. Cloud only, and it returns 403 when the organization has not approved AI data processing.
 - `execute-sql` against `events` — for raw response analysis (rating trends, theme aggregation). The property reference, the dual response-key coalesce, and the `$survey_submission_id` dedupe SQL are all in [`references/response-querying.md`](references/response-querying.md).
 - `read-data-schema event_property_values` — sample response values to confirm property keys exist and have the shape you expect before running heavy aggregations.
 - `query-trends` — confirm `survey shown` / `survey sent` volume trends with weekly comparisons. Cheaper than a full SQL aggregation when you just need the shape.
@@ -270,11 +271,9 @@ Harness-level:
 
 ### When you hit a gap
 
-One MCP gap is known and may be worth flagging in a separate PR rather than working around in-skill:
+No MCP gap is known for this scout.
 
-- **Survey summarization isn't MCP-callable.** The product has a summarization pipeline at `products/surveys/backend/summarization/` but it's not exposed as an MCP tool. If it were, this scout could lean on cached summaries instead of re-aggregating themes from scratch each run. Worth a P2 for accuracy and cost.
-
-If you notice another gap during a run that would meaningfully unlock this scout, write a scratchpad entry with key `mcp-gap:surveys:<short-name>` so the gap surfaces in the next review via `text=mcp-gap`.
+If you notice one during a run that would meaningfully unlock this scout, write a scratchpad entry with key `mcp-gap:surveys:<short-name>` so the gap surfaces in the next review via `text=mcp-gap`. It may be worth flagging in a separate PR rather than working around in-skill.
 
 ## When to stop
 
