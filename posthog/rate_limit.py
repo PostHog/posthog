@@ -1410,14 +1410,70 @@ class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "12000/hour"
 
 
+class RefundableRateThrottleMixin:
+    """Lets a view hand back the slot a request took once it knows the request did no work.
+
+    DRF charges a request the moment it passes the throttle, before the view body runs, so a
+    failed attempt costs the same as a successful one. That is the wrong shape for a flow where
+    failures are expected and the user's only recourse is to retry: a broken upstream drains the
+    budget, and the resulting 429 then hides the error that actually needs fixing.
+
+    Apply this to the long-window throttle only. The short-window one should still charge for
+    failures, since that is what stops a retry loop from hammering an upstream provider.
+    """
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        allowed = super().allow_request(request, view)  # type: ignore[misc]
+        if allowed:
+            refundable = getattr(request, "_refundable_throttles", None)
+            if refundable is None:
+                refundable = []
+                request._refundable_throttles = refundable  # type: ignore[attr-defined]
+            refundable.append(self)
+        return allowed
+
+    def refund(self) -> None:
+        key = getattr(self, "key", None)
+        # SimpleRateThrottle.throttle_success() charges the window by inserting self.now.
+        charged_at = getattr(self, "now", None)
+        if not key or charged_at is None:
+            return
+        # Re-read the window rather than writing back the snapshot this request captured at
+        # throttle time. A concurrent request from the same user may have been charged since,
+        # and restoring the snapshot would erase that charge and let the window run over its
+        # limit.
+        # This narrows the race rather than closing it, and closing it here is not reachable.
+        # SimpleRateThrottle.throttle_success() charges the window with the same unsynchronized
+        # get/modify/set, so there is no atomic writer to serialize against, and the window is
+        # stored as a pickled Python list, so no server-side Redis operation can edit it in
+        # place. Removing the race means replacing the sliding window with a token bucket,
+        # which changes throttling behavior well beyond this scope.
+        current = self.cache.get(key, [])  # type: ignore[attr-defined]
+        try:
+            current.remove(charged_at)
+        except ValueError:
+            # Already aged out of the window, so there is nothing left to give back.
+            return
+        self.cache.set(key, current, self.duration)  # type: ignore[attr-defined]
+
+
+def refund_rate_limit(request: "Request") -> None:
+    """Give back every refundable throttle slot this request consumed."""
+    for throttle in getattr(request, "_refundable_throttles", []):
+        throttle.refund()
+
+
 class MCPOAuthBurstThrottle(UserRateThrottle):
     scope = "mcp_oauth_burst"
     rate = "10/minute"
 
 
-class MCPOAuthSustainedThrottle(UserRateThrottle):
+class MCPOAuthSustainedThrottle(RefundableRateThrottleMixin, UserRateThrottle):
     scope = "mcp_oauth_sustained"
-    rate = "50/hour"
+    # Connecting a server is interactive and often takes several rounds against the provider, so
+    # the hourly budget only needs to be high enough that ordinary use never reaches it. The
+    # 10/minute burst above is what actually bounds abuse.
+    rate = "200/hour"
 
 
 class MCPOAuthRedirectBurstThrottle(SimpleRateThrottle):

@@ -22,6 +22,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.rate_limit import MCPOAuthSustainedThrottle
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
 from products.mcp_store.backend.models import (
@@ -4204,6 +4205,117 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not MCPOAuthState.objects.filter(team=self.team).exists()
+
+
+class TestRefundableRateThrottle(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_refund_keeps_a_charge_made_after_this_request_passed(self) -> None:
+        throttle = MCPOAuthSustainedThrottle()
+        throttle.key = "test-mcp-oauth-sustained"
+        throttle.now = 100.0
+        # The snapshot this request captured when it passed the throttle.
+        throttle.history = [100.0]
+        # A second request from the same user was charged while this one was still running.
+        cache.set(throttle.key, [200.0, 100.0], 3600)
+
+        throttle.refund()
+
+        assert cache.get(throttle.key) == [200.0]
+
+    def test_refund_is_a_no_op_once_the_charge_aged_out(self) -> None:
+        throttle = MCPOAuthSustainedThrottle()
+        throttle.key = "test-mcp-oauth-sustained"
+        throttle.now = 100.0
+        throttle.history = [100.0]
+        cache.set(throttle.key, [300.0], 3600)
+
+        throttle.refund()
+
+        assert cache.get(throttle.key) == [300.0]
+
+
+class TestInstallTemplateRateLimit(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _template(self, **overrides) -> MCPServerTemplate:
+        self._sequence = getattr(self, "_sequence", 0) + 1
+        defaults = {
+            "name": f"Throttle-template-{self._sequence}",
+            "url": f"https://mcp-throttle-{self._sequence}.test.example.com/mcp",
+            "auth_type": "oauth",
+            "is_active": True,
+            "oauth_metadata": {
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+            },
+            "oauth_credentials": {"client_id": "template-client-id"},
+        }
+        defaults.update(overrides)
+        return MCPServerTemplate.objects.create(**defaults)
+
+    def _install(self, template: MCPServerTemplate) -> HttpResponse:
+        return self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+    def test_failed_install_does_not_spend_the_hourly_budget(self) -> None:
+        inactive = self._template(is_active=False)
+        working = self._template()
+
+        with patch("posthog.rate_limit.MCPOAuthSustainedThrottle.rate", "1/hour"):
+            first = self._install(inactive)
+            second = self._install(working)
+
+        assert first.status_code == status.HTTP_404_NOT_FOUND
+        assert second.status_code == status.HTTP_200_OK, second.content
+
+    def test_successful_install_spends_the_hourly_budget(self) -> None:
+        first_template = self._template()
+        second_template = self._template()
+
+        with patch("posthog.rate_limit.MCPOAuthSustainedThrottle.rate", "1/hour"):
+            first = self._install(first_template)
+            second = self._install(second_template)
+
+        assert first.status_code == status.HTTP_200_OK, first.content
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_failed_install_still_spends_the_burst_budget(self) -> None:
+        inactive = self._template(is_active=False)
+        working = self._template()
+
+        with patch("posthog.rate_limit.MCPOAuthBurstThrottle.rate", "1/minute"):
+            first = self._install(inactive)
+            second = self._install(working)
+
+        assert first.status_code == status.HTTP_404_NOT_FOUND
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_burst_rejection_does_not_spend_the_hourly_budget(self) -> None:
+        # DRF evaluates every throttle, so the sustained one charges even when the burst one
+        # rejects. Without a refund on 429 a burst lockout would also drain the hourly budget.
+        allowed = self._template()
+        blocked = self._template()
+        after_lockout = self._template()
+
+        with patch("posthog.rate_limit.MCPOAuthSustainedThrottle.rate", "2/hour"):
+            first = self._install(allowed)
+            with patch("posthog.rate_limit.MCPOAuthBurstThrottle.rate", "1/minute"):
+                second = self._install(blocked)
+            third = self._install(after_lockout)
+
+        assert first.status_code == status.HTTP_200_OK, first.content
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert third.status_code == status.HTTP_200_OK, third.content
 
 
 class TestInstallationToolsAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
