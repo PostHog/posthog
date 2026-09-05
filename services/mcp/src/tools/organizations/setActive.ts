@@ -16,6 +16,9 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
 ) => {
     const { orgId } = params
     await context.cache.set('orgId', orgId)
+    // Record the switch on the MCP session so a pinned connection's resent pin
+    // doesn't revert it on the next request.
+    await context.setSessionActiveContext?.({ orgId })
 
     // Fetch fresh org data and cache it
     let org: CachedOrg | undefined
