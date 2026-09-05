@@ -138,11 +138,34 @@ function isDistinctIdFilter(property: Property): boolean {
 
 /** Distinct ids a flag targets directly, so the caller can resolve them to people. */
 export function targetedDistinctIds(flag: Schemas.FeatureFlag): string[] {
+  return collectDistinctIds(flag, () => true);
+}
+
+/**
+ * Distinct ids a flag positively targets, so the caller can label them as
+ * targeted. Excludes negative conditions such as `is not`, whose ids the rule
+ * rejects; person-name resolution still uses the full list.
+ */
+export function positivelyTargetedDistinctIds(
+  flag: Schemas.FeatureFlag,
+): string[] {
+  return collectDistinctIds(
+    flag,
+    (operator) => operator === undefined || operator === "exact",
+  );
+}
+
+function collectDistinctIds(
+  flag: Schemas.FeatureFlag,
+  include: (operator: string | undefined) => boolean,
+): string[] {
   const groups = conditionGroups(flag);
   const ids = new Set<string>();
   for (const group of groups) {
     for (const property of group.properties) {
       if (!isDistinctIdFilter(property)) continue;
+      const operator = asString(property.operator) ?? undefined;
+      if (!include(operator)) continue;
       const values = Array.isArray(property.value)
         ? property.value
         : [property.value];

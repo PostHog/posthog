@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { shapeFlagAudience } from "./flag-audience";
+import {
+  positivelyTargetedDistinctIds,
+  shapeFlagAudience,
+  targetedDistinctIds,
+} from "./flag-audience";
 import type { Schemas } from "./generated";
 
 // The shaper only reads the fields it shows; build minimal inputs and cast.
@@ -146,6 +150,29 @@ describe("flag audience shaping", () => {
     expect(audience.summary).toBe(
       "Alex is targeted, and the 25% rollout hash decides. Everyone else gets false.",
     );
+  });
+
+  it("does not label excluded distinct IDs as targeted", () => {
+    const flag = flagWith({
+      groups: [
+        {
+          properties: [
+            {
+              type: "person",
+              key: "distinct_id",
+              operator: "is_not",
+              value: "bot-1",
+            },
+          ],
+          rollout_percentage: 100,
+        },
+      ],
+    });
+
+    // Person-name resolution still collects the excluded id, but the
+    // targeted-ids field must not claim the rule targets it.
+    expect(targetedDistinctIds(flag)).toEqual(["bot-1"]);
+    expect(positivelyTargetedDistinctIds(flag)).toEqual([]);
   });
 
   it("renders a readable label for operators that only reach flags through the API", () => {

@@ -10,9 +10,9 @@ import type { SignalReport } from "@posthog/shared/domain-types";
 import {
   type FlagAudience,
   flagReachLabel,
+  positivelyTargetedDistinctIds,
   type ResolvedPerson,
   shapeFlagAudience,
-  targetedDistinctIds,
 } from "./flag-audience";
 import type { Schemas } from "./generated";
 
@@ -316,7 +316,7 @@ export function shapeFlagPreview(
     ...(variants > 0 ? [{ label: "Variants", value: String(variants) }] : []),
     { label: "Type", value: flagType },
   ];
-  const distinctIds = targetedDistinctIds(flag);
+  const distinctIds = positivelyTargetedDistinctIds(flag);
   return {
     title: flag.key,
     detail: name || undefined,
