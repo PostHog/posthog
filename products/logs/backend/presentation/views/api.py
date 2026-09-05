@@ -1277,7 +1277,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             logs_query_params["liveLogsCheckpoint"] = live_logs_checkpoint
         if after_cursor:
             logs_query_params["after"] = after_cursor
-        query = LogsQuery(**logs_query_params)
+        try:
+            query = LogsQuery(**logs_query_params)
+        except ValidationError as e:
+            first = e.errors()[0]
+            location = ".".join(str(p) for p in first["loc"]) or "query"
+            return Response(
+                {"error": f"Invalid query at `{location}`: {first['msg']}"}, status=status.HTTP_400_BAD_REQUEST
+            )
         analytics_props = get_request_analytics_properties(request)
 
         def make_runner(date_range: DateRange) -> LogsQueryRunner:
