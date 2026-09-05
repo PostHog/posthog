@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -46,11 +46,18 @@ const DORA: DoraOverviewApi = {
 describe('doraLogic', () => {
     let logic: ReturnType<typeof doraLogic.build>
     let requests: URLSearchParams[]
+    let availableEnvironments: string[]
+    let releaseInvalidRequest: () => void
     let releaseScopedRequest: () => void
+    let invalidRequest: Promise<void>
     let scopedRequest: Promise<void>
 
     beforeEach(() => {
         requests = []
+        availableEnvironments = [...DORA.environments, 'preview-pr-2']
+        invalidRequest = new Promise((resolve) => {
+            releaseInvalidRequest = resolve
+        })
         scopedRequest = new Promise((resolve) => {
             releaseScopedRequest = resolve
         })
@@ -61,10 +68,46 @@ describe('doraLogic', () => {
                     requests.push(params)
                     const requested = [...new Set(params.getAll('environment').map((name) => name.trim()))]
                     const available = new Set(
-                        params.get('repo') === 'example/repo' ? ['staging'] : [...DORA.environments, 'preview-pr-2']
+                        params.get('repo') === 'example/repo' ? ['staging'] : availableEnvironments
                     )
-                    if (requested.some((name) => !available.has(name))) {
-                        return [400, { detail: 'Select a valid environment.', attr: 'environment' }]
+                    const blankIndex = requested.indexOf('')
+                    if (blankIndex >= 0) {
+                        return [
+                            400,
+                            {
+                                type: 'validation_error',
+                                code: 'blank',
+                                detail: 'This field may not be blank.',
+                                attr: `environment__${blankIndex}`,
+                            },
+                        ]
+                    }
+                    const nullCharacterIndex = requested.findIndex((name) => name.includes('\0'))
+                    if (nullCharacterIndex >= 0) {
+                        return [
+                            400,
+                            {
+                                type: 'validation_error',
+                                code: 'null_characters_not_allowed',
+                                detail: 'Null characters are not allowed.',
+                                attr: `environment__${nullCharacterIndex}`,
+                            },
+                        ]
+                    }
+                    const invalidEnvironment = requested.find((name) => !available.has(name))
+                    if (invalidEnvironment) {
+                        if (invalidEnvironment === 'missing-delayed') {
+                            await invalidRequest
+                        }
+                        return [
+                            400,
+                            {
+                                type: 'validation_error',
+                                code: 'invalid_choice',
+                                detail: `"${invalidEnvironment}" is not a valid choice.`,
+                                attr: 'environment',
+                            },
+                        ]
                     }
                     if (params.get('repo') === 'example/repo') {
                         await scopedRequest
@@ -167,12 +210,13 @@ describe('doraLogic', () => {
         ])
 
         silenceKeaLoadersErrors()
-        for (const environments of [['missing'], ['prod-eu', 'missing'], [' '], ['prod-eu', '']]) {
+        for (const environments of [['missing'], ['prod-eu', ''], ['prod-eu', '\0']]) {
             await expectLogic(logic, () => logic.actions.setEnvironments(environments))
-                .toDispatchActions(['loadDoraFailure'])
+                .toDispatchActions(['loadDoraFailure', 'restoreEnvironments'])
                 .toMatchValues({
                     doraLoading: false,
                     doraFailed: true,
+                    environments: ['prod-eu', 'preview-pr-2'],
                     selectedEnvironments: ['prod-eu', 'preview-pr-2'],
                     environmentScopeLabel: 'prod-eu, preview-pr-2',
                 })
@@ -182,7 +226,54 @@ describe('doraLogic', () => {
                 'prod-eu',
                 'preview-pr-2',
             ])
+
+            await expectLogic(logic, () => logic.actions.loadDora()).toDispatchActions(['loadDoraSuccess'])
+            expect(requests.at(-1)?.getAll('environment')).toEqual(['prod-eu', 'preview-pr-2'])
         }
+    })
+
+    it('clears a rejected selection when the previously valid environment set becomes unavailable', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
+        await expectLogic(logic, () => logic.actions.setEnvironments(['prod-eu', 'preview-pr-2'])).toDispatchActions([
+            'loadDoraSuccess',
+        ])
+        availableEnvironments = [...DORA.environments]
+        silenceKeaLoadersErrors()
+
+        await expectLogic(logic, () => logic.actions.setEnvironments(['prod-eu', 'preview-pr-2']))
+            .toDispatchActions(['loadDoraFailure', 'restoreEnvironments'])
+            .toMatchValues({ environments: [], doraFailed: true })
+
+        await expectLogic(logic, () => logic.actions.loadDora()).toDispatchActions(['loadDoraSuccess'])
+        expect(requests.at(-1)?.getAll('environment')).toEqual([])
+    })
+
+    it.each([
+        [
+            'an unrelated validation error',
+            new ApiError('Bad date.', 400, undefined, { code: 'invalid_input', attr: 'date_from' }),
+        ],
+        ['a server error', new ApiError('Server error.', 500)],
+    ])('preserves the environment filter after %s', async (_, error) => {
+        await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
+        await expectLogic(logic, () => logic.actions.setEnvironments(['dev'])).toDispatchActions(['loadDoraSuccess'])
+        silenceKeaLoadersErrors()
+
+        logic.actions.loadDoraFailure(error.message, error)
+
+        expect(logic.values.environments).toEqual(['dev'])
+    })
+
+    it('discards an older validation failure after a newer selection succeeds', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
+        logic.actions.setEnvironments(['missing-delayed'])
+        await expectLogic(logic, () => logic.actions.setEnvironments(['dev'])).toDispatchActions(['loadDoraSuccess'])
+
+        await expectLogic(logic, () => releaseInvalidRequest()).toFinishAllListeners()
+
+        expect(logic.values.doraFailed).toBe(false)
+        expect(logic.values.environments).toEqual(['dev'])
+        expect(logic.values.selectedEnvironments).toEqual(['dev'])
     })
 
     it('resolves the new repository default instead of retaining an old environment or team', async () => {

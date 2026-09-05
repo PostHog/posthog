@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { intervals } from 'lib/components/IntervalFilter/intervals'
 
 import type { BoxPlotBucket } from '../components/LeadTimeBoxPlot'
@@ -13,6 +13,19 @@ import { engineeringAnalyticsLogic, formatBucket, type WorkflowGranularity } fro
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 type LeadTimeSeriesApi = DoraOverviewApi['merge_to_deploy_series']
+
+function isEnvironmentValidationError(errorObject: unknown): errorObject is ApiError {
+    return (
+        errorObject instanceof ApiError &&
+        errorObject.status === 400 &&
+        (errorObject.attr === 'environment' || /^environment__\d+$/.test(errorObject.attr ?? ''))
+    )
+}
+
+function hasSameNormalizedEnvironmentSet(requested: string[], selected: string[]): boolean {
+    const normalizedRequested = new Set(requested.map((name) => name.trim()))
+    return normalizedRequested.size === selected.length && selected.every((name) => normalizedRequested.has(name))
+}
 
 function toBoxPlotBuckets(series: LeadTimeSeriesApi | undefined, granularity: string): BoxPlotBucket[] {
     return (series ?? []).map((bucket) => ({
@@ -85,6 +98,9 @@ export interface doraLogicActions {
     resetGranularity: () => {
         value: true
     }
+    restoreEnvironments: (environments: string[]) => {
+        environments: string[]
+    }
     setEnvironments: (environments: string[]) => {
         environments: string[]
     }
@@ -135,6 +151,7 @@ export const doraLogic = kea<doraLogicType>([
     })),
 
     actions({
+        restoreEnvironments: (environments: string[]) => ({ environments }),
         setEnvironments: (environments: string[]) => ({ environments }),
         setExcludeOutliers: (excludeOutliers: boolean) => ({ excludeOutliers }),
         setGithubTeam: (githubTeam: string | null) => ({ githubTeam }),
@@ -148,18 +165,20 @@ export const doraLogic = kea<doraLogicType>([
             null as DoraOverviewApi | null,
             {
                 loadDora: async (_: void, breakpoint): Promise<DoraOverviewApi> => {
-                    const response = await engineeringAnalyticsDora(projectId(), {
-                        date_from: values.dateFrom ?? undefined,
-                        date_to: values.dateTo ?? undefined,
-                        environment: values.environments.length ? values.environments : undefined,
-                        github_team: values.githubTeam ?? undefined,
-                        granularity: values.granularity ?? undefined,
-                        source_id: values.sourceId ?? undefined,
-                        repo: values.scopeRepo ?? undefined,
-                    })
-                    // breakpoint() throws if a newer loadDora call has started, discarding this stale response.
-                    breakpoint()
-                    return response
+                    try {
+                        return await engineeringAnalyticsDora(projectId(), {
+                            date_from: values.dateFrom ?? undefined,
+                            date_to: values.dateTo ?? undefined,
+                            environment: values.environments.length ? values.environments : undefined,
+                            github_team: values.githubTeam ?? undefined,
+                            granularity: values.granularity ?? undefined,
+                            source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
+                        })
+                    } finally {
+                        // The API promise can reject before a post-await breakpoint, so check both paths here.
+                        breakpoint()
+                    }
                 },
             },
         ],
@@ -174,7 +193,7 @@ export const doraLogic = kea<doraLogicType>([
                 [engineeringAnalyticsLogic.actionTypes.setScope]: () => null,
             },
         ],
-        // Non-400 failure only; the shared 400 "not connected" state comes from engineeringAnalyticsLogic.
+        // Shared source-connection failures surface through engineeringAnalyticsLogic; DORA-specific failures stay here.
         doraFailed: [
             false,
             {
@@ -189,6 +208,7 @@ export const doraLogic = kea<doraLogicType>([
         environments: [
             [] as string[],
             {
+                restoreEnvironments: (_, { environments }) => environments,
                 setEnvironments: (_, { environments }) => environments,
                 [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => [],
                 [engineeringAnalyticsLogic.actionTypes.setScope]: () => [],
@@ -294,6 +314,14 @@ export const doraLogic = kea<doraLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        loadDoraFailure: ({ errorObject }) => {
+            if (isEnvironmentValidationError(errorObject)) {
+                const selected = values.dora?.selected_environments ?? []
+                actions.restoreEnvironments(
+                    hasSameNormalizedEnvironmentSet(values.environments, selected) ? [] : selected
+                )
+            }
+        },
         setEnvironments: () => actions.loadDora(),
         setGithubTeam: () => actions.loadDora(),
         // Grouping and the date range co-adjust, sharing insights' interval mechanism: picking a
