@@ -6,13 +6,13 @@ import type {
 } from "@posthog/core/comments/anchors";
 import {
   Button,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import { isAllowedImageMimeType } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import type {
   Dispatch,
   ReactElement,
@@ -221,11 +221,7 @@ export function ArtifactPreviewContent({
 
   if (!previewData) return <ArtifactPreviewError />;
   if (previewData instanceof Blob && !previewUrl) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
   if (!previewUrl) return <ArtifactPreviewError />;
 

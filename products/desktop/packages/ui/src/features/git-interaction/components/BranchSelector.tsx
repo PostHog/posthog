@@ -59,7 +59,7 @@ const USE_INPUT_BRANCH_ACTION = "__use_input_branch__";
 function LoadingRow({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-1 px-2 py-1.5 text-muted-foreground text-xs">
-      <Spinner size={12} />
+      <Spinner size="sm" />
       {label}
     </div>
   );
@@ -386,7 +386,7 @@ export function BranchSelector({
               className="min-w-0 max-w-[250px] shrink"
             >
               {showSpinner ? (
-                <Spinner size={14} className="shrink-0" />
+                <Spinner className="shrink-0" />
               ) : (
                 <GitBranch size={14} weight="regular" className="shrink-0" />
               )}
@@ -585,7 +585,7 @@ export function BranchSelector({
               >
                 {cloudBranchesFetchingMore ? (
                   <>
-                    <Spinner size={14} />
+                    <Spinner size="md" />
                     Loading more…
                   </>
                 ) : (

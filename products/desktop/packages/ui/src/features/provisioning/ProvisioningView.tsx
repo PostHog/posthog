@@ -1,4 +1,5 @@
-import { Box, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Box, Flex, Text } from "@radix-ui/themes";
 import { useEffect, useRef } from "react";
 import { useProvisioningStore } from "./store";
 
@@ -23,7 +24,7 @@ export function ProvisioningView({ taskId }: ProvisioningViewProps) {
     <Box height="100%">
       <Flex direction="column" height="100%" p="3" gap="2">
         <Flex align="center" gap="2">
-          <Spinner size="1" />
+          <Spinner size="sm" />
           <Text className="font-medium text-[13px]">
             Setting up worktree...
           </Text>

@@ -90,6 +90,7 @@ import type { Plan } from "@posthog/ui/features/sessions/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { captureException, track } from "@posthog/ui/shell/analytics";
@@ -732,7 +733,7 @@ export function SessionView({
                         >
                           {isRestoring ? (
                             <>
-                              <Spinner size={14} />
+                              <Spinner size="md" />
                               Restoring...
                             </>
                           ) : (
@@ -763,13 +764,7 @@ export function SessionView({
                   cloudStatus={cloudStatus}
                 />
               ) : (
-                <Flex
-                  align="center"
-                  justify="center"
-                  className="absolute inset-0 bg-background"
-                >
-                  <Spinner size={32} className="text-gray-9" />
-                </Flex>
+                <LoadingState className="absolute inset-0 bg-background" />
               )
             ) : (
               <>

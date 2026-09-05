@@ -370,6 +370,27 @@
             "noRestrictedImports": {
               "level": "error",
               "options": {
+                "paths": {
+                  "@posthog/quill": {
+                    "importNames": ["Spinner"],
+                    "message": "Use Spinner or LoadingState from @posthog/ui/primitives so every loading indicator shares one glyph, size scale and compositor-only animation."
+                  },
+                  "@radix-ui/themes": {
+                    "importNames": ["Spinner"],
+                    "message": "Use Spinner or LoadingState from @posthog/ui/primitives so every loading indicator shares one glyph, size scale and compositor-only animation."
+                  },
+                  "@phosphor-icons/react": {
+                    "importNames": [
+                      "Spinner",
+                      "SpinnerIcon",
+                      "SpinnerGap",
+                      "SpinnerGapIcon",
+                      "CircleNotch",
+                      "CircleNotchIcon"
+                    ],
+                    "message": "Use Spinner from @posthog/ui/primitives/Spinner instead of spinning a phosphor glyph."
+                  }
+                },
                 "patterns": [
                   {
                     "group": [

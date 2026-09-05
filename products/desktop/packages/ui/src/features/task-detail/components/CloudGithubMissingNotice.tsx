@@ -6,7 +6,8 @@ import {
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useGithubConnect } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
-import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Button, Callout, Flex, Text } from "@radix-ui/themes";
 
 export function CloudGithubMissingNotice() {
   const projectId = useAuthStateValue((s) => s.currentProjectId);
@@ -49,7 +50,7 @@ export function CloudGithubMissingNotice() {
           }}
         >
           {isConnecting ? (
-            <Spinner size="1" />
+            <Spinner size="sm" />
           ) : (
             <ArrowSquareOutIcon size={12} />
           )}

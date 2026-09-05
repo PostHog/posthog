@@ -21,7 +21,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
   Textarea,
   Tooltip,
   TooltipContent,
@@ -40,6 +39,7 @@ import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundRepor
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useCallback, useState } from "react";
 

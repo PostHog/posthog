@@ -1,4 +1,4 @@
-import { Check, CircleNotch, Copy } from "@phosphor-icons/react";
+import { Check, Copy } from "@phosphor-icons/react";
 import {
   Heading,
   Separator,
@@ -27,7 +27,7 @@ import {
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import {
@@ -94,9 +94,7 @@ const components: Components = {
           aria-label="Link loading"
         >
           {children}
-          <Spin>
-            <CircleNotch size={12} aria-hidden="true" />
-          </Spin>
+          <Spinner size="sm" aria-hidden="true" />
         </output>
       );
     }

@@ -44,6 +44,7 @@ import {
 } from "@posthog/ui/features/integrations/useIntegrations";
 import { useProjectsWithIntegrations } from "@posthog/ui/features/onboarding/hooks/useProjectsWithIntegrations";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -53,7 +54,6 @@ import {
   Flex,
   IconButton,
   Skeleton,
-  Spinner,
   Text,
 } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -396,10 +396,7 @@ export function GitHubConnectPanel() {
                       <Button
                         size="1"
                         variant="solid"
-                        loading={isReconnecting}
-                        disabled={
-                          reconnectingInstallationId !== null && !isReconnecting
-                        }
+                        disabled={reconnectingInstallationId !== null}
                         onClick={async () => {
                           markConnectStarted("user_new", true);
                           setReconnectingInstallationId(installationId);
@@ -418,6 +415,7 @@ export function GitHubConnectPanel() {
                           }
                         }}
                       >
+                        {isReconnecting && <Spinner size="sm" />}
                         Reconnect
                         <ArrowSquareOut size={12} />
                       </Button>
@@ -431,10 +429,14 @@ export function GitHubConnectPanel() {
                 size="1"
                 variant="soft"
                 color="gray"
-                loading={isRefreshing}
+                disabled={isRefreshing}
                 onClick={() => void refreshGithubState()}
               >
-                <ArrowsClockwise size={12} />
+                {isRefreshing ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <ArrowsClockwise size={12} />
+                )}
                 Refresh
               </Button>
               <Button
@@ -442,9 +444,9 @@ export function GitHubConnectPanel() {
                 variant="ghost"
                 color="gray"
                 onClick={() => initiateConnect("user_new")}
-                loading={isConnecting}
+                disabled={isConnecting}
               >
-                <Plus size={12} />
+                {isConnecting ? <Spinner size="sm" /> : <Plus size={12} />}
                 Add another GitHub org
               </Button>
             </Flex>
@@ -455,10 +457,14 @@ export function GitHubConnectPanel() {
             variant="soft"
             color="gray"
             className="self-start"
-            loading={isRefreshing}
+            disabled={isRefreshing}
             onClick={() => void refreshGithubState()}
           >
-            <ArrowsClockwise size={12} />
+            {isRefreshing ? (
+              <Spinner size="sm" />
+            ) : (
+              <ArrowsClockwise size={12} />
+            )}
             Check again
           </Button>
         ) : isApprovedNotLinked ? (
@@ -497,9 +503,10 @@ export function GitHubConnectPanel() {
                   if (shouldReset) resetConnect();
                   initiateConnect("user_new", isRetry);
                 }}
-                loading={isConnecting}
+                disabled={isConnecting}
                 className="w-full"
               >
+                {isConnecting && <Spinner size="md" />}
                 {
                   deriveConnectButtonState({
                     isConnecting,
@@ -558,7 +565,7 @@ export function GitHubConnectPanel() {
               }}
               disabled={isDisconnecting}
             >
-              {isDisconnecting ? <Spinner size="1" /> : null}
+              {isDisconnecting ? <Spinner size="sm" /> : null}
               Disconnect
             </Button>
           </Flex>

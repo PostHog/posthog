@@ -1,7 +1,8 @@
 import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { StepActions } from "@posthog/ui/features/onboarding/components/StepActions";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import { ConsentErrorContent } from "./ConsentErrorContent";
@@ -44,9 +45,7 @@ export function ConsentStep({
                 transition={{ duration: 0.16 }}
               >
                 {consent.status === "loading" ? (
-                  <div className="flex w-full justify-center">
-                    <Spinner />
-                  </div>
+                  <LoadingState />
                 ) : consent.status === "error" ? (
                   <ConsentErrorContent onRetry={consent.retry} />
                 ) : (

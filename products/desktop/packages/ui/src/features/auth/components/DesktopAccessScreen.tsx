@@ -24,9 +24,9 @@ import {
   EmptyTitle,
   Field,
   FieldLabel,
-  Spinner,
 } from "@posthog/quill";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   FIELD_CONTENT_CLASS,
   FIELD_TRIGGER_CLASS,

@@ -37,13 +37,14 @@ import type { GatewayRoute } from "@posthog/ui/features/mcp-gateway/gatewayRoute
 import { useGatewayConfig } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayConfig";
 import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayServers";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   Badge,
   Button,
   Flex,
   Heading,
   IconButton,
-  Spinner,
   Text,
   TextField,
   Tooltip,
@@ -212,9 +213,7 @@ export function GatewayServersHome({
       </Flex>
 
       {serversLoading && servers.length === 0 ? (
-        <Flex align="center" justify="center" py="6">
-          <Spinner size="2" />
-        </Flex>
+        <LoadingState className="py-6" />
       ) : totalCount === 0 ? (
         <Empty className="rounded border border-gray-6 border-dashed py-8">
           <EmptyHeader>
@@ -355,7 +354,7 @@ function GatewayServerCard({
         {off ? null : needsAuth ? (
           connecting ? (
             <Button variant="solid" size="1" disabled>
-              <Spinner size="1" /> Authorizing…
+              <Spinner size="sm" /> Authorizing…
             </Button>
           ) : (
             <Button variant="solid" size="1" onClick={onConnect}>
@@ -437,7 +436,7 @@ function RecommendedTemplateCard({
       <div className="absolute top-4 right-4">
         {disabled ? null : connecting ? (
           <Button variant="solid" size="1" disabled>
-            <Spinner size="1" /> Authorizing…
+            <Spinner size="sm" /> Authorizing…
           </Button>
         ) : (
           <Button variant="solid" size="1" onClick={onConnect}>

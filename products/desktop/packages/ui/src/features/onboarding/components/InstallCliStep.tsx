@@ -26,6 +26,7 @@ import { StepActions } from "@posthog/ui/features/onboarding/components/StepActi
 import { Terminal } from "@posthog/ui/features/terminal/Terminal";
 import { terminalManager } from "@posthog/ui/features/terminal/TerminalManager";
 import { OnboardingHogTip } from "@posthog/ui/primitives/OnboardingHogTip";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -156,8 +157,12 @@ function RunnableCommand({
         </Flex>
         <Flex align="center" gap="2" className="shrink-0">
           {isMac && (
-            <Button size="1" onClick={handleRun} loading={isRunning}>
-              <Play size={14} weight="fill" />
+            <Button size="1" onClick={handleRun} disabled={isRunning}>
+              {isRunning ? (
+                <Spinner size="sm" />
+              ) : (
+                <Play size={14} weight="fill" />
+              )}
               Run
             </Button>
           )}
@@ -337,9 +342,13 @@ export function InstallCliStep({ onNext, onBack }: InstallCliStepProps) {
                           variant="soft"
                           color="gray"
                           onClick={() => void handleCheckGit()}
-                          loading={isCheckingGit}
+                          disabled={isCheckingGit}
                         >
-                          <ArrowsClockwise size={12} />
+                          {isCheckingGit ? (
+                            <Spinner size="sm" />
+                          ) : (
+                            <ArrowsClockwise size={12} />
+                          )}
                           Check again
                         </Button>
                       </Flex>
@@ -408,9 +417,13 @@ export function InstallCliStep({ onNext, onBack }: InstallCliStepProps) {
                           variant="soft"
                           color="gray"
                           onClick={() => void handleCheckGh()}
-                          loading={isCheckingGh}
+                          disabled={isCheckingGh}
                         >
-                          <ArrowsClockwise size={12} />
+                          {isCheckingGh ? (
+                            <Spinner size="sm" />
+                          ) : (
+                            <ArrowsClockwise size={12} />
+                          )}
                           Check again
                         </Button>
                       </Flex>
@@ -434,9 +447,13 @@ export function InstallCliStep({ onNext, onBack }: InstallCliStepProps) {
                           variant="soft"
                           color="gray"
                           onClick={() => void handleCheckGh()}
-                          loading={isCheckingGh}
+                          disabled={isCheckingGh}
                         >
-                          <ArrowsClockwise size={12} />
+                          {isCheckingGh ? (
+                            <Spinner size="sm" />
+                          ) : (
+                            <ArrowsClockwise size={12} />
+                          )}
                           Check again
                         </Button>
                       </Flex>
