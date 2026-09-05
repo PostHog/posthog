@@ -30,6 +30,7 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
+from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
@@ -100,6 +101,7 @@ logger = structlog.get_logger(__name__)
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
             "network_access": {"type": "string"},
+            "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
             # Closed and fully required, unlike the parent: the region is written whole or not at
             # all, so every flag is present whenever the object is. Leaving it open would generate
@@ -254,7 +256,8 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "when the run departed from a default: `model`, `runtime_adapter`, and "
             "`reasoning_effort` (routing overrode the agent-server default), `network_access` "
             "(`full` when the scout's config lifted the trusted-domain network restriction for "
-            "this run), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
+            "this run), `write_scopes` (the extra write access the run's token carried, when the "
+            "scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
             "absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's "
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
             "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
@@ -2455,6 +2458,50 @@ def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
     return [str(server_id) for server_id in value]
 
 
+# Sorted so the help text, the error message, and the picker all name the scopes in one order.
+GRANTABLE_WRITE_SCOPES: list[str] = sorted(SCOUT_GRANTABLE_WRITE_SCOPES)
+
+_WRITE_SCOPES_HELP = (
+    "Extra write access granted to this one scout, as scope strings. The grantable set is "
+    f"{', '.join(f'`{scope}`' for scope in GRANTABLE_WRITE_SCOPES)}. Empty (the default) means the "
+    "scout reads the project and writes only what every scout may write: notebooks, its findings, "
+    "and its own memory. Each scope is project-wide and object-level, so a scout holding "
+    "`dashboard:write` can update or delete any dashboard in the project, not only ones it made. "
+    "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
+    "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
+    "it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+)
+
+
+def _write_scopes_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.CharField(),
+        read_only=read_only,
+        required=False,
+        max_length=len(GRANTABLE_WRITE_SCOPES),
+        help_text=_WRITE_SCOPES_HELP,
+    )
+
+
+def _validate_write_scopes(value: list[str]) -> list[str]:
+    """Reject anything outside the allowlist, then dedupe and sort what is left.
+
+    This is the first of the two gates on a grant. It is the one a person sees, so the error
+    names every grantable scope rather than only the rejected one. The second gate runs at mint
+    time (`resolve_scopes`), which is what makes a hand-edited or since-narrowed grant harmless.
+
+    Sorting means the activity log records a change only when the granted set changed, not every
+    time a client resends the same scopes in a different order.
+    """
+    ungrantable = sorted(set(value) - SCOUT_GRANTABLE_WRITE_SCOPES)
+    if ungrantable:
+        raise serializers.ValidationError(
+            f"Not grantable to a scout: {', '.join(ungrantable)}. "
+            f"Grantable scopes are {', '.join(GRANTABLE_WRITE_SCOPES)}."
+        )
+    return sorted(set(value))
+
+
 class ScoutOrigin(models.TextChoices):
     CANONICAL = "canonical", "canonical"
     CUSTOM = "custom", "custom"
@@ -2625,6 +2672,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=_SCOUT_TAGS_HELP_TEXT,
     )
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field(read_only=True)
+    write_scopes = _write_scopes_field(read_only=True)
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -2668,6 +2716,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "network_access",
             "model",
             "mcp_gateway_server_ids",
+            "write_scopes",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
@@ -2795,6 +2844,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
     )
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    write_scopes = _write_scopes_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
@@ -2813,6 +2863,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
         return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_write_scopes(self, value: list[str]) -> list[str]:
+        return _validate_write_scopes(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
@@ -2890,6 +2943,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "auto_pause_exempt",
             "tags",
             "mcp_gateway_server_ids",
+            "write_scopes",
         ]
 
 
@@ -2960,6 +3014,7 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
     )
 
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    write_scopes = _write_scopes_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
@@ -2982,6 +3037,9 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
         return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_write_scopes(self, value: list[str]) -> list[str]:
+        return _validate_write_scopes(value)
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
