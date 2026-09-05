@@ -238,88 +238,9 @@ ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissi
 CodexPermissionMode = Literal["plan", "auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
 
-# PostHog `exec` sub-tools that must be approved by the user before they run, passed to the
-# agent-server as `--posthogExecPermissionRegex`. A matching sub-tool is relayed to the connected
-# client in every non-background run regardless of permission mode (the client then decides:
-# destructive sub-tools always prompt, persist/publish sub-tools prompt only on foreground streams,
-# full-auto runs answer everything). Three alternatives: destructive verbs as `-`-bounded segments,
-# the exact names of `annotations.destructive: true` tools the verb regex misses, and the exact
-# persist/publish tool names from the apply-back product families. Must stay in sync with
-# `POSTHOG_DESTRUCTIVE_SUBTOOL_RE`, `POSTHOG_DESTRUCTIVE_SUB_TOOLS`, and `PERSIST_PROMPT_SUB_TOOLS`
-# in `products/posthog_ai/frontend/policy/toolPolicy.ts`.
-POSTHOG_EXEC_DESTRUCTIVE_VERB_REGEX = r"(^|-)(partial-update|update|patch|delete|destroy)(-|$)"
-
-# Enabled tools annotated `destructive: true` in `products/*/mcp/*.yaml` whose names carry no
-# destructive verb segment (publish, ship, merge, archive, …). Kept complete against those
-# annotations by `test_exec_permission_regex_covers_destructive_annotated_tools`.
-POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
-    # confirmed_action tools register only `<name>-execute` (and `-prepare`); the bare name is
-    # never a runtime tool, so the destructive `-execute` variant is what must be gated.
-    "change-requests-approve-execute",
-    "change-requests-reject-execute",
-    "cdp-functions-discard-draft",
-    "cdp-functions-publish",
-    "cdp-functions-restore-revision",
-    "error-tracking-bypass-rules-create",
-    "error-tracking-issues-merge-create",
-    "error-tracking-issues-split-create",
-    "error-tracking-suppression-rules-create",
-    "experiment-ship-variant",
-    "external-data-schemas-resync",
-    "external-data-sources-repair-cdc-create",
-    "feature-requests-remove-evidence-create",
-    "heatmaps-saved-regenerate",
-    "inbox-reports-bulk-set-state",
-    "inbox-reports-claim",
-    "inbox-reports-set-state",
-    "llma-prompt-label-set",
-    "opt-outs-add",
-    "opt-outs-remove",
-    "organization-enforce-2fa",
-    "organization-enforce-2fa-execute",
-    # Relayed on every call, not because every call writes: the client decides from the tool it
-    # runs in the connected project, which only it can read out of the arguments.
-    "posthog-connection-call",
-    "posthog-connection-forward",
-    "scout-scratchpad-forget",
-    "signals-scout-scratchpad-forget",
-    "skill-archive",
-    "user-interview-topics-remove-interviewee",
-    "visual-review-runs-finalize-create",
-    "web-analytics-path-cleaning-suggestions-apply",
-    "workflows-discard-draft",
-    "workflows-publish",
-    "workflows-restore-revision",
-    "workflows-test-run",
-)
-
-# Non-destructive tools that persist new content (create/copy/add) or publish to end users
-# (launch/stop), from the apply-back product families — the client prompts for these only on
-# foreground streams.
-POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
-    "dashboard-create",
-    "dashboard-create-tile",
-    "dashboard-create-text-tile",
-    "dashboard-tile-copy",
-    "dashboard-widgets-batch-add",
-    "create-feature-flag",
-    "feature-flags-copy-flags-create",
-    "scheduled-changes-create",
-    "survey-create",
-    "survey-launch",
-    "survey-stop",
-    "cdp-functions-create",
-    "workflows-create",
-    "workflows-create-email-template",
-    "llma-parser-recipe-create",
-)
-
-POSTHOG_EXEC_PERMISSION_REGEX = (
-    POSTHOG_EXEC_DESTRUCTIVE_VERB_REGEX
-    + "|^("
-    + "|".join(POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS + POSTHOG_EXEC_PERSIST_SUB_TOOLS)
-    + ")$"
-)
+# Starting a task authorizes its selected PostHog project, not projects reached through connections.
+# Relay both connection wrappers so the client can require fresh approval before they run.
+POSTHOG_EXEC_PERMISSION_REGEX = r"^posthog-connection-(call|forward)$"
 
 INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(ClaudePermissionMode))
 CODEX_INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(CodexPermissionMode))
