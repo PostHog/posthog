@@ -1,9 +1,8 @@
+from functools import cache
 from typing import TYPE_CHECKING, cast
 
-import pymysql
 import sqlparse
 from opentelemetry import trace
-from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import Statement
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -26,44 +25,54 @@ if TYPE_CHECKING:
 DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 RAW_MYSQL_READ_ONLY_ERROR = "Raw MySQL queries must be read-only SELECT statements."
 
-MYSQL_FIELD_TYPE_TO_CLICKHOUSE_TYPE: dict[int, str] = {
-    MYSQL_FIELD_TYPE.TINY: "Int8",
-    MYSQL_FIELD_TYPE.SHORT: "Int16",
-    MYSQL_FIELD_TYPE.INT24: "Int32",
-    MYSQL_FIELD_TYPE.LONG: "Int32",
-    MYSQL_FIELD_TYPE.LONGLONG: "Int64",
-    MYSQL_FIELD_TYPE.YEAR: "Int32",
-    MYSQL_FIELD_TYPE.FLOAT: "Float32",
-    MYSQL_FIELD_TYPE.DOUBLE: "Float64",
-    MYSQL_FIELD_TYPE.DECIMAL: "Decimal",
-    MYSQL_FIELD_TYPE.NEWDECIMAL: "Decimal",
-    MYSQL_FIELD_TYPE.DATE: "Date",
-    MYSQL_FIELD_TYPE.NEWDATE: "Date",
-    MYSQL_FIELD_TYPE.DATETIME: "DateTime",
-    MYSQL_FIELD_TYPE.TIMESTAMP: "DateTime",
-    MYSQL_FIELD_TYPE.TIME: "String",
-    MYSQL_FIELD_TYPE.BIT: "String",
-    MYSQL_FIELD_TYPE.JSON: "String",
-    MYSQL_FIELD_TYPE.ENUM: "String",
-    MYSQL_FIELD_TYPE.SET: "String",
-    MYSQL_FIELD_TYPE.TINY_BLOB: "String",
-    MYSQL_FIELD_TYPE.MEDIUM_BLOB: "String",
-    MYSQL_FIELD_TYPE.LONG_BLOB: "String",
-    MYSQL_FIELD_TYPE.BLOB: "String",
-    MYSQL_FIELD_TYPE.VAR_STRING: "String",
-    MYSQL_FIELD_TYPE.VARCHAR: "String",
-    MYSQL_FIELD_TYPE.STRING: "String",
-    MYSQL_FIELD_TYPE.GEOMETRY: "String",
-}
+
+# pymysql is imported lazily. Importing it eagerly pulls the MySQL driver onto the Django and celery
+# startup path, where pymysql<1.1.2 crashes the process at import time on Python 3.13 when the running
+# uid has no passwd entry (its getpass.getuser() guard misses OSError).
+@cache
+def _mysql_field_type_to_clickhouse_type() -> dict[int, str]:
+    from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE  # noqa: PLC0415 — see docstring above
+
+    return {
+        MYSQL_FIELD_TYPE.TINY: "Int8",
+        MYSQL_FIELD_TYPE.SHORT: "Int16",
+        MYSQL_FIELD_TYPE.INT24: "Int32",
+        MYSQL_FIELD_TYPE.LONG: "Int32",
+        MYSQL_FIELD_TYPE.LONGLONG: "Int64",
+        MYSQL_FIELD_TYPE.YEAR: "Int32",
+        MYSQL_FIELD_TYPE.FLOAT: "Float32",
+        MYSQL_FIELD_TYPE.DOUBLE: "Float64",
+        MYSQL_FIELD_TYPE.DECIMAL: "Decimal",
+        MYSQL_FIELD_TYPE.NEWDECIMAL: "Decimal",
+        MYSQL_FIELD_TYPE.DATE: "Date",
+        MYSQL_FIELD_TYPE.NEWDATE: "Date",
+        MYSQL_FIELD_TYPE.DATETIME: "DateTime",
+        MYSQL_FIELD_TYPE.TIMESTAMP: "DateTime",
+        MYSQL_FIELD_TYPE.TIME: "String",
+        MYSQL_FIELD_TYPE.BIT: "String",
+        MYSQL_FIELD_TYPE.JSON: "String",
+        MYSQL_FIELD_TYPE.ENUM: "String",
+        MYSQL_FIELD_TYPE.SET: "String",
+        MYSQL_FIELD_TYPE.TINY_BLOB: "String",
+        MYSQL_FIELD_TYPE.MEDIUM_BLOB: "String",
+        MYSQL_FIELD_TYPE.LONG_BLOB: "String",
+        MYSQL_FIELD_TYPE.BLOB: "String",
+        MYSQL_FIELD_TYPE.VAR_STRING: "String",
+        MYSQL_FIELD_TYPE.VARCHAR: "String",
+        MYSQL_FIELD_TYPE.STRING: "String",
+        MYSQL_FIELD_TYPE.GEOMETRY: "String",
+    }
 
 
 def mysql_field_type_to_clickhouse_type(type_code: int | None) -> str:
     if type_code is None:
         return "String"
-    return MYSQL_FIELD_TYPE_TO_CLICKHOUSE_TYPE.get(type_code, "String")
+    return _mysql_field_type_to_clickhouse_type().get(type_code, "String")
 
 
 def mysql_error_to_message(error: Exception) -> str:
+    import pymysql  # noqa: PLC0415 — keeps the MySQL driver off the Django/celery startup path
+
     if isinstance(error, pymysql.MySQLError):
         args = error.args
         if len(args) >= 2 and isinstance(args[1], str) and args[1].strip():
@@ -149,6 +158,8 @@ class MySQLAdapter:
         return ensure_read_only_raw_mysql_statement(sql)
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
+        import pymysql  # noqa: PLC0415 — keeps the MySQL driver off the Django/celery startup path
+
         source = request.source
         mysql_implementation, source_config = self.validate_source_config(source, request.team)
         settings = request.settings
