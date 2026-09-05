@@ -228,7 +228,6 @@ export interface maxThreadLogicValues {
     queueLimit: number
     queueSubmitting: boolean
     queuedMessages: ConversationQueueMessage[]
-    queueingEnabled: boolean
     resolvedApprovalStatuses: Record<
         string,
         {
@@ -622,13 +621,8 @@ export interface maxThreadLogicMeta {
             user: null | import('~/types').UserType
         ) => boolean
         threadLoading: (conversationLoading: boolean, streamingActive: boolean) => boolean
-        queueingEnabled: (featureFlags: FeatureFlagsSet, isSandboxMode: boolean) => boolean
         queueIsFull: (queuedMessages: ConversationQueueMessage[], queueLimit: number) => boolean
-        queueDisabledReason: (
-            queueingEnabled: boolean,
-            threadLoading: boolean,
-            queueIsFull: boolean
-        ) => string | undefined
+        queueDisabledReason: (threadLoading: boolean, queueIsFull: boolean) => string | undefined
         threadGrouped: (
             threadRaw: ThreadMessage[],
             threadLoading: boolean,
@@ -1220,7 +1214,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             { messages: [] as ConversationQueueMessage[], limit: 0 },
             {
                 loadQueueData: async () => {
-                    if (!values.queueingEnabled || !values.conversation?.id) {
+                    if (!values.conversation?.id) {
                         return { messages: [], limit: 0 }
                     }
                     try {
@@ -1681,7 +1675,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 cache.lastConversationId = nextConversationId
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
-                if (values.queueingEnabled && conversation?.id) {
+                if (conversation?.id) {
                     actions.loadQueueData()
                 }
             }
@@ -1692,10 +1686,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)
             }
-            if (
-                values.queueingEnabled &&
-                conversation?.pending_approvals?.some((approval) => approval.decision_status === 'pending')
-            ) {
+            if (conversation?.pending_approvals?.some((approval) => approval.decision_status === 'pending')) {
                 actions.clearQueuedMessages()
             }
             // Note: pending approvals loading is handled in the reducer (pendingApprovalsData.setConversation)
@@ -1791,7 +1782,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         enqueueQueuedMessage: async ({ content, contextualTools, uiContext, billingContext, agentMode }) => {
-            if (!values.queueingEnabled || !values.conversation?.id) {
+            if (!values.conversation?.id) {
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
                 return
@@ -1841,7 +1832,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         updateQueuedMessage: async ({ queueId, content }) => {
-            if (!values.queueingEnabled || !values.conversation?.id) {
+            if (!values.conversation?.id) {
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
                 return
@@ -1862,7 +1853,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         deleteQueuedMessage: async ({ queueId }) => {
-            if (!values.queueingEnabled || !values.conversation?.id) {
+            if (!values.conversation?.id) {
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
                 return
@@ -1885,7 +1876,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         consumeQueuedMessage: async ({ message }) => {
-            if (!values.queueingEnabled || !values.conversation?.id) {
+            if (!values.conversation?.id) {
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
                 return
@@ -1909,7 +1900,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         clearQueuedMessages: async () => {
-            if (!values.queueingEnabled || !values.conversation?.id) {
+            if (!values.conversation?.id) {
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
                 return
@@ -1924,9 +1915,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         setPendingApproval: () => {
-            if (values.queueingEnabled) {
-                actions.clearQueuedMessages()
-            }
+            actions.clearQueuedMessages()
         },
         askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
             // Only process if this thread is the currently active one
@@ -2025,13 +2014,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     ? values.billingContext
                     : undefined
 
-            if (
-                values.queueingEnabled &&
-                values.threadLoading &&
-                addToThread &&
-                typeof prompt === 'string' &&
-                prompt.trim() !== ''
-            ) {
+            if (values.threadLoading && addToThread && typeof prompt === 'string' && prompt.trim() !== '') {
                 if (values.queueIsFull) {
                     lemonToast.error('You can only queue two messages at a time.')
                     return
@@ -2230,7 +2213,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             const shouldConsumeSandboxQueue = values.isSandboxMode && values.queuedMessages.length > 0
 
-            if (values.queueingEnabled && values.conversation?.id && !shouldConsumeSandboxQueue) {
+            if (values.conversation?.id && !shouldConsumeSandboxQueue) {
                 actions.loadQueueData()
             }
 
@@ -2552,15 +2535,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (conversationLoading: boolean, streamingActive: boolean) => conversationLoading || streamingActive,
         ],
 
-        queueingEnabled: [
-            // Sandbox conversations always queue follow-ups sent mid-turn (the backend queue endpoints
-            // aren't flag-gated, and the sandbox runtime drives the drain itself); LangGraph stays
-            // behind the rollout flag.
-            (s) => [s.featureFlags, s.isSandboxMode],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, isSandboxMode: boolean): boolean =>
-                !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM] || isSandboxMode,
-        ],
-
         queueIsFull: [
             (s) => [s.queuedMessages, s.queueLimit],
             (queuedMessages: ConversationQueueMessage[], queueLimit: number): boolean =>
@@ -2568,9 +2542,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         queueDisabledReason: [
-            (s) => [s.queueingEnabled, s.threadLoading, s.queueIsFull],
-            (queueingEnabled: boolean, threadLoading: boolean, queueIsFull: boolean): string | undefined =>
-                queueingEnabled && threadLoading && queueIsFull ? 'Queue is full' : undefined,
+            (s) => [s.threadLoading, s.queueIsFull],
+            (threadLoading: boolean, queueIsFull: boolean): string | undefined =>
+                threadLoading && queueIsFull ? 'Queue is full' : undefined,
         ],
 
         threadGrouped: [
@@ -2966,7 +2940,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         }
 
-        if (values.queueingEnabled && values.conversation?.id) {
+        if (values.conversation?.id) {
             actions.loadQueueData()
         }
 
@@ -3063,11 +3037,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // Logic was unmounted before setTimeout fired - ignore
                 }
             }, 0)
-        },
-        queueingEnabled: (enabled: boolean) => {
-            if (enabled) {
-                actions.loadQueueData()
-            }
         },
     })),
 ])
@@ -3252,7 +3221,7 @@ export async function onEventImplementation(
             } else {
                 // Fallback – if we somehow don't have a provisional Human message, just add it
                 actions.addMessage({ ...parsedResponse, status: 'completed' })
-                if (values.queueingEnabled && values.conversation?.id) {
+                if (values.conversation?.id) {
                     actions.loadQueueData()
                 }
             }

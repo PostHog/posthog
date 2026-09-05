@@ -7,10 +7,8 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import api, { ApiError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -702,18 +700,10 @@ describe('maxThreadLogic', () => {
 
     describe('queueing', () => {
         beforeEach(() => {
-            featureFlagLogic.mount()
             jest.spyOn(api.conversations.queue, 'list').mockResolvedValue({
                 messages: [],
                 max_queue_messages: 2,
             })
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM]: true,
-            })
-        })
-
-        afterEach(() => {
-            featureFlagLogic.unmount()
         })
 
         it('does not queue prompts for a Pi task', async () => {
@@ -3862,7 +3852,6 @@ describe('maxThreadLogic', () => {
         })
 
         it('markTurnComplete drains the sandbox queue combined, without an optimistic echo', async () => {
-            // No POSTHOG_AI_QUEUE_MESSAGES_SYSTEM flag — sandbox queueing is flag-independent.
             jest.spyOn(api.conversations.queue, 'clear').mockResolvedValue({ messages: [], max_queue_messages: 2 })
 
             const sandboxStreamInstance = await startSandboxTurn()
@@ -3887,11 +3876,6 @@ describe('maxThreadLogic', () => {
         })
 
         it('handleStreamError does NOT drain the sandbox queue (no clearQueuedMessages, no askMax)', async () => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM]: true,
-            })
-
             const sandboxStreamInstance = await startSandboxTurn()
             logic.actions.setIsSandboxMode(true)
             const queueMessage = { id: 'queue-1', content: 'Next message', created_at: new Date().toISOString() }
@@ -3910,8 +3894,6 @@ describe('maxThreadLogic', () => {
             expect(logic.values.streamingActive).toBe(false)
             // The failed turn must not auto-start the queued message
             expect(logic.values.queuedMessages).toEqual([queueMessage])
-
-            featureFlagLogic.unmount()
         })
 
         it('history-replay terminal events do not fire teardown while streamingActive is false', async () => {
