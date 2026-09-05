@@ -68,8 +68,11 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import is_materialization_fresh, saved_query_materialized_at
-from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.api import (
+    is_materialization_fresh,
+    materialize_saved_query,
+    saved_query_materialized_at,
+)
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.pagination import EndpointPagination
@@ -852,7 +855,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 strategy.clean_response_sentinels(result.data)
 
             try:
-                strategy.transform_materialized_response(result.data, saved_query)
+                strategy.transform_materialized_response(result.data, saved_query, materialized_at)
             except MaterializedSeriesMismatchError:
                 # Series drift: query was likely edited after materialization. Trigger a refresh
                 # so future materialized reads succeed; the caller serves this request inline.
@@ -861,7 +864,18 @@ class EndpointExecutionService(PydanticModelMixin):
                     endpoint_name=endpoint.name,
                     saved_query_id=saved_query.id,
                 )
-                trigger_saved_query_schedule(saved_query)
+                try:
+                    # Nobody asked for this run, so it must not clear the suspension or reset the
+                    # failure window that stopped a repeatedly failing model.
+                    materialize_saved_query(saved_query, resume=False)
+                except Exception:
+                    # The caller still has to see the mismatch to fall back to inline, so a refresh
+                    # we could not start must not replace it on the way out.
+                    logger.exception(
+                        "Failed to trigger re-materialization after series mismatch",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=saved_query.id,
+                    )
                 raise
 
             # Freshness relative to the configured target: >1.0 means behind SLA.

@@ -177,6 +177,57 @@ Any_Source_Errors: dict[str, str | None] = {
 }
 
 
+# Customer-facing copy for a failure that stayed retryable and still exhausted its retry budget.
+# Nothing is disabled and the schema syncs again on its next schedule, so the copy explains that
+# rather than asking for a re-enable.
+TRANSIENT_SOURCE_CONNECTION_MESSAGE = (
+    "PostHog lost its connection to your source and couldn't reconnect. Check that it stays "
+    "reachable and doesn't drop idle connections; the next sync runs on schedule."
+)
+
+TRANSIENT_POOLER_MESSAGE = (
+    "Your database's connection pooler couldn't reach your database and refused the connection. "
+    "Check that the database is running; the next sync runs on schedule."
+)
+
+TRANSIENT_EGRESS_MESSAGE = (
+    "PostHog couldn't reach your source over the network. This is on PostHog's side and usually "
+    "clears on its own; the next sync runs on schedule."
+)
+
+# A retryable failure that outlives its retries keeps whatever the driver said, so `latest_error`
+# ends up holding raw connection text — a psycopg "connection to server at <host>, port <port>
+# failed: ..." line, a pymysql `(2013, ...)` tuple, a urllib3 connection-pool dump. None of it
+# names something the customer can act on, and all of it echoes their host and port back at them.
+# Unlike `Any_Source_Errors` above, matching here only rewrites the stored message: the error stays
+# retryable and the schema stays enabled. Keys are the same stable, host-free fragments the sources
+# already classify these conditions by, so they can't collide with a customer value.
+Transient_Error_Messages: dict[str, str] = {
+    # libpq/psycopg losing an established connection, at connect or mid-stream, in every wording
+    # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` (postgres.py) retries in-process first.
+    "server closed the connection unexpectedly": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    "SSL connection has been closed unexpectedly": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    "SSL SYSCALL error": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    "connection to server was lost": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    # pymysql error 2013, retried in-process by `_connect_with_transient_retry` (mysql.py). The
+    # deterministic filesort variant carries its own marker and is classified non-retryable first.
+    "Lost connection to MySQL server": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    # A TLS session cut at the socket, which clickhouse-connect surfaces through urllib3 rather
+    # than as a driver error (see the ClickHouse source's `get_retryable_errors`).
+    "UNEXPECTED_EOF_WHILE_READING": TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    # Supavisor refusing a connect because its own lookup of the tenant's database failed — the
+    # pooler's bookkeeping, not the customer's credentials, which postgres.py retries in-process.
+    "(ECIRCUITBREAKER) failed to retrieve database credentials": TRANSIENT_POOLER_MESSAGE,
+    "(EAUTHQUERY)": TRANSIENT_POOLER_MESSAGE,
+    # PostHog's own egress proxy refusing the CONNECT. Nothing on the customer's side is wrong, so
+    # this message asks nothing of them.
+    "Cannot connect to proxy": TRANSIENT_EGRESS_MESSAGE,
+    "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
+    "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
+    "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
+}
+
+
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 
 CANCELLED_RUN_MESSAGE = (
@@ -225,6 +276,21 @@ def _is_app_db_failure(internal_error: str) -> bool:
     """
     normalized = internal_error.lower()
     return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
+
+
+def _transient_error_message(internal_error: str) -> str | None:
+    """Customer-facing copy for a transient failure that outlived its retries, if we have any.
+
+    First match wins, mirroring how the non-retryable path picks its friendly message.
+    """
+    return next(
+        (
+            message
+            for pattern, message in Transient_Error_Messages.items()
+            if error_message_matches(internal_error, [pattern])
+        ),
+        None,
+    )
 
 
 def _fail_stale_running_schema(
@@ -379,6 +445,10 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
+        elif not platform_failure:
+            transient_message = _transient_error_message(internal_error_normalized)
+            if transient_message is not None:
+                inputs.latest_error = transient_message
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
