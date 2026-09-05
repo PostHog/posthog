@@ -189,21 +189,43 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
 
-    def test_generic_api_cannot_subscribe_to_managed_alert_events(self):
+    @parameterized.expand(["$billing_alert_firing", "$insight_alert_firing", "$logs_alert_firing"])
+    def test_generic_api_cannot_forge_a_managed_alert_destination(self, event_id):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "name": "Forged billing destination",
+                "name": "Forged alert destination",
                 "hog": "fetch('https://example.com');",
                 "type": "internal_destination",
                 "enabled": True,
-                "filters": {"events": [{"id": "$billing_alert_firing", "type": "events"}]},
+                "filters": {"events": [{"id": event_id, "type": "events"}]},
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(response.json()["attr"], "filters")
-        self.assertIn("managed through the alert API", response.json()["detail"])
+        self.assertIn("notification settings", response.json()["detail"])
+
+    @parameterized.expand(["$insight_alert_firing", "$logs_alert_firing"])
+    def test_generic_api_can_create_alert_destination_that_targets_an_alert(self, event_id):
+        # The insight alerts UI creates destinations by posting here directly, so an alert-owned
+        # destination (one carrying the alert_id property) must pass the managed-event gate.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Slack alert destination",
+                "type": "internal_destination",
+                "template_id": "template-slack",
+                "enabled": True,
+                "filters": {
+                    "events": [{"id": event_id, "type": "events"}],
+                    "properties": [{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}],
+                },
+                "inputs": {"slack_workspace": {"value": 1}, "channel": {"value": "#general"}},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
     def test_generic_api_can_create_and_list_legacy_insight_alert_destinations(self):
         response = self.client.post(
