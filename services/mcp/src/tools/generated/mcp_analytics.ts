@@ -745,6 +745,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-tools',
         schema: MCPToolQualityRowsQuery,
         kind: 'MCPToolQualityRowsQuery',
+        urlPrefix: '/mcp-analytics/tool-quality',
     }),
     'query-mcp-tool-stats': createQueryWrapper({
         name: 'query-mcp-tool-stats',

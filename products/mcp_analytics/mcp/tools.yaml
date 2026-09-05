@@ -211,6 +211,7 @@ wrappers:
             - modifiers
             - version
             - tags
+        url_prefix: /mcp-analytics/tool-quality
         feature_flag: mcp-analytics
     query-mcp-tool-stats:
         schema_ref: MCPToolStatsQuery
