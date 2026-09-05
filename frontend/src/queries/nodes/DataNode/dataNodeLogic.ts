@@ -562,7 +562,9 @@ export interface dataNodeLogicActions {
         queryLog: HogQLQueryResponse<any[]>
         payload?: any
     }
-    loadTotalCount: () => any
+    loadTotalCount: () => {
+        value: true
+    }
     loadTotalCountFailure: (
         error: string,
         errorObject?: any
@@ -572,10 +574,14 @@ export interface dataNodeLogicActions {
     }
     loadTotalCountSuccess: (
         totalCount: number | null,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         totalCount: number | null
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     resetLoadingTimer: () => {
         value: true
@@ -959,6 +965,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
+        loadTotalCount: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -1383,7 +1390,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         totalCount: [
             null as number | null,
             {
-                loadTotalCount: async () => {
+                loadTotalCount: async (_, breakpoint) => {
                     const query = values.totalCountQuery
                     if (!query) {
                         return null
@@ -1391,9 +1398,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     try {
                         const response = await performQuery(query)
+                        breakpoint()
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
-                    } catch (error) {
+                    } catch (error: any) {
+                        if (isBreakpoint(error)) {
+                            throw error
+                        }
                         posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
                         return null
                     }

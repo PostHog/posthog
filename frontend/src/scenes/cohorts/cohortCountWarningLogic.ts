@@ -83,7 +83,11 @@ export const cohortCountWarningLogic = kea<cohortCountWarningLogicType>([
     path(['scenes', 'cohorts', 'cohortCountWarningLogic']),
 
     connect((props: CohortCountWarningLogicProps) => ({
-        values: [dataNodeLogic({ key: props.dataNodeLogicKey, query: props.query }), ['response']],
+        // Attach with `query.source`, the same key and query the persons DataTable uses. Passing the
+        // full DataTableNode made the two builders disagree on the query prop. Then `propsChanged` saw
+        // a kind change, cleared the response, and reloaded. That flashed the rows for one frame before
+        // the empty state.
+        values: [dataNodeLogic({ key: props.dataNodeLogicKey, query: props.query.source }), ['response']],
     })),
 
     selectors(({ props }) => ({

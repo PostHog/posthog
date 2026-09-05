@@ -6,10 +6,19 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { isActorsQuery, isEventsQuery, isGroupsQuery, isSessionsQuery } from '~/queries/utils'
 
 export function DataTableCount(): JSX.Element | null {
-    const { totalCount, totalCountLoading, filteredCount, filteredCountLoading, hasActiveFilters, query } =
-        useValues(dataNodeLogic)
+    const {
+        totalCount,
+        totalCountLoading,
+        filteredCount,
+        filteredCountLoading,
+        responseLoading,
+        hasActiveFilters,
+        query,
+    } = useValues(dataNodeLogic)
 
-    const loading = totalCountLoading || filteredCountLoading
+    // Gate on `responseLoading` so the count matches the rows it describes. Otherwise a fresh search
+    // shows new rows while this label still reads the previous search's count.
+    const loading = totalCountLoading || filteredCountLoading || responseLoading
 
     if (loading) {
         return <span className="text-muted-alt text-xs">Loading count...</span>
