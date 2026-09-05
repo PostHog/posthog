@@ -185,9 +185,29 @@ export class ScoutRequestError extends Error {
     readonly status: number,
     subPath: string,
     statusText: string,
+    /**
+     * The endpoint's own explanation, when it sent one. Refusals that are part of
+     * normal use — a daily cap, an organization without AI data processing — say
+     * why far better than the status does, so those are worth showing verbatim.
+     */
+    readonly detail?: string,
   ) {
-    super(`Scout request failed (${subPath}): ${statusText}`);
+    super(`Scout request failed (${subPath}): ${detail ?? statusText}`);
     this.name = "ScoutRequestError";
+  }
+}
+
+/** The DRF `detail` a scout endpoint sent with a refusal, when the body carries one. */
+async function scoutErrorDetail(
+  response: Response,
+): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { detail?: unknown } | null;
+    return typeof body?.detail === "string" ? body.detail : undefined;
+  } catch {
+    // An error body that is absent, empty, or not JSON leaves the status to
+    // explain the refusal.
+    return undefined;
   }
 }
 
@@ -623,6 +643,74 @@ export interface ScoutScratchpadEntry {
   created_at: string;
   updated_at: string;
   created_by_run_id: string | null;
+}
+
+/** Schedule and dry-run posture a suggested scout would be created with. */
+export interface ScoutSuggestionProposedConfig {
+  /** Cron in the project timezone; null when the scout would run on an interval. */
+  run_cron_schedule: string | null;
+  /** Minutes between runs; null means the daily default. */
+  run_interval_minutes: number | null;
+  /** False for a dry run that files nothing to the inbox. */
+  emit: boolean;
+}
+
+/**
+ * One pre-computed pick: either a PostHog-authored scout to turn on
+ * (`canonical`), or a drafted scout to create (`custom`).
+ */
+export interface ScoutSuggestionItem {
+  /** Stable within the batch; the id the dismiss and create calls take. */
+  id: string;
+  kind: "canonical" | "custom";
+  /** Existing name for a canonical pick, proposed name for a custom one. */
+  skill_name: string;
+  title: string;
+  /** Project-specific evidence for the pick, in prose. */
+  why_here: string;
+  /** Custom only: the description the scout would be created with. */
+  description: string;
+  /** Custom only: the complete skill body the scout would be created with. */
+  draft_body: string;
+  proposed_config: ScoutSuggestionProposedConfig;
+  /** True when nothing in the current fleet covers this. */
+  gap: boolean;
+  confidence: "low" | "medium" | "high";
+}
+
+/**
+ * The project's suggestion batch. `stale` is an ordinary state rather than an
+ * error: any fleet change flips it and the picks stay valid.
+ */
+export interface ScoutSuggestionSet {
+  status: "fresh" | "stale" | "failed" | "empty";
+  /** Null before the first scan produced anything. */
+  generated_at: string | null;
+  model: string;
+  /** Skill names that were enabled when the batch was generated. */
+  fleet_snapshot: string[];
+  /** Picks not yet dismissed or created, best first. */
+  items: ScoutSuggestionItem[];
+}
+
+/** Body of the create-a-scout call: the skill and its runnable config in one request. */
+export interface ScoutCreateInput {
+  name: string;
+  description: string;
+  body: string;
+  config?: {
+    enabled?: boolean;
+    emit?: boolean;
+    run_interval_minutes?: number;
+    run_cron_schedule?: string | null;
+  };
+  /** The suggestion this scout came from, so the batch stops offering it. */
+  suggestion_id?: string;
+}
+
+export interface ScoutCreateResult {
+  created: boolean;
+  config: ScoutConfig;
 }
 
 export interface ScoutRunsQueryParams {
@@ -2332,6 +2420,7 @@ export class PostHogAPIClient {
         response.status,
         subPath,
         response.statusText,
+        await scoutErrorDetail(response),
       );
     }
     return (await response.json()) as T;
@@ -2361,6 +2450,7 @@ export class PostHogAPIClient {
         response.status,
         subPath,
         response.statusText,
+        await scoutErrorDetail(response),
       );
     }
     return (await response.json()) as T;
@@ -2521,6 +2611,50 @@ export class PostHogAPIClient {
       limit: params?.limit,
     });
     return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * The project's pre-computed "Suggested for this project" scout batch. Answers
+   * with an `empty` set rather than a 404 on a project that has never been
+   * scanned, so callers render the same shape either way.
+   */
+  async listScoutSuggestions(projectId: number): Promise<ScoutSuggestionSet> {
+    return await this.scoutGet<ScoutSuggestionSet>(projectId, "suggestions/");
+  }
+
+  /** Hide one pick. Dismissals are remembered by skill name across refreshes. */
+  async dismissScoutSuggestion(
+    projectId: number,
+    suggestionId: string,
+  ): Promise<ScoutSuggestionItem> {
+    return await this.scoutPost<ScoutSuggestionItem>(
+      projectId,
+      `suggestions/${encodeURIComponent(suggestionId)}/dismiss/`,
+      {},
+    );
+  }
+
+  /**
+   * Ask for a new scan now instead of waiting for the scheduled one. The scan
+   * runs headlessly and takes minutes, so poll {@link listScoutSuggestions} for
+   * the result. Capped per project per day; a 409 means one is already running.
+   */
+  async refreshScoutSuggestions(
+    projectId: number,
+  ): Promise<{ workflow_id: string }> {
+    return await this.scoutPost<{ workflow_id: string }>(
+      projectId,
+      "suggestions/refresh/",
+      {},
+    );
+  }
+
+  /** Create a custom scout skill and its runnable config in one atomic request. */
+  async createScout(
+    projectId: number,
+    input: ScoutCreateInput,
+  ): Promise<ScoutCreateResult> {
+    return await this.scoutPost<ScoutCreateResult>(projectId, "", input);
   }
 
   async listEvaluations(projectId: number): Promise<Evaluation[]> {

@@ -8,6 +8,8 @@ export const scoutQueryKeys = {
     ["scouts", "skillCreators", projectId] as const,
   scratchpad: (projectId: number | null) =>
     ["scouts", "scratchpad", projectId] as const,
+  suggestions: (projectId: number | null) =>
+    ["scouts", "suggestions", projectId] as const,
   emissions: (projectId: number | null, runIds: string[]) =>
     ["scouts", "emissions", projectId, runIds] as const,
   emissionReports: (projectId: number | null, runIds: string[]) =>
