@@ -31,7 +31,8 @@ describe('IntegrationView', () => {
     })
 
     // A connection the vendor no longer accepts read as connected, which is what left people
-    // hunting for a way to reconnect a source that had already stopped syncing.
+    // hunting for a way to reconnect a source that had already stopped syncing. The same flag is
+    // written for a provider outage, so the label must not name expiry as the cause.
     it('does not call a connection with an authentication error connected', () => {
         render(
             <Provider>
@@ -39,8 +40,9 @@ describe('IntegrationView', () => {
             </Provider>
         )
 
-        expect(screen.getByText(/^Connection expired to/)).toBeInTheDocument()
+        expect(screen.getByText(/^Can't connect to/)).toBeInTheDocument()
         expect(screen.queryByText(/^Connected to/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/expired/i)).not.toBeInTheDocument()
     })
 
     it('calls a working connection connected', () => {
@@ -51,6 +53,6 @@ describe('IntegrationView', () => {
         )
 
         expect(screen.getByText(/^Connected to/)).toBeInTheDocument()
-        expect(screen.queryByText(/^Connection expired/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/^Can't connect/)).not.toBeInTheDocument()
     })
 })
