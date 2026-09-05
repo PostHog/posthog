@@ -1323,6 +1323,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
         legacy_report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        assert self.assignment.pr_url is not None
         self._link_task_pr(legacy_report, self.assignment.pr_url)
 
         response = self._post_pr_webhook(action="closed", merged=merged)
@@ -1345,6 +1346,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_event_does_not_transition_assignment_for_another_pr(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
+        assert self.assignment.pr_url is not None
         self._link_task_pr(self.report, self.assignment.pr_url)
         self.assignment.pr_url = "https://github.com/posthog/posthog/pull/99"
         self.assignment.pr_number = 99
@@ -1380,6 +1382,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
         legacy_other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY)
+        assert self.assignment.pr_url is not None
         self._link_task_pr(legacy_other_report, self.assignment.pr_url)
 
         response = self._post_pr_webhook(action="closed", merged=True)
