@@ -38,6 +38,16 @@ class TestSubstituteParams:
         with pytest.raises(ValueError, match="Parameters are expected in dict form"):
             substitute_params("SELECT 1", invalid_params)
 
+    @parameterized.expand(
+        [
+            ("value_error_character", "SELECT * FROM table WHERE name LIKE '%b' AND id = %(id)s"),
+            ("type_error_character", "SELECT formatDateTime(t, '%d/%m/%Y') FROM table WHERE id = %(id)s"),
+        ]
+    )
+    def test_substitute_params_explains_literal_percent(self, _name, query):
+        with pytest.raises(ValueError, match="Double each literal '%' to '%%'"):
+            substitute_params(query, {"id": 123})
+
 
 class TestSubstituteParamsForDisplay:
     @parameterized.expand(
@@ -110,6 +120,16 @@ class TestSubstituteParamsForDisplay:
         invalid_params: Any = [1, 2, 3]
         with pytest.raises(ValueError, match="Parameters are expected in dict form"):
             substitute_params_for_display("SELECT 1", invalid_params)
+
+    @parameterized.expand(
+        [
+            ("value_error_character", "SELECT * FROM table WHERE name LIKE '%b' AND id = %(id)s"),
+            ("type_error_character", "SELECT formatDateTime(t, '%d/%m/%Y') FROM table WHERE id = %(id)s"),
+        ]
+    )
+    def test_substitute_params_for_display_explains_literal_percent(self, _name, query):
+        with pytest.raises(ValueError, match="Double each literal '%' to '%%'"):
+            substitute_params_for_display(query, {"id": 123})
 
     def test_substitute_params_for_display_empty_params(self):
         query = "SELECT * FROM table"
