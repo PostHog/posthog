@@ -668,13 +668,18 @@ class TestOAuthAPI(APIBaseTest):
         )
         return app, grant, private_key
 
-    def _signed_assertion_and_jwks(self, app: OAuthApplication, private_key: rsa.RSAPrivateKey) -> tuple[str, dict]:
+    def _signed_assertion_and_jwks(
+        self,
+        app: OAuthApplication,
+        private_key: rsa.RSAPrivateKey,
+        audience: str = "https://us.posthog.com/oauth/token/",
+    ) -> tuple[str, dict]:
         now = int(timezone.now().timestamp())
         assertion = jwt.encode(
             {
                 "iss": app.client_id,
                 "sub": app.client_id,
-                "aud": "https://us.posthog.com/oauth/token/",
+                "aud": audience,
                 "jti": "pkjwt-assertion-1",
                 "iat": now,
                 "exp": now + 60,
@@ -701,13 +706,23 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("site_url", "https://us.posthog.com/oauth/token/"),
+            ("advertised_issuer", "https://oauth.posthog.com"),
+        ]
+    )
     @freeze_time("2025-01-01 00:00:00")
-    @override_settings(SITE_URL="https://us.posthog.com")
-    def test_private_key_jwt_cimd_client_completes_token_exchange(self):
+    @override_settings(
+        SITE_URL="https://us.posthog.com", OAUTH_CLIENT_ASSERTION_ALLOWED_AUDIENCES=["https://oauth.posthog.com"]
+    )
+    def test_private_key_jwt_cimd_client_completes_token_exchange(self, _name, audience):
         # A private_key_jwt CIMD client is confidential but holds no secret, so the secret
         # paths can never authenticate it and only the assertion path can finish an install.
+        # Cloud advertises its issuer as a host separate from the one Django answers on, and
+        # RFC 7523 lets the client address either, so both have to authenticate.
         app, grant, private_key = self._create_private_key_jwt_app_and_grant()
-        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key, audience=audience)
 
         with (
             patch(

@@ -14,6 +14,7 @@ from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
+from structlog.testing import capture_logs
 
 from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.api.oauth.client_assertion import (
@@ -121,6 +122,19 @@ class TestClientAssertion(BaseTest):
     def test_rejected_claims(self, _name, overrides):
         with self.assertRaises(ClientAssertionError):
             self._verify(self._assertion(**overrides))
+
+    def test_audience_rejection_records_both_addresses(self):
+        presented = "https://elsewhere.example.com/token"
+
+        with capture_logs() as logs:
+            with self.assertRaises(ClientAssertionError):
+                self._verify(self._assertion(aud=presented))
+
+        rejection = next(entry for entry in logs if entry["event"] == "client_assertion_rejected")
+        self.assertEqual(rejection["presented_audience"], presented)
+        # The caller here passes no audiences, so this is the branch that resolves them
+        # internally. Logging the unresolved parameter reports None and diagnoses nothing.
+        self.assertIn(AUDIENCE, rejection["expected_audiences"])
 
     def test_assertion_signed_by_another_key_is_rejected(self):
         # The whole point of the scheme: only the holder of the published key can authenticate.
