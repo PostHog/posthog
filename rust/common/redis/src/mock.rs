@@ -581,15 +581,9 @@ impl Client for MockRedisClient {
             key: format!("items={}", items.len()),
             value: MockRedisValue::VecString(keys.clone()),
         });
-        Ok(keys
-            .iter()
-            .map(|k| {
-                self.set_nx_ex_ret
-                    .get(k)
-                    .and_then(|r| r.clone().ok())
-                    .unwrap_or(false)
-            })
-            .collect())
+        keys.iter()
+            .map(|k| self.set_nx_ex_ret.get(k).cloned().unwrap_or(Ok(false)))
+            .collect()
     }
 
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {
