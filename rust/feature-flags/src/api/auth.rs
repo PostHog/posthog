@@ -56,6 +56,29 @@ pub enum TokenAuthData {
     },
 }
 
+/// A validated `phs_` bearer token. `project_secret_key_id` is set only when the token was a
+/// project secret API key; the team-level secret token has no key row to stamp usage on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretTokenAuth {
+    pub team_id: i32,
+    pub api_token: Option<String>,
+    pub project_secret_key_id: Option<String>,
+}
+
+impl SecretTokenAuth {
+    pub fn is_project_secret(&self) -> bool {
+        self.project_secret_key_id.is_some()
+    }
+
+    pub fn method_label(&self) -> &'static str {
+        if self.is_project_secret() {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
+        }
+    }
+}
+
 /// Extracts bearer token from Authorization header
 pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
     headers
@@ -86,18 +109,17 @@ pub fn extract_personal_api_key(headers: &HeaderMap) -> Result<Option<String>, F
 ///
 /// Returns the matched TokenAuthData variant on success for metric labeling.
 /// Validates a phs_-prefixed token and checks it belongs to the expected team.
-/// Returns `(team_id, api_token, is_project_secret)` — same as
-/// `validate_secret_api_token` but with the team_id cross-check.
+/// Same as `validate_secret_api_token` but with the team_id cross-check.
 pub async fn validate_secret_api_token_for_team(
     state: &AppState,
     token: &str,
     expected_team_id: i32,
-) -> Result<(i32, Option<String>, bool), FlagError> {
+) -> Result<SecretTokenAuth, FlagError> {
     let result = validate_secret_api_token(state, token).await?;
 
-    if result.0 != expected_team_id {
+    if result.team_id != expected_team_id {
         warn!(
-            cached_team_id = result.0,
+            cached_team_id = result.team_id,
             expected_team_id = expected_team_id,
             "Token belongs to a different team"
         );
@@ -110,14 +132,14 @@ pub async fn validate_secret_api_token_for_team(
 /// Validates a phs_-prefixed token without checking against a specific team.
 ///
 /// Used when the `?token=` query parameter is omitted and the team must be derived
-/// from the secret token itself. Returns `(team_id, api_token, is_project_secret)`.
+/// from the secret token itself.
 ///
 /// Only works for Secret and ProjectSecret tokens (which are team-scoped).
 /// Personal API keys are multi-team and cannot be used to derive a team.
 pub async fn validate_secret_api_token(
     state: &AppState,
     token: &str,
-) -> Result<(i32, Option<String>, bool), FlagError> {
+) -> Result<SecretTokenAuth, FlagError> {
     let token_hash = hash_token_value(token);
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
     let token_owned = token.to_string();
@@ -138,16 +160,27 @@ pub async fn validate_secret_api_token(
                 team_id = team_id,
                 "Secret API token validated (no token param)"
             );
-            Ok((team_id, api_token, false))
+            Ok(SecretTokenAuth {
+                team_id,
+                api_token,
+                project_secret_key_id: None,
+            })
         }
         Some(TokenAuthData::ProjectSecret {
-            team_id, api_token, ..
+            team_id,
+            api_token,
+            key_id,
+            ..
         }) => {
             debug!(
                 team_id = team_id,
                 "Project secret API key validated (no token param)"
             );
-            Ok((team_id, api_token, true))
+            Ok(SecretTokenAuth {
+                team_id,
+                api_token,
+                project_secret_key_id: Some(key_id),
+            })
         }
         _ => Err(FlagError::SecretApiTokenInvalid),
     }

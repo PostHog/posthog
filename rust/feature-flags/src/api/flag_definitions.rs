@@ -1,3 +1,4 @@
+use crate::api::api_key_usage::ApiKeyKind;
 use crate::{
     api::{
         auth,
@@ -370,27 +371,26 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
 /// `?token=` param to disambiguate — returns an error in that case.
 async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result<Team, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (team_id, api_token, is_project_secret) =
-            auth::validate_secret_api_token(state, &token).await?;
-
-        let method = if is_project_secret {
-            "project_secret_api_key"
-        } else {
-            "secret_api_key"
-        };
+        let secret = auth::validate_secret_api_token(state, &token).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), method.to_string())],
+            &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
 
         // Prefer HyperCache via api_token (new cache entries include it).
         // Fall back to PG for old cache entries that predate the field.
         let svc = state.flag_service();
-        return match api_token {
-            Some(t) => svc.verify_token_and_get_team(&t).await,
-            None => svc.get_team_by_id(team_id).await,
+        let team = match secret.api_token {
+            Some(t) => svc.verify_token_and_get_team(&t).await?,
+            None => svc.get_team_by_id(secret.team_id).await?,
         };
+        if let Some(key_id) = secret.project_secret_key_id {
+            state
+                .record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
+                .await;
+        }
+        return Ok(team);
     }
 
     // Non-phs_ auth (e.g. personal API key) can't derive team without a token param
@@ -521,18 +521,17 @@ async fn authenticate_flag_definitions(
     // Try team secret token or project secret API key (from Authorization header only)
     // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (_, _, is_project_secret) =
-            auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
-        let method = if is_project_secret {
-            "project_secret_api_key"
-        } else {
-            "secret_api_key"
-        };
+        let secret = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), method.to_string())],
+            &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
+        if let Some(key_id) = secret.project_secret_key_id {
+            state
+                .record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
+                .await;
+        }
         return Ok(());
     }
 
@@ -547,7 +546,9 @@ async fn authenticate_flag_definitions(
         );
 
         // PAK last_used_at tracking is advisory; shared with remote_config via the State helper.
-        state.record_pak_last_used(pak_id).await;
+        state
+            .record_api_key_last_used(ApiKeyKind::Personal, pak_id)
+            .await;
 
         return Ok(());
     }

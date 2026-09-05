@@ -98,6 +98,25 @@ async fn poll_for_pak_last_used_at(context: &TestContext, pak_id: &str, message:
     panic!("{message}");
 }
 
+async fn poll_for_psak_last_used_at(context: &TestContext, team_id: i32, message: &str) {
+    use tokio::time::{sleep, Duration};
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    for _ in 0..80 {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM posthog_projectsecretapikey WHERE team_id = $1 AND last_used_at IS NOT NULL",
+        )
+        .bind(team_id)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        if count.0 > 0 {
+            return;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{message}");
+}
+
 fn url(addr: &std::net::SocketAddr, project_id: i32, key: &str) -> String {
     format!("http://{addr}/api/projects/{project_id}/feature_flags/{key}/remote_config")
 }
@@ -1295,8 +1314,37 @@ async fn test_remote_config_personal_key_updates_last_used_at() {
 }
 
 #[tokio::test]
+async fn test_remote_config_project_secret_key_updates_last_used_at() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let psak = context
+        .create_project_secret_api_key(team.id, "RC PSAK LastUsed", Some(vec!["feature_flag:read"]))
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-psak-lastused", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-psak-lastused"))
+        .header("Authorization", format!("Bearer {psak}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    poll_for_psak_last_used_at(
+        &context,
+        team.id,
+        "Timed out waiting for last_used_at to be set for the remote_config project secret key",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_remote_config_skip_writes_does_not_update_last_used_at() {
-    // The shared State::record_pak_last_used helper must honor skip_writes: with it on, a
+    // The shared State::record_api_key_last_used helper must honor skip_writes: with it on, a
     // personal-key request still authenticates (200) but records no last_used_at. Complements
     // test_remote_config_personal_key_updates_last_used_at, which covers the write path.
     let mut config = Config::default_test_config();
