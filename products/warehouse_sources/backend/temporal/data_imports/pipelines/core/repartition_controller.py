@@ -68,8 +68,8 @@ COARSEN_OOM_FREE_DAYS = 14
 # trips repeatedly should converge over a few daily cycles, not thrash every sync.
 REPARTITION_COOLDOWN_SECONDS = 24 * 60 * 60
 
-# Give up (and alert) after this many consecutive failed attempts so a permanently-failing table
-# doesn't re-attempt the rewrite on every sync forever.
+# Give up (and alert) after this many consecutive failed attempts, at most one per sync run, so a
+# permanently-failing table doesn't re-attempt the rewrite on every sync forever.
 MAX_REPARTITION_ATTEMPTS = 3
 
 
