@@ -1152,6 +1152,10 @@ const DRF_GENERIC_NOT_FOUND_DETAIL = "Not found.";
 /** One request per targeted distinct id; flags listing more stay raw past this. */
 const MAX_RESOLVED_FLAG_PEOPLE = 10;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isPropertyRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -6939,39 +6943,48 @@ export class PostHogAPIClient {
     flag: Schemas.FeatureFlag,
   ): Promise<Map<string, ResolvedPerson>> {
     const ids = targetedDistinctIds(flag).slice(0, MAX_RESOLVED_FLAG_PEOPLE);
-    const entries = await Promise.all(
-      ids.map(async (distinctId): Promise<[string, ResolvedPerson] | null> => {
-        try {
-          const page = await this.api.get(
-            "/api/projects/{project_id}/persons/",
-            {
-              path: { project_id: projectId },
-              query: { distinct_id: distinctId, limit: 1 },
-            },
-          );
-          const person = page.results?.[0];
-          if (!person) return null;
-          const properties = isPropertyRecord(person.properties)
-            ? person.properties
-            : {};
-          const email =
-            typeof properties.email === "string" ? properties.email : null;
-          return [
-            distinctId,
-            {
-              uuid: person.uuid,
-              name: person.name || email || distinctId,
-              email,
-            },
-          ];
-        } catch {
-          return null;
-        }
-      }),
-    );
-    return new Map(
-      entries.filter((entry): entry is [string, ResolvedPerson] => !!entry),
-    );
+    if (ids.length === 0) return new Map();
+    try {
+      // One batched call instead of one request per id: the persons list
+      // endpoint hydrates an actors query per call and shares a per-user
+      // throttle with every other person preview.
+      const response = await this.api.post(
+        "/api/projects/{project_id}/persons/batch_by_distinct_ids/",
+        {
+          path: { project_id: projectId },
+          query: {},
+          // The spec mislabels the body as a full person record; the endpoint
+          // reads a distinct_ids array.
+          body: { distinct_ids: ids } as unknown as Schemas.PersonRecord,
+        },
+      );
+      const results =
+        response && typeof response === "object" && "results" in response
+          ? (response as { results: Record<string, unknown> }).results
+          : {};
+      const people = new Map<string, ResolvedPerson>();
+      for (const distinctId of ids) {
+        const person = results[distinctId];
+        if (!isRecord(person)) continue;
+        const uuid = typeof person.uuid === "string" ? person.uuid : null;
+        if (!uuid) continue;
+        const properties = isPropertyRecord(person.properties)
+          ? person.properties
+          : {};
+        const email =
+          typeof properties.email === "string" ? properties.email : null;
+        const name =
+          typeof person.name === "string" ? person.name : null;
+        people.set(distinctId, {
+          uuid,
+          name: name || email || distinctId,
+          email,
+        });
+      }
+      return people;
+    } catch {
+      return new Map();
+    }
   }
 
   async getEvidencePreview(
