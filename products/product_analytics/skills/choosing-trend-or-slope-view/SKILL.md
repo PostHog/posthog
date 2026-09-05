@@ -9,7 +9,7 @@ description: >
   "slopegraph". Two readings of "change" need different charts: the whole trend
   (a line, every interval) versus just the two endpoints (a slope, start vs
   end). Ask which they want, then render it. Not for choosing a saved insight
-  ChartDisplayType in the insight editor.
+  ChartDisplayType in the insight editor — that is `choosing-chart-display`.
 ---
 
 # Choosing a trend line vs a slope view

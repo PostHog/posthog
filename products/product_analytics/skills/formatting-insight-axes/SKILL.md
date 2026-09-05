@@ -24,6 +24,10 @@ The two insight kinds configure it in different places:
 - **SQL insights** (`DataVisualizationNode`) — per-column
   `settings.formatting` (see [SQL insights](#sql-insights-datavisualizationnode))
 
+This page is only about **units**.
+Chart type, legend, series count, and a secondary axis are `choosing-chart-display`.
+Two of its SQL settings — per-series type (`displayType`) and secondary-axis side (`yAxisPosition`) — sit in `settings.display`, next to the `settings.formatting` this page covers; chart type is `display` on the node and the legend is `chartSettings.showLegend`.
+
 ## The anti-pattern
 
 If you are reaching for any of these, stop and pick a format below first:
