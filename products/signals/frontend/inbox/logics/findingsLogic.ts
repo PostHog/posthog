@@ -1,10 +1,13 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
+import { INBOX_PRIORITY_OPTIONS } from '../filterOptions'
 import {
     LinkedSignalReport,
     SignalReport,
@@ -19,6 +22,7 @@ import {
     prettifyScoutSkillName,
     runTouchedReports,
 } from '../utils/scoutRunsWindow'
+import { readTextParam } from '../utils/urlParams'
 import { ScoutEmissionRow, ScoutReportAction } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
@@ -44,9 +48,65 @@ export interface FleetScoutReportRow {
     skillNames: string[]
 }
 
-export type FindingsSortKey = 'newest' | 'oldest' | 'severity' | 'confidence'
+const FINDINGS_SORT_KEYS = ['newest', 'oldest', 'severity', 'confidence'] as const
+export type FindingsSortKey = (typeof FINDINGS_SORT_KEYS)[number]
 export const FINDINGS_SCOUT_FILTER_ALL = 'all'
 export const FINDINGS_SEVERITY_FILTER_ALL = 'all'
+const FINDINGS_DEFAULT_SORT_KEY: FindingsSortKey = 'newest'
+
+// The findings filters also live in the URL, so a filtered list survives a refresh and can be
+// shared. The `finding_` prefix keeps them clear of `inboxFiltersLogic`, which owns the bare
+// `scout`, `sort`, and `search` keys on this route and drops them on every rewrite.
+const FINDINGS_URL_KEYS = ['finding_search', 'finding_scout', 'finding_severity', 'finding_sort'] as const
+// The search param is written on this pause, so typing does not rewrite the URL per keystroke.
+const FINDINGS_SEARCH_DEBOUNCE_MS = 600
+
+const VALID_SORT_KEYS = new Set<string>(FINDINGS_SORT_KEYS)
+const VALID_SEVERITIES = new Set<string>(INBOX_PRIORITY_OPTIONS)
+
+interface FindingsFilterState {
+    searchText: string
+    scoutFilter: string
+    severityFilter: string
+    sortKey: FindingsSortKey
+}
+
+// Merge the findings filters into `base`, writing only what differs from the default so a bare
+// findings URL stays clean.
+function findingsFilterSearchParams(base: Record<string, any>, filters: FindingsFilterState): Record<string, any> {
+    const params = { ...base }
+    for (const key of FINDINGS_URL_KEYS) {
+        delete params[key]
+    }
+    const search = filters.searchText.trim()
+    if (search) {
+        params.finding_search = search
+    }
+    if (filters.scoutFilter !== FINDINGS_SCOUT_FILTER_ALL) {
+        params.finding_scout = filters.scoutFilter
+    }
+    if (filters.severityFilter !== FINDINGS_SEVERITY_FILTER_ALL) {
+        params.finding_severity = filters.severityFilter
+    }
+    if (filters.sortKey !== FINDINGS_DEFAULT_SORT_KEY) {
+        params.finding_sort = filters.sortKey
+    }
+    return params
+}
+
+/** Decode the findings params, falling back to the default for anything absent or invalid. A scout
+ * slug has no static valid set to check against — an unknown one simply matches no findings. */
+function parseFindingsFilterSearchParams(searchParams: Record<string, any>): FindingsFilterState {
+    const scout = readTextParam(searchParams.finding_scout).trim()
+    const severity = readTextParam(searchParams.finding_severity)
+    const sort = readTextParam(searchParams.finding_sort)
+    return {
+        searchText: readTextParam(searchParams.finding_search),
+        scoutFilter: scout || FINDINGS_SCOUT_FILTER_ALL,
+        severityFilter: VALID_SEVERITIES.has(severity) ? severity : FINDINGS_SEVERITY_FILTER_ALL,
+        sortKey: VALID_SORT_KEYS.has(sort) ? (sort as FindingsSortKey) : FINDINGS_DEFAULT_SORT_KEY,
+    }
+}
 
 /** Lowest number = most severe, so the severity sort is a plain ascending compare. Null sinks last. */
 const SEVERITY_RANK: Record<SignalReportPriority, number> = { P0: 0, P1: 1, P2: 2, P3: 3, P4: 4 }
@@ -154,6 +214,9 @@ export interface findingsLogicActions {
         payload?: {
             ids: string[] | undefined
         }
+    }
+    hydrateFindingsFilters: (filters: FindingsFilterState) => {
+        filters: FindingsFilterState
     }
     setScoutFilter: (scoutFilter: string) => {
         scoutFilter: string
@@ -314,6 +377,9 @@ export const findingsLogic = kea<findingsLogicType>([
         setScoutFilter: (scoutFilter: string) => ({ scoutFilter }),
         setSeverityFilter: (severityFilter: string) => ({ severityFilter }),
         setSortKey: (sortKey: FindingsSortKey) => ({ sortKey }),
+        // Applies every filter from the URL in one go. Kept out of `actionToUrl` so hydrating from a
+        // shared link does not rewrite the link it came from, one half-applied filter at a time.
+        hydrateFindingsFilters: (filters: FindingsFilterState) => ({ filters }),
         // `ids` = targeted refresh (the poll retries): fetch only those reports and merge into the
         // retained set. Omitted = full load of every touched report. Each retrieve is an expensive
         // annotated query server-side, so the 60s poll must not re-fetch all ~50 for one needy id.
@@ -414,13 +480,34 @@ export const findingsLogic = kea<findingsLogicType>([
     })),
 
     reducers({
-        searchText: ['', { setSearchText: (_, { searchText }) => searchText }],
-        scoutFilter: [FINDINGS_SCOUT_FILTER_ALL as string, { setScoutFilter: (_, { scoutFilter }) => scoutFilter }],
+        searchText: [
+            '',
+            {
+                setSearchText: (_, { searchText }) => searchText,
+                hydrateFindingsFilters: (_, { filters }) => filters.searchText,
+            },
+        ],
+        scoutFilter: [
+            FINDINGS_SCOUT_FILTER_ALL as string,
+            {
+                setScoutFilter: (_, { scoutFilter }) => scoutFilter,
+                hydrateFindingsFilters: (_, { filters }) => filters.scoutFilter,
+            },
+        ],
         severityFilter: [
             FINDINGS_SEVERITY_FILTER_ALL as string,
-            { setSeverityFilter: (_, { severityFilter }) => severityFilter },
+            {
+                setSeverityFilter: (_, { severityFilter }) => severityFilter,
+                hydrateFindingsFilters: (_, { filters }) => filters.severityFilter,
+            },
         ],
-        sortKey: ['newest' as FindingsSortKey, { setSortKey: (_, { sortKey }) => sortKey }],
+        sortKey: [
+            FINDINGS_DEFAULT_SORT_KEY,
+            {
+                setSortKey: (_, { sortKey }) => sortKey,
+                hydrateFindingsFilters: (_, { filters }) => filters.sortKey,
+            },
+        ],
         // True only when the most recent emissions load failed outright (the batched fetch rejected).
         emissionsLoadFailed: [
             false,
@@ -832,6 +919,29 @@ export const findingsLogic = kea<findingsLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        // Debounced so a burst of keystrokes settles once, on pause. The list itself filters on every
+        // keystroke — only the URL waits. The write is a `replace`, so Back does not step through
+        // every partial query.
+        setSearchText: async ({ searchText }, breakpoint) => {
+            const searchedPathname = router.values.location.pathname
+            await breakpoint(FINDINGS_SEARCH_DEBOUNCE_MS)
+            // Hydrating from the URL replaces the search without aborting this breakpoint, so the
+            // typed query can be stale by now. The hydrated search owns the URL.
+            if (values.searchText !== searchText) {
+                return
+            }
+            // The logic stays mounted across a same-scene navigation, so the breakpoint does not
+            // abort on one. Only write if the user is still on the route they searched from.
+            if (router.values.location.pathname !== searchedPathname) {
+                return
+            }
+            router.actions.replace(
+                router.values.location.pathname,
+                findingsFilterSearchParams(router.values.searchParams, values),
+                router.values.hashParams
+            )
+        },
+
         // Ride the fleet's runs-window poll to refetch report links while a recent finding is unlinked.
         [scoutFleetLogic.actionTypes.loadRunsWindowSuccess]: () => {
             const cutoff = dayjs().subtract(REPORT_LINK_RETRY_WINDOW_MINUTES, 'minute')
@@ -860,6 +970,54 @@ export const findingsLogic = kea<findingsLogicType>([
                     actions.loadScoutReports(needyIds)
                 }
             }
+        },
+    })),
+
+    // Filter changes replace the current URL, matching the Reports filters: a toggle refines the
+    // view you are on rather than adding a history entry. Search is written by its own debounced
+    // listener, so it is not registered here.
+    actionToUrl(({ values }) => {
+        const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            router.values.location.pathname,
+            findingsFilterSearchParams(router.values.searchParams, values),
+            router.values.hashParams,
+            { replace: true },
+        ]
+        return {
+            setScoutFilter: toUrl,
+            setSeverityFilter: toUrl,
+            setSortKey: toUrl,
+        }
+    }),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.inboxFindings()]: (_, searchParams: Record<string, any>): void => {
+            const hasFindingsParams = FINDINGS_URL_KEYS.some((key) => key in searchParams)
+            if (!hasFindingsParams) {
+                // A bare findings URL keeps the filters the panel already holds, but reflects the
+                // non-default ones back so the view on screen is immediately shareable.
+                const desired = findingsFilterSearchParams({}, values)
+                if (Object.keys(desired).length > 0) {
+                    router.actions.replace(
+                        router.values.location.pathname,
+                        { ...router.values.searchParams, ...desired },
+                        router.values.hashParams
+                    )
+                }
+                return
+            }
+            // A shared link is authoritative: apply what it carries and reset the rest to defaults.
+            // Guarded so plain navigation onto the panel does not re-dispatch an unchanged state.
+            const parsed = parseFindingsFilterSearchParams(searchParams)
+            if (
+                parsed.searchText === values.searchText &&
+                parsed.scoutFilter === values.scoutFilter &&
+                parsed.severityFilter === values.severityFilter &&
+                parsed.sortKey === values.sortKey
+            ) {
+                return
+            }
+            actions.hydrateFindingsFilters(parsed)
         },
     })),
 

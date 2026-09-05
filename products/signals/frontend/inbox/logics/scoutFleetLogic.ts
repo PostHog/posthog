@@ -77,6 +77,7 @@ import {
 } from '../utils/scoutRunsWindow'
 import { configMatchesScoutTags, listScoutTagOptions } from '../utils/scoutTags'
 import type { ScoutTagOption } from '../utils/scoutTags'
+import { readTextParam } from '../utils/urlParams'
 
 // Exported because kea-typegen writes an import for it into any logic that connects `scoutConfigs`,
 // which Replay Vision's scanner scouts do.
@@ -164,19 +165,6 @@ function rosterFilterSearchParams(base: Record<string, any>, filters: RosterFilt
         delete params.scoutOwner
     }
     return params
-}
-
-// kea-router parses `?scoutSearch=123` into a number and `?scoutSearch=true` into a boolean, so a
-// string-only check would drop searches and tags that a person can type. Read a scalar back as the
-// text it came from, and reject the array and object forms, which no roster param ever takes.
-function readTextParam(value: unknown): string {
-    if (typeof value === 'string') {
-        return value
-    }
-    if (typeof value === 'number' || typeof value === 'boolean') {
-        return String(value)
-    }
-    return ''
 }
 
 function parseRosterFilterSearchParams(searchParams: Record<string, any>): RosterFilterState {

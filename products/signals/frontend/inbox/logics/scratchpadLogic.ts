@@ -1,13 +1,16 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SCOUT_ROSTER_WINDOW_HOURS } from '../utils/scoutRunsWindow'
+import { readTextParam } from '../utils/urlParams'
 
 // The list view shows two ways to read the fleet's memory: newest-first (the API's
 // native order) or clustered by the key namespace scouts choose (`tags:*`, `dedupe:*`).
@@ -26,6 +29,22 @@ export const SCRATCHPAD_FETCH_LIMIT = 1000
 // Pull previews for the list and fetch the one body you expand. Sized well past two lines so
 // the overwhelming majority of notes arrive complete and never need the second read.
 export const SCRATCHPAD_PREVIEW_CHARS = 1200
+// The search also lives in the URL, so a searched view survives a refresh and can be shared. The
+// `scratchpad_` prefix keeps it clear of `inboxFiltersLogic`, which owns the bare `search` key on
+// this route and drops it on every rewrite. Written on the same pause as the request.
+const SCRATCHPAD_SEARCH_URL_KEY = 'scratchpad_search'
+
+// Merge the scratchpad search into `base`, leaving a bare scratchpad URL clean when nothing is typed.
+function scratchpadSearchParams(base: Record<string, any>, searchText: string): Record<string, any> {
+    const params = { ...base }
+    const search = searchText.trim()
+    if (search) {
+        params[SCRATCHPAD_SEARCH_URL_KEY] = search
+    } else {
+        delete params[SCRATCHPAD_SEARCH_URL_KEY]
+    }
+    return params
+}
 
 /** One namespace cluster in the "By topic" view: the raw prefix, a friendly label, and its entries. */
 export interface ScratchpadNamespaceGroup {
@@ -367,10 +386,25 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
 
     listeners(({ actions, values }) => ({
         setSearchText: async ({ searchText }, breakpoint) => {
+            const searchedPathname = router.values.location.pathname
+            await breakpoint(SEARCH_DEBOUNCE_MS)
+            // Hydrating from the URL replaces the search without aborting this breakpoint, so the
+            // typed query can be stale by now. The hydrated search owns the URL.
+            if (values.searchText !== searchText) {
+                return
+            }
+            // The panel stays mounted on a scout's page too, so the breakpoint does not abort on a
+            // same-scene navigation. Only write if the user is still on the route they searched from.
+            if (router.values.location.pathname === searchedPathname) {
+                router.actions.replace(
+                    router.values.location.pathname,
+                    scratchpadSearchParams(router.values.searchParams, searchText),
+                    router.values.hashParams
+                )
+            }
             if (!searchText.trim()) {
                 return
             }
-            await breakpoint(SEARCH_DEBOUNCE_MS)
             actions.loadSearchResults()
         },
 
@@ -419,6 +453,30 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 // The preview stays on screen, so a failure costs the reader the tail of one note
                 // rather than the whole card.
                 actions.loadFullContentFailure(key)
+            }
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.inboxScratchpad()]: (_, searchParams: Record<string, any>): void => {
+            if (!(SCRATCHPAD_SEARCH_URL_KEY in searchParams)) {
+                // A bare scratchpad URL keeps what the box already holds, but reflects it back so the
+                // view on screen is immediately shareable.
+                if (values.searchText.trim()) {
+                    router.actions.replace(
+                        router.values.location.pathname,
+                        scratchpadSearchParams(router.values.searchParams, values.searchText),
+                        router.values.hashParams
+                    )
+                }
+                return
+            }
+            // A shared link is authoritative. `setSearchText` also runs the search, so the hydrated
+            // view lists the same hits the sender saw. Guarded so plain navigation onto the panel does
+            // not re-dispatch an unchanged search.
+            const parsed = readTextParam(searchParams[SCRATCHPAD_SEARCH_URL_KEY])
+            if (parsed !== values.searchText) {
+                actions.setSearchText(parsed)
             }
         },
     })),

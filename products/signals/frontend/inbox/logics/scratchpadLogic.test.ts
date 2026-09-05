@@ -1,5 +1,8 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -164,6 +167,50 @@ describe('scratchpadLogic', () => {
 
         logic.actions.loadEntriesSuccess(full.slice(0, 10))
         expect(logic.values.recentlyLearnedCountCapped).toBe(false)
+    })
+
+    // The search box was in-memory state, so a refresh or a shared link opened the unfiltered
+    // scratchpad. `scratchpad_search` is prefixed because `inboxFiltersLogic` owns the bare
+    // `search` key on this route and deletes it on every rewrite.
+    it('writes the search to the URL on the debounce pause and clears it again', async () => {
+        router.actions.push(urls.inboxScratchpad())
+
+        logic.actions.setSearchText('short')
+        // Not written yet: the pause is what keeps the URL off every keystroke.
+        expect(router.values.searchParams.scratchpad_search).toBeUndefined()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.scratchpad_search).toEqual('short')
+
+        logic.actions.setSearchText('')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.scratchpad_search).toBeUndefined()
+    })
+
+    it('restores the search from a shared URL and runs it', async () => {
+        router.actions.push(urls.inboxScratchpad(), { scratchpad_search: 'short' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.searchText).toEqual('short')
+        expect(searchRequests.map((params) => params.get('text'))).toEqual(['short'])
+    })
+
+    // kea-router hands back a number for `?scratchpad_search=123`, and a string-only read would
+    // drop a search a person can type.
+    it('restores a search the router parsed as a number', async () => {
+        router.actions.push(`${urls.inboxScratchpad()}?scratchpad_search=123`)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.searchText).toEqual('123')
+    })
+
+    it('drops the delayed write when the reader leaves the panel first', async () => {
+        router.actions.push(urls.inboxScratchpad())
+        logic.actions.setSearchText('short')
+        // The panel also renders on a scout's page, so the logic stays mounted across this move.
+        router.actions.push(urls.inboxScout('signals-scout-errors'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.scratchpad_search).toBeUndefined()
     })
 
     it('keeps the card usable when the body lookup fails', async () => {
