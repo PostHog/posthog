@@ -1,5 +1,7 @@
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
+from django.db.models.expressions import F
+from django.db.models.functions import Coalesce
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -61,6 +63,13 @@ class EventDefinition(UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            # Project-scoped twin of the trigram index above, for the same reason as
+            # `index_propdef_proj_name_trgm` on PropertyDefinition.
+            GinIndex(
+                OpClass(Coalesce(F("project_id"), F("team_id")), name="int8_ops"),
+                OpClass(F("name"), name="gin_trgm_ops"),
+                name="index_eventdef_proj_name_trgm",
+            ),
         ]
         constraints = [
             UniqueConstraintByExpression(

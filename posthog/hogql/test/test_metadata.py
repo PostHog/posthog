@@ -351,6 +351,18 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
         self.assertEqual(len(candidate_reads), 1, candidate_reads)
 
+    def test_metadata_reads_suggestion_candidates_scoped_by_a_bigint(self) -> None:
+        # `index_propdef_proj_name_trgm` leads with the project expression under the `int8_ops` GIN
+        # operator class, which holds no cross-type operator. A project scope sent as anything but a
+        # bigint therefore drops out of the index, and Postgres reads every trigram match in the
+        # table instead of only this project's names.
+        with CaptureQueriesContext(connection) as captured:
+            self._select_with_unknown_properties(1)
+
+        candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
+        self.assertTrue(candidate_reads)
+        self.assertTrue(all("::bigint" in sql for sql in candidate_reads), candidate_reads)
+
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
