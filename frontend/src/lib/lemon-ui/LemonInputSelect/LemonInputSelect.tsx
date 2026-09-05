@@ -1192,11 +1192,13 @@ function ValueSnacks<T = string>({
     )
 
     const content = values.map((value) => {
-        const option: LemonInputSelectOption<T> = options.find((option) => option.key === value) ?? {
-            key: value,
-            label: value,
-            labelComponent: null,
-        }
+        // A hand-typed value can differ in case from its option key, e.g. an email address.
+        const option: LemonInputSelectOption<T> = options.find((option) => option.key === value) ??
+            options.find((option) => option.key.toLowerCase() === value.toLowerCase()) ?? {
+                key: value,
+                label: value,
+                labelComponent: null,
+            }
 
         if (sortable) {
             return (
