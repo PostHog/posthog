@@ -59,6 +59,19 @@ class OutboundRateLimiter:
         record_outbound_decision(domain=_domain_of(key), source=source, priority=priority.value, granted=granted)
         return granted
 
+    def peek_sync(self, key: str, n: int = 1, *, priority: Priority = Priority.NORMAL, source: str = "unknown") -> bool:
+        """Admit without spending; ``charge_sync`` spends once the response shows the cost. The pair is
+        not atomic, so in-flight callers can all be admitted against the same headroom; the API's own
+        limit backstops the overrun."""
+        policy = resolve_policy(key)
+        _validate(n, policy, priority)
+        granted = self._backend.peek_sync(key, policy, n, priority)
+        record_outbound_decision(domain=_domain_of(key), source=source, priority=priority.value, granted=granted)
+        return granted
+
+    def charge_sync(self, key: str, n: int = 1) -> None:
+        self._backend.charge_sync(key, resolve_policy(key), n)
+
     def pace_seconds(self, key: str, *, priority: Priority = Priority.NORMAL) -> float:
         """Seconds to wait before the next call on ``key`` so it does not exhaust the budget.
 

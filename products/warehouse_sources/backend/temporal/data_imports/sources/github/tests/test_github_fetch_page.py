@@ -187,7 +187,7 @@ def test_fetch_page_gates_on_egress_budget_when_installation_known():
     identity = github.GithubEgressIdentity(installation_id="123")
 
     with (
-        mock.patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False) as gate,
+        mock.patch("posthog.egress.github.transport.peek_github_installation_sync", return_value=False) as gate,
         mock.patch.object(github, "make_tracked_session", return_value=session),
     ):
         with pytest.raises(github.GitHubEgressBudgetExhausted):
@@ -439,7 +439,7 @@ def test_fetch_page_skips_gate_on_pat_path():
     session.request.return_value = _ok_response()
 
     with (
-        mock.patch("posthog.egress.github.transport.consume_github_installation_sync") as gate,
+        mock.patch("posthog.egress.github.transport.peek_github_installation_sync") as gate,
         mock.patch.object(github, "make_tracked_session", return_value=session),
     ):
         response = github._fetch_page(

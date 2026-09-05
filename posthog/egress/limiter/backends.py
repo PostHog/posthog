@@ -13,6 +13,7 @@ storage, which requires a separate ``coredis`` client and would bypass our confi
 import time
 import asyncio
 import threading
+from collections.abc import Callable
 
 import structlog
 import redis.exceptions
@@ -74,8 +75,20 @@ def _check(
     # toward denying, never over-allowing the shared budget) and bounded by headroom plus the
     # consumer's reactive backoff — fine for egress; cross-window atomicity (a custom multi-window Lua)
     # isn't worth it at v1.
-    if not all(limiter.test(item, key, cost=n + reserve) for item, reserve in zip(items, reserves)):
-        return False
+    return _test(limiter, items, key, n, reserves) and _hit(limiter, items, key, n)
+
+
+def _test(
+    limiter: SlidingWindowCounterRateLimiter,
+    items: list[RateLimitItemPerSecond],
+    key: str,
+    n: int,
+    reserves: list[int],
+) -> bool:
+    return all(limiter.test(item, key, cost=n + reserve) for item, reserve in zip(items, reserves))
+
+
+def _hit(limiter: SlidingWindowCounterRateLimiter, items: list[RateLimitItemPerSecond], key: str, n: int) -> bool:
     return all(limiter.hit(item, key, cost=n) for item in items)
 
 
@@ -123,15 +136,35 @@ class LimitsBackend:
         return await asyncio.to_thread(self.consume_sync, key, policy, n, priority)
 
     def consume_sync(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
+        return self._run(
+            key,
+            policy,
+            lambda limiter, limits: _check(limiter, _items(limits), key, n, _reserves(policy, priority, limits)),
+        )
+
+    def peek_sync(self, key: str, policy: RatePolicy, n: int, priority: Priority) -> bool:
+        return self._run(
+            key,
+            policy,
+            lambda limiter, limits: _test(limiter, _items(limits), key, n, _reserves(policy, priority, limits)),
+        )
+
+    def charge_sync(self, key: str, policy: RatePolicy, n: int) -> None:
+        """A charge past the window is dropped, not overdrawn, like ``hit``."""
+        self._run(key, policy, lambda limiter, limits: _hit(limiter, _items(limits), key, n))
+
+    def _run(
+        self,
+        key: str,
+        policy: RatePolicy,
+        op: Callable[[SlidingWindowCounterRateLimiter, tuple[RateLimit, ...]], bool],
+    ) -> bool:
+        # The fallback runs op on the shrunk limits, so reserves scale with the per-process budget.
         try:
-            limits = policy.limits
-            return _check(self._redis_limiter(), _items(limits), key, n, _reserves(policy, priority, limits))
+            return op(self._redis_limiter(), policy.limits)
         except _REDIS_ERRORS:
             logger.warning("outbound_rate_limit_redis_unavailable", key=key, fallback="in_memory")
-            # Reserve off the shrunk fallback budget so the floor scales with the smaller per-process
-            # limit rather than the full one.
-            shrunk = self._shrunk(policy)
-            return _check(self._memory_limiter(), _items(shrunk), key, n, _reserves(policy, priority, shrunk))
+            return op(self._memory_limiter(), self._shrunk(policy))
 
     def pace_seconds(self, key: str, policy: RatePolicy, priority: Priority) -> float:
         limits = policy.limits

@@ -11,18 +11,89 @@ is defined here for the same reason: the transport needs it, and it can't reach 
 """
 
 import time
+import hashlib
 from typing import Any
 
-import requests
+from django.conf import settings
 
-from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
-from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
+import requests
+from requests.structures import CaseInsensitiveDict
+from requests.utils import get_encoding_from_headers
+
+from posthog.dataclasses import frozen
+from posthog.egress.github.limiter import (
+    charge_github_installation_sync,
+    classify_github_resource,
+    peek_github_installation_sync,
+)
+from posthog.egress.github.observability import (
+    record_github_api_exception,
+    record_github_api_response,
+    record_github_conditional_cache,
+)
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
+from posthog.utils import get_safe_cache, safe_cache_set
 
 # The GitHub REST API version we pin every request to. Lives here (not integration.py) so the egress
 # layer stays free of any posthog.models import; integration.py imports it back from here.
 GITHUB_API_VERSION = "2022-11-28"
+
+# Bump v1 when _CachedResponse changes shape: pickled entries load positionally.
+_CONDITIONAL_CACHE_PREFIX = "github_egress:conditional:v1"
+
+# Describe the wire body, which the replay does not use.
+_ENTITY_LENGTH_HEADERS = frozenset({"content-length", "content-encoding"})
+
+# Request headers that change the representation; cache_identity stands in for Authorization.
+_KEYED_REQUEST_HEADERS = ("Accept", "X-GitHub-Api-Version")
+
+
+@frozen
+class _CachedResponse:
+    etag: str
+    body: bytes
+    headers: dict[str, str]
+
+
+def _without_entity_length(headers: CaseInsensitiveDict) -> dict[str, str]:
+    return {name: value for name, value in headers.items() if name.lower() not in _ENTITY_LENGTH_HEADERS}
+
+
+def _conditional_cache_key(identity: str, headers: CaseInsensitiveDict, url: str, params: object) -> str:
+    prepared = requests.PreparedRequest()
+    prepared.prepare_url(url, params)
+    keyed = "\n".join(headers.get(name, "") for name in _KEYED_REQUEST_HEADERS)
+    digest = hashlib.sha256(f"{keyed}\n{prepared.url}".encode()).hexdigest()
+    return f"{_CONDITIONAL_CACHE_PREFIX}:{identity}:{digest}"
+
+
+def _storable(response: requests.Response) -> bool:
+    if response.status_code != 200 or not response.headers.get("etag"):
+        return False
+    if response.headers.get("vary", "").strip() == "*":
+        return False
+    if "no-store" in response.headers.get("cache-control", "").lower():
+        return False
+    return len(response.content) <= settings.GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES
+
+
+def _replayed(response: requests.Response, cached: _CachedResponse) -> requests.Response:
+    replay = requests.models.Response()
+    replay.status_code = 200
+    replay.reason = "OK"
+    # RFC 9111 section 4.3.4: the 304's headers update the stored ones.
+    replay.headers = CaseInsensitiveDict(cached.headers)
+    replay.headers.update(_without_entity_length(response.headers))
+    replay.encoding = get_encoding_from_headers(replay.headers)
+    replay.url = response.url
+    replay.request = response.request
+    replay.elapsed = response.elapsed
+    replay._content = cached.body
+    # Without _content_consumed, iter_content takes the streaming branch and reads the None raw.
+    replay._content_consumed = True  # type: ignore[attr-defined]
+    replay.raw = None
+    return replay
 
 
 class GitHubEgressBudgetExhausted(EgressBudgetExhausted):
@@ -98,10 +169,68 @@ class GitHubClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
 
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        source: str,
+        headers: dict[str, str] | None = None,
+        cache_identity: str | None = None,
+        **kwargs: Any,
+    ) -> requests.Response:
+        """A GET with ``cache_identity`` is sent conditionally, and a 304 is replayed as a 200 from the
+        cache. ``cache_identity`` names whose view this is, because the credential decides the response;
+        see ``GitHubIntegrationBase._installation_cache_scope``."""
+        if not cache_identity:
+            return super().request(method, url, source=source, headers=headers, **kwargs)
+
+        merged = CaseInsensitiveDict({**self._standard_headers(), **(headers or {})})
+        if (
+            method.upper() != "GET"
+            or kwargs.get("stream")
+            or not settings.GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS
+            or any(name.lower().startswith("if-") for name in merged)
+        ):
+            record_github_conditional_cache("skip", source=source)
+            return super().request(method, url, source=source, headers=headers, **kwargs)
+
+        key = _conditional_cache_key(cache_identity, merged, url, kwargs.get("params"))
+        cached = get_safe_cache(key)
+        if not isinstance(cached, _CachedResponse):
+            cached = None
+        if cached:
+            headers = {**(headers or {}), "If-None-Match": cached.etag}
+
+        response = super().request(method, url, source=source, headers=headers, **kwargs)
+
+        if cached and response.status_code == 304:
+            record_github_conditional_cache("hit", source=source)
+            return _replayed(response, cached)
+        record_github_conditional_cache("miss" if cached else "cold", source=source)
+        if _storable(response):
+            record_github_conditional_cache("store", source=source)
+            safe_cache_set(
+                key,
+                _CachedResponse(
+                    etag=response.headers["etag"],
+                    body=response.content,
+                    headers=_without_entity_length(response.headers),
+                ),
+                settings.GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS,
+            )
+        return response
+
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_github_installation_sync(
+        return peek_github_installation_sync(
             scope, resource=classify_github_resource(url), priority=priority, source=source
         )
+
+    def _settle(self, response: requests.Response | None, *, scope: str, url: str) -> None:
+        # GitHub does not count a 304 against the primary rate limit, so neither does our budget.
+        if response is not None and response.status_code == 304:
+            return
+        charge_github_installation_sync(scope, resource=classify_github_resource(url))
 
     def _record_response(
         self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
@@ -126,6 +255,7 @@ def github_request(
     source: str,
     headers: dict[str, str] | None = None,
     installation_id: str | None = None,
+    cache_identity: str | None = None,
     priority: Priority = Priority.CRITICAL,
     endpoint: str | None = None,
     timeout: float | tuple[float, float] | None = None,
@@ -135,12 +265,15 @@ def github_request(
     """Make a gated, recorded GitHub API request. ``installation_id`` is the shared budget owner — pass
     it when known so the call is gated (at ``priority``) and the rate-limit gauges are set; leave it
     ``None`` for identity-blind callers (raw PATs, PostHog's public token), which record volume only.
-    ``source`` attributes the call to a subsystem. ``headers`` must carry the caller's ``Authorization``."""
+    ``source`` attributes the call to a subsystem. ``headers`` must carry the caller's ``Authorization``.
+    ``cache_identity`` opts a GET into conditional requests; pass it only when the token sees exactly what
+    that identity sees."""
     return _github_client.request(
         method,
         url,
         source=source,
         headers=headers,
+        cache_identity=cache_identity,
         scope=installation_id,
         priority=priority,
         endpoint=endpoint,

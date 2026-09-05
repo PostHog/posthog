@@ -180,8 +180,10 @@ class TestListParams:
         )
 
         floor = datetime.fromisoformat(params["since"].replace("Z", "+00:00"))
+        assert (floor.hour, floor.minute, floor.second, floor.microsecond) == (0, 0, 0, 0)
         expected = datetime.now(UTC) - timedelta(days=lookback)
-        assert abs((expected - floor).total_seconds()) < 60
+        assert floor <= expected
+        assert (expected - floor) < timedelta(days=1)
 
     def test_full_refresh_ignores_since_floor(self) -> None:
         # An explicit full refresh must still pull the whole history; the floor only bounds the

@@ -301,6 +301,11 @@ register_policy(
 )
 
 
+def github_installation_cache_identity(installation_id: str | int) -> str:
+    """``cache_identity`` for data read through an installation token, shared by every row on it."""
+    return f"installation:{installation_id}"
+
+
 def github_installation_key(
     installation_id: str | int, *, resource: GitHubRateResource = GitHubRateResource.CORE
 ) -> str:
@@ -351,6 +356,29 @@ def consume_github_installation_sync(
     return get_outbound_rate_limiter().consume_sync(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
     )
+
+
+def peek_github_installation_sync(
+    installation_id: str | int,
+    n: int = 1,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "unknown",
+    resource: GitHubRateResource = GitHubRateResource.CORE,
+) -> bool:
+    _note_demand_if_interactive(installation_id, priority, resource)
+    return get_outbound_rate_limiter().peek_sync(
+        github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
+    )
+
+
+def charge_github_installation_sync(
+    installation_id: str | int,
+    n: int = 1,
+    *,
+    resource: GitHubRateResource = GitHubRateResource.CORE,
+) -> None:
+    get_outbound_rate_limiter().charge_sync(github_installation_key(installation_id, resource=resource), n)
 
 
 def github_installation_pace_seconds(

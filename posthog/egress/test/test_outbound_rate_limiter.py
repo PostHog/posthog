@@ -63,6 +63,16 @@ def test_consume_sync_enforces_budget():
     assert [limiter.consume_sync("test-sync:scope:1") for _ in range(3)] == [True, True, False]
 
 
+def test_peek_admits_without_spending_and_charge_spends():
+    register_policy("test-peek", RatePolicy(limits=((2, 3600.0),)))
+    limiter = _fresh_limiter()
+    key = _unique_key("test-peek")
+    assert [limiter.peek_sync(key) for _ in range(3)] == [True, True, True]
+    limiter.charge_sync(key)
+    limiter.charge_sync(key)
+    assert limiter.peek_sync(key) is False
+
+
 async def test_unique_keys_do_not_share_budget():
     # Per-key isolation: exhausting one installation's budget must not deny another, or the shared
     # GitHub budget would be enforced globally instead of per installation.

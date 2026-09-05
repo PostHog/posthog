@@ -859,6 +859,17 @@ FIRECRAWL_EGRESS_PER_MINUTE_BUDGET = get_from_env("FIRECRAWL_EGRESS_PER_MINUTE_B
 FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 1000, type_cast=int)
 
 ####
+# GitHub conditional requests (see posthog/egress/github/transport.py)
+# 0 disables the cache. Must outlast the slowest caller's poll interval, or every poll misses.
+GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS = get_from_env(
+    "GITHUB_EGRESS_CONDITIONAL_CACHE_TTL_SECONDS", 24 * 3600, type_cast=int
+)
+# Counts the uncompressed body; entries are stored compressed, so the Redis footprint is far smaller.
+GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES = get_from_env(
+    "GITHUB_EGRESS_CONDITIONAL_CACHE_MAX_BODY_BYTES", 4 * 1024 * 1024, type_cast=int
+)
+
+####
 # Feature flag billing analytics
 # Used to track feature flag requests for billing purposes.
 # Named "decide" for historical reasons: the /decide endpoint was the original

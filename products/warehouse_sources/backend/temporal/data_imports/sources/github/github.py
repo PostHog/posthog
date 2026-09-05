@@ -17,7 +17,7 @@ from temporalio import activity
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from posthog.egress.github.limiter import github_installation_pace_seconds
+from posthog.egress.github.limiter import github_installation_cache_identity, github_installation_pace_seconds
 from posthog.egress.github.transport import (
     GitHubEgressBudgetExhausted,
     GitHubRateLimitError,
@@ -210,7 +210,12 @@ def _build_initial_params(
         # deliberate one-off backfill, not a connect-time cost. `is not None` keeps the field's
         # zero contract uniform with the fan-out floor: zero floors at now, so the poll backfills
         # nothing, rather than reading as "no floor" and walking the whole history.
-        params["since"] = _format_incremental_value(_now_utc() - timedelta(days=config.initial_lookback_days))
+        floor = _now_utc() - timedelta(days=config.initial_lookback_days)
+        if config.initial_lookback_days:
+            # Floor to the UTC day so a repository that never sets a watermark repeats the same URL
+            # each poll and can hit the conditional cache. Zero keeps its exact now (see above).
+            floor = floor.replace(hour=0, minute=0, second=0, microsecond=0)
+        params["since"] = _format_incremental_value(floor)
 
     return params
 
@@ -904,6 +909,7 @@ def _fetch_page(
         source="warehouse",
         headers=headers,
         installation_id=installation_id,
+        cache_identity=github_installation_cache_identity(installation_id) if installation_id else None,
         priority=Priority.BATCH,
         timeout=60,
         session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
