@@ -15,6 +15,7 @@ from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
     get_auth_user,
+    get_caller_metadata,
     get_effort,
     get_posthog_flags,
     get_posthog_properties,
@@ -133,6 +134,125 @@ def _apply_owned_event_properties(
 # to the same trace UUID across runs and processes.
 _TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
 
+_LITELLM_INTERNAL_METADATA_KEYS = frozenset({
+    "usage_object",
+    "model_group",
+    "endpoint",
+    "user_api_key",
+    "user_api_key_hash",
+    "user_api_key_alias",
+    "user_api_key_team_id",
+    "user_api_key_org_id",
+    "user_api_key_user_id",
+    "user_api_key_end_user_id",
+    "user_id",
+    "headers",
+    "response_headers",
+    "additional_headers",
+    "api_base",
+    "optional_params",
+    "hidden_params",
+    "authorization",
+    "authorization_header",
+    "auth",
+    "auth_token",
+    "api_key",
+    "api_secret",
+    "api_secret_key",
+    "client_secret",
+    "client_token",
+    "oauth_client_secret",
+    "secret_key",
+    "private_key",
+    "access_token",
+    "refresh_token",
+    "session_token",
+    "bearer_token",
+    "id_token",
+    "user_token",
+    "team_id",
+    "ai_product",
+    "secret",
+    "token",
+    "password",
+    "session",
+    "cookie",
+    "bearer",
+})
+
+_MAX_CUSTOM_METADATA_VALUE_SIZE = 10 * 1024
+_MAX_RECURSION_DEPTH = 5
+_MAX_CONTAINER_ITEMS = 100
+_GATEWAY_OWNED_FIELDS = frozenset({"ai_product", "team_id"})
+
+
+def _is_gateway_owned_property(key: str) -> bool:
+    key_lower = key.lower()
+    return (
+        key in _GATEWAY_OWNED_FIELDS
+        or key_lower in _GATEWAY_OWNED_FIELDS
+        or key_lower.startswith("$ai_")
+        or key_lower.startswith("$feature/")
+        or key_lower.startswith("$group_")
+    )
+
+
+def _is_sensitive_key(key: str) -> bool:
+    return key.lower() in _LITELLM_INTERNAL_METADATA_KEYS
+
+
+def _is_rejected_custom_key(key: str) -> bool:
+    if not isinstance(key, str):
+        return True
+    key_lower = key.lower()
+    # Reject ALL caller-supplied $ properties ($set, $process_person_profile, $ai_*, $feature/*, $group_*, etc.)
+    if key.startswith("$") or key_lower.startswith("$"):
+        return True
+    if key in _GATEWAY_OWNED_FIELDS or key_lower in _GATEWAY_OWNED_FIELDS:
+        return True
+    if _is_sensitive_key(key):
+        return True
+    return False
+
+
+def _sanitize_custom_metadata_value(value: Any, depth: int = 0) -> Any:
+    if depth > _MAX_RECURSION_DEPTH:
+        return "[truncated: max depth exceeded]"
+    if isinstance(value, dict):
+        sanitized_dict: dict[str, Any] = {}
+        for i, (k, v) in enumerate(value.items()):
+            if i >= _MAX_CONTAINER_ITEMS:
+                break
+            if not isinstance(k, str):
+                continue
+            if _is_rejected_custom_key(k):
+                continue
+            sanitized_dict[k] = _sanitize_custom_metadata_value(v, depth + 1)
+        return sanitized_dict
+    elif isinstance(value, list):
+        sanitized_list: list[Any] = []
+        for i, item in enumerate(value):
+            if i >= _MAX_CONTAINER_ITEMS:
+                break
+            sanitized_list.append(_sanitize_custom_metadata_value(item, depth + 1))
+        return sanitized_list
+    else:
+        clean = _replace_binary_content(value)
+        if isinstance(clean, str) and len(clean) > _MAX_CUSTOM_METADATA_VALUE_SIZE:
+            return clean[:_MAX_CUSTOM_METADATA_VALUE_SIZE] + " [truncated: metadata value exceeds size cap]"
+        return clean
+
+
+def _merge_custom_metadata(properties: dict[str, Any], metadata: Any) -> None:
+    if not isinstance(metadata, dict):
+        return
+    for key, value in metadata.items():
+        if not isinstance(key, str):
+            continue
+        if not _is_rejected_custom_key(key):
+            clean_value = _sanitize_custom_metadata_value(value)
+            properties.setdefault(key, clean_value)
+
 
 def _normalize_trace_id(raw: Any) -> str:
     """Normalize an incoming trace identifier into a UUID string.
@@ -156,19 +276,60 @@ def _normalize_trace_id(raw: Any) -> str:
 
 def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
     serialized = json.dumps(properties, default=str)
-    if len(serialized) <= _MAX_CAPTURE_SIZE:
+    current_size = len(serialized)
+    if current_size <= _MAX_CAPTURE_SIZE:
         return properties
 
     result = dict(properties)
+    marker_size = len(json.dumps(_TRUNCATION_MARKER))
+
+    # Phase 1: Truncate large AI I/O fields — the most common source of oversized events.
+    # Size bookkeeping is purely arithmetic (O(1) per field) to avoid O(N²) re-serialisation.
     for field in _TRUNCATABLE_FIELDS:
-        if field not in result:
-            continue
-        field_size = len(json.dumps(result[field], default=str))
-        if field_size < _MIN_FIELD_SIZE_TO_TRUNCATE:
-            continue
-        result[field] = _TRUNCATION_MARKER
-        if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
-            break
+        if field in result and result[field] != _TRUNCATION_MARKER:
+            field_raw = json.dumps(result[field], default=str)
+            if len(field_raw) >= _MIN_FIELD_SIZE_TO_TRUNCATE:
+                current_size -= max(0, len(field_raw) - marker_size)
+                result[field] = _TRUNCATION_MARKER
+                if current_size <= _MAX_CAPTURE_SIZE:
+                    return result
+
+    # Phase 2: prune non-gateway-owned fields by descending size — O(N log N) overall.
+    # Gateway-owned keys ($ai_*, $group_*, $feature/*) are excluded; custom $group_/$feature/
+    # keys should never reach here because _sanitize_custom_metadata_value rejects them.
+    if current_size > _MAX_CAPTURE_SIZE:
+        non_owned: list[tuple[str, int]] = [
+            (key, len(json.dumps(val, default=str)))
+            for key, val in result.items()
+            if not _is_gateway_owned_property(key) and key not in _TRUNCATABLE_FIELDS
+        ]
+        non_owned.sort(key=lambda item: item[1], reverse=True)
+
+        for key, val_size in non_owned:
+            if val_size >= _MIN_FIELD_SIZE_TO_TRUNCATE:
+                current_size -= max(0, val_size - marker_size)
+                result[key] = _TRUNCATION_MARKER
+            else:
+                current_size -= val_size
+                result.pop(key, None)
+            if current_size <= _MAX_CAPTURE_SIZE:
+                return result
+
+    # Phase 3: If still oversized before returning, truncate $ai_error so provider error events are not dropped.
+    # Preserve the beginning of the error message for debugging while appending the truncation marker.
+    if current_size > _MAX_CAPTURE_SIZE and "$ai_error" in result and result["$ai_error"] != _TRUNCATION_MARKER:
+        err_val = result["$ai_error"]
+        err_str = err_val if isinstance(err_val, str) else json.dumps(err_val, default=str)
+        head_limit = 2048
+        if len(err_str) > head_limit:
+            truncated_err = err_str[:head_limit] + " " + _TRUNCATION_MARKER
+        else:
+            truncated_err = _TRUNCATION_MARKER
+        old_len = len(json.dumps(err_val, default=str))
+        new_len = len(json.dumps(truncated_err))
+        current_size -= max(0, old_len - new_len)
+        result["$ai_error"] = truncated_err
+
     return result
 
 
@@ -294,6 +455,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
+        _merge_custom_metadata(properties, metadata)
         _apply_owned_event_properties(properties, product, auth_user)
 
         response_cost = standard_logging_object.get("response_cost")
@@ -387,7 +549,9 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
+        _merge_custom_metadata(properties, metadata)
         _apply_owned_event_properties(properties, product, auth_user)
+        properties = _truncate_for_capture(properties)
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
@@ -472,5 +636,24 @@ class PostHogCallback(InstrumentedCallback):
             client.shutdown()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        caller_metadata = get_caller_metadata()
+        if caller_metadata is not None:
+            return caller_metadata
+
         litellm_params = kwargs.get("litellm_params", {}) or {}
-        return litellm_params.get("metadata", {}) or {}
+        raw_metadata = litellm_params.get("metadata")
+        if not isinstance(raw_metadata, dict):
+            raw_metadata = kwargs.get("metadata")
+        if not isinstance(raw_metadata, dict):
+            standard_logging_object = kwargs.get("standard_logging_object", {}) or {}
+            raw_metadata = standard_logging_object.get("metadata")
+        if not isinstance(raw_metadata, dict):
+            return {}
+
+        return {
+            k: v
+            for k, v in raw_metadata.items()
+            if isinstance(k, str)
+            and k not in _LITELLM_INTERNAL_METADATA_KEYS
+            and k != "hidden_params"
+        }

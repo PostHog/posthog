@@ -1401,6 +1401,20 @@ class TestTruncateForCapture:
         assert result["$ai_input"] == "small input"
         assert result["$ai_output_choices"] == _TRUNCATION_MARKER
 
+    def test_oversized_ai_error_is_truncated(self) -> None:
+        large_error = "Error: Upstream provider failure: " + ("E" * (_MAX_SIZE + 1000))
+        properties = {
+            "$ai_model": "claude-3-opus",
+            "$ai_is_error": True,
+            "$ai_error": large_error,
+        }
+
+        result = _truncate_for_capture(properties)
+
+        assert _TRUNCATION_MARKER in result["$ai_error"]
+        assert result["$ai_error"].startswith("Error: Upstream provider failure:")
+        assert len(json.dumps(result)) <= _MAX_SIZE
+
     @pytest.mark.asyncio
     async def test_on_success_truncates_oversized_content(self) -> None:
         mock_client = MagicMock()
@@ -1441,3 +1455,272 @@ class TestTruncateForCapture:
             assert props["$ai_total_cost_usd"] == 1.23
             assert props["$ai_latency"] == 2.5
             assert len(json.dumps(props)) < _MAX_SIZE
+
+    @pytest.mark.asyncio
+    async def test_on_success_with_oversized_custom_metadata_remains_under_max_size_and_retains_billing_fields(
+        self,
+    ) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+
+        # Construct >900 KB of custom metadata (90 fields of 12 KB strings each)
+        large_metadata = {f"custom_field_{i}": "M" * (12 * 1024) for i in range(90)}
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "response_time": 1.5,
+                "response_cost": 0.05,
+                "cost_breakdown": {
+                    "input_cost": 0.01,
+                    "output_cost": 0.04,
+                },
+            },
+            "litellm_params": {
+                "metadata": large_metadata,
+            },
+        }
+
+        mock_loop = MagicMock()
+        mock_loop.run_in_executor.side_effect = _run_sync
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+            patch("llm_gateway.callbacks.posthog.asyncio") as mock_asyncio,
+        ):
+            mock_asyncio.get_running_loop.return_value = mock_loop
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert len(json.dumps(props)) <= _MAX_SIZE
+            assert props["$ai_model"] == "claude-3-opus"
+            assert props["$ai_provider"] == "anthropic"
+            assert props["$ai_total_cost_usd"] == 0.05
+            assert props["$ai_input_cost_usd"] == 0.01
+            assert props["$ai_output_cost_usd"] == 0.04
+            assert props["$ai_billable"] is False
+            assert props["ai_product"] == "wizard"
+            assert props["team_id"] == 456
+
+    @pytest.mark.asyncio
+    async def test_custom_metadata_security_and_namespace_isolation(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+
+        malicious_metadata = {
+            "team_id": 999999,
+            "TEAM_ID": 888888,
+            "ai_product": "malicious_product",
+            "$ai_model": "hacked_model",
+            "$feature/secret_flag": True,
+            "$group_1": "https://attacker.com",
+            "$set": {"is_admin": True},
+            "$process_person_profile": False,
+            "Authorization": "Bearer sensitive_token",
+            "api_key": "sk-secret123",
+            "token_count": 42,
+            "nested_secrets": {
+                "AUTH": "Basic secret",
+                "safe_field": "valid_value",
+                "password": "super_secret_password",
+                "$feature/nested_flag": True,
+                "$group_nested": "should_be_stripped",
+                "$ai_injected": "should_be_stripped",
+                "$set": {"nested_bad": True},
+            },
+            "valid_custom_key": "valid_custom_value",
+        }
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "gpt-4o",
+                "custom_llm_provider": "openai",
+                "messages": [{"role": "user", "content": "Hi"}],
+            },
+            "litellm_params": {
+                "metadata": malicious_metadata,
+            },
+        }
+
+        mock_loop = MagicMock()
+        mock_loop.run_in_executor.side_effect = _run_sync
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+            patch("llm_gateway.callbacks.posthog.asyncio") as mock_asyncio,
+        ):
+            mock_asyncio.get_running_loop.return_value = mock_loop
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert props["team_id"] == 456
+            assert props["ai_product"] == "wizard"
+            assert props["$ai_model"] == "gpt-4o"
+            assert "$feature/secret_flag" not in props
+            assert props["$group_1"] == "https://us.posthog.com"
+            assert "$set" not in props
+            assert "$process_person_profile" not in props
+            assert "Authorization" not in props
+            assert "api_key" not in props
+            assert props["token_count"] == 42
+            assert props["valid_custom_key"] == "valid_custom_value"
+            assert "AUTH" not in props["nested_secrets"]
+            assert "password" not in props["nested_secrets"]
+            assert "$feature/nested_flag" not in props["nested_secrets"]
+            assert "$group_nested" not in props["nested_secrets"]
+            assert "$ai_injected" not in props["nested_secrets"]
+            assert "$set" not in props["nested_secrets"]
+            assert props["nested_secrets"]["safe_field"] == "valid_value"
+
+    @pytest.mark.asyncio
+    async def test_custom_metadata_recursion_depth_guard(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+
+        # Build deeply nested dictionary (> 10 levels)
+        deep_metadata: dict[str, Any] = {"leaf": "deep_val"}
+        for _ in range(10):
+            deep_metadata = {"nest": deep_metadata}
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "gpt-4o",
+                "custom_llm_provider": "openai",
+                "messages": [{"role": "user", "content": "Hi"}],
+            },
+            "litellm_params": {
+                "metadata": {"deep": deep_metadata},
+            },
+        }
+
+        mock_loop = MagicMock()
+        mock_loop.run_in_executor.side_effect = _run_sync
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+            patch("llm_gateway.callbacks.posthog.asyncio") as mock_asyncio,
+        ):
+            mock_asyncio.get_running_loop.return_value = mock_loop
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert "deep" in props
+            # The deep nesting should be safely truncated without causing a RecursionError
+
+    @pytest.mark.asyncio
+    async def test_on_failure_truncates_oversized_metadata(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+
+        large_metadata = {f"error_custom_field_{i}": "E" * (12 * 1024) for i in range(90)}
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "error_str": "Internal Server Error",
+            },
+            "litellm_params": {
+                "metadata": large_metadata,
+            },
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert len(json.dumps(props)) <= _MAX_SIZE
+            assert props["$ai_is_error"] is True
+            assert props["$ai_error"] == "Internal Server Error"
+            assert props["team_id"] == 456
+            assert props["ai_product"] == "wizard"
+
+    @pytest.mark.asyncio
+    async def test_on_failure_with_oversized_ai_error_truncates_error_and_remains_under_max_size(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+        large_error = "ProviderError: " + ("E" * (1024 * 1024))
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "error_str": large_error,
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert len(json.dumps(props)) <= _MAX_SIZE
+            assert props["$ai_is_error"] is True
+            assert _TRUNCATION_MARKER in props["$ai_error"]
+            assert props["$ai_error"].startswith("ProviderError:")
+            assert props["team_id"] == 456
+
+    def test_extract_metadata_excludes_litellm_hidden_params_and_optional_params(self) -> None:
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        kwargs = {
+            "litellm_params": {
+                "metadata": {
+                    "user_stage": "production",
+                    "token_count": 128,
+                    "hidden_params": {
+                        "api_base": "https://api.openai.com/v1",
+                        "response_headers": {"x-request-id": "req-123"},
+                        "optional_params": {"oauth_client_secret": "sensitive-oauth-secret"},
+                    },
+                    "api_base": "https://api.openai.com/v1",
+                    "optional_params": {"key": "val"},
+                    "response_headers": {"server": "cloudflare"},
+                }
+            }
+        }
+        with patch("llm_gateway.callbacks.posthog.get_caller_metadata", return_value=None):
+            extracted = callback._extract_metadata(kwargs)
+
+        assert extracted == {"user_stage": "production", "token_count": 128}
+        assert "hidden_params" not in extracted
+        assert "api_base" not in extracted
+        assert "optional_params" not in extracted
+        assert "response_headers" not in extracted
+
+    def test_extract_metadata_prefers_caller_metadata_from_request_context(self) -> None:
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        caller_metadata = {"client_passed_property": "secure_value"}
+        kwargs = {
+            "litellm_params": {
+                "metadata": {
+                    "litellm_internal_field": "should_be_ignored",
+                }
+            }
+        }
+        with patch("llm_gateway.callbacks.posthog.get_caller_metadata", return_value=caller_metadata):
+            extracted = callback._extract_metadata(kwargs)
+
+        assert extracted == caller_metadata
