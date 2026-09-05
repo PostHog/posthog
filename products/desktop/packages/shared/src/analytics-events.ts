@@ -1145,6 +1145,8 @@ export interface ChannelActionProperties {
   suggestion_label?: string;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
+  /** For create: whether the space was given a description. */
+  has_description?: boolean;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
   /** For auto_archive_update: the selected inactivity window. Null disables it. */

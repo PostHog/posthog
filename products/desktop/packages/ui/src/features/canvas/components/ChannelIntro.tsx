@@ -79,6 +79,11 @@ export function ChannelIntro({
             created this {noun} {creationDatePhrase(channel.created_at)}.
           </Text>
         )}
+        {channel?.description && (
+          <Text size="2" className="mt-1">
+            {channel.description}
+          </Text>
+        )}
       </div>
       <div className="flex gap-2">
         {contextMdState === "created" && (
