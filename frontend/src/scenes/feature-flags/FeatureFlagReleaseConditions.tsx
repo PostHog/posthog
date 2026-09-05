@@ -12,7 +12,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
@@ -160,8 +159,6 @@ export function FeatureFlagReleaseConditions({
     const { setBucketingIdentifier, setFeatureFlag } = useActions(featureFlagLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
-
-    const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
@@ -389,7 +386,10 @@ export function FeatureFlagReleaseConditions({
                                         : undefined
                                 }
                                 errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
-                                hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                // Always ask the cohorts API to hide flag-incompatible cohorts. The backend
+                                // still returns backfilled realtime cohorts when they are allowed, so the
+                                // picker only offers cohorts the save path accepts.
+                                hideBehavioralCohorts
                             />
                         </div>
                     )}

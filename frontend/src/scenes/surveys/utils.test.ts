@@ -1,9 +1,13 @@
+import { ApiError } from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
+    CohortType,
     EventPropertyFilter,
     FeatureFlagFilters,
+    FilterLogicalOperator,
     PropertyOperator,
     PropertyFilterType,
     Survey,
@@ -26,8 +30,10 @@ import {
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
+    cohortHasBehavioralFilter,
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
+    getSurveySaveErrorMessage,
     getExpressionCommentForQuestion,
     getSurveyNotificationFilters,
     getRecurringSurveyScheduleInfo,
@@ -1824,5 +1830,63 @@ describe('getRecurringSurveyScheduleInfo', () => {
         ],
     ])('returns null for %s', (_name, survey) => {
         expect(getRecurringSurveyScheduleInfo(survey)).toBeNull()
+    })
+})
+
+describe('getSurveySaveErrorMessage', () => {
+    it('returns the server detail so the message names the cohort', () => {
+        const error = new ApiError('Bad request', 400, undefined, {
+            detail: "Cohort 'cohort2' has an event-based condition on '$pageview' and cannot be used in surveys.",
+        })
+        expect(getSurveySaveErrorMessage(error, 'Failed to update survey')).toBe(
+            "Cohort 'cohort2' has an event-based condition on '$pageview' and cannot be used in surveys."
+        )
+    })
+
+    it('falls back to the generic message when the error has no detail', () => {
+        expect(getSurveySaveErrorMessage(new Error('network down'), 'Failed to update survey')).toBe(
+            'Failed to update survey'
+        )
+    })
+})
+
+describe('cohortHasBehavioralFilter', () => {
+    const cohortWith = (values: any[]): CohortType =>
+        ({
+            id: 1,
+            is_static: false,
+            filters: { properties: { type: FilterLogicalOperator.And, values } },
+        }) as CohortType
+
+    it('detects a behavioral criterion', () => {
+        expect(
+            cohortHasBehavioralFilter(
+                cohortWith([{ type: BehavioralFilterKey.Behavioral, key: '$pageview', value: 'performed_event' }])
+            )
+        ).toBe(true)
+    })
+
+    it('detects a behavioral criterion nested in a subgroup', () => {
+        expect(
+            cohortHasBehavioralFilter(
+                cohortWith([
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [{ type: BehavioralFilterKey.Behavioral, key: '$pageview', value: 'performed_event' }],
+                    },
+                ])
+            )
+        ).toBe(true)
+    })
+
+    it('ignores person-property-only cohorts', () => {
+        expect(
+            cohortHasBehavioralFilter(cohortWith([{ type: BehavioralFilterKey.Person, key: 'email', value: 'set' }]))
+        ).toBe(false)
+    })
+
+    it('ignores static cohorts and empty input', () => {
+        expect(cohortHasBehavioralFilter({ id: 1, is_static: true } as CohortType)).toBe(false)
+        expect(cohortHasBehavioralFilter(undefined)).toBe(false)
     })
 })

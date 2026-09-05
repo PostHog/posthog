@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -15,7 +16,10 @@ import {
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
+    AnyCohortCriteriaType,
     BasicSurveyQuestion,
+    CohortCriteriaGroupFilter,
+    CohortType,
     CyclotronJobInvocationGlobals,
     CyclotronJobFiltersType,
     EventPropertyFilter,
@@ -43,6 +47,41 @@ const sanitizeConfig = { ADD_ATTR: ['target'] }
 
 export function sanitizeHTML(html: string): string {
     return DOMPurify.sanitize(html, sanitizeConfig)
+}
+
+/**
+ * Return the server's error detail when a survey save fails, falling back to a generic message.
+ * The API detail names the offending cohort and condition, which the generic message hides.
+ */
+export function getSurveySaveErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof ApiError && error.detail) {
+        return error.detail
+    }
+    return fallback
+}
+
+// Matches `BehavioralFilterKey.Behavioral`, kept as a literal so this core util stays free of the
+// cohort logic import graph.
+const BEHAVIORAL_CRITERION_TYPE: string = 'behavioral'
+
+/**
+ * Whether a cohort carries a behavioral (event-based) criterion. The save path rejects such
+ * cohorts for survey targeting unless they are backfilled realtime cohorts, which the client
+ * can't tell apart. Static cohorts are always safe.
+ */
+export function cohortHasBehavioralFilter(cohort: CohortType | undefined): boolean {
+    if (!cohort || cohort.is_static || !cohort.filters?.properties) {
+        return false
+    }
+    const hasBehavioralLeaf = (group: CohortCriteriaGroupFilter): boolean =>
+        (group.values as (AnyCohortCriteriaType | CohortCriteriaGroupFilter)[]).some((value) =>
+            isGroup(value) ? hasBehavioralLeaf(value) : value.type === BEHAVIORAL_CRITERION_TYPE
+        )
+    return hasBehavioralLeaf(cohort.filters.properties)
+}
+
+function isGroup(value: AnyCohortCriteriaType | CohortCriteriaGroupFilter): value is CohortCriteriaGroupFilter {
+    return (value as CohortCriteriaGroupFilter).values !== undefined
 }
 
 export function sanitizeColor(color: string | undefined): string | undefined {

@@ -41,6 +41,7 @@ import {
 import type { NewSurvey } from '../constants'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
+import { getSurveySaveErrorMessage } from '../utils'
 
 export type WizardStep = 'template' | 'questions' | 'where' | 'when' | 'appearance' | 'success'
 
@@ -503,7 +504,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.launchSurveySuccess(createdSurvey)
             } catch (e) {
                 actions.launchSurveyFailure(String(e))
-                lemonToast.error('Failed to create survey')
+                lemonToast.error(getSurveySaveErrorMessage(e, 'Failed to create survey'))
             }
         },
         launchSurveySuccess: ({ survey }) => {
@@ -534,7 +535,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.saveDraftSuccess(createdSurvey)
             } catch (e) {
                 actions.saveDraftFailure(String(e))
-                lemonToast.error('Failed to save draft')
+                lemonToast.error(getSurveySaveErrorMessage(e, 'Failed to save draft'))
             }
         },
         saveDraftSuccess: ({ survey }) => {
@@ -557,7 +558,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.updateSurveySuccess(updatedSurvey)
             } catch (e) {
                 actions.updateSurveyFailure(String(e))
-                lemonToast.error('Failed to update survey')
+                lemonToast.error(getSurveySaveErrorMessage(e, 'Failed to update survey'))
             }
         },
         updateSurveySuccess: ({ survey }) => {
