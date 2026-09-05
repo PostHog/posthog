@@ -181,6 +181,39 @@ wrappers:
             - version
             - tags
         feature_flag: mcp-analytics
+    query-mcp-tools:
+        schema_ref: MCPToolQualityRowsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List MCP tools with their headline numbers
+        description: >
+            List this project's MCP tools, one row per effective tool name, with calls, errors, error rate, p50/p95/p99
+            latency, unique users, unique sessions (distinct $session_id), and first and last seen. Start here when you
+            do not have a tool name yet: to rank tools by volume or error rate, to check whether the project records MCP
+            calls at all, or to find the exact toolName that the per-tool tools (query-mcp-tool-stats,
+            query-mcp-tool-daily-stats, query-mcp-tool-failures and the other tool-detail tools) require. Every
+            parameter is optional. Narrow with dateRange (server default the last 7 days), categories, and a
+            case-insensitive search on the tool name. Only tools called inside that window get a row, and first_seen and
+            last_seen are the first and last call inside it, not the tool's lifetime. Widen dateRange to reach a tool
+            that has been idle for longer, or to find when a tool was really first called. Order with sortColumn
+            (total_calls, error_rate_pct, p50_duration_ms, p95_duration_ms, p99_duration_ms, users, sessions, last_seen)
+            and sortDirection. Page with limit (server default 50, maximum 100) and offset. You get one page and no
+            total, so a full page can mean more tools matched: raise limit to 100, page on with offset, or narrow with
+            search.
+        system_prompt_hint: MCP tools called in the window ranked — calls, error rate, latency, users, sessions
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        url_prefix: /mcp-analytics/tool-quality
+        feature_flag: mcp-analytics
     query-mcp-tool-stats:
         schema_ref: MCPToolStatsQuery
         enabled: true
@@ -194,10 +227,15 @@ wrappers:
         title: Summarise one MCP tool
         description: >
             Return the headline numbers for a single MCP tool over the window: total calls, error count, p50 and p95
-            latency, unique users, unique sessions, and how many calls carried an intent. Pass toolName (the effective
-            tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the tool-detail
-            UI). Use to answer "how is tool X doing overall?" before drilling into failures, users, or neighbours.
-        system_prompt_hint: One MCP tool's headline stats — calls, errors, p50/p95, users, sessions, intents
+            latency, unique users, conversations, and how many calls carried an intent. Conversations count
+            $mcp_session_id, falling back to $session_id, and that transport id rotates on reconnect, so the number can
+            exceed the sessions count query-mcp-tools reports for the same tool and window. This tool needs toolName,
+            the effective tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the
+            tool-detail UI. Spell it in camelCase: tool_name and toolname are not accepted. The only other parameter is
+            dateRange. There is no limit, days, or category parameter, and there is no all-tools mode: a call without
+            toolName is rejected. To get a tool name, or to rank every tool, call query-mcp-tools first. Use to answer
+            "how is tool X doing overall?" before drilling into failures, users, or neighbours.
+        system_prompt_hint: One MCP tool's headline stats — calls, errors, p50/p95, users, conversations, intents
         exclude_properties:
             - response
             - modifiers
@@ -217,9 +255,13 @@ wrappers:
         title: Daily trend for one MCP tool
         description: >
             Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and
-            unique sessions per day. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to
-            answer "how has tool X trended?" — spotting error spikes, latency regressions, or adoption changes over
-            time.
+            sessions per day. Sessions here count $mcp_session_id, falling back to $session_id, and that transport id
+            rotates on reconnect, so the number can exceed the sessions count query-mcp-tools reports for the same tool
+            and window. This tool needs toolName, the effective tool name, resolved server-side. Spell it in camelCase:
+            tool_name and toolname are not accepted. The other parameters are dateRange and interval. There is no limit
+            or days parameter, and there is no all-tools mode: a call without toolName is rejected. To get a tool name,
+            or to rank every tool, call query-mcp-tools first. Use to answer "how has tool X trended?" — spotting error
+            spikes, latency regressions, or adoption changes over time.
         system_prompt_hint: One MCP tool's day-by-day series — calls, errors, p50/p95, users, sessions
         exclude_properties:
             - response
@@ -243,8 +285,9 @@ wrappers:
             from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error
             rate — grouped by $mcp_error_type and HTTP $mcp_error_status. Each bucket carries the raw error_type and
             error_status, which you can pass to query-mcp-tool-failure-occurrences to see individual errored calls with
-            their error messages. Pass toolName (effective tool name, resolved server-side, matching the other
-            tool-detail tools) and a dateRange. Use to answer "why is tool X failing?" or "what errors does tool X
+            their error messages. This tool needs toolName, the effective tool name, resolved server-side, matching the
+            other tool-detail tools. Spell it in camelCase, and call query-mcp-tools first when you do not have a name.
+            The only other parameter is dateRange. Use to answer "why is tool X failing?" or "what errors does tool X
             throw, and on which clients?".
         system_prompt_hint: One MCP tool's top failure buckets, by harness (error type + HTTP status)
         exclude_properties:
@@ -268,10 +311,10 @@ wrappers:
             Return individual errored $mcp_tool_call events for a single MCP tool within one failure bucket, newest
             first (up to 50). Each occurrence carries the timestamp, distinct_id, session id, resolved harness, the
             agent's stated intent, the captured error message ($mcp_error_message — empty on events that predate message
-            capture), and the HTTP status. Pass toolName plus the errorType (raw $mcp_error_type; "unknown" for events
-            without one) and optional errorStatus exactly as returned by query-mcp-tool-failures — when errorStatus is
-            omitted, only events without a status match. Use to answer "show me the actual errors" after a failure
-            bucket looks suspicious.
+            capture), and the HTTP status. This tool needs toolName, spelled in camelCase, plus the errorType (raw
+            $mcp_error_type; "unknown" for events without one) and optional errorStatus exactly as returned by
+            query-mcp-tool-failures — when errorStatus is omitted, only events without a status match. Use to answer
+            "show me the actual errors" after a failure bucket looks suspicious.
         system_prompt_hint: Individual errored calls (with error messages) for one MCP tool's failure bucket
         exclude_properties:
             - response
@@ -292,8 +335,10 @@ wrappers:
         title: Top callers of one MCP tool
         description: >
             Return the top callers of a single MCP tool: per caller, the call count, error rate, resolved harness
-            labels, last-seen time, and the caller's display name and email. Pass toolName (effective tool name,
-            resolved server-side) and a dateRange. Use to answer "who uses tool X the most, and how reliably for them?".
+            labels, last-seen time, and the caller's display name and email. This tool needs toolName, the effective
+            tool name, resolved server-side. Spell it in camelCase, and call query-mcp-tools first when you do not have
+            a name. The only other parameter is dateRange. Use to answer "who uses tool X the most, and how reliably for
+            them?".
         system_prompt_hint: One MCP tool's top callers — calls, error rate, harnesses, person email/name
         exclude_properties:
             - response
@@ -314,9 +359,10 @@ wrappers:
         title: Tools called alongside one MCP tool
         description: >
             Return the tools most often called immediately before or after a single MCP tool within the same
-            conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection
-            ('before' or 'after'). Use to answer "what does an agent call around tool X?" — revealing common tool
-            sequences and which tools pair up.
+            conversation. This tool needs toolName, the effective tool name, resolved server-side, and
+            neighborDirection, which is either 'before' or 'after'. Spell toolName in camelCase, and call
+            query-mcp-tools first when you do not have a name. The only other parameter is dateRange. Use to answer
+            "what does an agent call around tool X?" — revealing common tool sequences and which tools pair up.
         system_prompt_hint: Tools co-occurring before/after one MCP tool in a conversation
         exclude_properties:
             - response
@@ -337,8 +383,10 @@ wrappers:
         title: Sample intents for one MCP tool
         description: >
             Return recent sample agent intents recorded for a single MCP tool, each with its resolved client harness.
-            Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer "what are agents
-            actually trying to do when they call tool X?" — qualitative context behind the usage numbers.
+            This tool needs toolName, the effective tool name, resolved server-side. Spell it in camelCase, and call
+            query-mcp-tools first when you do not have a name. The only other parameter is dateRange. Use to answer
+            "what are agents actually trying to do when they call tool X?" — qualitative context behind the usage
+            numbers.
         system_prompt_hint: Recent sample agent intents for one MCP tool, with harness
         exclude_properties:
             - response
@@ -358,9 +406,10 @@ wrappers:
             idempotent: true
         title: Descriptions seen for one MCP tool
         description: >
-            Return the distinct effective tool-description strings seen for a single MCP tool over the window. Pass
-            toolName (effective tool name, resolved server-side) and a dateRange. Use to spot description drift or a
-            tool registered with more than one description across clients or versions.
+            Return the distinct effective tool-description strings seen for a single MCP tool over the window. This tool
+            needs toolName, the effective tool name, resolved server-side. Spell it in camelCase, and call
+            query-mcp-tools first when you do not have a name. The only other parameter is dateRange. Use to spot
+            description drift or a tool registered with more than one description across clients or versions.
         system_prompt_hint: Distinct effective descriptions seen for one MCP tool
         exclude_properties:
             - response

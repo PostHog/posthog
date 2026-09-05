@@ -606,6 +606,37 @@ const MCPHarnessBreakdownQuery = z.object({
         .optional(),
 })
 
+const integer = z.coerce.number().int()
+
+const MCPToolQualitySortColumn = z.enum([
+    'total_calls',
+    'error_rate_pct',
+    'p50_duration_ms',
+    'p95_duration_ms',
+    'p99_duration_ms',
+    'users',
+    'sessions',
+    'last_seen',
+])
+
+const MCPToolQualitySortDirection = z.enum(['ASC', 'DESC'])
+
+const MCPToolQualityRowsQuery = z.object({
+    categories: z
+        .array(z.string())
+        .describe('Restrict to these $mcp_tool_category values; empty or omitted means all categories.')
+        .optional(),
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolQualityRowsQuery').default('MCPToolQualityRowsQuery'),
+    limit: integer.describe('Page size. The server defaults to 50 and caps this at 100.').optional(),
+    offset: integer.describe('Number of matching tools to skip.').optional(),
+    search: z.string().describe('Case-insensitive substring search on the effective tool name.').optional(),
+    sortColumn: MCPToolQualitySortColumn.describe(
+        'Aggregate column used to order tools. Defaults to total_calls.'
+    ).optional(),
+    sortDirection: MCPToolQualitySortDirection.describe('Sort direction. Defaults to DESC.').optional(),
+})
+
 const MCPToolStatsQuery = z.object({
     dateRange: DateRange.optional(),
     kind: z.literal('MCPToolStatsQuery').default('MCPToolStatsQuery'),
@@ -685,8 +716,6 @@ const MCPToolDescriptionsQuery = z.object({
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
-const integer = z.coerce.number().int()
-
 const MCPMissingCapabilitiesQuery = z.object({
     dateRange: DateRange.optional(),
     kind: z.literal('MCPMissingCapabilitiesQuery').default('MCPMissingCapabilitiesQuery'),
@@ -711,6 +740,12 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-harness-breakdown',
         schema: MCPHarnessBreakdownQuery,
         kind: 'MCPHarnessBreakdownQuery',
+    }),
+    'query-mcp-tools': createQueryWrapper({
+        name: 'query-mcp-tools',
+        schema: MCPToolQualityRowsQuery,
+        kind: 'MCPToolQualityRowsQuery',
+        urlPrefix: '/mcp-analytics/tool-quality',
     }),
     'query-mcp-tool-stats': createQueryWrapper({
         name: 'query-mcp-tool-stats',
