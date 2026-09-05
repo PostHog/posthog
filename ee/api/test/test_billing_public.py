@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 from unittest.mock import MagicMock, patch
@@ -192,3 +193,98 @@ class TestOrganizationBillingAPI(APILicensedTest):
         response = self.client.get(self._url("subscription/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
+
+
+SPEND = {
+    "status": "ok",
+    "customer_id": 42,
+    "billing_period": {"current_period_start": PERIOD_START, "current_period_end": PERIOD_END, "interval": "month"},
+    "usage_reported_through": "2026-09-14",
+    "current_total_amount_usd": "212.40",
+    "current_total_amount_usd_after_discount": "169.92",
+    "products": [],
+}
+FORECAST = {**SPEND, "projected_total_amount_usd": "480.00", "computed_at": PERIOD_START}
+SERIES = {
+    "status": "ok",
+    "customer_id": 42,
+    "results": [{"id": i, "label": f"s{i}", "data": [1.0], "dates": ["2026-09-01"]} for i in range(3)],
+    "team_id_options": [1],
+}
+
+
+class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_spend_and_forecast_are_reshaped(self, mock_get):
+        mock_get.return_value = _response(SPEND)
+        response = self.client.get(self._url("spend/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertEqual(body["current_total_amount_usd"], "212.40")
+        self.assertEqual(body["billing_period"]["current_period_end"], "2026-10-01T00:00:00Z")
+        self.assertNotIn("status", body)
+        mock_get.return_value = _response(FORECAST)
+        response = self.client.get(self._url("forecast/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["computed_at"], "2026-09-01T00:00:00Z")
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_member_without_the_read_flag_is_refused_spend_before_billing_is_called(self, mock_get):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(self._url("spend/"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(self._url("forecast/"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get.assert_not_called()
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_timeseries_is_paginated_over_series(self, mock_get):
+        mock_get.return_value = _response(SERIES)
+        response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&limit=2"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertEqual(body["count"], 3)
+        self.assertEqual(len(body["results"]), 2)
+        self.assertIsNotNone(body["next"])
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/usage/timeseries/"))
+        sent = mock_get.call_args.kwargs["params"]
+        self.assertEqual(sent["start_date"], "2026-09-01")
+        self.assertIn(str(self.team.id), json.loads(sent["teams_map"]))
+
+    def test_team_scoped_key_is_refused_on_organization_endpoints_like_everywhere_else(self):
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="x",
+            secure_value=hash_key_value(raw),
+            scopes=["billing:read"],
+            scoped_teams=[self.team.id],
+        )
+        response = self.client.get(
+            self._url("spend/timeseries/?start_date=2026-09-01&end_date=2026-09-14"), HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("scoped projects", response.json()["detail"])
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_member_series_are_clipped_to_the_teams_they_can_see(self, mock_get):
+        mock_get.return_value = _response(SERIES)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.member_read.return_value = True
+        with patch("ee.billing.grants.visible_team_ids", return_value=[self.team.id]):
+            response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        sent = mock_get.call_args.kwargs["params"]
+        token = mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        claims = jwt.decode(token, options={"verify_signature": False})
+        # One visible team out of one is the whole organization; the token says so and no clip is sent.
+        self.assertIsNone(claims["projects"])
+        self.assertNotIn("team_ids", sent)
+
+    def test_team_outside_the_organization_is_rejected(self):
+        response = self.client.get(
+            self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&team_ids=[999999]")
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

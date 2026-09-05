@@ -127,7 +127,7 @@ tools:
         operation: billing_portal_retrieve
         enabled: false
     billing-spend-get:
-        operation: billing_spend_retrieve
+        operation: billing_spend_timeseries_retrieve
         enabled: true
         scopes:
             - billing:read
@@ -266,6 +266,39 @@ tools:
             for amounts call billing-overview-get, for history call billing-usage-get.
         feature_flag: billing-mcp-read-tools
         url_prefix: /organization/billing/usage
+    billing-spend-summary-get:
+        operation: billing_spend_summary_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get spend this billing period
+        description: >
+            Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with
+            the two totals. Needs usage read access: owners always, admins when owner-only billing is off, or members
+            when the member read flag is on. Use it for "what have we spent so far this month"; for the projection to
+            the end of the period call billing-forecast-get, for history call billing-spend-get.
+        feature_flag: billing-mcp-read-tools
+        url_prefix: /organization/billing/spend
+    billing-forecast-get:
+        operation: billing_forecast_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the forecast for this billing period
+        description: >
+            Projected usage and amounts for the rest of the billing period, with and without the spend limit, per
+            product, add-on and tier, with the four projected totals. Needs full billing access. Use it for "what will
+            this month cost"; for what has accrued so far call billing-spend-summary-get.
+        feature_flag: billing-mcp-read-tools
+        url_prefix: /organization/billing/overview
     billing-startups-apply-create:
         operation: billing_startups_apply_create
         enabled: false
@@ -279,7 +312,7 @@ tools:
         operation: billing_trials_cancel_create
         enabled: false
     billing-usage-get:
-        operation: billing_usage_retrieve
+        operation: billing_usage_timeseries_retrieve
         enabled: true
         scopes:
             - billing:read

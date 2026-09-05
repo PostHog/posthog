@@ -8,6 +8,7 @@ the caller may read (ee.billing.grants); billing checks the token and returns th
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -17,19 +18,21 @@ from django.db import models
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.models import Organization, OrganizationIntegration, User
+from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.permissions import OrganizationMemberPermissions
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
 
+from ee.api.billing import BillingTimeSeriesPointSerializer, BillingUsageRequestSerializer
 from ee.billing.billing_manager import BillingManager
-from ee.billing.grants import EffectiveBillingGrants, effective_billing_grants
+from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, effective_billing_grants
 
 BILLING_ACCESS_DENIED = "You do not have access to Billing for this organization."
 
@@ -237,6 +240,74 @@ class BillingUsageSummarySerializer(serializers.Serializer):
     products = ProductUsageSerializer(many=True)
 
 
+class TierSpendSerializer(serializers.Serializer):
+    up_to = serializers.IntegerField(allow_null=True)
+    current_amount_usd = serializers.CharField(allow_null=True)
+
+
+class SpendItemSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=CatalogKind.choices)
+    key = serializers.CharField()
+    usage_key = serializers.CharField(allow_null=True)
+    current_amount_usd = serializers.CharField(allow_null=True)
+    current_amount_usd_before_addons = serializers.CharField(allow_null=True, required=False)
+    tier_spend = TierSpendSerializer(many=True, allow_null=True)
+
+
+class ProductSpendSerializer(SpendItemSerializer):
+    addons = SpendItemSerializer(many=True)
+
+
+class BillingSpendSummarySerializer(serializers.Serializer):
+    billing_period = BillingPeriodSerializer(allow_null=True)
+    usage_reported_through = serializers.DateField(allow_null=True)
+    current_total_amount_usd = serializers.CharField(allow_null=True)
+    current_total_amount_usd_after_discount = serializers.CharField(allow_null=True)
+    products = ProductSpendSerializer(many=True)
+
+
+class TierForecastSerializer(serializers.Serializer):
+    up_to = serializers.IntegerField(allow_null=True)
+    projected_usage = serializers.IntegerField(allow_null=True)
+    projected_amount_usd = serializers.CharField(allow_null=True)
+
+
+class ForecastItemSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=CatalogKind.choices)
+    key = serializers.CharField()
+    usage_key = serializers.CharField(allow_null=True)
+    projected_usage = serializers.IntegerField(allow_null=True)
+    projected_amount_usd = serializers.CharField(allow_null=True)
+    projected_amount_usd_with_limit = serializers.CharField(allow_null=True, required=False)
+    tier_forecast = TierForecastSerializer(many=True, allow_null=True)
+
+
+class ProductForecastSerializer(ForecastItemSerializer):
+    addons = ForecastItemSerializer(many=True)
+
+
+class BillingForecastSerializer(serializers.Serializer):
+    billing_period = BillingPeriodSerializer(allow_null=True)
+    projected_total_amount_usd = serializers.CharField(allow_null=True)
+    projected_total_amount_usd_with_limit = serializers.CharField(allow_null=True)
+    projected_total_amount_usd_after_discount = serializers.CharField(allow_null=True)
+    projected_total_amount_usd_with_limit_after_discount = serializers.CharField(allow_null=True)
+    products = ProductForecastSerializer(many=True)
+    computed_at = serializers.DateTimeField()
+
+
+class PaginatedBillingTimeSeriesPointListSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+    results = BillingTimeSeriesPointSerializer(many=True)
+
+
+PAGINATION = [
+    OpenApiParameter("limit", int, OpenApiParameter.QUERY, description="Series per page.", default=100),
+    OpenApiParameter("offset", int, OpenApiParameter.QUERY, description="Series to skip.", default=0),
+]
+
 INCLUDE_PLANS = OpenApiParameter(
     "include_plans",
     bool,
@@ -250,7 +321,17 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     """Read billing state for an organization: subscription, products, features and usage."""
 
     scope_object = "billing"
-    scope_object_read_actions = ["subscription", "features", "products", "product", "usage"]
+    scope_object_read_actions = [
+        "subscription",
+        "features",
+        "products",
+        "product",
+        "usage",
+        "spend",
+        "forecast",
+        "usage_timeseries",
+        "spend_timeseries",
+    ]
     scope_object_write_actions: list[str] = []
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     throttle_classes = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle]
@@ -280,6 +361,43 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @staticmethod
     def _include_plans(request: Request) -> bool:
         return str(request.query_params.get("include_plans", "")).lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _require(
+        grants: EffectiveBillingGrants, level: BillingEntitlement, *, whole_organization: bool = False
+    ) -> None:
+        """Refuse here what billing would refuse, so a caller below the level never costs a call."""
+        rank = {BillingEntitlement.MEMBER: 1, BillingEntitlement.USAGE_READ: 2, BillingEntitlement.FULL_ACCESS: 3}
+        highest = max((rank[BillingEntitlement(e)] for e in grants.entitlements), default=0)
+        if highest < rank[level]:
+            raise PermissionDenied(BILLING_ACCESS_DENIED)
+        if whole_organization and grants.projects is not None:
+            raise PermissionDenied("This resource is an organization total and needs a whole-organization credential.")
+
+    def _timeseries(self, request: Request, kind: str) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.USAGE_READ)
+        serializer = BillingUsageRequestSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+        params = {key: value for key, value in serializer.validated_data.items() if value is not None}
+        requested = json.loads(params["team_ids"]) if params.get("team_ids") else None
+        organization_team_ids = set(Team.objects.filter(organization=organization).values_list("id", flat=True))
+        if requested is not None and not set(requested) <= organization_team_ids:
+            raise ValidationError({"team_ids": "All team IDs must belong to this organization."})
+        allowed = organization_team_ids if grants.projects is None else set(grants.projects)
+        scoped = sorted(allowed if requested is None else allowed.intersection(requested))
+        if requested is not None and not scoped:
+            raise PermissionDenied("The credential does not cover the requested projects.")
+        if grants.projects is not None or requested is not None:
+            params["team_ids"] = json.dumps(scoped)
+        params["teams_map"] = {
+            str(team_id): name for team_id, name in Team.objects.filter(id__in=scoped).values_list("id", "name")
+        }
+        data = self._manager().get_public_timeseries(organization, grants, kind, params)
+        paginator = LimitOffsetPagination()
+        page = paginator.paginate_queryset(data.get("results", []), request, view=self)
+        return paginator.get_paginated_response(page)
 
     @extend_schema(
         operation_id="billing_subscription_retrieve",
@@ -369,6 +487,58 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             organization, grants, include_plans=self._include_plans(request), product_key=product_key
         )
         return Response(data.get("product"))
+
+    @extend_schema(
+        operation_id="billing_spend_summary_retrieve",
+        summary="Get spend so far this billing period",
+        responses={200: OpenApiResponse(response=BillingSpendSummarySerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="spend")
+    def spend(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.USAGE_READ, whole_organization=True)
+        data = self._manager().get_public_spend(organization, grants)
+        return Response({**data, "billing_period": _billing_period(data.get("billing_period"))})
+
+    @extend_schema(
+        operation_id="billing_forecast_retrieve",
+        summary="Get the forecast for the rest of the billing period",
+        responses={200: OpenApiResponse(response=BillingForecastSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="forecast")
+    def forecast(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
+        data = self._manager().get_public_forecast(organization, grants)
+        return Response(
+            {
+                **data,
+                "billing_period": _billing_period(data.get("billing_period")),
+                "computed_at": _iso(data.get("computed_at")),
+            }
+        )
+
+    @extend_schema(
+        operation_id="billing_usage_timeseries_retrieve",
+        summary="Usage over time",
+        parameters=[BillingUsageRequestSerializer, *PAGINATION],
+        responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="usage/timeseries")
+    def usage_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._timeseries(request, "usage")
+
+    @extend_schema(
+        operation_id="billing_spend_timeseries_retrieve",
+        summary="Spend over time",
+        parameters=[BillingUsageRequestSerializer, *PAGINATION],
+        responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="spend/timeseries")
+    def spend_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._timeseries(request, "spend")
 
     @extend_schema(
         operation_id="billing_usage_summary_retrieve",

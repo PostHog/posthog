@@ -17,7 +17,7 @@ import jwt
 import requests
 import structlog
 from requests import JSONDecodeError
-from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
@@ -779,6 +779,36 @@ class BillingManager:
 
     def get_public_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._public_get(organization, grants, "usage/")
+
+    def get_public_spend(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._public_get(organization, grants, "spend/")
+
+    def get_public_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._public_get(organization, grants, "forecast/")
+
+    def get_public_timeseries(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The usage or spend timeseries copy. GET first, then POST when the query string is too long
+        for the organization's teams map, as the root usage and spend reads do."""
+        url = f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/timeseries/"
+        headers = self.public_api_headers(organization, grants)
+        res = requests.get(
+            url, headers=headers, params=self._to_query_params(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
+        )
+        if res.status_code in (414, 431):
+            res = requests.post(
+                url, headers=headers, json=self._to_post_body(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
+            )
+        if res.status_code == 403:
+            raise PermissionDenied(res.json().get("detail", "You do not have access to Billing for this organization."))
+        if res.status_code == 400:
+            raise ValidationError(res.json())
+        handle_billing_service_error(res, valid_codes=(200,))
+        data = res.json()
+        data.pop("status", None)
+        data.pop("customer_id", None)
+        return data
 
     def get_invoices(self, organization: Organization, status: str | None):
         res = requests.get(
