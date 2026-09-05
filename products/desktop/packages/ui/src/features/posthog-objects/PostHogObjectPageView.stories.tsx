@@ -1,3 +1,4 @@
+import type { FlagAudience } from "@posthog/api-client/flag-audience";
 import type { EvidenceCardData } from "@posthog/ui/features/editor/evidencePreview";
 import { PostHogObjectPageView } from "@posthog/ui/features/posthog-objects/PostHogObjectPage";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -12,35 +13,159 @@ const DAYS = [
   "2026-08-16",
 ];
 
+const alex = {
+  label: "Alex Rivera",
+  secondary: "alex@example.com",
+  raw: "4dc8564d-1f2e-4b7a-9c3d-2a1b0c9d8e7f",
+  link: { kind: "person" as const, id: "4dc8564d-1f2e-4b7a-9c3d-2a1b0c9d8e7f" },
+  literal: false,
+};
+
+const betaTesters = {
+  label: "Beta testers",
+  raw: "142",
+  link: { kind: "cohort" as const, id: "142" },
+  literal: false,
+};
+
+const multivariateAudience: FlagAudience = {
+  headline: "Split into 3 variants for Alex Rivera and Pro plan users.",
+  summary:
+    "Alex Rivera gets test. 25% of people whose plan is pro get a variant, decided by the rollout hash. Everyone else gets false.",
+  disabled: false,
+  rules: [
+    {
+      conditions: [{ subject: "Person", operator: "is", values: [alex] }],
+      share: 100,
+      result: { kind: "variant", key: "test" },
+      reachable: true,
+      isGroup: false,
+    },
+    {
+      conditions: [
+        {
+          subject: "plan",
+          operator: "is",
+          values: [{ label: "pro", literal: true }],
+        },
+        {
+          subject: "Cohort",
+          operator: "in cohort",
+          values: [betaTesters],
+        },
+      ],
+      share: 25,
+      result: { kind: "split" },
+      reachable: true,
+      isGroup: false,
+    },
+    {
+      conditions: [
+        {
+          subject: "email",
+          operator: "ends with",
+          values: [{ label: "@example.com", literal: true }],
+        },
+      ],
+      share: 100,
+      result: { kind: "variant", key: "control" },
+      reachable: true,
+      isGroup: false,
+    },
+  ],
+  fallback: { kind: "false" },
+  fallbackReachable: true,
+  variants: [
+    { key: "control", percentage: 34, payload: null },
+    { key: "test", percentage: 33, payload: '{"prompt":"soft"}' },
+    { key: "aggressive", percentage: 33, payload: '{"prompt":"hard"}' },
+  ],
+  bucketing: "distinct_id",
+  stability: "the distinct ID",
+  enrollmentKey: null,
+  holdout: null,
+};
+
+const booleanAudience: FlagAudience = {
+  headline: "On for Alex Rivera.",
+  summary:
+    "Alex Rivera is targeted, and the 25% rollout hash decides. Everyone else gets false.",
+  disabled: false,
+  rules: [
+    {
+      conditions: [{ subject: "Person", operator: "is", values: [alex] }],
+      share: 25,
+      result: { kind: "true" },
+      reachable: true,
+      isGroup: false,
+    },
+  ],
+  fallback: { kind: "false" },
+  fallbackReachable: true,
+  variants: [],
+  bucketing: "distinct_id",
+  stability: "the distinct ID",
+  enrollmentKey: null,
+  holdout: null,
+};
+
+const shadowedAudience: FlagAudience = {
+  headline: "On for everyone.",
+  summary: "Everyone gets true.",
+  disabled: false,
+  rules: [
+    {
+      conditions: [],
+      share: 100,
+      result: { kind: "true" },
+      reachable: true,
+      isGroup: false,
+    },
+    {
+      conditions: [
+        { subject: "Cohort", operator: "in cohort", values: [betaTesters] },
+      ],
+      share: 50,
+      result: { kind: "true" },
+      reachable: false,
+      isGroup: false,
+    },
+  ],
+  fallback: { kind: "false" },
+  fallbackReachable: false,
+  variants: [],
+  bucketing: "distinct_id",
+  stability: "the distinct ID",
+  enrollmentKey: null,
+  holdout: null,
+};
+
+const configuration = {
+  title: "Configuration",
+  fields: [
+    { label: "Type", value: "Multivariate" },
+    { label: "Evaluation runtime", value: "All runtimes" },
+    { label: "Experience continuity", value: "On" },
+    { label: "Last called", value: "Aug 16" },
+    {
+      label: "Targeted IDs",
+      value: "4dc8564d-1f2e-4b7a-9c3d-2a1b0c9d8e7f",
+    },
+  ],
+};
+
 const flagPreview: EvidenceCardData = {
   title: "pi-harness",
   detail: "Cloud task harness rollout",
   status: { label: "Enabled", tone: "positive" },
   stats: [
-    { label: "Rollout", value: "100%" },
+    { label: "Reach", value: "Alex Rivera and Pro plan users" },
     { label: "Variants", value: "3" },
     { label: "Type", value: "Multivariate" },
-    { label: "Calls in 7 days", value: "1.2K" },
   ],
   spark: { points: [24, 32, 28, 46, 51, 63, 58], labels: DAYS, render: "line" },
-  sections: [
-    {
-      title: "Configuration",
-      fields: [
-        { label: "Type", value: "Multivariate" },
-        { label: "Release conditions", value: "2 conditions" },
-        { label: "Evaluation runtime", value: "Both client and server" },
-        { label: "Last called", value: "Aug 16" },
-      ],
-    },
-    {
-      title: "Release conditions",
-      fields: [
-        { label: "Set 1", value: "plan is pro · 25% rollout · Variant: test" },
-        { label: "Set 2", value: "75% rollout" },
-      ],
-    },
-  ],
+  flagAudience: multivariateAudience,
+  sections: [configuration],
 };
 
 const experimentPreview: EvidenceCardData = {
@@ -178,11 +303,65 @@ export const FeatureFlag: Story = {
     objectKind: "flag",
     objectId: "390",
     fallbackName: "pi-harness",
+    taskId: "task-1",
     url: "https://us.posthog.com/project/2/feature_flags/390",
     occurrenceCount: 4,
     state: "ready",
     preview: flagPreview,
   },
+};
+
+export const BooleanFlagForOnePerson: Story = {
+  args: {
+    ...FeatureFlag.args,
+    preview: {
+      ...flagPreview,
+      title: "new-onboarding",
+      detail: "Guided onboarding flow",
+      flagAudience: booleanAudience,
+      sections: [{ ...configuration, fields: configuration.fields.slice(1) }],
+    },
+  },
+};
+
+export const ShadowedRule: Story = {
+  args: {
+    ...FeatureFlag.args,
+    preview: {
+      ...flagPreview,
+      title: "dark-mode",
+      detail: "Dark theme for the app shell",
+      flagAudience: shadowedAudience,
+    },
+  },
+};
+
+export const DisabledFlag: Story = {
+  args: {
+    ...FeatureFlag.args,
+    preview: {
+      ...flagPreview,
+      status: { label: "Disabled", tone: "neutral" },
+      flagAudience: {
+        ...multivariateAudience,
+        headline: "Off for everyone.",
+        summary: "The flag is disabled, so every check returns false.",
+        disabled: true,
+      },
+    },
+  },
+};
+
+/** The nav sidebar and an open side panel leave a 1280px window about 520px. */
+export const NarrowPanel: Story = {
+  args: FeatureFlag.args,
+  decorators: [
+    (Story) => (
+      <div style={{ width: 520, borderRight: "1px solid var(--border)" }}>
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 export const Experiment: Story = {

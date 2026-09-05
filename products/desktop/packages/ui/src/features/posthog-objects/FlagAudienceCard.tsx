@@ -1,3 +1,12 @@
+import {
+  ArrowElbowDownRightIcon,
+  ArrowSquareOutIcon,
+  FlaskIcon,
+  KeyIcon,
+  PowerIcon,
+  UserIcon,
+  UsersThreeIcon,
+} from "@phosphor-icons/react";
 import type {
   FlagAudience,
   FlagCondition,
@@ -9,6 +18,7 @@ import type {
 import { Card, CardContent, Text } from "@posthog/quill";
 import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import type { ReactNode } from "react";
 
 const VARIANT_COLORS = [
   "var(--primary)",
@@ -24,25 +34,32 @@ function variantColor(variants: FlagVariant[], key: string): string {
   return VARIANT_COLORS[Math.max(index, 0) % VARIANT_COLORS.length];
 }
 
+/** The width of the step gutter; the connector line is centered in it. */
+const GUTTER = "grid-cols-[28px_minmax(0,1fr)_auto]";
+
 function EntityChip({ value }: { value: FlagValue }) {
   const link = value.link;
   const url = useEvidenceUrl(link?.kind ?? "person", link?.id ?? "");
+  const Icon = link?.kind === "cohort" ? UsersThreeIcon : UserIcon;
   // Narrow panels clip the row, so the chip shrinks with an ellipsis and the
   // hover title carries the full label plus the secondary value.
   const title = [value.label, value.secondary].filter(Boolean).join(" · ");
   const body = (
     <>
+      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-(--blue-4) text-(--blue-11)">
+        <Icon size={10} weight="bold" />
+      </span>
       <span className="min-w-0 truncate">{value.label}</span>
       {value.secondary && (
-        <span className="min-w-0 truncate font-normal text-muted-foreground">
+        <span className="min-w-0 truncate font-normal opacity-70">
           {value.secondary}
         </span>
       )}
-      {url && <span className="text-[10px] opacity-70">↗</span>}
+      {url && <ArrowSquareOutIcon size={11} className="shrink-0 opacity-70" />}
     </>
   );
   const className =
-    "inline-flex items-center gap-1.5 rounded-md border border-(--blue-6) bg-(--blue-2) px-2 py-px font-medium text-(--blue-11) text-xs leading-5";
+    "inline-flex max-w-full items-center gap-1.5 rounded-full border border-(--blue-6) bg-(--blue-2) py-px pr-2 pl-1 font-medium text-(--blue-11) text-xs leading-5";
   if (!url) {
     return (
       <span className={className} title={title || value.raw}>
@@ -53,7 +70,7 @@ function EntityChip({ value }: { value: FlagValue }) {
   return (
     <button
       type="button"
-      className={`${className} cursor-pointer hover:bg-(--blue-3)`}
+      className={`${className} cursor-pointer transition-colors hover:bg-(--blue-3)`}
       title={title || value.raw}
       onClick={() => openExternalUrl(url)}
     >
@@ -66,7 +83,8 @@ function ValueChip({ value }: { value: FlagValue }) {
   if (value.link) return <EntityChip value={value} />;
   return (
     <span
-      className={`inline-flex items-center rounded-md border border-border bg-muted px-2 py-px text-xs leading-5 ${value.literal ? "font-mono" : "font-medium"}`}
+      className={`inline-flex max-w-full items-center truncate rounded-md border border-border bg-muted px-1.5 py-px text-xs leading-5 ${value.literal ? "font-mono text-foreground" : "font-medium"}`}
+      title={value.label}
     >
       {value.label}
     </span>
@@ -81,15 +99,14 @@ function ConditionLine({
   first: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
       {!first && (
-        <span className="font-semibold text-[10.5px] text-muted-foreground uppercase tracking-wide">
+        <span className="rounded border border-border px-1 font-semibold text-[10px] text-muted-foreground uppercase leading-4 tracking-wide">
           and
         </span>
       )}
-      <span className="text-muted-foreground">
-        {condition.subject} {condition.operator}
-      </span>
+      <span className="font-medium text-foreground">{condition.subject}</span>
+      <span className="text-muted-foreground">{condition.operator}</span>
       {condition.values.map((value, index) => (
         <ValueChip key={`${value.label}:${index}`} value={value} />
       ))}
@@ -105,12 +122,12 @@ function ResultPill({
   variants: FlagVariant[];
 }) {
   const base =
-    "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-semibold text-xs";
+    "inline-flex h-6 items-center gap-1.5 rounded-md border px-2 font-semibold text-xs";
   switch (result.kind) {
     case "true":
       return (
         <span
-          className={`${base} border-(--green-6) bg-(--green-2) font-mono text-(--green-11)`}
+          className={`${base} border-(--green-6) bg-(--green-3) font-mono text-(--green-11)`}
         >
           true
         </span>
@@ -131,9 +148,11 @@ function ResultPill({
       );
     case "variant":
       return (
-        <span className={`${base} border-border bg-card text-foreground`}>
+        <span
+          className={`${base} border-border bg-card font-mono text-foreground`}
+        >
           <span
-            className="size-2 rounded-full"
+            className="size-2 shrink-0 rounded-full"
             style={{ background: variantColor(variants, result.key) }}
           />
           {result.key}
@@ -147,19 +166,104 @@ function ResultPill({
             .map((variant) => `${variant.key} ${variant.percentage}%`)
             .join(" · ")}
         >
-          <span className="flex gap-0.5">
+          <span className="flex h-2 w-7 gap-px overflow-hidden rounded-full">
             {variants.map((variant) => (
               <span
                 key={variant.key}
-                className="size-2 rounded-full"
-                style={{ background: variantColor(variants, variant.key) }}
+                className="h-full"
+                style={{
+                  width: `${variant.percentage}%`,
+                  background: variantColor(variants, variant.key),
+                }}
               />
             ))}
           </span>
-          a variant
+          {variants.length} variants
         </span>
       );
   }
+}
+
+/** A tiny meter next to a partial rollout, so the share is read at a glance. */
+function ShareMeter({ share }: { share: number }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground tabular-nums"
+      title={`${share}% of the people who match this rule`}
+    >
+      <span className="flex h-1.5 w-10 overflow-hidden rounded-full bg-(--gray-5)">
+        <span
+          className="h-full rounded-full bg-(--gray-9)"
+          style={{ width: `${share}%` }}
+        />
+      </span>
+      {share}% of matches
+    </span>
+  );
+}
+
+/**
+ * One row of the evaluation flow. The gutter draws the connector line and a
+ * marker; `position` trims the line at the top and bottom of the flow.
+ */
+function FlowRow({
+  marker,
+  position,
+  muted,
+  children,
+  result,
+}: {
+  marker: ReactNode;
+  position: "first" | "middle" | "last" | "only";
+  muted?: boolean;
+  children: ReactNode;
+  result?: ReactNode;
+}) {
+  const lineTop =
+    position === "first" || position === "only" ? "top-1/2" : "top-0";
+  const lineBottom =
+    position === "last" || position === "only" ? "bottom-1/2" : "bottom-0";
+  return (
+    <div
+      className={`@container relative grid ${GUTTER} @max-[560px]:grid-cols-[28px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-3 py-3 ${muted ? "text-muted-foreground" : ""}`}
+    >
+      <span
+        aria-hidden
+        className={`absolute left-[25px] ${lineTop} ${lineBottom} w-px bg-border`}
+      />
+      <span className="relative z-10 flex justify-center">{marker}</span>
+      <div className="flex min-w-0 flex-col gap-1.5 text-[13px]">
+        {children}
+      </div>
+      {result && (
+        <div className="@max-[560px]:col-start-2 flex items-center @max-[560px]:justify-start justify-end gap-3 whitespace-nowrap">
+          {result}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepMarker({
+  children,
+  tone = "default",
+}: {
+  children: ReactNode;
+  tone?: "default" | "muted" | "info" | "warning";
+}) {
+  const tones = {
+    default: "border-border bg-card text-foreground",
+    muted: "border-dashed border-border bg-card text-muted-foreground",
+    info: "border-(--blue-6) bg-(--blue-3) text-(--blue-11)",
+    warning: "border-(--amber-6) bg-(--amber-3) text-(--amber-11)",
+  };
+  return (
+    <span
+      className={`flex size-6 items-center justify-center rounded-full border font-semibold text-[11px] tabular-nums shadow-xs ${tones[tone]}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 function RuleRow({
@@ -167,56 +271,61 @@ function RuleRow({
   rule,
   variants,
   bucketing,
+  position,
 }: {
   index: number;
   rule: FlagRule;
   variants: FlagVariant[];
   bucketing: FlagAudience["bucketing"];
+  position: "first" | "middle" | "last" | "only";
 }) {
+  const unreachable = rule.reachable === false;
+  const everyone = rule.isGroup
+    ? "Every group"
+    : bucketing === "device_id"
+      ? "Every device"
+      : "Everyone";
   return (
-    <div
-      className={`@container grid @max-[420px]:grid-cols-[22px_1fr] grid-cols-[22px_1fr_auto] items-center gap-x-3 border-border border-b px-3 py-2.5 last:border-b-0 ${rule.reachable === false ? "opacity-50" : ""}`}
+    <FlowRow
+      marker={
+        <StepMarker tone={unreachable ? "muted" : "default"}>
+          {index + 1}
+        </StepMarker>
+      }
+      position={position}
+      muted={unreachable}
+      result={
+        <>
+          {rule.share < 100 && !unreachable && (
+            <ShareMeter share={rule.share} />
+          )}
+          <span className={unreachable ? "opacity-50" : ""}>
+            <ResultPill result={rule.result} variants={variants} />
+          </span>
+        </>
+      }
     >
-      <span className="flex size-5 items-center justify-center rounded-md border border-border bg-muted font-semibold text-[11px] text-foreground">
-        {index + 1}
-      </span>
-      <div className="flex min-w-0 flex-col gap-1 text-[13px]">
-        {rule.reachable === false && (
-          <span className="text-[11px] text-muted-foreground italic">
-            Unreachable — an earlier condition matches everyone at 100%
-          </span>
-        )}
-        {rule.conditions.length === 0 ? (
-          <span>
-            {rule.isGroup
-              ? "Every group"
-              : bucketing === "device_id"
-                ? "Every device"
-                : "Everyone"}
-          </span>
-        ) : (
-          rule.conditions.map((condition, conditionIndex) => (
-            <ConditionLine
-              key={`${condition.subject}:${conditionIndex}`}
-              condition={condition}
-              first={conditionIndex === 0}
-            />
-          ))
-        )}
-      </div>
-      <div className="@max-[420px]:col-start-2 flex items-center @max-[420px]:justify-start justify-end gap-2.5 whitespace-nowrap">
-        {rule.share < 100 && (
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            {rule.share}% of matches
-          </span>
-        )}
-        <ResultPill result={rule.result} variants={variants} />
-      </div>
-    </div>
+      {unreachable && (
+        <span className="inline-flex w-fit items-center gap-1 rounded border border-border bg-muted px-1.5 text-[10.5px] text-muted-foreground leading-4">
+          Never reached. An earlier rule already matches everyone.
+        </span>
+      )}
+      {rule.conditions.length === 0 ? (
+        <span className="font-medium">{everyone}</span>
+      ) : (
+        rule.conditions.map((condition, conditionIndex) => (
+          <ConditionLine
+            key={`${condition.subject}:${conditionIndex}`}
+            condition={condition}
+            first={conditionIndex === 0}
+          />
+        ))
+      )}
+    </FlowRow>
   );
 }
 
-function VariantsList({
+function VariantsSection({
   variants,
   stability,
   holdout,
@@ -226,24 +335,24 @@ function VariantsList({
   holdout: FlagAudience["holdout"];
 }) {
   return (
-    <div className="mt-4">
-      <div className="flex items-baseline justify-between gap-2">
+    <div className="mt-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <Text
           variant="muted"
-          className="block text-[11px] uppercase tracking-wider"
+          className="block font-semibold text-[11px] uppercase tracking-wider"
         >
-          Variants
+          Variant split
         </Text>
         <Text variant="muted" className="text-xs">
-          Assigned by a stable hash of {stability}, so the assignment keeps
-          holding
+          Assigned by a stable hash of {stability}
         </Text>
       </div>
-      <div className="mt-2 flex h-2 gap-0.5 overflow-hidden rounded">
+      <div className="mt-2.5 flex h-2.5 gap-0.5 overflow-hidden rounded-full">
         {variants.map((variant) => (
           <span
             key={variant.key}
-            className="h-full"
+            className="h-full first:rounded-l-full last:rounded-r-full"
+            title={`${variant.key} · ${variant.percentage}%`}
             style={{
               width: `${variant.percentage}%`,
               background: variantColor(variants, variant.key),
@@ -251,38 +360,42 @@ function VariantsList({
           />
         ))}
       </div>
+      <div className="mt-3 grid @[560px]:grid-cols-2 gap-x-6 gap-y-2">
+        {variants.map((variant) => (
+          <div
+            key={variant.key}
+            className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 text-[13px]"
+          >
+            <span
+              className="size-2.5 rounded-full"
+              style={{ background: variantColor(variants, variant.key) }}
+            />
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className="font-mono font-semibold text-xs">
+                {variant.key}
+              </span>
+              {variant.payload && (
+                <code
+                  title={variant.payload}
+                  className="min-w-0 truncate rounded bg-muted px-1 font-mono text-[11px] text-muted-foreground"
+                >
+                  {variant.payload}
+                </code>
+              )}
+            </span>
+            <span className="font-semibold tabular-nums">
+              {variant.percentage}%
+            </span>
+          </div>
+        ))}
+      </div>
       {holdout && (
-        <Text variant="muted" className="mt-1 block text-xs">
+        <Text variant="muted" className="mt-2.5 block text-xs">
           {holdout.exclusionPercentage}% of people receive{" "}
           <span className="font-mono">holdout-{holdout.id}</span> instead of a
           variant.
         </Text>
       )}
-      {variants.map((variant) => (
-        <div
-          key={variant.key}
-          className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-border border-b py-1.5 text-[13px] last:border-b-0"
-        >
-          <span className="flex items-center gap-2">
-            <span
-              className="size-2 rounded-full"
-              style={{ background: variantColor(variants, variant.key) }}
-            />
-            <span className="font-mono font-semibold text-xs">
-              {variant.key}
-            </span>
-          </span>
-          <span
-            title={variant.payload ?? undefined}
-            className={`truncate font-mono text-xs ${variant.payload ? "text-foreground" : "text-muted-foreground"}`}
-          >
-            {variant.payload ?? "No payload"}
-          </span>
-          <span className="font-semibold tabular-nums">
-            {variant.percentage}%
-          </span>
-        </div>
-      ))}
     </div>
   );
 }
@@ -295,84 +408,198 @@ function ruleKey(rule: FlagRule, index: number): string {
   return `${index}:${conditions}`;
 }
 
+function flowPosition(
+  index: number,
+  total: number,
+): "first" | "middle" | "last" | "only" {
+  if (total === 1) return "only";
+  if (index === 0) return "first";
+  if (index === total - 1) return "last";
+  return "middle";
+}
+
 /**
  * Answers "who gets this flag, and what do they get?" before showing any
  * structure: a headline, one outcome sentence, then the rules as a
- * first-match-wins table where every row ends in its result.
+ * first-match-wins flow where every step ends in its result.
  */
-export function FlagAudienceCard({ audience }: { audience: FlagAudience }) {
-  // The shaper computes reachability once: a reachable rule with no
-  // conditions at 100% already matches everyone, so the fallback never runs.
+export function FlagAudienceCard({
+  audience,
+  action,
+}: {
+  audience: FlagAudience;
+  /** Rendered beside the eyebrow; the page passes the edit-in-task control. */
+  action?: ReactNode;
+}) {
+  // Pre-checks and the fallback are steps in the same flow as the rules, so
+  // they share one index space for the connector line.
+  const preChecks = [
+    audience.enrollmentKey ? "enrollment" : null,
+    audience.holdout ? "holdout" : null,
+  ].filter((step): step is "enrollment" | "holdout" => step !== null);
+  const stepCount =
+    preChecks.length +
+    audience.rules.length +
+    (audience.fallbackReachable ? 1 : 0);
+  let step = 0;
+  const nextPosition = () => flowPosition(step++, stepCount);
+
   return (
-    <Card size="sm">
-      <CardContent>
-        <Text
-          variant="muted"
-          className="block text-[11px] uppercase tracking-wider"
-        >
-          Who gets this
-        </Text>
-        <div className="mt-2 font-semibold text-base text-foreground tracking-tight">
-          {audience.headline}
+    <Card size="sm" className="overflow-hidden">
+      <CardContent className="p-0">
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-5 pt-4 pb-4">
+          <div className="min-w-0 flex-1 basis-64">
+            <Text
+              variant="muted"
+              className="block font-semibold text-[11px] uppercase tracking-wider"
+            >
+              Who gets this
+            </Text>
+            <div className="mt-1.5 flex items-start gap-2.5">
+              <span
+                aria-hidden
+                className={`mt-2 size-2.5 shrink-0 rounded-full ${
+                  audience.disabled
+                    ? "bg-(--gray-8)"
+                    : "bg-(--green-9) shadow-[0_0_0_3px_var(--green-4)]"
+                }`}
+              />
+              <h2 className="font-semibold text-foreground text-xl leading-tight tracking-tight">
+                {audience.headline}
+              </h2>
+            </div>
+            <Text className="mt-1.5 block max-w-prose text-[13px] text-muted-foreground leading-relaxed">
+              {audience.summary}
+            </Text>
+          </div>
+          {action && <div className="shrink-0">{action}</div>}
         </div>
-        <Text className="mt-0.5 block text-[13px] text-muted-foreground">
-          {audience.summary}
-        </Text>
+
+        {audience.disabled && (
+          <div className="flex items-center gap-2.5 border-border border-t bg-muted px-5 py-2.5 text-[12.5px] text-muted-foreground">
+            <PowerIcon size={14} className="shrink-0" />
+            <span>
+              The flag is off. The rules below apply when the flag is turned on.
+            </span>
+          </div>
+        )}
 
         <div
-          className={`mt-3.5 overflow-hidden rounded-lg border border-border ${audience.disabled ? "opacity-60" : ""}`}
+          className={`border-border border-t ${audience.disabled ? "opacity-70" : ""}`}
         >
-          <div className="flex justify-between border-border border-b bg-muted px-3 py-1.5 text-[11px] text-muted-foreground">
-            <span>Rules, checked in order. First match wins.</span>
+          <div
+            className={`grid ${GUTTER} gap-x-3 bg-muted px-3 py-1.5 font-medium text-[11px] text-muted-foreground`}
+          >
+            <span />
+            <span>Rules, checked in order. The first match decides.</span>
             <span>Result</span>
           </div>
-          {audience.enrollmentKey && (
-            <div className="border-border border-b bg-(--blue-2) px-3 py-2 text-[12px] text-muted-foreground">
-              Early access: the{" "}
-              <span className="font-mono text-foreground">
-                {audience.enrollmentKey}
-              </span>{" "}
-              person property is checked before these rules. A true value gets
-              true; any other value gets false.
-            </div>
-          )}
-          {audience.holdout && (
-            <div className="border-border border-b bg-(--amber-2) px-3 py-2 text-[12px] text-muted-foreground">
-              Holdout: {audience.holdout.exclusionPercentage}% of people are
-              held out for experiment {audience.holdout.id} and get{" "}
-              <span className="font-mono text-foreground">
-                holdout-{audience.holdout.id}
-              </span>{" "}
-              before these rules.
-            </div>
-          )}
-          {audience.rules.map((rule, index) => (
-            <RuleRow
-              key={ruleKey(rule, index)}
-              index={index}
-              rule={rule}
-              variants={audience.variants}
-              bucketing={audience.bucketing}
-            />
-          ))}
-          {audience.fallbackReachable && (
-            <div className="grid grid-cols-[22px_1fr_auto] items-center gap-x-3 px-3 py-2.5 text-[13px] text-muted-foreground">
-              <span />
-              <span>Everyone else</span>
-              <ResultPill
-                result={audience.fallback}
+          <div className="divide-y divide-border">
+            {audience.enrollmentKey && (
+              <FlowRow
+                marker={
+                  <StepMarker tone="info">
+                    <KeyIcon size={12} weight="bold" />
+                  </StepMarker>
+                }
+                position={nextPosition()}
+                result={
+                  <span className="text-[11px] text-muted-foreground">
+                    true → true, anything else → false
+                  </span>
+                }
+              >
+                <span>
+                  <span className="font-medium">Early access</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    checks the{" "}
+                    <code className="rounded bg-muted px-1 font-mono text-[12px] text-foreground">
+                      {audience.enrollmentKey}
+                    </code>{" "}
+                    person property first
+                  </span>
+                </span>
+              </FlowRow>
+            )}
+            {audience.holdout && (
+              <FlowRow
+                marker={
+                  <StepMarker tone="warning">
+                    <FlaskIcon size={12} weight="bold" />
+                  </StepMarker>
+                }
+                position={nextPosition()}
+                result={
+                  <>
+                    <ShareMeter share={audience.holdout.exclusionPercentage} />
+                    <span className="inline-flex h-6 items-center rounded-md border border-(--amber-6) bg-(--amber-3) px-2 font-mono font-semibold text-(--amber-11) text-xs">
+                      holdout-{audience.holdout.id}
+                    </span>
+                  </>
+                }
+              >
+                <span>
+                  <span className="font-medium">Holdout</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    for experiment {audience.holdout.id}, decided before the
+                    rules
+                  </span>
+                </span>
+              </FlowRow>
+            )}
+            {audience.rules.map((rule, index) => (
+              <RuleRow
+                key={ruleKey(rule, index)}
+                index={index}
+                rule={rule}
                 variants={audience.variants}
+                bucketing={audience.bucketing}
+                position={nextPosition()}
               />
-            </div>
-          )}
+            ))}
+            {audience.rules.length === 0 && (
+              <div
+                className={`grid ${GUTTER} gap-x-3 px-3 py-3 text-[13px] text-muted-foreground`}
+              >
+                <span />
+                <span>
+                  No rules yet. Add a release condition to turn the flag on for
+                  someone.
+                </span>
+              </div>
+            )}
+            {audience.fallbackReachable && (
+              <FlowRow
+                marker={
+                  <StepMarker tone="muted">
+                    <ArrowElbowDownRightIcon size={12} weight="bold" />
+                  </StepMarker>
+                }
+                position={nextPosition()}
+                muted
+                result={
+                  <ResultPill
+                    result={audience.fallback}
+                    variants={audience.variants}
+                  />
+                }
+              >
+                <span>Everyone else</span>
+              </FlowRow>
+            )}
+          </div>
         </div>
 
         {audience.variants.length > 0 && (
-          <VariantsList
-            variants={audience.variants}
-            stability={audience.stability}
-            holdout={audience.holdout}
-          />
+          <div className="@container border-border border-t px-5 pb-5">
+            <VariantsSection
+              variants={audience.variants}
+              stability={audience.stability}
+              holdout={audience.holdout}
+            />
+          </div>
         )}
       </CardContent>
     </Card>
