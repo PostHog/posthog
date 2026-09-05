@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
+    import pyarrow as pa
     from dlt.common.data_types.typing import TDataType
 
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -41,6 +42,26 @@ class _Dataclass(Protocol):
 
 
 ResumableData = TypeVar("ResumableData", bound=_Dataclass)
+
+
+@dataclasses.dataclass(frozen=False)
+class OutputLane:
+    """One table a response's item stream feeds.
+
+    A source whose single stream lands in more than one table — a change stream feeding both a
+    merged table and its append-only history — declares one lane per table. The pipeline writes
+    every lane from the same read, so the source reads its origin once however many tables it
+    keeps.
+    """
+
+    name: str
+    cdc_write_mode: Optional[str] = None
+    billable: bool = True
+    """Whether this lane's rows count towards the team's synced-row usage. A source feeding two
+    tables from one stream bills the stream once."""
+    transform: Optional[Callable[[pa.Table], pa.Table]] = None
+    """Applied to each batch before this lane writes it. May drop rows; must not change columns,
+    which are reconciled once for every lane."""
 
 
 @dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction
@@ -82,6 +103,9 @@ class SourceResponse:
     """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
     xmin_num_wraparound: Optional[int] = None
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
+    lanes: Optional[list[OutputLane]] = None
+    """Tables this response's items feed, when it feeds more than the one `name` alone describes.
+    None means the single lane built from `name` and `cdc_write_mode`."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source

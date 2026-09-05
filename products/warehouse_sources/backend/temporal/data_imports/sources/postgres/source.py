@@ -1428,20 +1428,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         Returning None keeps the caller on the legacy `CDCHandledExternally` path, so a source that
         was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
         """
+        from asgiref.sync import async_to_sync
+
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-            CONSOLIDATED_WRITE_MODE,
             CDCSourceManager,
-            consolidated_resource_name,
-            has_pending_legacy_backlog,
-            is_buffered_consolidated,
+            build_output_lanes,
+            completed_listing_proof,
+            consumes_buffer,
+            has_batches_in_flight,
+            served_lanes,
         )
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
             PostgresCDCConfig,
         )
 
         ingest_mode = PostgresCDCConfig.from_source(schema.source).ingest_mode
-        if not is_buffered_consolidated(schema, ingest_mode=ingest_mode):
+        if not consumes_buffer(schema, ingest_mode=ingest_mode):
             return None
 
         # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
@@ -1466,26 +1469,41 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
             )
 
-        resource_name = consolidated_resource_name(schema)
-
-        if has_pending_legacy_backlog(schema):
-            # Legacy deliveries carry no position column, so merging buffered rows before they land
-            # lets an older row overwrite a newer one. No-op this run — an empty response keeps the
-            # schedule alive, unlike CDCHandledExternally, which would pause it for good.
-            inputs.logger.info("cdc_buffered_waiting_for_legacy_backlog", schema_name=schema.name)
+        if has_batches_in_flight(schema):
+            # Reading now would stage rows alongside a delivery that is still landing: a legacy one
+            # carries no position to order against, and a previous attempt of this job holds staged
+            # batches that are still claimable, which the append lane would then write twice.
+            #
+            # An empty response no-ops this tick and keeps the schedule alive, unlike
+            # CDCHandledExternally, which would pause it for good. Nothing is listed, so nothing is
+            # deleted and no listing is stamped — this run can never serve as proof of consumption.
+            inputs.logger.info("cdc_buffered_waiting_for_in_flight_batches", schema_name=schema.name)
+            first_lane = served_lanes(schema)[0]
             return SourceResponse(
-                name=resource_name,
+                name=first_lane.resource_name,
                 items=lambda: iter(()),
                 primary_keys=schema.primary_key_columns,
-                cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+                cdc_write_mode=first_lane.write_mode,
             )
 
-        manager = CDCSourceManager(inputs, inputs.logger)
+        if job is None:
+            raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
+
+        # Every table this schema's changes feed, written from one read of the buffer. Each lane
+        # carries where its own table stops, because a failed run can leave one ahead of the other.
+        lanes, deletion_floor = async_to_sync(build_output_lanes)(schema, job, inputs.logger)
+        manager = CDCSourceManager(
+            inputs,
+            inputs.logger,
+            deletion_floor=deletion_floor,
+            proof_time=async_to_sync(completed_listing_proof)(schema),
+        )
         return SourceResponse(
-            name=resource_name,
-            items=lambda: manager.get_items(resource_name),
+            name=lanes[0].name,
+            items=manager.get_items,
             primary_keys=schema.primary_key_columns,
-            cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+            cdc_write_mode=lanes[0].cdc_write_mode,
+            lanes=lanes,
         )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:

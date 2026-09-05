@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
-from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import consolidated_resource_name
 
 _CMD = "products.warehouse_sources.backend.management.commands.migrate_cdc_source_to_buffered"
 
@@ -161,41 +160,32 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         # Consumer schedules must still be live so they can catch up for the re-run.
         mocks["pause_schema"].assert_not_called()
 
-    def _record_load_position(self, schema: ExternalDataSchema, position: int) -> None:
-        schema.sync_type_config = {
-            **schema.sync_type_config,
-            "cdc_load_position": {consolidated_resource_name(schema): position},
-        }
-        schema.save(update_fields=["sync_type_config"])
-
     def test_rollback_ignores_prefixes_the_buffered_lane_never_served(self):
         # A legacy schema's prefix holds shadow copies no consumer ever reads, so scanning it would
         # wedge every rollback of a hybrid source with capture left paused.
         source = self._source(ingest_mode="buffered")
         self._schema(source, "users")
-        companion = self._schema(source, "events", table_mode="cdc_only")
+        snapshotting = self._schema(source, "events", cdc_mode="snapshot")
         shadow = f"bucket/cdc_producer/x/{build_buffer_file_name(100, 200, 0)}"
 
-        with _mocked_side_effects(buffer_keys_by_schema={str(companion.id): [shadow]}):
+        with _mocked_side_effects(buffer_keys_by_schema={str(snapshotting.id): [shadow]}):
             self._run(source, rollback=True, drain_timeout=0)
 
         source.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == "legacy"
 
-    @parameterized.expand([("at_the_position", 200, True), ("below_the_position", 199, False)])
-    def test_rollback_waits_for_the_consumer_to_delete_the_file_at_the_position(
-        self, _name, end_seq: int, blocks: bool
-    ):
-        # One transaction shares a commit position across its events, so a file ending AT the
-        # position can still be an unread tail. Only the consumer's deletion proves it landed.
+    @parameterized.expand([("a_file_remains", True), ("prefix_is_empty", False)])
+    def test_rollback_waits_until_the_consumer_has_deleted_every_file(self, _name, blocks: bool):
+        # The consumer deletes a file once the job that read it completes, so an empty prefix is
+        # its own proof that every change reached every table the mode feeds. A file that is still
+        # there can be an unread tail — one transaction shares its commit position across files.
         source = self._source(ingest_mode="buffered")
-        schema = self._schema(source, "users")
-        self._record_load_position(schema, 200)
-        remaining = f"bucket/cdc_producer/x/{build_buffer_file_name(100, end_seq, 0)}"
+        self._schema(source, "users")
+        remaining = [f"bucket/cdc_producer/x/{build_buffer_file_name(100, 200, 0)}"] if blocks else []
 
-        with _mocked_side_effects(buffer_keys=[remaining]):
+        with _mocked_side_effects(buffer_keys=remaining):
             if blocks:
-                with pytest.raises(CommandError, match="not yet proven applied"):
+                with pytest.raises(CommandError, match="not yet applied"):
                     self._run(source, rollback=True, drain_timeout=0)
             else:
                 self._run(source, rollback=True, drain_timeout=0)
@@ -203,10 +193,26 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == ("buffered" if blocks else "legacy")
 
-    def test_a_reflip_is_allowed_once_the_reserved_column_is_ours(self):
-        # The buffered lane writes `_ph_cdc_seq` into the warehouse table, so after a rollback the
-        # column is there for our own reasons — a recorded position proves capture never collided.
-        source = self._source()
+    def test_a_rollback_records_that_the_source_has_been_buffered(self):
+        # A source flipped before this marker existed only gains it here, and that is exactly the
+        # source that would otherwise be refused its next flip.
+        source = self._source(ingest_mode="buffered")
+        self._schema(source, "users")
+
+        with _mocked_side_effects():
+            self._run(source, rollback=True)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "legacy"
+        assert source.job_inputs["cdc_buffered_before"]
+
+    def test_a_flip_after_a_rollback_is_not_refused_for_our_own_column(self):
+        # Rollback leaves `_ph_cdc_seq` in the warehouse table and puts the source back on legacy,
+        # so the column looks exactly like a source-owned one. Refusing here would strand the
+        # source for good, telling the operator to rename a column the source does not have.
+        source = self._source(ingest_mode="legacy")
+        source.job_inputs = {**source.job_inputs, "cdc_buffered_before": True}
+        source.save(update_fields=["job_inputs"])
         table = DataWarehouseTable.objects.create(
             team_id=self.team.pk,
             name="users",
@@ -215,8 +221,7 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
             external_data_source=source,
             columns={"id": {"hogql": "IntegerDatabaseField"}, CDC_SEQ_COLUMN: {"hogql": "IntegerDatabaseField"}},
         )
-        schema = self._schema(source, "users", table=table)
-        self._record_load_position(schema, 42)
+        self._schema(source, "users", table=table)
 
         with _mocked_side_effects():
             self._run(source)
@@ -224,31 +229,64 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
-    def test_a_hybrid_source_flips_only_its_consolidated_schemas(self):
+    def test_a_first_flip_records_that_the_source_has_been_buffered(self):
+        source = self._source(ingest_mode="legacy")
+        self._schema(source, "users")
+
+        with _mocked_side_effects():
+            self._run(source)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_buffered_before"]
+
+    def test_a_reflip_is_allowed_once_the_reserved_column_is_ours(self):
+        # The buffered lane writes `_ph_cdc_seq` into the warehouse table, so on a source already
+        # buffered the column is there for our own reasons — capture would have hard-errored on a
+        # real collision before any file existed.
+        source = self._source(ingest_mode="buffered")
+        table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="users",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://bucket/users/*",
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField"}, CDC_SEQ_COLUMN: {"hogql": "IntegerDatabaseField"}},
+        )
+        self._schema(source, "users", table=table)
+
+        with _mocked_side_effects():
+            self._run(source)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
+
+    def test_every_streaming_table_mode_flips_together(self):
         source = self._source()
         consolidated = self._schema(source, "users")
         companion = self._schema(source, "events", table_mode="cdc_only")
+        both = self._schema(source, "orders", table_mode="both")
+
+        with _mocked_side_effects() as mocks:
+            self._run(source)
+
+        purged = [call.args[1] for call in mocks["purge"].call_args_list]
+        assert sorted(purged) == sorted([str(consolidated.id), str(companion.id), str(both.id)])
+        assert mocks["unpause_schema"].call_count == 3
+
+    def test_a_hybrid_source_leaves_its_ineligible_schemas_on_legacy(self):
+        source = self._source()
+        eligible = self._schema(source, "users")
+        snapshotting = self._schema(source, "events", cdc_mode="snapshot")
 
         with _mocked_side_effects() as mocks:
             output = self._run(source)
 
         assert "staying on legacy" in output
-        assert "events [cdc_only]" in output
+        # Every CDC prefix is purged, not just the eligible ones: a schema still snapshotting
+        # becomes eligible on its first completed sync and would inherit whatever it left behind.
         purged = [call.args[1] for call in mocks["purge"].call_args_list]
-        assert purged == [str(consolidated.id)]
-        mocks["unpause_schema"].assert_called_once_with(str(consolidated.id))
-        assert str(companion.id) not in str(mocks["unpause_schema"].call_args_list)
-
-    def test_a_source_with_no_eligible_schema_is_refused(self):
-        source = self._source()
-        self._schema(source, "events", table_mode="both")
-
-        with _mocked_side_effects():
-            with pytest.raises(CommandError, match="No schema on this source serves the buffered lane"):
-                self._run(source)
-
-        source.refresh_from_db()
-        assert "cdc_ingest_mode" not in source.job_inputs
+        assert sorted(purged) == sorted([str(eligible.id), str(snapshotting.id)])
+        mocks["unpause_schema"].assert_called_once_with(str(eligible.id))
 
     def test_a_still_snapshotting_schema_is_not_eligible(self):
         source = self._source()
@@ -257,6 +295,10 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         with _mocked_side_effects():
             with pytest.raises(CommandError, match="No schema on this source serves the buffered lane"):
                 self._run(source)
+
+        # Refusing must leave the source wholly on legacy, not half-flipped.
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
 
     def test_dry_run_changes_nothing_and_reports_the_cadence(self):
         source = self._source()

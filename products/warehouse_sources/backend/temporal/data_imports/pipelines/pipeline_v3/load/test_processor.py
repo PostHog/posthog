@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import LOAD_POSITION_CONFIG_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
@@ -715,61 +714,34 @@ class TestEnrichCdcRows:
             pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
         )
 
-    def _resolve(self, table: pa.Table, *, watermark: int | None, cdc_write_mode: str = "incremental_merge"):
-        config = {LOAD_POSITION_CONFIG_KEY: {"users": watermark}} if watermark is not None else {}
+    def _resolve(self, table: pa.Table, *, cdc_write_mode: str = "incremental_merge"):
         return _resolve_cdc_positions(
             table,
-            sync_type_config=config,
-            resource_name="users",
             primary_keys=["id"],
             cdc_write_mode=cdc_write_mode,
             team_id="2",
         )
 
-    def test_resolution_drops_applied_rows_and_returns_the_new_position(self):
-        table = self._stamped([1, 2, 3], ["I", "I", "I"], [10, 20, 30])
-        result, position = self._resolve(table, watermark=20)
+    def test_the_merge_lane_collapses_a_key_to_its_latest_version(self):
+        # The write engine rejects duplicate keys outright.
+        table = self._stamped([1, 1, 2], ["I", "U", "I"], [10, 20, 30])
+        result = self._resolve(table)
 
-        # Strictly-below only: 20 stays, because a split transaction shares its commit position.
-        assert result.column("id").to_pylist() == [2, 3]
-        assert position == 30
+        assert result.column(CDC_SEQ_COLUMN).to_pylist() == [20, 30]
 
     def test_resolution_is_skipped_without_an_engine_stamped_position(self):
         # A source column named _ph_cdc_seq must not drive the guard.
-        table = self._stamped([1, 2], ["I", "I"], [10, 20]).drop_columns([CDC_SEQ_COLUMN])
+        table = self._stamped([1, 1], ["I", "U"], [10, 20]).drop_columns([CDC_SEQ_COLUMN])
         table = table.append_column(pa.field(CDC_SEQ_COLUMN, pa.int64()), pa.array([10, 20], pa.int64()))
-        result, position = self._resolve(table, watermark=99)
+        result = self._resolve(table)
 
         assert result is table
-        assert position is None
 
-    def test_resolution_keeps_every_row_on_the_first_batch_ever(self):
-        # No recorded position yet: nothing is provably applied, so nothing may be dropped.
-        table = self._stamped([1, 2], ["I", "I"], [10, 20])
-        result, position = self._resolve(table, watermark=None)
-
-        assert result.column("id").to_pylist() == [1, 2]
-        assert position == 20
-
-    def test_resolution_reads_the_position_for_its_own_lane_only(self):
-        # Consolidated and companion tables advance independently; one must not gate the other.
-        table = self._stamped([1, 2], ["I", "I"], [10, 20])
-        result, _ = _resolve_cdc_positions(
-            table,
-            sync_type_config={LOAD_POSITION_CONFIG_KEY: {"users_cdc": 99}},
-            resource_name="users",
-            primary_keys=["id"],
-            cdc_write_mode="incremental_merge",
-            team_id="2",
-        )
-
-        assert result.num_rows == 2
-
-    def test_resolution_does_not_dedupe_the_history_lane(self):
+    def test_the_history_lane_keeps_every_version_of_a_key(self):
         table = self._stamped([1, 1], ["I", "U"], [10, 20])
-        result, _ = self._resolve(table, watermark=None, cdc_write_mode="scd2_append")
+        result = self._resolve(table, cdc_write_mode="scd2_append")
 
-        assert result.num_rows == 2
+        assert result.column(CDC_SEQ_COLUMN).to_pylist() == [10, 20]
 
     def _write_existing(self, path: str) -> None:
         write_deltalake(

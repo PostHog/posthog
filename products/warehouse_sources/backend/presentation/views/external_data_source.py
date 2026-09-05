@@ -497,6 +497,10 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     # Set by migrate_cdc_source_to_buffered, never by the API. Losing it on an unrelated PATCH
     # would resume legacy delivery from an advanced slot and strand the unread buffer.
     "cdc_ingest_mode",
+    # Also set only by that command. It is what lets a rolled-back source be flipped again: without
+    # it the reserved-column check reads the `_ph_cdc_seq` the buffered lane wrote as the source's
+    # own and refuses every later flip.
+    "cdc_buffered_before",
 }
 
 

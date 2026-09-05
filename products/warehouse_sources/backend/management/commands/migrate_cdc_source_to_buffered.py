@@ -1,7 +1,7 @@
 """Flip one CDC source between legacy extraction and buffered ingress.
 
 In place: the slot, the tables, and `initial_sync_complete` are all preserved, so there is no
-re-snapshot and no WAL gap. Only consolidated schemas move — see `cdc/source_manager.py`.
+re-snapshot and no WAL gap. Which schemas move is `serves_buffered_lane` — see `cdc/source_manager.py`.
 """
 
 from __future__ import annotations
@@ -29,12 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     WRITE_RESOLUTION_FLAG,
     is_cdc_write_resolution_enabled,
-    read_load_position,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-    consolidated_resource_name,
-    serves_buffered_lane,
-)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
@@ -50,8 +47,25 @@ DRAIN_POLL_SECONDS = 10
 EXPECTED_SYNC_INTERVAL = dt.timedelta(minutes=5)
 
 
+def _ineligible_reason(schema: ExternalDataSchema) -> str:
+    """Why this schema stays on legacy — the condition that failed, not its table mode.
+
+    Every table mode is served now, so printing the mode says nothing about why a schema was
+    skipped.
+    """
+    if not schema.should_sync:
+        return "disabled"
+    if not schema.is_cdc:
+        return "not cdc"
+    if schema.cdc_mode != "streaming":
+        return f"cdc_mode={schema.cdc_mode}"
+    if not schema.initial_sync_complete:
+        return "initial sync incomplete"
+    return f"table mode {schema.cdc_table_mode}"
+
+
 class Command(BaseCommand):
-    help = "Move a CDC source onto buffered ingress (or back). Consolidated schemas only."
+    help = "Move a CDC source onto buffered ingress (or back)."
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--source-id", required=True, help="ExternalDataSource UUID")
@@ -91,14 +105,14 @@ class Command(BaseCommand):
         if not eligible and not rollback:
             raise CommandError(
                 "No schema on this source serves the buffered lane — nothing to flip. "
-                "Buffered ingress covers consolidated streaming schemas whose initial sync is done."
+                "Buffered ingress covers streaming schemas whose initial sync is done, in any table mode."
             )
         if current_mode == target_mode:
             self.stdout.write(self.style.WARNING(f"Already {target_mode}; nothing to do."))
             return
         if not rollback:
             # No pipeline-version gate: the scheduled sync forces the v3 pipeline for
-            # buffered-consolidated schemas (scheduled_sync_consumes_buffer), so the flip does
+            # schemas that consume the buffer (scheduled_sync_consumes_buffer), so the flip does
             # not depend on the team's general rollout flag.
             self._require_write_resolution(source, eligible)
             self._require_no_reserved_columns(eligible)
@@ -109,7 +123,7 @@ class Command(BaseCommand):
         if rollback:
             self._roll_back(source, eligible, cdc_schemas, options["drain_timeout"])
         else:
-            self._flip_to_buffered(source, eligible, options["drain_timeout"])
+            self._flip_to_buffered(source, eligible, cdc_schemas, options["drain_timeout"])
 
     def _require_write_resolution(self, source: ExternalDataSource, eligible: list[ExternalDataSchema]) -> None:
         """Refuse to flip a team whose write resolution is off.
@@ -121,9 +135,9 @@ class Command(BaseCommand):
         if is_cdc_write_resolution_enabled(source.team_id, str(eligible[0].id), f"preflight-{source.id}"):
             return
         raise CommandError(
-            f"{WRITE_RESOLUTION_FLAG} is off for team {source.team_id}. Buffered ingress needs it: "
-            "without it no load position is recorded, consumed files are never deleted, and they "
-            "expire at the S3 TTL with the slot already advanced past them."
+            f"{WRITE_RESOLUTION_FLAG} is off for team {source.team_id}. Buffered ingress needs it to "
+            "resolve write ordering: without it a retried batch can land rows the table already "
+            "holds back over newer ones, and a DELETE can erase columns the target still has."
         )
 
     def _require_no_reserved_columns(self, eligible: list[ExternalDataSchema]) -> None:
@@ -132,17 +146,19 @@ class Command(BaseCommand):
         The collision stops the batcher stamping the engine position, and capture hard-errors on it
         (CDCReservedColumnError) — catching it here keeps the source out of a flip-then-break loop.
 
-        The buffered lane writes its own `_ph_cdc_seq` into the warehouse table, so the column alone
-        proves nothing once a schema has consumed the buffer. A recorded load position is proof the
-        column is ours: capture would have hard-errored on a real collision before any file existed.
+        The buffered lane writes its own `_ph_cdc_seq` into the warehouse table, so the column
+        proves nothing once a source has been buffered — capture would have hard-errored on a real
+        collision before any file existed, and a rollback leaves the column behind. Only on a
+        source that has never been buffered can the column be the source's own, and only there is
+        this check able to tell the two apart.
         """
-        conflicted = [
-            s.name
-            for s in eligible
-            if s.table is not None
-            and CDC_SEQ_COLUMN in (s.table.columns or {})
-            and read_load_position(s.sync_type_config, consolidated_resource_name(s)) is None
-        ]
+        if not eligible:
+            return
+        job_inputs = eligible[0].source.job_inputs or {}
+        # Stored through `job_inputs`, which stringifies, so "False" is not a value this ever writes.
+        if parse_ingest_mode(job_inputs) == "buffered" or job_inputs.get("cdc_buffered_before"):
+            return
+        conflicted = [s.name for s in eligible if s.table is not None and CDC_SEQ_COLUMN in (s.table.columns or {})]
         if conflicted:
             raise CommandError(
                 f"Schemas with a source column named {CDC_SEQ_COLUMN}: {', '.join(sorted(conflicted))}. "
@@ -168,9 +184,7 @@ class Command(BaseCommand):
                 )
             )
         if ineligible:
-            detail = ", ".join(
-                f"{s.name} [{'disabled' if not s.should_sync else s.cdc_table_mode}]" for s in ineligible
-            )
+            detail = ", ".join(f"{s.name} [{_ineligible_reason(s)}]" for s in ineligible)
             self.stdout.write(self.style.WARNING(f"  staying on legacy ({len(ineligible)}): {detail}"))
             self.stdout.write(
                 self.style.WARNING(
@@ -179,7 +193,11 @@ class Command(BaseCommand):
             )
 
     def _flip_to_buffered(
-        self, source: ExternalDataSource, eligible: list[ExternalDataSchema], drain_timeout: int
+        self,
+        source: ExternalDataSource,
+        eligible: list[ExternalDataSchema],
+        cdc_schemas: list[ExternalDataSchema],
+        drain_timeout: int,
     ) -> None:
         from products.data_warehouse.backend.facade.api import (
             pause_cdc_extraction_schedule,
@@ -209,18 +227,26 @@ class Command(BaseCommand):
         self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         # Pre-flip files were already delivered by the legacy lane, and replaying them would
-        # re-apply rows against a position the guard has no watermark for yet.
+        # re-apply rows against a position the guard has no watermark for yet. Every CDC schema is
+        # purged, not just the eligible ones: a schema still snapshotting today becomes eligible on
+        # its first completed sync, and would otherwise inherit whatever the shadow lane left here.
         self.stdout.write("5/7 purging pre-flip buffer files")
-        for schema in eligible:
+        for schema in cdc_schemas:
             purge_buffer_prefix(source.team_id, str(schema.id), logger)
-        self._verify_prefixes_empty(source.team_id, eligible)
+        self._verify_prefixes_empty(source.team_id, cdc_schemas)
 
         # The step-3 wait sees job rows only; a workflow fired just before the pause may not have
         # created its row yet. By now it has, so one more wait closes the straddle window.
         self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         self.stdout.write("6/7 setting cdc_ingest_mode=buffered")
-        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered"}
+        source.job_inputs = {
+            **(source.job_inputs or {}),
+            "cdc_ingest_mode": "buffered",
+            # Kept across a rollback: it is what tells a later flip that a `_ph_cdc_seq` column on
+            # the warehouse table may be one this lane wrote, not one the source owns.
+            "cdc_buffered_before": True,
+        }
         source.save(update_fields=["job_inputs"])
 
         self.stdout.write("7/7 unpausing schedules")
@@ -229,8 +255,8 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now buffered."))
         self.stdout.write(
-            "Verify: capture writes buffer files and advances the slot; the next sync merges and "
-            'advances sync_type_config["cdc_load_position"]; consumed files disappear on the run after.'
+            "Verify: capture writes buffer files and advances the slot; the next sync writes every "
+            "table the mode feeds; a later sync deletes the files once every table is past them."
         )
 
     def _roll_back(
@@ -271,7 +297,14 @@ class Command(BaseCommand):
         self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         self.stdout.write("5/6 setting cdc_ingest_mode=legacy")
-        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "legacy"}
+        source.job_inputs = {
+            **(source.job_inputs or {}),
+            "cdc_ingest_mode": "legacy",
+            # Set here as well as on the flip, so a source flipped before this marker existed still
+            # carries it once it rolls back — which is the population that would otherwise be
+            # refused a second flip over a `_ph_cdc_seq` column the buffered lane wrote itself.
+            "cdc_buffered_before": True,
+        }
         source.save(update_fields=["job_inputs"])
 
         # Leftover fully-applied files stay: the position guard no-ops a replay, the S3 TTL clears them.
@@ -294,14 +327,13 @@ class Command(BaseCommand):
             time.sleep(DRAIN_POLL_SECONDS)
 
     def _wait_for_buffer_drain(self, team_id: int, schemas: list[ExternalDataSchema], timeout: int) -> None:
-        """Block until every remaining buffer file sits strictly below the schema's load position.
+        """Block until no buffer file is left for any schema.
 
-        A file AT the position is not proof of consumption: one Postgres transaction shares a commit
-        position across every event, so a transaction split across files leaves an unread tail whose
-        `end_seq` already equals the floor, and `drop_superseded_rows` keeps rows at the watermark
-        precisely so that tail can still land. The consumer settles it by deleting the file once a
-        completed run proves it read it, so waiting for the deletion is the same proof the consumer
-        uses — a couple of ticks on an idle schema.
+        The consumer deletes a file at the start of a run once every table this schema feeds is
+        past it, so an empty prefix is the consumer's own proof that every change in it landed
+        everywhere. Extraction is already paused by this point, so nothing refills the prefix while
+        this waits — but the last file needs one more completed run to clear, since a file at the
+        floor goes only once a completed listing predates it.
         """
         from products.data_warehouse.backend.facade.api import get_s3_client
 
@@ -310,26 +342,21 @@ class Command(BaseCommand):
         while True:
             behind: list[str] = []
             for schema in schemas:
-                schema.refresh_from_db(fields=["sync_type_config"])
-                floor = read_load_position(schema.sync_type_config, consolidated_resource_name(schema)) or 0
                 prefix = strip_s3_protocol(get_buffer_prefix(team_id, str(schema.id)))
                 try:
                     keys = s3.ls(prefix, detail=False, refresh=True)
                 except FileNotFoundError:
                     continue
-                for key in keys:
-                    parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
-                    if parsed is not None and parsed.end_seq >= floor:
-                        behind.append(schema.name)
-                        break
+                if any(parse_buffer_file_name(key.rsplit("/", 1)[-1]) is not None for key in keys):
+                    behind.append(schema.name)
             if not behind:
                 return
             if time.monotonic() >= deadline:
                 raise CommandError(
-                    f"Buffered changes not yet proven applied for: {', '.join(sorted(behind))} after "
+                    f"Buffered changes not yet applied for: {', '.join(sorted(behind))} after "
                     f"{timeout}s. Rolling back now could lose them — the slot already advanced past that "
-                    "WAL, and the consumer deletes each file only once it proves it read it. Extraction "
-                    "is left paused; let the scheduled syncs catch up, then re-run."
+                    "WAL, and the consumer deletes each file only once the job that read it completes. "
+                    "Extraction is left paused; let the scheduled syncs catch up, then re-run."
                 )
             self.stdout.write(f"    waiting, buffer not drained for: {', '.join(sorted(behind))}")
             time.sleep(DRAIN_POLL_SECONDS)
