@@ -353,13 +353,18 @@ def to_config(
                     # steal a sibling field's value purely by sharing its name (e.g. an SSH
                     # tunnel's own `host` reading the database's `host`). Reserve this config's
                     # other field names so the nested config can't read them by bare name; it can
-                    # still be built from its own prefixed keys or its own defaults.
+                    # still be built from its own prefixed keys or its own defaults. Union with
+                    # the reserved names inherited from callers above us, so a field several
+                    # levels down (e.g. an SSH tunnel's `auth.password`) can't reach past its
+                    # immediate parent and read a grandparent's bare key either (e.g. the
+                    # database's own `password`, two levels up from `ssh_tunnel.auth`).
                     field_prefixes = _resolve_field_prefixes(
                         config_type, field_type_meta, field_meta, top_level_prefixes
                     )
+                    child_reserved_keys = reserved_keys | (sibling_names - {field.name})
 
                     try:
-                        value = to_config(config_type, d, field_prefixes, reserved_keys=sibling_names - {field.name})
+                        value = to_config(config_type, d, field_prefixes, reserved_keys=child_reserved_keys)
                     except TypeError:
                         # We want to try all possible config types
                         continue
