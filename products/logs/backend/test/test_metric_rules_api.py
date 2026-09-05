@@ -91,6 +91,66 @@ class TestLogsMetricRuleSerializerValidation(SimpleTestCase):
         assert s.is_valid(), s.errors
         assert s.validated_data.get("value_attribute") is None
 
+    def test_source_defaults_to_logs(self):
+        s = self._serializer()
+        assert s.is_valid(), s.errors
+        assert s.validated_data.get("source") == LogsMetricRule.RecordSource.LOGS
+
+    def test_span_rule_accepts_span_top_level_group_by_keys(self):
+        s = self._serializer(
+            source="spans",
+            group_by=["service_name", "name", "status_code", "attributes.http.route"],
+        )
+        assert s.is_valid(), s.errors
+
+    @parameterized.expand(
+        [
+            ("severity_text", ["severity_text"]),
+            ("event_name", ["event_name"]),
+        ]
+    )
+    def test_span_rule_rejects_log_only_group_by_keys(self, _label, group_by):
+        s = self._serializer(source="spans", group_by=group_by)
+        assert not s.is_valid()
+        assert "group_by" in s.errors
+
+    @parameterized.expand(
+        [
+            ("name", ["name"]),
+            ("status_code", ["status_code"]),
+        ]
+    )
+    def test_log_rule_rejects_span_only_group_by_keys(self, _label, group_by):
+        s = self._serializer(source="logs", group_by=group_by)
+        assert not s.is_valid()
+        assert "group_by" in s.errors
+
+    def test_span_rule_accepts_duration_ms_value_attribute(self):
+        s = self._serializer(source="spans", value_attribute="duration_ms")
+        assert s.is_valid(), s.errors
+
+    def test_log_rule_rejects_duration_ms_value_attribute(self):
+        s = self._serializer(source="logs", value_attribute="duration_ms")
+        assert not s.is_valid()
+        assert "value_attribute" in s.errors
+
+    def test_source_immutable_on_update(self):
+        instance = LogsMetricRule(metric_name="span.errors", source=LogsMetricRule.RecordSource.SPANS)
+        s = LogsMetricRuleSerializer(instance=instance, data={"source": "logs"}, partial=True)
+        assert not s.is_valid()
+        assert "source" in s.errors
+
+    def test_full_update_omitting_source_keeps_existing_source(self):
+        # A PUT that omits `source` must not overwrite an existing spans rule with the
+        # field default (logs) — the record source is immutable and pinned to the instance.
+        instance = LogsMetricRule(metric_name="span.errors", source=LogsMetricRule.RecordSource.SPANS)
+        s = LogsMetricRuleSerializer(
+            instance=instance,
+            data={"name": "Renamed", "metric_name": "span.errors", "filter_group": VALID_FILTER_GROUP},
+        )
+        assert s.is_valid(), s.errors
+        assert s.validated_data["source"] == LogsMetricRule.RecordSource.SPANS
+
     def test_null_filter_group_matches_all_logs(self):
         s = self._serializer(filter_group=None)
         assert s.is_valid(), s.errors

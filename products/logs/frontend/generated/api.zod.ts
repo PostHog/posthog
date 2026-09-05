@@ -1038,6 +1038,8 @@ export const logsMetricRulesCreateBodyValueAttributeMax = 512
 
 export const logsMetricRulesCreateBodyGroupByItemMax = 512
 
+export const logsMetricRulesCreateBodySourceDefault = `logs`
+
 export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsMetricRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
     metric_name: zod
@@ -1063,13 +1065,20 @@ export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
         .max(logsMetricRulesCreateBodyValueAttributeMax)
         .nullish()
         .describe(
-            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+            'Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` \/ `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.'
         ),
     group_by: zod
         .array(zod.string().max(logsMetricRulesCreateBodyGroupByItemMax))
         .optional()
         .describe(
-            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code; for either, map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesCreateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
 })
 
@@ -1081,6 +1090,8 @@ export const logsMetricRulesUpdateBodyEnabledDefault = false
 export const logsMetricRulesUpdateBodyValueAttributeMax = 512
 
 export const logsMetricRulesUpdateBodyGroupByItemMax = 512
+
+export const logsMetricRulesUpdateBodySourceDefault = `logs`
 
 export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsMetricRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
@@ -1107,13 +1118,20 @@ export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
         .max(logsMetricRulesUpdateBodyValueAttributeMax)
         .nullish()
         .describe(
-            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+            'Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` \/ `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.'
         ),
     group_by: zod
         .array(zod.string().max(logsMetricRulesUpdateBodyGroupByItemMax))
         .optional()
         .describe(
-            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code; for either, map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesUpdateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
 })
 
@@ -1125,6 +1143,8 @@ export const logsMetricRulesPartialUpdateBodyEnabledDefault = false
 export const logsMetricRulesPartialUpdateBodyValueAttributeMax = 512
 
 export const logsMetricRulesPartialUpdateBodyGroupByItemMax = 512
+
+export const logsMetricRulesPartialUpdateBodySourceDefault = `logs`
 
 export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -1156,13 +1176,20 @@ export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(logsMetricRulesPartialUpdateBodyValueAttributeMax)
         .nullish()
         .describe(
-            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+            'Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` \/ `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.'
         ),
     group_by: zod
         .array(zod.string().max(logsMetricRulesPartialUpdateBodyGroupByItemMax))
         .optional()
         .describe(
-            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code; for either, map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesPartialUpdateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
 })
 

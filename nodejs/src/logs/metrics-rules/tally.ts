@@ -41,6 +41,14 @@ export function createBatchTallies(): BatchTallies {
 const ATTRIBUTES_PREFIX = 'attributes.'
 const RESOURCE_ATTRIBUTES_PREFIX = 'resource_attributes.'
 
+/**
+ * Pseudo value-attribute key resolving to the span's wall-clock duration in
+ * milliseconds, computed from `end_time - timestamp`. Lets a span rule emit a
+ * latency distribution without any SDK attribute convention. Meaningful only
+ * for `source === 'spans'` rules.
+ */
+export const SPAN_VALUE_DURATION_MS = 'duration_ms'
+
 function lookupKey(key: string, record: LogRecord): string | null | undefined {
     if (key === 'service_name') {
         return record.service_name
@@ -50,6 +58,15 @@ function lookupKey(key: string, record: LogRecord): string | null | undefined {
     }
     if (key === 'event_name') {
         return record.event_name
+    }
+    // Span top-level keys. A span arrives as a LogRecord through the shared Avro
+    // decode path, carrying these extra fields (absent on log records).
+    if (key === 'name') {
+        return (record as { name?: string | null }).name
+    }
+    if (key === 'status_code') {
+        const code = (record as { status_code?: number | null }).status_code
+        return code == null ? undefined : String(code)
     }
     if (key.startsWith(ATTRIBUTES_PREFIX)) {
         return decodedAttr(record.attributes, key.slice(ATTRIBUTES_PREFIX.length))
@@ -76,6 +93,15 @@ function resolveLabelValue(key: string, record: LogRecord): string {
 }
 
 function resolveNumericValue(key: string, record: LogRecord): number | null {
+    // Span wall-clock duration from Avro timestamp-micros, no attribute lookup.
+    if (key === SPAN_VALUE_DURATION_MS) {
+        const r = record as { timestamp?: number | null; end_time?: number | null }
+        if (r.timestamp == null || r.end_time == null) {
+            return null
+        }
+        const durationMs = (r.end_time - r.timestamp) / 1000
+        return Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : null
+    }
     const raw = lookupKey(key, record)
     if (raw == null || raw === '') {
         return null
