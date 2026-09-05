@@ -46,7 +46,7 @@ from products.growth.backend.enrichment.icp_lists import (
     parse_tags_csv_rows,
 )
 from products.growth.backend.enrichment.labels import recent_latest_fetches_qs, signup_domain_for_organization
-from products.growth.backend.enrichment.writer import write_organization_enrichment
+from products.growth.backend.enrichment.writer import FIT_EVALUATION_KIND_BACKFILL, write_organization_enrichment
 from products.growth.backend.models import OrganizationEnrichment
 
 
@@ -225,7 +225,11 @@ class Command(BaseCommand):
                     continue
 
                 write_organization_enrichment(
-                    organization_id=str(fetch.organization_id), fields=None, pha_client=pha_client, fit=result
+                    organization_id=str(fetch.organization_id),
+                    fields=None,
+                    pha_client=pha_client,
+                    fit=result,
+                    fit_evaluation_kind=FIT_EVALUATION_KIND_BACKFILL,
                 )
                 written += 1
                 self.stdout.write(f"wrote {fetch.organization_id}: {result.status} score={result.score}")
