@@ -172,6 +172,23 @@ A user paginating emits one event per page with cumulative `event_count` — gro
 
 **File:** `elements/heatmapToolbarMenuLogic.ts`
 
+### `toolbar heatmap load all started`
+
+Fired when someone presses "Load all" in the heatmap menu to page through the remaining click data. No properties.
+
+**File:** `stats/HeatmapToolbarMenu.tsx`
+
+### `toolbar heatmap load all stopped`
+
+Fired when someone presses "Stop loading" to end a run early. A run that ends on its own, or at the page cap, does not emit this.
+
+| Property        | Type     | Description                                    |
+| --------------- | -------- | ---------------------------------------------- |
+| `pages_loaded`  | `number` | Pages the run had loaded when it was stopped   |
+| `element_count` | `number` | Element stats rows loaded when it was stopped  |
+
+**File:** `stats/HeatmapToolbarMenu.tsx`
+
 ### `toolbar heatmap area selection started`
 
 Fired when the user starts picking an area to filter the heatmap/clickmap to (the target icon in the heatmap menu).

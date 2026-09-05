@@ -17,7 +17,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/stats/heatmapCaptureLogic'
-import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS, useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { urls } from '~/toolbar/urls'
 import { joinWithUiHost } from '~/toolbar/utils'
 
@@ -106,6 +106,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         areaSelectionActive,
         heatmapAreaFilter,
         loadingAllElementStats,
+        loadAllPagesLoaded,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -300,13 +301,14 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     onClick={() => {
                                         if (loadingAllElementStats) {
                                             stopLoadingAllElementStats()
-                                            posthog.capture('heatmap_load_all_stopped_on_heatmap', {
-                                                loadedElementStatsCount,
+                                            toolbarPosthogJS.capture('toolbar heatmap load all stopped', {
+                                                pages_loaded: loadAllPagesLoaded,
+                                                element_count: loadedElementStatsCount,
                                             })
                                             return
                                         }
                                         startLoadingAllElementStats()
-                                        posthog.capture('heatmap_load_all_started_on_heatmap')
+                                        toolbarPosthogJS.capture('toolbar heatmap load all started')
                                     }}
                                     // a loading button is disabled, and the run needs to stay stoppable
                                     loading={elementStatsLoading && !loadingAllElementStats}
