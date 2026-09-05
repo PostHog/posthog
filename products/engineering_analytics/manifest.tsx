@@ -58,27 +58,24 @@ export const manifest: ProductManifest = {
             iconType: 'health',
         },
     },
-    // Detail paths follow GitHub's REST-API shape (repos/:owner/:repo/pull-requests/:n, .../actions/runs/:id)
-    // — a repos/ prefix that keeps them clear of the tab routes and readable collection nouns. Cross-repo
-    // aggregates stay at the product root. Provider lives on the data (RepoRef.provider), so these url
-    // builders are the single place to branch verbs for a future provider (e.g. GitLab).
+    // Repository paths follow GitHub's owner/repo shape while using provider-neutral, plural resource names.
     routes: {
         '/engineering-analytics/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
-        '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
+        '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
         '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
         '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
         '/engineering-analytics/health': ['EngineeringAnalytics', 'engineeringAnalyticsHealth'],
         '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
-        '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
+        '/engineering-analytics/:repoOwner/:repoName/pulls/:number': [
             'EngineeringAnalyticsPullRequest',
             'engineeringAnalyticsPullRequest',
         ],
-        '/engineering-analytics/repos/:repoOwner/:repoName/actions/runs/:runId': [
+        '/engineering-analytics/:repoOwner/:repoName/workflow-runs/:runId': [
             'EngineeringAnalyticsWorkflowRun',
             'engineeringAnalyticsWorkflowRun',
         ],
-        '/engineering-analytics/repos/:repoOwner/:repoName/actions/workflows/:workflowName': [
+        '/engineering-analytics/:repoOwner/:repoName/workflows/:workflowName': [
             'EngineeringAnalyticsWorkflowRuns',
             'engineeringAnalyticsWorkflowRuns',
         ],
@@ -94,7 +91,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics/overview',
-        engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
+        engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
         engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
         engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
@@ -102,11 +99,11 @@ export const manifest: ProductManifest = {
         engineeringAnalyticsTeam: (ownerTeam: string): string =>
             `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
-            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pulls/${number}`,
         engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
-            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/workflow-runs/${runId}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
-            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/workflows/${encodeURIComponent(workflowName)}`,
         engineeringAnalyticsAuthor: (handle: string): string =>
             `/engineering-analytics/authors/${encodeURIComponent(handle)}`,
     },

@@ -1276,7 +1276,7 @@ class Command(BaseCommand):
             )
         )
         self.stdout.write(
-            f"Multi-push demo PR: /project/{team.pk}/engineering-analytics/repos/{SEED_REPOSITORY}/pull-requests/{_DEMO_PR_NUMBER}"
+            f"Multi-push demo PR: /project/{team.pk}/engineering-analytics/{SEED_REPOSITORY}/pulls/{_DEMO_PR_NUMBER}"
         )
 
     def _load_fixture(self, fixture_dir: Path, filename: str) -> list[dict[str, Any]]:
