@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_mate
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -32,12 +33,13 @@ from posthog.hogql.property import (
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
+    operator_is_negative,
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.visitor import clear_locations
+from posthog.hogql.visitor import TraversingVisitor, clear_locations
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Property, PropertyDefinition, Team
@@ -55,6 +57,20 @@ from ee.clickhouse.materialized_columns.columns import materialize
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
+
+
+class _FieldChainCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.parts: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.parts.update(str(part) for part in node.chain)
+
+
+def field_parts_read_by(expr: ast.Expr) -> set[str]:
+    collector = _FieldChainCollector()
+    collector.visit(expr)
+    return collector.parts
 
 
 class TestProperty(BaseTest):
@@ -450,7 +466,9 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0"),
+            self._parse_expr(
+                "(multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0 OR properties.a = null)"
+            ),
         )
         a = self._property_to_expr(
             {
@@ -546,7 +564,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "NOT arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
         self.assertEqual(
@@ -559,7 +577,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "NOT arrayExists(v -> ifNull(match(toString(v), 'ValidationError'), 0), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
         self.assertEqual(
@@ -585,7 +603,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> toString(v) NOT ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "NOT arrayExists(v -> toString(v) ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
         self.assertEqual(
@@ -611,7 +629,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "NOT arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) > 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
 
@@ -1602,7 +1620,7 @@ class TestProperty(BaseTest):
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+            self._parse_expr("(properties.score < 0 OR properties.score > 100 OR isNull(properties.score))"),
         )
 
     def test_property_to_expr_between_operator_validation(self):
@@ -1636,6 +1654,15 @@ class TestProperty(BaseTest):
 
         with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
+
+        # float("NaN") parses without error, and float(bool) silently coerces to 0.0/1.0, so both need an
+        # explicit reject to match rust/feature-flags/src/properties/property_matching.rs, which refuses
+        # both as filter bounds.
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": ["NaN", 100]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [False, True]})
 
     @parameterized.expand(
         [
@@ -1963,7 +1990,29 @@ class TestProperty(BaseTest):
         result = self._property_to_expr(
             {"type": "event", "key": "test_prop", "value": value, "operator": operator_value}
         )
-        self.assertIsInstance(result, ast.Expr)
+        # An unhandled operator degrades to a neutral constant that matches every row, which an
+        # isinstance check accepts. Requiring the compiled expression to read the filtered property
+        # rejects that. This guards dispatch only: how multiple values combine is behavior, covered
+        # by test_multi_value_negative_operator_drops_row_matching_any_value.
+        assert "test_prop" in field_parts_read_by(result)
+
+    # An empty value list means the filter is not configured, so HogQL matches every row. Without a
+    # guard these two operators build multiSearchAnyCaseInsensitive(x, []), which ClickHouse rejects
+    # with ILLEGAL_TYPE_OF_ARGUMENT. This is HogQL's own convention, not a cross-engine agreement:
+    # the Rust flag evaluator treats an empty icontains_multi list as matching nothing instead.
+    # "$exception_types" exercises the array-backed path, which compiles through arrayExists.
+    @parameterized.expand([("icontains_multi",), ("not_icontains_multi",)])
+    def test_empty_value_list_is_a_neutral_filter(self, operator: str):
+        for key in ("plan", "$exception_types"):
+            assert self._property_to_expr({"type": "event", "key": key, "value": [], "operator": operator}) == (
+                ast.Constant(value=1)
+            )
+
+    def test_every_negative_operator_is_known(self):
+        # A negative operator missing from operator_is_negative silently negates per element on
+        # array properties and loses its lowercase index hint, so the name pattern pins the set.
+        by_name = {op for op in PropertyOperator if op.value.startswith(("not_", "is_not"))}
+        assert {op for op in PropertyOperator if operator_is_negative(op)} == by_name
 
     def test_flag_evaluates_to_produces_neutral_expr(self):
         prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
@@ -2445,3 +2494,270 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
         count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
         assert count == expected_count
+
+
+# A property missing from a row extracts to NULL, which a WHERE clause discards, so every negative
+# operator must keep such a row on its own. The NULL default is applied in the printer, not the AST,
+# so these run the printed SQL against ClickHouse rather than asserting AST shape. The events carry
+# no person, so a person-scoped filter sees person_properties '{}' and must keep that row too.
+class TestNegativeOperatorNullParityWithData(APIBaseTest):
+    EVENT = "purchase"
+    SCORED_EVENT = "scored"
+    EXCEPTION_EVENT = "exception"
+    ARRAYS_WITHOUT_MATCH = {"types_missing", "types_empty", "types_nonmatch_only"}
+    ARRAYS_WITH_MATCH = {"types_match_only", "types_mixed"}
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        PropertyDefinition.objects.create(
+            team=cls.team,
+            name="score",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Numeric,
+        )
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="present_nonmatch",
+            properties={"plan": "enterprise", "score": 50},
+        )
+        _create_event(
+            team=cls.team, event=cls.EVENT, distinct_id="present_match", properties={"plan": "free", "score": 500}
+        )
+        _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
+        for distinct_id, score in [
+            ("score_50", 50),
+            ("score_500", 500),
+            ("score_abc", "abc"),
+            ("score_null", None),
+            ("score_str50", "50"),
+            ("score_nan", "NaN"),
+        ]:
+            _create_event(team=cls.team, event=cls.SCORED_EVENT, distinct_id=distinct_id, properties={"score": score})
+        _create_event(team=cls.team, event=cls.SCORED_EVENT, distinct_id="score_missing", properties={})
+        for distinct_id, types in [
+            ("types_empty", []),
+            ("types_match_only", ["ReferenceError"]),
+            ("types_nonmatch_only", ["OtherError"]),
+            ("types_mixed", ["ReferenceError", "OtherError"]),
+        ]:
+            _create_event(
+                team=cls.team,
+                event=cls.EXCEPTION_EVENT,
+                distinct_id=distinct_id,
+                properties={"$exception_types": types},
+            )
+        _create_event(team=cls.team, event=cls.EXCEPTION_EVENT, distinct_id="types_missing", properties={})
+
+    def _kept(self, filter: dict, event: str) -> set[str]:
+        expr = property_to_expr(filter, team=self.team, scope="event")
+        query_ast = ast.SelectQuery(
+            select=[ast.Field(chain=["distinct_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=event),
+                    ),
+                    expr,
+                ]
+            ),
+        )
+        return {row[0] for row in execute_hogql_query(team=self.team, query=query_ast).results}
+
+    @parameterized.expand(
+        [
+            (
+                "event_multi_value_not_icontains",
+                {"type": "event", "key": "plan", "value": ["free", "trial"], "operator": "not_icontains"},
+                {"present_nonmatch", "missing"},
+            ),
+            (
+                "event_not_icontains_multi",
+                {"type": "event", "key": "plan", "value": ["free"], "operator": "not_icontains_multi"},
+                {"present_nonmatch", "missing"},
+            ),
+            (
+                "event_not_between",
+                {"type": "event", "key": "score", "value": [0, 100], "operator": "not_between"},
+                {"present_match", "missing"},
+            ),
+            ("event_is_not_set", {"type": "event", "key": "plan", "operator": "is_not_set"}, {"missing"}),
+            (
+                "person_multi_value_not_icontains_personless",
+                {"type": "person", "key": "email", "value": ["@a.com", "@b.com"], "operator": "not_icontains"},
+                {"present_nonmatch", "present_match", "missing"},
+            ),
+            (
+                "person_is_not_set_personless",
+                {"type": "person", "key": "email", "operator": "is_not_set"},
+                {"present_nonmatch", "present_match", "missing"},
+            ),
+        ]
+    )
+    def test_negative_operator_keeps_row_when_property_is_missing(
+        self, _name: str, filter: dict, expected_kept: set[str]
+    ):
+        assert self._kept(filter, self.EVENT) == expected_kept
+
+    # present_nonmatch holds "enterprise" and present_match holds "free", so each row matches exactly
+    # one of the two values and both must drop. A negative operator that ORs its per-value negations
+    # keeps both instead, because each row fails to match the other value.
+    @parameterized.expand(
+        [
+            ("not_icontains",),
+            ("not_icontains_multi",),
+            ("is_not",),
+            ("not_in",),
+            ("not_regex",),
+            ("not_starts_with",),
+            ("not_ends_with",),
+        ]
+    )
+    def test_multi_value_negative_operator_drops_row_matching_any_value(self, operator: str):
+        filter = {"type": "event", "key": "plan", "value": ["free", "enterprise"], "operator": operator}
+        assert self._kept(filter, self.EVENT) == {"missing"}
+
+    # Same inputs and outcomes as test_match_properties_between_operator_uncoercible_values in
+    # rust/feature-flags/src/properties/property_matching.rs. NaN is in neither set: its comparisons
+    # are false and it is not NULL.
+    @parameterized.expand(
+        [
+            ("not_between", {"score_500", "score_missing", "score_abc", "score_null"}),
+            ("between", {"score_50", "score_str50"}),
+        ]
+    )
+    def test_between_operators_treat_uncoercible_value_as_out_of_range(self, operator: str, expected_kept: set[str]):
+        filter = {"type": "event", "key": "score", "value": [0, 100], "operator": operator}
+        assert self._kept(filter, self.SCORED_EVENT) == expected_kept
+
+    @parameterized.expand(
+        [
+            (
+                "not_icontains_multi_value",
+                {"value": ["ReferenceError", "TypeError"], "operator": "not_icontains"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_icontains_single_value",
+                {"value": "ReferenceError", "operator": "not_icontains"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "is_not_multi_value",
+                {"value": ["ReferenceError", "TypeError"], "operator": "is_not"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "is_not_single_value",
+                {"value": "ReferenceError", "operator": "is_not"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_regex",
+                {"value": "Reference", "operator": "not_regex"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_in",
+                {"value": ["ReferenceError", "TypeError"], "operator": "not_in"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_icontains_multi",
+                {"value": ["ReferenceError"], "operator": "not_icontains_multi"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            # "TypeError" never appears in the fixture, so this needle alone matches nothing: the
+            # expected set stays identical to the single-needle case above only if the two needles
+            # combine with AND instead of OR.
+            (
+                "not_icontains_multi_two_needles",
+                {"value": ["ReferenceError", "TypeError"], "operator": "not_icontains_multi"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_starts_with",
+                {"value": "Reference", "operator": "not_starts_with"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            (
+                "not_ends_with",
+                {"value": "ceError", "operator": "not_ends_with"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            ("is_not_set", {"operator": "is_not_set"}, {"types_missing", "types_empty"}),
+            # positive baseline: the mixed row holds a match, so it belongs on this side and only this side
+            (
+                "icontains_multi_value",
+                {"value": ["ReferenceError", "TypeError"], "operator": "icontains"},
+                ARRAYS_WITH_MATCH,
+            ),
+        ]
+    )
+    def test_negative_operator_on_array_property_negates_whole_array(
+        self, _name: str, filter_fields: dict, expected_kept: set[str]
+    ):
+        filter = {"type": "event", "key": "$exception_types", **filter_fields}
+        assert self._kept(filter, self.EXCEPTION_EVENT) == expected_kept
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+# $active_feature_flags is a native Array(String) subcolumn on the new events schema, so its negative
+# multi-value filters compile through the arrayExists optimizer rather than a scalar comparison. These
+# execute against ClickHouse to prove the optimized path returns the right rows, not only the right SQL.
+class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
+    EVENT = "purchase"
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="has_alpha",
+            properties={"$active_feature_flags": ["alpha", "gamma"]},
+        )
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="no_alpha",
+            properties={"$active_feature_flags": ["beta", "gamma"]},
+        )
+        _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
+
+    def _count(self, filter: dict) -> int:
+        expr = property_to_expr(filter, team=self.team, scope="event")
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=self.EVENT),
+                    ),
+                    expr,
+                ]
+            ),
+        )
+        return execute_hogql_query(team=self.team, query=query_ast).results[0][0]
+
+    @parameterized.expand(
+        [
+            # not_icontains_multi: has_alpha dropped, no_alpha kept, missing kept
+            ("not_icontains_multi", {"value": ["alpha"], "operator": "not_icontains_multi"}, 2),
+            # A needle that spans two array elements once the array is serialized to '["alpha","gamma"]'
+            # matches the JSON text but no single element, so the element-wise scan keeps all three rows.
+            # The de-optimized serialized-text search would find it and drop has_alpha, returning 2.
+            ("not_icontains_multi_json_separator", {"value": ['pha","gam'], "operator": "not_icontains_multi"}, 3),
+            # positive baseline proving the array subcolumn is populated and queryable: only has_alpha matches
+            ("icontains_multi_baseline", {"value": ["alpha"], "operator": "icontains_multi"}, 1),
+        ]
+    )
+    def test_array_operator_row_counts(self, _name: str, filter_fields: dict, expected_count: int):
+        assert self._count({"type": "event", "key": "$active_feature_flags", **filter_fields}) == expected_count

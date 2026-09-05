@@ -177,10 +177,12 @@ class TestSpanAttributeFilter(ClickhouseTestMixin, APIBaseTest):
                 {"key": "code.lineno", "type": "span_attribute", "operator": "between", "value": ["50", "60"]},
                 [],
             ),
+            # not_between keeps spans missing the attribute: a row without code.lineno is not inside
+            # [0, 41], so negating the range must return it alongside the out-of-range WITH_CODE span.
             (
                 "lineno_not_between_matches",
                 {"key": "code.lineno", "type": "span_attribute", "operator": "not_between", "value": ["0", "41"]},
-                [WITH_CODE],
+                sorted([WITH_CODE, WITHOUT_CODE]),
             ),
         ]
     )
