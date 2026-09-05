@@ -104,39 +104,44 @@ describe('snapshotDataLogic', () => {
             consoleError.mockRestore()
         })
 
-        it('does not grant a permanently-unauthorized source a fresh retry budget on a new seek target', async () => {
-            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
-            const error = new ApiError('Unauthorized', 401)
-            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
-            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
-            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
-
-            // Seeking to a genuinely new target would normally reset the retry budget, letting a
-            // permanently-failing 401 source buffer forever instead of ever reaching the cap.
-            logic.actions.setTargetTimestamp(123456, 1)
-
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
-            }).toDispatchActions(['snapshotSourceLoadExhausted'])
-            consoleError.mockRestore()
-        })
+        it.each([401, 403, 404, 410])(
+            'gives up on the first failure for a terminal %s, instead of spending the retry budget',
+            async (status) => {
+                const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+                await expectLogic(logic, () => {
+                    logic.actions.loadSnapshotsForSourceFailure('terminal', new ApiError('terminal', status))
+                }).toDispatchActions(['snapshotSourceLoadExhausted'])
+                consoleError.mockRestore()
+            }
+        )
     })
 
-    describe('isSnapshotUnauthorized', () => {
-        it('is false when no error', () => {
-            expect(logic.values.isSnapshotUnauthorized).toBe(false)
+    describe('permanentSnapshotLoadError', () => {
+        it('is null when no error', () => {
+            expect(logic.values.permanentSnapshotLoadError).toBe(null)
         })
 
-        it('is true for a 401', () => {
-            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', new ApiError('Unauthorized', 401))
+        it.each([
+            [401, 'unauthorized'],
+            [403, 'forbidden'],
+            [404, 'notFound'],
+            [410, 'deleted'],
+        ])('classifies a %s as %s', (status, expected) => {
+            logic.actions.loadSnapshotsForSourceFailure('terminal', new ApiError('terminal', status as number))
 
-            expect(logic.values.isSnapshotUnauthorized).toBe(true)
+            expect(logic.values.permanentSnapshotLoadError).toBe(expected)
         })
 
-        it('is false for a non-401 error', () => {
-            logic.actions.loadSnapshotsForSourceFailure('Forbidden', new ApiError('Forbidden', 403))
+        it('classifies a failed source listing too, not only a failed source fetch', () => {
+            logic.actions.loadSnapshotSourcesFailure('Recording not found', new ApiError('Recording not found', 404))
 
-            expect(logic.values.isSnapshotUnauthorized).toBe(false)
+            expect(logic.values.permanentSnapshotLoadError).toBe('notFound')
+        })
+
+        it('is null for a transient failure that a retry can fix', () => {
+            logic.actions.loadSnapshotsForSourceFailure('Server error', new ApiError('Server error', 500))
+
+            expect(logic.values.permanentSnapshotLoadError).toBe(null)
         })
     })
 

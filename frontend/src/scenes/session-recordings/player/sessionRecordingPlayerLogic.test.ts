@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
+import { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -351,6 +352,21 @@ describe('sessionRecordingPlayerLogic', () => {
                 consoleError.mockRestore()
             }
         )
+
+        // A terminal response must not reach the overlay as a recoverable failure, or the person is
+        // offered a Retry button that can never succeed.
+        it.each([
+            [401, 'snapshotUnauthorized'],
+            [403, 'snapshotForbidden'],
+            [404, 'recordingNotFound'],
+            [410, 'recordingDeleted'],
+        ])('a %s snapshot response sets the %s player error', async (status, expectedError) => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('terminal', new ApiError('terminal', status as number))
+            }).toDispatchActions([{ type: logic.actionTypes.setPlayerError, payload: { reason: expectedError } }])
+            consoleError.mockRestore()
+        })
     })
 
     describe('currentPlayerTime clamping', () => {
