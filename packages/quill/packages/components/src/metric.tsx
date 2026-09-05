@@ -64,6 +64,7 @@ function useMetric(part: string): MetricContextValue {
 }
 
 const DEFAULT_FORMAT_VALUE = (v: number): string => v.toLocaleString()
+const DEFAULT_FORMAT_LABEL = (label: string): React.ReactNode => label
 const DEFAULT_FORMAT_CHANGE = (p: number): string => {
     // Matches the monolithic MetricCard: `percentage` carries the sign for negatives, we prepend `+`.
     const formatted = percentage(p / 100, 1, true)
@@ -74,8 +75,13 @@ interface MetricBaseProps {
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
      *  required when `data` is empty or omitted. */
     value?: number
-    /** Labels paired with `data`. Used for the default subtitle on hover. */
+    /** Labels paired with `data`. Used for the default subtitle on hover, and passed to the sparkline
+     *  as its x-scale keys, so entries must be unique. Pass raw keys (ISO dates) and turn them into
+     *  display text with `formatLabel`, because pre-formatted text like `'June 16'` repeats once a
+     *  range spans a year, and a duplicate collapses two points onto one position. */
     labels?: string[]
+    /** Formats a `labels` entry for the subtitle, so `labels` can stay unique raw keys. */
+    formatLabel?: (label: string) => React.ReactNode
     /** Required when `data` is present. */
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
@@ -170,6 +176,7 @@ function MetricInner({
     data,
     series,
     labels,
+    formatLabel = DEFAULT_FORMAT_LABEL,
     theme,
     color,
     sparklineHeight = 120,
@@ -236,10 +243,12 @@ function MetricInner({
         const positive = delta != null && delta.value >= 0
         const good = goodDirection === 'up' ? positive : !positive
 
+        const activeLabel = labels?.[activeIndex]
+        const labelCaption = activeLabel != null ? formatLabel(activeLabel) : undefined
+
         return {
             headlineDisplay: sparklineData ? formatValue(animatedValue) : formatValue(restingValue),
-            subtitle:
-                subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labels?.[activeIndex]),
+            subtitle: subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labelCaption),
             change:
                 delta != null
                     ? {
@@ -286,6 +295,7 @@ function MetricInner({
         subtitle,
         restingSubtitle,
         labels,
+        formatLabel,
         theme,
         color,
         series,
