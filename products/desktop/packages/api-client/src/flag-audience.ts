@@ -62,11 +62,17 @@ export interface ResolvedPerson {
   email: string | null;
 }
 
-const OPERATORS: Record<string, string> = {
+// Typed against the generated operator union so a new schema operator fails
+// the typecheck here instead of leaking its raw token into the card.
+const OPERATORS: Record<Schemas.PropertyOperator, string> = {
   exact: "is",
   is_not: "is not",
   icontains: "contains",
   not_icontains: "does not contain",
+  icontains_multi: "contains any of",
+  not_icontains_multi: "does not contain any of",
+  between: "is between",
+  not_between: "is not between",
   regex: "matches",
   not_regex: "does not match",
   starts_with: "starts with",
@@ -91,6 +97,12 @@ const OPERATORS: Record<string, string> = {
   semver_gte: "at least version",
   semver_lt: "older than",
   semver_lte: "at most version",
+  semver_tilde: "is version in tilde range",
+  semver_caret: "is version in caret range",
+  semver_wildcard: "matches version wildcard",
+  is_cleaned_path_exact: "is cleaned path",
+  min: "at least once ≥",
+  max: "at most once ≤",
 };
 
 type Property = Record<string, unknown>;
@@ -220,7 +232,7 @@ function shapeCondition(
   if (property.type === "cohort") {
     return {
       subject: isGroup ? "Group" : "Person",
-      operator: OPERATORS[operatorKey ?? "in"] ?? "in cohort",
+      operator: OPERATORS[(operatorKey ?? "in") as Schemas.PropertyOperator] ?? "in cohort",
       values,
     };
   }
@@ -237,7 +249,7 @@ function shapeCondition(
   if (isDistinctIdFilter(property)) {
     return {
       subject: "Person",
-      operator: OPERATORS[operatorKey ?? "exact"] ?? "is",
+      operator: OPERATORS[(operatorKey ?? "exact") as Schemas.PropertyOperator] ?? "is",
       values,
     };
   }
@@ -245,7 +257,10 @@ function shapeCondition(
   if (!key) return null;
   return {
     subject: key,
-    operator: OPERATORS[operatorKey ?? "exact"] ?? operatorKey ?? "is",
+    operator:
+      OPERATORS[(operatorKey ?? "exact") as Schemas.PropertyOperator] ??
+      operatorKey ??
+      "is",
     values,
   };
 }

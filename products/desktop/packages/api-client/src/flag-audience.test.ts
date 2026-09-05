@@ -27,4 +27,23 @@ describe("flag audience shaping", () => {
     expect(audience.headline).toBe("On for 25% of Power users.");
     expect(audience.rules[0].conditions[0].subject).toBe("Person");
   });
+
+  it("renders a readable label for operators that only reach flags through the API", () => {
+    const audience = shapeFlagAudience(
+      flagWith({
+        groups: [
+          {
+            properties: [
+              { key: "app_version", operator: "semver_caret", value: "2.1.0" },
+            ],
+            rollout_percentage: 100,
+          },
+        ],
+      }),
+    );
+
+    expect(audience.rules[0].conditions[0].operator).toBe(
+      "is version in caret range",
+    );
+  });
 });
