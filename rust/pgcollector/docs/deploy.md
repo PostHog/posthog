@@ -36,11 +36,12 @@ Nothing here requires a parameter-group change or a reboot.
   `aurora_compute_plan_id` (default on, 14.10+/15.5+) must stay on for
   `aurora_plans` and `plan_id` in activity samples.
 
-Parameter-group niceties (dynamic, no reboot; both optional): append `%Q` to
-`log_line_prefix` so log rows join `cur_queries` by query id instead of text
-fingerprint; the log sampling, lock-wait and CloudWatch-export settings the
-logs collector relies on are already set fleet-wide. Clusters that don't
-preload `auto_explain` simply produce no `ts_log_plans`.
+Parameter-group niceties (dynamic, no reboot): the log sampling, lock-wait and
+CloudWatch-export settings the logs collector relies on are already set
+fleet-wide. RDS and Aurora refuse to modify `log_line_prefix`, so there is no
+`%Q` (query id) on log lines; the collector joins log rows to `cur_queries` by
+text fingerprint instead. Clusters that don't preload `auto_explain` simply
+produce no `ts_log_plans`.
 
 ### Load profile on the monitored cluster
 
@@ -115,7 +116,7 @@ Parameter-group settings that make this worthwhile (mostly already set):
 |---|---|---|
 | `log_min_duration_sample` / `log_statement_sample_rate` | `1000` / `0.01` | sampled per-statement durations → p50/p95/p99 |
 | `log_min_duration_statement` | `10000` | every slow statement |
-| `log_line_prefix` | RDS default + `%Q` | **query id on every line** so log rows join `cur_queries` exactly; without it we join on a text fingerprint |
+| `log_line_prefix` | RDS default (not modifiable) | no query id on log lines, so log rows join `cur_queries` on a text fingerprint; self-managed Postgres can append `%Q` for an exact join |
 | `auto_explain.*` | json, sample 0.01 | plans for sampled slow statements → `ts_log_plans` |
 | `log_lock_waits`, `log_temp_files=0`, `log_checkpoints`, `log_autovacuum_min_duration=0` | on | events + `ts_temp_files`, `ts_checkpoints`, `ts_autovacuum_runs` |
 
