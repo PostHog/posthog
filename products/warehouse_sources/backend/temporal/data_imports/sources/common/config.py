@@ -362,17 +362,18 @@ def to_config(
         # Stored job inputs that don't supply a required (no-default) field make
         # `config_cls(**inputs)` raise the opaque builtin
         # `TypeError: X.__init__() missing 1 required positional argument: 'y'`, which is
-        # impossible to triage from error tracking. Re-raise naming the missing field(s) — only
-        # the field names, never their values, so no secret leaks. Kept a TypeError so the
-        # union-config recursion above still catches it and tries the remaining arms.
+        # impossible to triage from error tracking. A default factory that builds a nested config
+        # fails the same way, with no top-level field missing and only the nested class named.
+        # Re-raise naming the class and the missing field(s) — only the field names, never their
+        # values, so no secret leaks. Kept a TypeError so the union-config recursion above still
+        # catches it and tries the remaining arms.
         missing = [
             f.name
             for f in fields
             if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING and f.name not in inputs
         ]
-        if not missing:
-            raise
-        raise TypeError(f"Cannot build '{config_cls.__name__}': missing required field(s) {missing}") from e
+        detail = f"missing required field(s) {missing}" if missing else str(e)
+        raise TypeError(f"Cannot build '{config_cls.__name__}': {detail}") from e
 
 
 def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
@@ -569,7 +570,7 @@ def _get_default_prefix_for_class(cls: type) -> str:
 
 def value(
     *,
-    default: _T | None = None,
+    default: _T = typing.cast(typing.Any, dataclasses.MISSING),
     default_factory: typing.Callable[[], _T] | None = None,
     init: bool = True,
     repr: bool = True,
@@ -590,13 +591,15 @@ def value(
     along to `dataclasses.field`
 
     Arguments:
+        default: The default value for this field. `None` is a real default: it makes the
+            field optional, it does not mean "no default given".
         prefix: Define a new prefix to lookup this value in a mapping.
         alias: Set a new lookup alias for this value in a mapping.
         converter: A function to convert the value obtained from the mapping.
     """
     metadata = {META_KEY: MetaConfig(prefix=prefix, alias=alias, converter=converter)}
 
-    if default is not None:
+    if default is not dataclasses.MISSING:
         return dataclasses.field(
             default=default,
             hash=hash,

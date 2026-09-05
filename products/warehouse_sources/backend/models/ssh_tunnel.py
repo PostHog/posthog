@@ -68,7 +68,7 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
 class SSHTunnelAuthConfig(config.Config):
     """Configuration for SSH tunnel authentication."""
 
-    type: Literal["password", "keypair"] | None = config.value(alias="selection")
+    type: Literal["password", "keypair"] | None = config.value(alias="selection", default=None)
     password: str | None = None
     passphrase: str | None = None
     private_key: str | None = None
@@ -95,7 +95,7 @@ class SSHTunnel:
 
     host: str
     port: int | str
-    auth_type: Literal["password", "keypair"]
+    auth_type: Literal["password", "keypair"] | None
     username: str | None
     password: str | None = dataclasses.field(repr=False)
     private_key: str | None = dataclasses.field(repr=False)
@@ -103,15 +103,11 @@ class SSHTunnel:
 
     @classmethod
     def from_config(cls: type[typing.Self], config: SSHTunnelConfig) -> typing.Self:
-        # We should not be calling this if SSH tunneling is not enabled.
-        # Currently, we don't: The function is always guarded by an if check.
-        # However, this is not reliable: Anybody can forget the if and introduce
-        # a bug.
-        # TODO: Refactor this so that we don't need these assertions nor can we
-        # fail if somebody forgets an if check.
+        # Every call site guards this with an `enabled` check, but nothing enforces that, so a
+        # caller that forgets the check gets an assertion instead of a confusing tunnel failure.
+        # TODO: Refactor so the guard cannot be forgotten.
         assert config.host
         assert config.port
-        assert config.auth.type
 
         return cls(
             enabled=config.enabled,
@@ -136,7 +132,7 @@ class SSHTunnel:
 
     def is_auth_valid(self) -> tuple[bool, str]:
         if self.auth_type != "password" and self.auth_type != "keypair":
-            return False, "Authentication type not recognised"  # type: ignore
+            return False, "Authentication type not recognised"
 
         if self.auth_type == "password":
             valid_username = self.username is not None and len(self.username) > 0
@@ -167,8 +163,6 @@ class SSHTunnel:
                 )
 
             return True, ""
-
-        return False, ""  # type: ignore
 
     def has_valid_port(self) -> tuple[bool, str]:
         try:
