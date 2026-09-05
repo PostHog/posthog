@@ -28,7 +28,7 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        validated_data["team_id"] = self.context["team_id"]
+        validated_data["team_id"] = self.context["get_team"]().id
         validated_data["created_by"] = self.context["request"].user
         saved_query_id = validated_data.get("saved_query_id")
 
