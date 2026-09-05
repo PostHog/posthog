@@ -157,10 +157,17 @@ function FactChips({ facts }: { facts: string[] }) {
   );
 }
 
+const SURVEY_AUDIENCE_COPY = {
+  title: "Who sees this",
+  off: "The survey is not running. The rules below apply when it starts.",
+};
+
 function ObjectContent({
+  objectKind,
   preview,
   taskId,
 }: {
+  objectKind: string;
   preview: EvidenceCardData;
   taskId?: string;
 }) {
@@ -180,26 +187,24 @@ function ObjectContent({
     );
   }
   const stats = (preview.stats ?? []).filter((stat) => stat.value);
-  // The audience card already states reach, type, and variants, so the flag
-  // page skips the stat strip instead of repeating them in tiles.
-  if (preview.flagAudience) {
-    return (
-      <div className="flex flex-col gap-3">
+  const isFlag = objectKind === "flag";
+  return (
+    <div className="flex flex-col gap-3">
+      {preview.flagAudience && (
         <FlagAudienceCard
           audience={preview.flagAudience}
+          displayConditions={preview.displayConditions}
+          copy={objectKind === "survey" ? SURVEY_AUDIENCE_COPY : undefined}
           action={
-            taskId && preview.title ? (
+            isFlag && taskId && preview.title ? (
               <EditFlagInTaskPopover taskId={taskId} flagKey={preview.title} />
             ) : null
           }
         />
-        <PostHogObjectDetails preview={preview} />
-      </div>
-    );
-  }
-  return (
-    <div className="flex flex-col gap-3">
-      {stats.length > 0 ? (
+      )}
+      {/* The audience card already states a flag's reach, type, and
+          variants, so the flag page skips the stat strip. */}
+      {isFlag && preview.flagAudience ? null : stats.length > 0 ? (
         <StatStrip stats={stats} />
       ) : preview.facts && preview.facts.length > 0 ? (
         <FactChips facts={preview.facts} />
@@ -390,7 +395,11 @@ export function PostHogObjectPageView({
               <Skeleton className="h-40 w-full rounded-lg" />
             </div>
           ) : preview ? (
-            <ObjectContent preview={preview} taskId={taskId} />
+            <ObjectContent
+              objectKind={objectKind}
+              preview={preview}
+              taskId={taskId}
+            />
           ) : (
             <UnavailableObject
               isError={state === "error"}

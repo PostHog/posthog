@@ -251,6 +251,59 @@ export const FeatureFlag: Story = {
   },
 };
 
+export const Survey: Story = {
+  args: {
+    objectKind: "survey",
+    objectId: "0198a1c2-7d3e-4f5a-9b6c-1d2e3f4a5b6c",
+    fallbackName: "Checkout survey",
+    url: "https://us.posthog.com/project/2/surveys/0198a1c2",
+    occurrenceCount: 2,
+    state: "ready",
+    preview: {
+      title: "Checkout survey",
+      detail: "Since Aug 1",
+      status: { label: "Running", tone: "positive" },
+      stats: [
+        { label: "Shown", value: "1.4K" },
+        { label: "Responses", value: "212" },
+        { label: "Response rate", value: "15%" },
+      ],
+      flagAudience: audience({
+        headline: "Shown to 25% of Beta testers.",
+        rules: [
+          rule({
+            conditions: [
+              {
+                subject: "Cohort",
+                operator: "in cohort",
+                values: [betaTesters],
+              },
+            ],
+            share: 25,
+          }),
+        ],
+      }),
+      displayConditions: [
+        {
+          subject: "URL",
+          operator: "contains",
+          values: [{ label: "/checkout" }],
+        },
+        { subject: "Device", operator: "is", values: [{ label: "Desktop" }] },
+      ],
+      sections: [
+        {
+          title: "Questions",
+          fields: [
+            { label: "Question 1", value: "How was checkout? (Rating)" },
+            { label: "Question 2", value: "What would you change? (Open)" },
+          ],
+        },
+      ],
+    },
+  },
+};
+
 export const Experiment: Story = {
   args: {
     objectKind: "experiment",

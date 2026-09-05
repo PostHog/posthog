@@ -70,6 +70,23 @@ export interface ResolvedPerson {
   email: string | null;
 }
 
+/** A flag or anything that carries flag filters, such as a survey's targeting flag. */
+export type FlagLike = Pick<
+  Schemas.FeatureFlag,
+  "key" | "filters" | "active" | "is_remote_configuration"
+>;
+
+/** Headline verbs; a survey is "shown to" people, a flag is "on for" them. */
+export interface AudienceWording {
+  on: string;
+  off: string;
+}
+
+const FLAG_WORDING: AudienceWording = {
+  on: "On for",
+  off: "Off for everyone.",
+};
+
 // Typed against the generated operator union so a new schema operator fails
 // the typecheck here instead of leaking its raw token into the card.
 const OPERATORS: Record<Schemas.PropertyOperator, string> = {
@@ -153,7 +170,7 @@ interface ConditionGroup {
   aggregation: string;
 }
 
-function conditionGroups(flag: Schemas.FeatureFlag): ConditionGroup[] {
+function conditionGroups(flag: FlagLike): ConditionGroup[] {
   const filters = isRecord(flag.filters) ? flag.filters : {};
   return asList(filters.groups)
     .filter(isRecord)
@@ -184,7 +201,7 @@ function conditionGroups(flag: Schemas.FeatureFlag): ConditionGroup[] {
  * rule rejects rather than targets.
  */
 export function targetedDistinctIds(
-  flag: Schemas.FeatureFlag,
+  flag: FlagLike,
   positiveOnly = false,
 ): string[] {
   const ids = new Set<string>();
@@ -302,15 +319,18 @@ function headlineFor(
   groups: ConditionGroup[],
   people: People,
   remoteConfig: boolean,
+  wording: AudienceWording,
 ): string {
-  if (shape.disabled) return "Off for everyone.";
+  if (shape.disabled) return wording.off;
   // The evaluator skips the condition loop on empty groups and returns false,
   // so clearing targeting turns the flag off for everybody.
   if (shape.rules.length === 0) {
-    return remoteConfig ? "Sends a payload to nobody." : "On for nobody.";
+    return remoteConfig
+      ? "Sends a payload to nobody."
+      : `${wording.on} nobody.`;
   }
   const live = shape.rules.filter((rule) => rule.share > 0 && rule.reachable);
-  if (live.length === 0) return "On for nobody yet.";
+  if (live.length === 0) return `${wording.on} nobody yet.`;
   const labels = live.map((rule) =>
     describeAudience(
       rule,
@@ -329,12 +349,13 @@ function headlineFor(
   if (shape.variants.length > 0) {
     return `Split into ${shape.variants.length} variants for ${who}.`;
   }
-  return `On for ${who}.`;
+  return `${wording.on} ${who}.`;
 }
 
 export function shapeFlagAudience(
-  flag: Schemas.FeatureFlag,
+  flag: FlagLike,
   people: People = new Map(),
+  wording: AudienceWording = FLAG_WORDING,
 ): FlagAudience {
   const filters = isRecord(flag.filters) ? flag.filters : {};
   const payloads = isRecord(filters.payloads) ? filters.payloads : {};
@@ -427,7 +448,7 @@ export function shapeFlagAudience(
   };
   return {
     ...shape,
-    headline: headlineFor(shape, groups, people, remoteConfig),
+    headline: headlineFor(shape, groups, people, remoteConfig, wording),
   };
 }
 
