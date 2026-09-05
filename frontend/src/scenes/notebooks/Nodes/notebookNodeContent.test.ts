@@ -173,4 +173,53 @@ describe('buildNotebookDependencyGraph', () => {
         expect(graph.downstreamUsageByNode['a'].df1.map((usage) => usage.nodeId)).toEqual(['b'])
         expect(graph.upstreamSourcesByNode['b'].df1.nodeId).toEqual('a')
     })
+
+    it('serves the shared markdown parse to a second collector on the same content', () => {
+        // The parse is cached on the content node so collectors share one parse per edit. A
+        // cache keyed by anything other than the node would hand the second collector the wrong
+        // cells; single-collector tests never exercise two collectors reading one content.
+        const markdown = [
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'a',
+                returnVariable: 'sql_df',
+                code: 'select id from events',
+            }),
+            serializeMarkdownNotebookComponent('PythonV2', {
+                nodeId: 'py',
+                returnVariable: 'new_events',
+                code: 'new_events = sql_df.head()',
+            }),
+        ].join('\n\n')
+        const content = buildMarkdownNotebookContent(markdown)
+        // Populate the cache from one collector, then read it from another.
+        expect(collectNotebookFrameNodes(content).map((frame) => frame.name)).toEqual(['sql_df', 'new_events'])
+        const graph = buildNotebookDependencyGraph(content)
+        expect(graph.downstreamUsageByNode['a'].sql_df.map((usage) => usage.nodeId)).toEqual(['py'])
+    })
+
+    it('does not serve one content its parse for a later content with different markdown', () => {
+        // Each edit builds a new content node, so the cache must key on it and stay fresh. A
+        // cache that leaked the first parse would report the first document's cells forever.
+        const graphA = buildNotebookDependencyGraph(
+            buildMarkdownNotebookContent(
+                serializeMarkdownNotebookComponent('SQLV2', {
+                    nodeId: 'a',
+                    returnVariable: 'df_a',
+                    code: 'select id from events',
+                })
+            )
+        )
+        const graphB = buildNotebookDependencyGraph(
+            buildMarkdownNotebookContent(
+                serializeMarkdownNotebookComponent('SQLV2', {
+                    nodeId: 'b',
+                    returnVariable: 'df_b',
+                    code: 'select id from persons',
+                })
+            )
+        )
+        expect(Object.keys(graphA.nodesById)).toEqual(['a'])
+        expect(Object.keys(graphB.nodesById)).toEqual(['b'])
+        expect(graphB.nodesById['b'].exports).toEqual(['df_b'])
+    })
 })
