@@ -1,10 +1,12 @@
 import uuid as uuid_lib
 
 import pytest
+from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
 
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.proto import DeletePersonsBatchForTeamResponse
 from posthog.temporal.delete_persons.delete_persons_workflow import (
     DeletePersonsActivityInputs,
     PrecleanCohortMembersActivityInputs,
@@ -57,11 +59,27 @@ class TestDeletePersonsActivity:
             )
 
         assert deleted == 1
-        assert should_continue is True  # deleted == batch_size, so a batch may still remain
+        assert should_continue is True  # the batch selected a person, so more may remain
         # The cursor lets the next batch resume after the person this one deleted.
         assert after_id == 1
         # whole-team mode never resolves ids; it deletes straight through the team-batch RPC
         fake.assert_called("delete_persons_batch_for_team")
+
+    async def test_whole_team_continues_after_a_short_deleted_count(self, activity_environment):
+        # A concurrent delete can remove a selected person before the batch deletes it.
+        # The count is then short although persons above the cursor are still there.
+        short_batch = DeletePersonsBatchForTeamResponse(deleted_count=1, last_id=42)
+
+        with fake_personhog_client() as fake:
+            with patch.object(fake, "delete_persons_batch_for_team", return_value=short_batch):
+                deleted, should_continue, after_id = await activity_environment.run(
+                    delete_persons_activity,
+                    DeletePersonsActivityInputs(team_id=1, person_ids=[], batch_size=1000),
+                )
+
+        assert deleted == 1
+        assert should_continue is True
+        assert after_id == 42
 
     async def test_whole_team_resumes_after_cursor(self, activity_environment):
         with fake_personhog_client() as fake:

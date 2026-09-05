@@ -212,15 +212,16 @@ def _delete_persons_for_team_via_personhog(team_id: int) -> None:
     client = require_personhog_client()
 
     # Each call resumes after the previous batch's last person id, so it never rescans
-    # the id range the earlier batches already emptied. A short batch means the team has
-    # no persons left, so the loop stops without paying a final empty probe.
+    # the id range the earlier batches already emptied. Only an empty batch ends the
+    # loop: a concurrent delete can remove a selected person before this call deletes
+    # it, which makes the count short while persons above the cursor remain.
     after_id = 0
     while True:
         resp = client.delete_persons_batch_for_team(
             DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE, after_id=after_id),
             timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
         )
-        if resp.deleted_count < TEAM_DELETE_BATCH_SIZE:
+        if resp.last_id == 0:
             break
         after_id = resp.last_id
 

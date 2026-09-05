@@ -58,7 +58,8 @@ def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int, afte
     """Delete up to `batch_size` of a team's persons after `after_id`.
 
     Returns the deleted count and the batch's last person id, which the next batch
-    passes back as its cursor so it does not rescan the range already emptied.
+    passes back as its cursor so it does not rescan the range already emptied. The
+    last person id is 0 when the batch selected nothing.
     """
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
@@ -148,11 +149,14 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
             deleted = await asyncio.to_thread(_delete_specific_persons_via_personhog, inputs.team_id, id_slice)
             should_continue = start + inputs.batch_size < len(inputs.person_ids)
         else:
-            # Whole team: delete up to batch_size and keep going until a batch is short.
+            # Whole team: delete up to batch_size and keep going until a batch selects
+            # nothing. A concurrent delete can remove a selected person before this call
+            # deletes it, which makes the count short while persons above the cursor
+            # remain, so only an empty batch proves the team is done.
             deleted, after_id = await asyncio.to_thread(
                 _delete_team_persons_batch_via_personhog, inputs.team_id, inputs.batch_size, inputs.after_id
             )
-            should_continue = deleted >= inputs.batch_size
+            should_continue = after_id != 0
 
         logger.info("Deleted %d persons", deleted)
         return deleted, should_continue, after_id
