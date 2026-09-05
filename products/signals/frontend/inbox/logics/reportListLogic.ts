@@ -152,12 +152,12 @@ export interface reportListLogicValues {
     hasMore: boolean
     isLoaded: boolean
     listApiParams: any
+    livePrReportIds: string[]
     loadedContext: {
         hasActiveFilters: boolean
         scope: InboxScope
     } | null
     loadedQueryKey: string | null
-    openPrReportIds: string[]
     pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
     reports: SignalReport[]
@@ -311,7 +311,7 @@ export interface reportListLogicMeta {
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
-        openPrReportIds: (reports: SignalReport[]) => string[]
+        livePrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         loadedContext: (reportsResponse: ReportListResponse | null) => {
@@ -545,17 +545,24 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): boolean => reportsResponse !== null,
         ],
-        // The loaded rows whose pull request is still open, so the pill can say whether CI is red.
-        // A merged or closed pull request is left out: its checks are history, not something to act on.
-        openPrReportIds: [
+        // The loaded rows whose pull request is still in flight, so the pill can say whether CI is
+        // red. A draft counts: it still builds. A merged or closed pull request is left out — its
+        // checks are history, not something to act on.
+        livePrReportIds: [
             (s) => [s.reports],
             (reports: SignalReport[]): string[] =>
                 reports
-                    .filter(
-                        (report) =>
-                            !!report.implementation_pr_url &&
-                            derivePrState(report.status, report.implementation_pr_merged === true) === 'open'
-                    )
+                    .filter((report) => {
+                        if (!report.implementation_pr_url) {
+                            return false
+                        }
+                        const prState = derivePrState(
+                            report.status,
+                            report.implementation_pr_merged === true,
+                            report.implementation_pr_state
+                        )
+                        return prState === 'open' || prState === 'draft'
+                    })
                     .map((report) => report.id),
         ],
         // Total matching the *loaded* results — from the same response, so it can never be stale
@@ -586,8 +593,8 @@ export const reportListLogic = kea<reportListLogicType>([
         // Announce this section's open pull requests so their CI state is resolved in one batch. Both
         // loaders report: the first page and each appended page bring rows that need painting. An
         // empty announcement matters too, because it retires the rows a narrowed filter dropped.
-        loadReportsSuccess: () => actions.trackReports(props.sectionKey, values.openPrReportIds),
-        loadMoreReportsSuccess: () => actions.trackReports(props.sectionKey, values.openPrReportIds),
+        loadReportsSuccess: () => actions.trackReports(props.sectionKey, values.livePrReportIds),
+        loadMoreReportsSuccess: () => actions.trackReports(props.sectionKey, values.livePrReportIds),
         // First For-you count for the primary section: if the user has no reports suggested to
         // them, default to Entire project so they don't land on an empty inbox. Only when they haven't
         // picked a scope themselves, and only once the user's uuid has resolved (so the count is
