@@ -112,6 +112,14 @@ class TestLangSmithSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(RESPONSE_TOO_LARGE_ERROR in key for key in non_retryable)
 
+    def test_rejected_request_is_non_retryable(self):
+        # A 4xx means LangSmith rejected the request we built, so every retry re-sends the same
+        # query for the whole activity budget and stores the raw requests error for the customer.
+        non_retryable = self.source.get_non_retryable_errors()
+        message = non_retryable["400 Client Error"]
+        assert message is not None
+        assert "Host field" in message
+
     def test_documented_tables_render_from_static_catalog(self):
         # lists_tables_without_credentials must expose the table catalog (+ canonical descriptions)
         # for the public docs <SourceTables /> component without needing credentials.
