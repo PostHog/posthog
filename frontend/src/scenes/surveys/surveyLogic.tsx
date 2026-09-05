@@ -29,7 +29,7 @@ import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isObject } from 'lib/utils/guards'
-import { hasFormErrors, objectClean } from 'lib/utils/objects'
+import { hasFormErrors, objectClean, objectsEqual } from 'lib/utils/objects'
 import { allOperatorsMapping } from 'lib/utils/operators'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -60,7 +60,7 @@ import {
     ProductKey,
 } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
-import { HogQLQueryString } from '~/queries/utils'
+import { HogQLQueryString, isEventsQuery } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -144,10 +144,13 @@ import {
     getSurveyEndDateForQuery,
     getSurveyResponse,
     getSurveyStartDateForQuery,
+    isSurveyResponseOrderByStale,
     isSurveyRunning,
     isThumbQuestion,
+    reconcileSurveyResponseColumns,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
+    surveyResponseExpressions,
     validateSurveyAppearance,
 } from './utils'
 
@@ -196,6 +199,16 @@ type TranslationFieldCheck<T extends string> = {
 const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
 const DRAFT_TRANSLATION_QUESTION_ID_PREFIX = '__draft_question_'
 const SURVEY_NOTIFICATION_LIST_LIMIT = 100
+const DEFAULT_RESPONSES_ORDER_BY = ['timestamp DESC']
+
+/** The parts of the responses table query the user can change, held so a rebuild doesn't drop them. */
+export interface SurveyResponseTableState {
+    select: string[]
+    orderBy?: string[]
+    showAbsoluteTime?: boolean
+    /** Response expressions the survey had when this was stored, to tell a removed question from a new one. */
+    knownResponseExpressions: string[]
+}
 
 function getSurveyIdsFromNotificationFilters(filters?: CyclotronJobFiltersType | null): Set<string> {
     const surveyIds = new Set<string>()
@@ -708,6 +721,7 @@ export interface surveyLogicValues {
     processedSurveyStats: SurveyStats | null
     projectTreeRef: ProjectTreeRef
     propertyFilters: AnyPropertyFilter[]
+    responseTableState: SurveyResponseTableState | null
     resultsRequeryInProgress: boolean
     reusableSurveyNotifications: HogFunctionType[]
     reusableSurveyNotificationsLoading: boolean
@@ -1176,6 +1190,9 @@ export interface surveyLogicActions {
     setDataCollectionType: (dataCollectionType: DataCollectionType) => {
         dataCollectionType: DataCollectionType
     }
+    setDataTableQuery: (query: DataTableNode) => {
+        query: DataTableNode
+    }
     setDateRange: (
         dateRange: SurveyDateRange,
         reloadResults?: boolean
@@ -1421,6 +1438,7 @@ export interface surveyLogicMeta {
             partialResponsesFilter: string,
             archivedResponsesFilter: string,
             dateRange: SurveyDateRange | null,
+            responseTableState: SurveyResponseTableState | null,
             archivedResponseUuids: Set<string>,
             showArchivedResponses: boolean
         ) => DataTableNode | null
@@ -1566,6 +1584,7 @@ export const surveyLogic = kea<surveyLogicType>([
             reloadResults,
         }),
         setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
+        setDataTableQuery: (query: DataTableNode) => ({ query }),
         clearFilters: true,
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
@@ -2415,7 +2434,7 @@ export const surveyLogic = kea<surveyLogicType>([
             }
         },
     })),
-    reducers({
+    reducers(({ props }) => ({
         activeTab: [
             SurveyTab.SUMMARY as SurveyTab,
             {
@@ -2783,6 +2802,33 @@ export const surveyLogic = kea<surveyLogicType>([
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
+        // `dataTableQuery` is derived, so it rebuilds on every filter, date, and archive change and
+        // discards whatever the user changed on the table. Capturing the editable parts of the query
+        // here is what makes them outlive a rebuild and a reload.
+        responseTableState: [
+            null as SurveyResponseTableState | null,
+            { persist: true },
+            {
+                setDataTableQuery: (state, { query }) => {
+                    // Every unsaved survey shares the 'new' logic key, so persisting here would
+                    // bleed columns from one draft into the next.
+                    if (props.id === NEW_SURVEY.id || !isEventsQuery(query.source)) {
+                        return state
+                    }
+                    const next: SurveyResponseTableState = {
+                        select: query.source.select,
+                        orderBy: query.source.orderBy,
+                        showAbsoluteTime: query.showAbsoluteTime,
+                        knownResponseExpressions: query.defaultColumns
+                            ? surveyResponseExpressions(query.defaultColumns)
+                            : (state?.knownResponseExpressions ?? []),
+                    }
+                    // The selector puts this reducer's own arrays back into the query, so an edit that
+                    // leaves them untouched would otherwise churn identity and re-emit for nothing.
+                    return objectsEqual(state, next) ? state : next
+                },
+            },
+        ],
         interval: [
             null as IntervalType | null,
             {
@@ -2811,7 +2857,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 resetSurvey: () => null,
             },
         ],
-    }),
+    })),
     selectors({
         enrichedConsolidatedSurveyResults: [
             (s) => [s.consolidatedSurveyResults, s.personNames],
@@ -3087,6 +3133,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.partialResponsesFilter,
                 s.archivedResponsesFilter,
                 s.dateRange,
+                s.responseTableState,
                 s.archivedResponseUuids,
                 s.showArchivedResponses,
             ],
@@ -3096,7 +3143,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 answerFilterHogQLExpression: string,
                 partialResponsesFilter: string,
                 archivedResponsesFilter: string,
-                dateRange: SurveyDateRange
+                dateRange: SurveyDateRange,
+                responseTableState: SurveyResponseTableState | null
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -3128,12 +3176,27 @@ export const surveyLogic = kea<surveyLogicType>([
                     'person',
                 ]
 
+                // Reading a persisted value, so treat anything but a usable selection as absent
+                // rather than letting a stale shape throw out of the selector.
+                const select = responseTableState?.select?.length
+                    ? reconcileSurveyResponseColumns(
+                          responseTableState.select,
+                          responseTableState.knownResponseExpressions ?? [],
+                          defaultColumns
+                      )
+                    : defaultColumns
+                // A sort on a column that reconciliation just dropped would reference a question
+                // that no longer exists, which fails the query rather than returning nothing.
+                const orderBy = isSurveyResponseOrderByStale(responseTableState?.orderBy, select)
+                    ? DEFAULT_RESPONSES_ORDER_BY
+                    : responseTableState?.orderBy
+
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: defaultColumns,
-                        orderBy: ['timestamp DESC'],
+                        select,
+                        orderBy,
                         where,
                         after: dateRange?.date_from || startDate,
                         before: dateRange?.date_to || endDate,
@@ -3148,6 +3211,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                     },
                     defaultColumns,
+                    showAbsoluteTime: responseTableState?.showAbsoluteTime,
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,

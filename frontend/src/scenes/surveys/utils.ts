@@ -395,6 +395,107 @@ export function getSurveyResponse(question: SurveyQuestion, index: number): stri
     return question.id ? `getSurveyResponse(${index}, '${question.id}')` : `getSurveyResponse(${index})`
 }
 
+const SURVEY_RESPONSE_CALL = 'getSurveyResponse('
+
+/**
+ * The bare expression a survey column selects, used as its stable identity.
+ *
+ * `removeExpressionComment` splits on the *last* `--`, so question text containing `--` leaves part
+ * of the wording in the result and rewording the question then changes the identity. The generated
+ * expressions never contain `--` themselves, so the first one always opens the comment.
+ */
+function surveyColumnKey(column: string): string {
+    return column
+        .split('--')[0]
+        .replace(/\s+DESC$/i, '')
+        .trim()
+}
+
+export function isSurveyResponseColumn(column: string): boolean {
+    return surveyColumnKey(column).includes(SURVEY_RESPONSE_CALL)
+}
+
+export function surveyResponseExpressions(columns: string[]): string[] {
+    return columns.filter(isSurveyResponseColumn).map(surveyColumnKey)
+}
+
+/**
+ * Merge a stored responses-table column selection with the survey's current questions.
+ *
+ * `knownExpressions` is the set of response expressions that existed when the selection was stored.
+ * Without it, a question the user deliberately removed is indistinguishable from one added since,
+ * so every rebuild would put the removed column back.
+ */
+export function reconcileSurveyResponseColumns(
+    storedColumns: string[],
+    knownExpressions: string[],
+    defaultColumns: string[]
+): string[] {
+    const currentByExpression = new Map(
+        defaultColumns.filter(isSurveyResponseColumn).map((column) => [surveyColumnKey(column), column])
+    )
+    const known = new Set(knownExpressions)
+
+    const matched = new Set<string>()
+    const columns: string[] = []
+    let hasStar = false
+    for (const column of storedColumns) {
+        if (column === '*') {
+            // `*` marks the event payload rather than a column, and the configurator's reset can
+            // hand back a selection carrying two of them, which would fetch every payload twice.
+            if (!hasStar) {
+                hasStar = true
+                columns.push(column)
+            }
+            continue
+        }
+        if (!isSurveyResponseColumn(column)) {
+            columns.push(column)
+            continue
+        }
+        // Rebuild from the current default so a reworded question refreshes its header, and drop
+        // columns whose question was deleted or reordered, since the index is part of the expression.
+        const expression = surveyColumnKey(column)
+        const current = currentByExpression.get(expression)
+        if (current) {
+            columns.push(current)
+            matched.add(expression)
+        }
+    }
+
+    const added = [...currentByExpression.entries()]
+        .filter(([expression]) => !matched.has(expression) && !known.has(expression))
+        .map(([, column]) => column)
+    if (added.length) {
+        // Keep new response columns grouped with the existing ones, and never ahead of `*`, whose
+        // index the survey row renderers use to read the event payload.
+        const lastResponse = columns.findLastIndex(isSurveyResponseColumn)
+        columns.splice(lastResponse >= 0 ? lastResponse + 1 : columns.indexOf('*') + 1, 0, ...added)
+    }
+
+    // `*` carries the event payload for row expansion but renders no column of its own, so a
+    // selection that reconciles down to just `*` would leave a table with nothing in it.
+    return columns.some((column) => column !== '*') ? columns : defaultColumns
+}
+
+/**
+ * True when `orderBy` cannot be used as-is and the caller should fall back to its default.
+ *
+ * An empty `orderBy` is not "no preference": the events query runner only falls back to
+ * `timestamp DESC` when `orderBy` is absent, so sending `[]` runs the query genuinely unordered and
+ * makes offset pagination repeat and skip rows.
+ */
+export function isSurveyResponseOrderByStale(orderBy: string[] | undefined, select: string[]): boolean {
+    if (!orderBy?.length) {
+        return true
+    }
+    const selected = new Set(select.map(surveyColumnKey))
+    return orderBy.some((entry) => {
+        const expression = surveyColumnKey(entry)
+        return expression.includes(SURVEY_RESPONSE_CALL) && !selected.has(expression)
+    })
+}
+
 /**
  * Creates a HogQL expression for survey answer filters that handles both index-based and ID-based property keys
  * using OR logic between the alternative formats for each question.
