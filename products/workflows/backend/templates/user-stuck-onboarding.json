@@ -1,7 +1,7 @@
 {
     "id": "019ce221-942b-0000-6929-15f99a355144",
     "name": "User stuck in onboarding alert",
-    "description": "Detect users who start onboarding but don’t complete it and alert your team so they can reach out and help. Configure the delay to give new users time to finish onboarding (for example 24 hours), then set the conditional step to check whether the user has not completed your activation event (such as onboarding_completed, first_project_created, or another key milestone). If the event hasn’t happened, the workflow sends a Slack alert so the team can investigate.",
+    "description": "Alert your team in Slack when someone starts onboarding and then gets stuck, so they can help.",
     "version": 1,
     "created_at": "2026-03-12T12:59:37.387738Z",
     "created_by": {
