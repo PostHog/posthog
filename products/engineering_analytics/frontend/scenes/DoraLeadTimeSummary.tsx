@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { Section } from '../components/Section'
 import { WindowComparisonCard } from '../components/WindowComparisonCard'
+import { leadTimeBenchmark } from '../lib/doraBenchmark'
 import { compactAgeLabel } from '../lib/format'
 import { doraLogic } from './doraLogic'
 
@@ -15,6 +16,7 @@ export function DoraLeadTimeSummary(): JSX.Element {
                 title="Open to deploy"
                 tooltip={`Median from a PR's open to the first successful deployment containing it in any selected environment, over ${dora?.deployed_pr_count ?? 0} deployed PRs (bots and drafts excluded). Each PR counts once. The box plots split it into open to merge and merge to deploy.`}
                 value={dora?.median_open_to_deploy_seconds}
+                benchmark={leadTimeBenchmark(dora?.median_open_to_deploy_seconds)}
                 previousValue={dora?.median_open_to_deploy_seconds_prev}
                 formatValue={compactAgeLabel}
                 goodWhenDown
