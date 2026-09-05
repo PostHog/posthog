@@ -126,6 +126,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     load_skill_for_run,
     resolve_scout_acting_user_id,
 )
+from products.signals.backend.scout_harness.suggestions import find_suggestion, mark_suggestion_created
 from products.signals.backend.scout_harness.team_limits import resolve_team_metadata, withheld_skills_for_team
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.notes import (
@@ -2153,6 +2154,23 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request=request,
             serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
         )
+        # Hides the suggestion the moment its scout exists, rather than waiting for the read to
+        # notice the name is taken — which it only does for enabled scouts and custom drafts.
+        # The scout is committed by here, so a failed marker must not answer 500 for a scout that
+        # exists; the read still hides the item once the name is taken. Only the draft this scout
+        # was created from is marked, so an unrelated id cannot retire another pick.
+        if suggestion_id := validated.get("suggestion_id"):
+            try:
+                record = find_suggestion(canonical_team.id, suggestion_id)
+                if record is not None and record.get("skill_name") == validated["name"]:
+                    mark_suggestion_created(canonical_team.id, suggestion_id, config_id=str(outcome.config.id))
+            except Exception:
+                logger.warning(
+                    "scout_suggestions: failed to mark suggestion created",
+                    team_id=canonical_team.id,
+                    suggestion_id=suggestion_id,
+                    exc_info=True,
+                )
         response = SignalScoutCreateResponseSerializer(
             {"created": outcome.created, "skill": outcome.skill, "config": outcome.config},
             context=scout_config_context(canonical_team, [validated["name"]], request),
