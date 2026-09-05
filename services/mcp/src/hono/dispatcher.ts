@@ -42,6 +42,7 @@ import { InstructionsBuilder } from './instructions'
 import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
+import { SkillCatalogService } from './skill-catalog-service'
 import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
@@ -135,6 +136,7 @@ class McpDispatcher {
     private readonly stateResolver: RequestStateResolver
     private readonly toolExecutor: ToolExecutor
     private readonly instructionsBuilder: InstructionsBuilder
+    private readonly skillCatalogService: SkillCatalogService
 
     private warmupPromise: Promise<void> | undefined
 
@@ -144,7 +146,8 @@ class McpDispatcher {
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
-        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
+        this.skillCatalogService = new SkillCatalogService(redis, { archiveUrl: env.POSTHOG_MCP_SKILLS_URL })
+        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
     }
 
     async warmup(): Promise<void> {
@@ -154,7 +157,10 @@ class McpDispatcher {
 
     private async doWarmup(): Promise<void> {
         await this.catalog.warmup()
-        await this.resourceCatalog.warmup()
+        await Promise.all([this.resourceCatalog.warmup(), this.skillCatalogService.warmup()])
+        // Skills refresh on a timer, never on a request: the July incident was every
+        // handshake re-reading the archive from Redis.
+        this.skillCatalogService.start()
     }
 
     async handleRequest(req: Request, props: RequestProperties): Promise<Response> {

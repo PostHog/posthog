@@ -32,7 +32,7 @@ class Infra(enum.Enum):
     """The master Hedgebox seed team and per-case team factory."""
 
     SANDBOX = "sandbox"
-    """The sandbox provider, local skills build, and the Temporal environment."""
+    """The sandbox provider and the Temporal environment."""
 
 
 class SuiteKind(enum.Enum):
