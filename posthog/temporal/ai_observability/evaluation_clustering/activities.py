@@ -292,6 +292,9 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
             "min_cluster_size_fraction", trace_constants.DEFAULT_MIN_CLUSTER_SIZE_FRACTION
         ),
         min_samples=params.get("min_samples", trace_constants.DEFAULT_HDBSCAN_MIN_SAMPLES),
+        max_cluster_size_fraction=params.get(
+            "max_cluster_size_fraction", trace_constants.DEFAULT_MAX_CLUSTER_SIZE_FRACTION
+        ),
     )
     labels_array = np.array(hdbscan_result.labels)
     centroids_array = (
