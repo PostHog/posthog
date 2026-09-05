@@ -455,6 +455,26 @@ describe('heatmapToolbarMenuLogic', () => {
             expect(logic.values.loadingAllElementStats).toBe(false)
         })
 
+        it('ends the run when a page comes back refused', async () => {
+            jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: 'http://localhost/api/element/stats?offset=100', previous: null },
+            } as any)
+            // a 403 resolves to the empty page, which carries no next link
+            jest.spyOn(toolbarApi.elementStats, 'page').mockResolvedValue({ ok: false, status: 403 } as any)
+
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
+                'getElementStatsSuccess',
+                'getElementStatsSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.startLoadingAllElementStats()).toDispatchActions([
+                'getElementStatsSuccess',
+            ])
+
+            expect(logic.values.loadingAllElementStats).toBe(false)
+        })
+
         it('requests no more pages after the run is stopped', async () => {
             // every page reports another page, so only the stop can end the run
             jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({

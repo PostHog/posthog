@@ -814,8 +814,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             {
                 startLoadingAllElementStats: () => true,
                 stopLoadingAllElementStats: () => false,
-                // the last page is the end of the run, and a failed page must not spin forever
-                getElementStatsSuccess: (state, { elementStats }) => state && elementStats.next !== null,
+                // the last page ends the run; a page that carries no next link at all ends it too,
+                // so a refused request cannot leave the button reading "Stop loading" forever
+                getElementStatsSuccess: (state, { elementStats }) => state && !!elementStats.next,
                 getElementStatsFailure: () => false,
                 resetElementStats: () => false,
                 disableHeatmap: () => false,
