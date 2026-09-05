@@ -1433,6 +1433,25 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         label_queries = [q for q in queries.captured_queries if "llmpromptlabel" in q["sql"].lower()]
         assert len(label_queries) == 2
 
+    def test_list_by_label_returns_the_labeled_version_and_skips_unlabeled_prompts(self):
+        self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
+        self.create_prompt_version(name="prompt-a", version=2)
+        self.create_prompt_version(name="prompt-b", version=1)
+        assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-b", "staging", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [(entry["name"], entry["version"]) for entry in results] == [("prompt-a", 1)]
+        assert results[0]["latest_version"] == 2
+
+    def test_list_rejects_an_invalid_label(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=latest")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)
         assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED

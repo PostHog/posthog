@@ -81,16 +81,26 @@ describe('Generated llma-prompt-* tools', () => {
         expect(result).toEqual(paginated)
     })
 
-    it('allows overriding prompt-list content mode', async () => {
+    // prompt-list takes its input from the PromptListInputSchema override rather than the
+    // generated query params, and zod strips keys that schema does not declare. A dropped
+    // filter is silent — the request still returns 200, just over the wrong versions.
+    it.each([
+        [
+            'a content mode override',
+            { search: 'checkout', content: 'preview' },
+            { search: 'checkout', content: 'preview' },
+        ],
+        ['a label', { label: 'production' }, { label: 'production', content: 'none' }],
+    ])('forwards %s on prompt-list to the outgoing query', async (_case, params, expectedQuery) => {
         const { context, requestMock } = createContext({ count: 0, next: null, previous: null, results: [] })
         const tool = getToolByName(GENERATED_TOOLS, 'llma-prompt-list')
 
-        await tool.handler(context, { search: 'checkout', content: 'preview' })
+        await tool.handler(context, params)
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'GET',
             path: '/api/projects/17/llm_prompts/',
-            query: { search: 'checkout', content: 'preview' },
+            query: expectedQuery,
         })
     })
 
