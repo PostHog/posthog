@@ -665,6 +665,25 @@ class TestPostImportTrigger:
 
     @patch(f"{_PROCESSOR}.capture_exception")
     @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_transient_connect_failure_is_retried_and_recovers(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        # async_connect() itself can fail transiently (e.g. a DNS blip reaching the Temporal
+        # frontend), raising the Rust bridge's untyped RuntimeError before any client exists —
+        # this must be retried like an RPCError, not drop the trigger on the first blip.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=None)
+        mock_connect.side_effect = [RuntimeError("Failed client connect: Server connection error: ..."), client]
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert mock_connect.call_count == 2
+        mock_capture.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
     def test_persistent_rpc_timeout_is_captured_after_retries_exhausted(
         self,
         mock_connect: AsyncMock,
