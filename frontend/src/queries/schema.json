@@ -27410,7 +27410,8 @@
                 "Strato",
                 "Medusa",
                 "Membrain",
-                "RecallAI"
+                "RecallAI",
+                "Tenjin"
             ],
             "type": "string"
         },

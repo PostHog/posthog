@@ -1759,6 +1759,7 @@ export interface sourceWizardLogicActions {
             | 'Tempo'
             | 'TemporalIO'
             | 'TenableVulnerabilityManagement'
+            | 'Tenjin'
             | 'TeraBox'
             | 'Ternary'
             | 'TerraApi'
