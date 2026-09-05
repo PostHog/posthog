@@ -198,11 +198,13 @@ wrappers:
             yet: to rank tools by volume or error rate, to check whether the project records MCP calls at all, or to
             find the exact toolName that the per-tool tools (query-mcp-tool-stats, query-mcp-tool-daily-stats,
             query-mcp-tool-failures and the other tool-detail tools) require. Every parameter is optional. Narrow with
-            dateRange, categories, and a case-insensitive search on the tool name. Order with sortColumn (total_calls,
-            error_rate_pct, p50_duration_ms, p95_duration_ms, p99_duration_ms, users, sessions, last_seen) and
-            sortDirection. Page with limit (server default 50, maximum 100) and offset. totalCount reports how many
-            tools matched.
-        system_prompt_hint: Every MCP tool ranked — calls, error rate, latency, users, sessions
+            dateRange (server default the last 7 days), categories, and a case-insensitive search on the tool name. Only
+            tools called inside that window get a row, and first_seen and last_seen are the first and last call inside
+            it, not the tool's lifetime. Widen dateRange to reach a tool that has been idle for longer, or to find when
+            a tool was really first called. Order with sortColumn (total_calls, error_rate_pct, p50_duration_ms,
+            p95_duration_ms, p99_duration_ms, users, sessions, last_seen) and sortDirection. Page with limit (server
+            default 50, maximum 100) and offset. totalCount reports how many tools matched.
+        system_prompt_hint: MCP tools called in the window ranked — calls, error rate, latency, users, sessions
         exclude_properties:
             - response
             - modifiers
