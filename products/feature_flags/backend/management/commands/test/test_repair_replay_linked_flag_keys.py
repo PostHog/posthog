@@ -12,13 +12,10 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag
 
 
 class TestRepairReplayLinkedFlagKeys(BaseTest):
-    def _link_flag(self, team: Team, linked_flag: dict[str, Any] | None) -> None:
-        team.session_recording_linked_flag = linked_flag
-        team.save()
-
     def _run(self, *args: str, teams: list[Team]) -> dict[str, Any]:
         # Scope to this test's teams: the local test DB is reused across suites and can carry
         # leftover rows from other tests.
@@ -35,7 +32,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
     def test_repairs_a_stale_key_and_is_idempotent(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
-        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
 
         report = self._run("--live-run", teams=[self.team])
 
@@ -64,7 +61,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         # Writing has to be opted into: a bare run rewrites every team's replay config and
         # enqueues a RemoteConfig rebuild per row.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
-        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate"})
 
         report = self._run(teams=[self.team])
 
@@ -107,7 +104,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
                 deleted=case == "flag_soft_deleted",
             )
             linked_flag = {"id": flag.id, "key": "replay-gate"}
-        self._link_flag(self.team, linked_flag)
+        set_linked_flag(self.team, linked_flag)
 
         # `--live-run` so the row surviving proves the command declined to rewrite it, rather than
         # just proving dry-run writes nothing.
@@ -121,7 +118,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
     def test_repairs_a_sibling_team_linking_another_teams_flag(self) -> None:
         sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
-        self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
+        set_linked_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
 
         report = self._run("--live-run", teams=[sibling_team])
 
@@ -137,7 +134,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         ]
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
         for team in teams:
-            self._link_flag(team, {"id": flag.id, "key": "replay-gate"})
+            set_linked_flag(team, {"id": flag.id, "key": "replay-gate"})
 
         report = self._run("--live-run", "--chunk-size", "1", teams=teams)
 
