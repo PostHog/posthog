@@ -46,6 +46,24 @@ function makeSession(
 }
 
 describe("deriveSessionViewState", () => {
+  it("opens the live cloud chat as soon as the initial prompt is seeded", () => {
+    const session = makeSession("queued");
+    session.optimisticItems = [
+      {
+        id: "initial-prompt",
+        type: "user_message",
+        content: "Check the build",
+        timestamp: 1,
+        pinToTop: true,
+      },
+    ];
+
+    expect(
+      deriveSessionViewState(session, makeTask("queued"), null, true)
+        .isInitializing,
+    ).toBe(false);
+  });
+
   it("uses a live cloud session when task run metadata is unavailable", () => {
     const task = makeTask("in_progress");
     task.latest_run = undefined;
