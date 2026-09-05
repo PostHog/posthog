@@ -8,22 +8,42 @@ import {
 } from "@phosphor-icons/react";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Box, Flex, IconButton, Text } from "@radix-ui/themes";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { PlanReviewCommentCard } from "./PlanReviewCommentCard";
+import { PlanSectionComment } from "./PlanSectionComment";
+import { splitPlanSections, usePlanReviewStore } from "./planReview";
 
 const planScrollPosition = new Map<string, number>();
 
 interface PlanContentProps {
   id: string;
   plan: string;
+  reviewable?: boolean;
 }
 
-export function PlanContent({ id, plan }: PlanContentProps) {
+export function PlanContent({
+  id,
+  plan,
+  reviewable = false,
+}: PlanContentProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [openSectionId, setOpenSectionId] = useState<string | null>(null);
+  const sections = useMemo(() => splitPlanSections(plan), [plan]);
+  const comments = usePlanReviewStore((state) => state.comments[id] ?? []);
+  const addComment = usePlanReviewStore((state) => state.addComment);
+  const updateComment = usePlanReviewStore((state) => state.updateComment);
+  const removeComment = usePlanReviewStore((state) => state.removeComment);
+
+  useEffect(() => {
+    if (reviewable) {
+      usePlanReviewStore.getState().reconcile(id, sections);
+    }
+  }, [id, reviewable, sections]);
 
   const handleCopy = async () => {
     try {
@@ -37,7 +57,9 @@ export function PlanContent({ id, plan }: PlanContentProps) {
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
 
     const position = planScrollPosition.get(id);
     if (position !== undefined) {
@@ -56,7 +78,9 @@ export function PlanContent({ id, plan }: PlanContentProps) {
   }, [id]);
 
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (!isFullscreen) {
+      return;
+    }
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setIsFullscreen(false);
@@ -66,9 +90,91 @@ export function PlanContent({ id, plan }: PlanContentProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [isFullscreen]);
 
-  const markdown = (
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+  const markdown = sections.map((section) => {
+    const sectionComments = comments.filter(
+      (comment) => comment.sectionId === section.id,
+    );
+    const isCommentOpen = openSectionId === section.id;
+
+    return (
+      <section
+        key={section.id}
+        id={`${id}-${section.id}`}
+        data-plan-section={section.id}
+        className="group/plan-section scroll-mt-4"
+      >
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {section.content}
+            </ReactMarkdown>
+          </div>
+          {reviewable && (
+            <button
+              type="button"
+              className="mt-1 shrink-0 rounded-sm px-1.5 py-0.5 text-[11px] text-gray-10 opacity-0 transition-opacity hover:bg-gray-3 hover:text-gray-12 focus:opacity-100 group-hover/plan-section:opacity-100"
+              onClick={() => {
+                setOpenSectionId(isCommentOpen ? null : section.id);
+              }}
+              aria-label={`Comment on ${section.title}`}
+              data-attr="plan-section-comment"
+            >
+              Comment
+            </button>
+          )}
+        </div>
+
+        {sectionComments.map((comment) => (
+          <PlanReviewCommentCard
+            key={comment.id}
+            comment={comment}
+            reviewable={reviewable}
+            canEdit
+            onUpdate={(text) => updateComment(id, comment.id, text, section)}
+            onRemove={() => removeComment(id, comment.id)}
+          />
+        ))}
+
+        {reviewable && isCommentOpen && (
+          <PlanSectionComment
+            onDismiss={() => setOpenSectionId(null)}
+            onSubmit={(text) => {
+              addComment(id, {
+                sectionId: section.id,
+                sectionTitle: section.title,
+                sectionContent: section.content,
+                text,
+              });
+              setOpenSectionId(null);
+            }}
+          />
+        )}
+      </section>
+    );
+  });
+  const missingComments = comments.filter(
+    (comment) =>
+      comment.stale &&
+      !sections.some((section) => section.id === comment.sectionId),
   );
+  if (missingComments.length > 0) {
+    markdown.push(
+      <div key="stale-plan-comments" className="mt-3">
+        <Text as="div" size="1" color="orange" className="mb-1">
+          Review comments from an earlier plan version
+        </Text>
+        {missingComments.map((comment) => (
+          <PlanReviewCommentCard
+            key={comment.id}
+            comment={comment}
+            reviewable={reviewable}
+            canEdit={false}
+            onRemove={() => removeComment(id, comment.id)}
+          />
+        ))}
+      </div>,
+    );
+  }
 
   if (isFullscreen) {
     const portalTarget = document.getElementById("fullscreen-portal");
