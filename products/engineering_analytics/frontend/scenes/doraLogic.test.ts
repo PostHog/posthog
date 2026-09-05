@@ -181,6 +181,20 @@ describe('doraLogic', () => {
         expect(logic.values.environmentOptions.map(({ key }) => key)).toEqual(['dev', 'prod-us', 'prod-eu'])
     })
 
+    it.each([
+        [null, false],
+        [0, false],
+        [0.1, false],
+        [0.1001, true],
+        [0.25, true],
+        [1, true],
+    ])('warns only above 10%% unattributed merged PRs (%s)', async (share, showWarning) => {
+        await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
+        logic.actions.loadDoraSuccess({ ...DORA, unattributed_merged_pr_share: share })
+
+        expect(logic.values.showUnattributedWarning).toBe(showWarning)
+    })
+
     it('sends the visible selections as repeated parameters and restores production when cleared', async () => {
         await expectLogic(logic).toDispatchActions(['loadDoraSuccess'])
         await expectLogic(logic, () => logic.actions.setEnvironments(['prod-eu', 'dev'])).toDispatchActions([
