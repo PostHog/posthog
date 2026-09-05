@@ -75,7 +75,17 @@ def _auth_error_markers(source: ExternalDataSource) -> set[str]:
         source_type = ExternalDataSourceType(source.source_type)
     except ValueError:
         return set()
-    return SourceRegistry.get_source(source_type).get_auth_errors()
+    source_cls = SourceRegistry.get_source(source_type)
+    auth_errors = source_cls.get_auth_errors()
+    # A stopped table stores the friendly message written for the error that stopped it, not the
+    # raw failure. For a key whose friendly message shares no wording with the key, matching the
+    # key alone would never fire, so carry both spellings of every authentication error.
+    friendly_messages = {
+        friendly
+        for error, friendly in source_cls.get_non_retryable_errors().items()
+        if friendly and error in auth_errors
+    }
+    return auth_errors | friendly_messages
 
 
 def resume_syncs_paused_by_auth_failure(*, integration_id: int, team_id: int) -> int:

@@ -20,9 +20,14 @@ from products.warehouse_sources.backend.source_integrations import (
     resume_syncs_paused_by_auth_failure,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import META_AUTH_ERROR_MESSAGE
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 from products.warehouse_sources.backend.types import ExternalDataSchemaStatus, ExternalDataSourceType
 
 pytestmark = [pytest.mark.django_db]
+
+# What the sync teardown stores for the missing-permission failure: the friendly message written
+# for that error, which shares no wording with the error key the source declares.
+MISSING_PERMISSIONS_ERROR = MetaAdsSource().get_non_retryable_errors()["cannot be loaded due to missing permissions"]
 
 
 @pytest.fixture
@@ -101,6 +106,9 @@ def test_reconnect_resumes_only_the_tables_the_auth_failure_stopped(team: Any) -
     auth_stopped = _schema(
         team, source, name="campaigns", error=META_AUTH_ERROR_MESSAGE, status=ExternalDataSchemaStatus.FAILED
     )
+    permission_stopped = _schema(
+        team, source, name="ads_pixels", error=MISSING_PERMISSIONS_ERROR, status=ExternalDataSchemaStatus.FAILED
+    )
     other_failure = _schema(
         team, source, name="ads", error="Meta could not return this data", status=ExternalDataSchemaStatus.FAILED
     )
@@ -109,9 +117,11 @@ def test_reconnect_resumes_only_the_tables_the_auth_failure_stopped(team: Any) -
     with patch("products.warehouse_sources.backend.source_integrations.update_should_sync") as mock_update_should_sync:
         resumed = resume_syncs_paused_by_auth_failure(integration_id=integration.id, team_id=team.id)
 
-    assert resumed == 1
-    assert mock_update_should_sync.call_count == 1
-    assert mock_update_should_sync.call_args.kwargs["schema_id"] == str(auth_stopped.id)
+    assert resumed == 2
+    assert {call.kwargs["schema_id"] for call in mock_update_should_sync.call_args_list} == {
+        str(auth_stopped.id),
+        str(permission_stopped.id),
+    }
     other_failure.refresh_from_db()
     turned_off_by_user.refresh_from_db()
     assert other_failure.should_sync is False
