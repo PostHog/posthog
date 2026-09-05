@@ -4,12 +4,12 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use arc_swap::{ArcSwap, Guard};
 use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use rand::Rng;
 use sqlx::PgPool;
 use tokio::sync::Notify;
@@ -19,8 +19,8 @@ use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, Coh
 use crate::filters::FilterError;
 use crate::filters::{FilterCatalog, Generation};
 use crate::observability::metrics::{
-    FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS, FILTER_CATALOG_REFRESH_TOTAL,
-    FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS,
+    FILTER_CATALOG_BUILD_DURATION_SECONDS, FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS,
+    FILTER_CATALOG_REFRESH_TOTAL, FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS,
 };
 
 /// Snapshot counts returned by [`CatalogHandle::refresh`] for logging.
@@ -154,7 +154,10 @@ impl CatalogHandle {
                 "filter catalog dropped cohort rows outside REALTIME_COHORT_TEAM_ALLOWLIST",
             );
         }
+        let build_started = Instant::now();
         let catalog = build_catalog_from_rows(rows, self.cascade_enabled);
+        histogram!(FILTER_CATALOG_BUILD_DURATION_SECONDS)
+            .record(build_started.elapsed().as_secs_f64());
         let stats = CatalogStats {
             teams: catalog.team_count(),
             unique_conditions: catalog.total_unique_conditions(),

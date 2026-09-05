@@ -151,7 +151,7 @@ fn dropped_leaves_are_skipped_while_survivors_stay_indexed() {
 }
 
 #[test]
-fn bytecode_is_captured_and_deduped_by_condition_hash() {
+fn the_loaded_program_is_captured_and_deduped_by_condition_hash() {
     let catalog = build_catalog(vec![
         row(
             1,
@@ -162,12 +162,12 @@ fn bytecode_is_captured_and_deduped_by_condition_hash() {
     ]);
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
-    assert_eq!(team.by_condition_to_bytecode.len(), 2);
+    assert_eq!(team.by_condition_to_program.len(), 2);
     assert_eq!(
-        team.by_condition_to_bytecode[&BEHAVIORAL_HASH].as_ref(),
+        team.by_condition_to_program[&BEHAVIORAL_HASH].tokens(),
         &behavioral_bytecode_loaded(),
     );
-    assert!(team.by_condition_to_bytecode.contains_key(&PERSON_HASH));
+    assert!(team.by_condition_to_program.contains_key(&PERSON_HASH));
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn leaf_without_bytecode_is_dropped() {
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
     assert!(team.unique_condition_hashes.is_empty());
-    assert!(team.by_condition_to_bytecode.is_empty());
+    assert!(team.by_condition_to_program.is_empty());
     assert!(team.by_condition_to_lsk.is_empty());
 }
 
