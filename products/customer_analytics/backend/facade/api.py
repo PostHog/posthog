@@ -96,6 +96,7 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.logic import (
     account_track_rules as _account_track_rules_logic,
     announcements as _announcements_logic,
@@ -104,6 +105,7 @@ from products.customer_analytics.backend.logic import (
     customer_tasks as _customer_tasks_logic,
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
+    user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
 from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
@@ -154,6 +156,7 @@ from products.customer_analytics.backend.models import (
     SyncStatus,
     SyncTrigger,
     TargetType,
+    UserCustomerAnalyticsConfig as UserCustomerAnalyticsConfigModel,
 )
 from products.customer_analytics.backend.models.account import (
     RETIRED_ROLE_KEYS,
@@ -1161,6 +1164,40 @@ def delete_customer_profile_config(
         was_impersonated=was_impersonated,
     )
     return True
+
+
+# --- UserCustomerAnalyticsConfig ---
+
+
+InvalidPinnedAccountProperties = _user_customer_analytics_config_logic.InvalidPinnedAccountProperties
+
+
+def _to_user_customer_analytics_config(
+    config: UserCustomerAnalyticsConfigModel,
+) -> contracts.UserCustomerAnalyticsConfig:
+    raw_references = config.properties[_user_customer_analytics_config_logic.PINNED_PROPERTIES_KEY]
+    return contracts.UserCustomerAnalyticsConfig(
+        pinned_properties=[
+            contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
+            for reference in raw_references
+        ]
+    )
+
+
+def get_user_customer_analytics_config(*, team_id: int, user_id: int) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.get_or_create_config(team_id=team_id, user_id=user_id)
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_customer_analytics_config(
+    *, team_id: int, user_id: int, pinned_properties: list[contracts.PinnedAccountProperty]
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_pinned_properties(
+        team_id=team_id,
+        user_id=user_id,
+        references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
 
 
 # --- CustomPropertyDefinition ---
