@@ -3,19 +3,26 @@
 from typing import Any, Optional
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
 
 from posthog.cdp.filters import compile_filters_bytecode
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
-from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
+from products.error_tracking.backend.models import (
+    ErrorTrackingAlert,
+    ErrorTrackingAlertDestination,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +34,10 @@ MAX_THROTTLE_SECONDS = 30 * 24 * 60 * 60
 
 
 def native_alerts_enabled(team_id: int) -> bool:
+    # Flags forced on for the whole instance (dev, self-hosted) reach the frontend
+    # through the persisted list, so the API must honor the same baseline.
+    if NATIVE_ALERTS_FLAG in settings.PERSISTED_FEATURE_FLAGS:
+        return True
     try:
         # Alert rows are canonical-project-scoped, so the flag must bucket child
         # environments with their parent or per-environment ids would gate
@@ -155,18 +166,49 @@ def update_alert(
 
         alert.save()
         if destinations is not None:
-            # Destinations are replaced wholesale: threads cascade with removed rows,
-            # so a repointed channel starts a fresh conversation (per the alerting RFC).
-            alert.destinations.all().delete()
-            for destination in destinations:
-                ErrorTrackingAlertDestination.objects.for_team(alert.team_id, canonical=True).create(
-                    team_id=alert.team_id,
-                    alert=alert,
-                    channel_type=destination["channel_type"],
-                    integration_id=destination["integration_id"],
-                    config=destination["config"],
-                )
+            _reconcile_destinations(alert, destinations)
     return get_alert(team_id, alert.id)
+
+
+@frozen
+class _DestinationKey:
+    """Identity of a destination row: same channel on the same integration means the same row."""
+
+    channel_type: str
+    integration_id: int | None
+    channel: str | None
+
+
+def _destination_key(channel_type: str, integration_id: Any, config: dict[str, Any]) -> _DestinationKey:
+    return _DestinationKey(channel_type=channel_type, integration_id=integration_id, channel=config.get("channel"))
+
+
+def _reconcile_destinations(alert: ErrorTrackingAlert, destinations: list[dict[str, Any]]) -> None:
+    # A destination that still points at the same channel keeps its row, so its open
+    # threads and delivery history survive an edit to the alert's other fields. Only a
+    # removed or repointed channel drops its row, and its threads cascade with it so the
+    # new channel starts a fresh conversation.
+    existing = {
+        _destination_key(row.channel_type, row.integration_id, row.config): row
+        for row in ErrorTrackingAlertDestination.objects.for_team(alert.team_id, canonical=True).filter(alert=alert)
+    }
+    wanted = {_destination_key(d["channel_type"], d["integration_id"], d["config"]): d for d in destinations}
+    for key, row in existing.items():
+        if key not in wanted:
+            row.delete()
+    for key, destination in wanted.items():
+        current = existing.get(key)
+        if current is None:
+            ErrorTrackingAlertDestination.objects.for_team(alert.team_id, canonical=True).create(
+                team_id=alert.team_id,
+                alert=alert,
+                channel_type=destination["channel_type"],
+                integration_id=destination["integration_id"],
+                config=destination["config"],
+            )
+        elif current.config != destination["config"]:
+            current.config = destination["config"]
+            current.save(update_fields=["config", "updated_at"])
 
 
 def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
@@ -256,3 +298,80 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
             raise AlertValidationError("Slack destinations require a channel id string in the config.")
     else:
         raise AlertValidationError(f"Unsupported destination channel type: {channel_type}")
+
+
+PREVIEW_REPLY_EVENTS = ("$error_tracking_issue_assigned", "$error_tracking_issue_resolved")
+
+
+def preview_alert_messages(
+    team_id: int, trigger: str, actor_email: str | None, *, sample_team_id: int | None = None
+) -> dict[str, Any]:
+    """Render the Slack thread an alert would open for the team's most recent issue.
+
+    Returns the root for the trigger's opener event, then the replies and root edit a
+    typical lifecycle produces, so the editor can show the thread model on real data.
+    Returns the raw builder output; the facade shapes it into the contract.
+    """
+    # The temporal package aggregator loads every worker-only workflow module; keep it
+    # off the web import path.
+    from products.error_tracking.backend.temporal.alerts.delivery import OPENER_TRIGGERS  # noqa: PLC0415
+    from products.error_tracking.backend.temporal.alerts.messages import (  # noqa: PLC0415
+        build_reply_text,
+        build_root_edit,
+        build_root_message,
+    )
+    from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs  # noqa: PLC0415
+
+    events_by_trigger = {str(value): event for event, value in OPENER_TRIGGERS.items()}
+    if trigger not in events_by_trigger:
+        raise AlertValidationError(f"Unknown trigger: {trigger}")
+    opener_event = events_by_trigger[trigger]
+
+    # The sample comes from one environment the caller is authorized on (the view checks
+    # the requested one): access control is per environment, so a sibling's issue must not
+    # leak through a project-wide pick. Issue ids are time-ordered UUIDs, so the primary key
+    # stands in for a created_at sort the table has no composite index for.
+    issue = ErrorTrackingIssue.objects.filter(team_id=sample_team_id or team_id).order_by("-id").first()
+    fingerprint = (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=issue.team_id, issue_id=issue.id)
+        .values_list("fingerprint", flat=True)
+        .first()
+        if issue is not None
+        else None
+    )
+
+    def inputs(event: str, **overrides: Any) -> AlertDeliveryWorkflowInputs:
+        base: dict[str, Any] = {
+            "notification_id": "preview",
+            # The View issue link carries the environment, so a sampled issue links to its own.
+            "team_id": issue.team_id if issue is not None else team_id,
+            "issue_id": str(issue.id) if issue is not None else "preview",
+            "event": event,
+            "issue_name": issue.name if issue is not None else "TypeError: Cannot read properties of undefined",
+            "issue_description": issue.description
+            if issue is not None
+            else "at CheckoutForm.submit (checkout.tsx:142)",
+            "status": "Active",
+            "actor_email": actor_email,
+            "severity": issue.severity if issue is not None else None,
+            "fingerprint": fingerprint,
+        }
+        if event == "$error_tracking_issue_spiking":
+            base["extra"] = {"current_bucket_value": "600", "computed_baseline": "12.5"}
+        base.update(overrides)
+        return AlertDeliveryWorkflowInputs(**base)
+
+    root = build_root_message(inputs(opener_event))
+    messages: list[dict[str, Any]] = [
+        {"kind": "root", "event": opener_event, "text": root["text"], "blocks": root["blocks"]}
+    ]
+    for event in PREVIEW_REPLY_EVENTS:
+        status = "Resolved" if event == "$error_tracking_issue_resolved" else "Active"
+        reply = build_reply_text(inputs(event, status=status))
+        if reply is not None:
+            messages.append({"kind": "reply", "event": event, "text": reply, "blocks": None})
+    edit = build_root_edit(inputs("$error_tracking_issue_resolved", status="Resolved"), headline=root["headline"])
+    messages.append(
+        {"kind": "root_edit", "event": "$error_tracking_issue_resolved", "text": edit["text"], "blocks": edit["blocks"]}
+    )
+    return {"issue_id": issue.id if issue is not None else None, "messages": messages}
