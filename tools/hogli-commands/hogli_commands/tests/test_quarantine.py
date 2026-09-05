@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from click.testing import CliRunner
-from hogli_commands.quarantine import core
+from hogli_commands.quarantine import core, report
 from hogli_commands.quarantine.cli import quarantine
 from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
 
@@ -464,3 +464,201 @@ def test_repo_quarantine_file_is_valid(runner: CliRunner, monkeypatch: pytest.Mo
     assert core.QUARANTINE_PATH.name == ".test_quarantine.json"
     result = runner.invoke(quarantine, ["check"])
     assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize(
+    "expires_in_days, expected_state",
+    [
+        (30, None),
+        (8, None),
+        (7, core.EXPIRING_SOON),
+        (0, core.EXPIRING_SOON),
+        (-1, core.IN_GRACE),
+        (-7, core.IN_GRACE),
+        (-8, core.OVERDUE),
+    ],
+)
+def test_collect_reports_only_entries_near_or_past_expiry(expires_in_days: int, expected_state: str | None) -> None:
+    entry = make_entry(added=TODAY - timedelta(days=20), expires=TODAY + timedelta(days=expires_in_days))
+    items = report.collect([entry], TODAY)
+    assert [i.state for i in items] == ([expected_state] if expected_state else [])
+
+
+def test_collect_orders_by_urgency_then_expiry() -> None:
+    entries = [
+        make_entry(id="soon", expires=TODAY + timedelta(days=2)),
+        make_entry(id="overdue", added=TODAY - timedelta(days=25), expires=TODAY - timedelta(days=9)),
+        make_entry(id="grace-later", added=TODAY - timedelta(days=10), expires=TODAY - timedelta(days=1)),
+        make_entry(id="grace-earlier", added=TODAY - timedelta(days=12), expires=TODAY - timedelta(days=5)),
+    ]
+    assert [i.entry.id for i in report.collect(entries, TODAY)] == [
+        "overdue",
+        "grace-earlier",
+        "grace-later",
+        "soon",
+    ]
+
+
+@pytest.mark.parametrize(
+    "owner, expected",
+    [
+        ("@team-devex", "@PostHog/team-devex"),
+        ("team-devex", "@PostHog/team-devex"),
+        ("@PostHog/team-devex", "@PostHog/team-devex"),
+        ("@some-person", "@some-person"),
+        ("data platform", "data platform"),
+        ("", ""),
+    ],
+)
+def test_mention_qualifies_team_slugs_only(owner: str, expected: str) -> None:
+    assert report.mention(owner) == expected
+
+
+@pytest.mark.parametrize(
+    "soon_id, lapsed_id, lapsed_runner",
+    [
+        ("soon", "lapsed", "pytest"),
+        ("a.spec.ts::flow a --> b", "lapsed", "playwright"),
+        # One `product:` selector quarantines the same product under two runners.
+        ("product:batch-exports", "product:batch-exports", "jest"),
+    ],
+)
+def test_body_round_trips_the_state_it_embeds(soon_id: str, lapsed_id: str, lapsed_runner: str) -> None:
+    entries = [
+        make_entry(id=soon_id, expires=TODAY + timedelta(days=2)),
+        make_entry(
+            id=lapsed_id,
+            runner=lapsed_runner,
+            added=TODAY - timedelta(days=20),
+            expires=TODAY - timedelta(days=2),
+        ),
+    ]
+    items = report.collect(entries, TODAY)
+    body = report.build_report(items, {}, core.DEFAULT_GRACE_DAYS).body
+    assert report.read_states(body) == {
+        f"pytest:{soon_id}": core.EXPIRING_SOON,
+        f"{lapsed_runner}:{lapsed_id}": core.IN_GRACE,
+    }
+    assert report.build_report(items, report.read_states(body), core.DEFAULT_GRACE_DAYS).comment is None
+
+
+@pytest.mark.parametrize("body", ["", "no marker here", "<!-- quarantine-expiry-state: not json -->"])
+def test_read_states_tolerates_a_body_without_usable_state(body: str) -> None:
+    assert report.read_states(body) == {}
+
+
+@pytest.mark.parametrize(
+    "previous_states, expect_comment",
+    [
+        ({}, True),
+        ({"pytest:lapsed": core.EXPIRING_SOON}, True),
+        # The same state under another runner is another entry, so this slips.
+        ({"jest:lapsed": core.IN_GRACE}, True),
+        ({"pytest:lapsed": core.IN_GRACE}, False),
+        ({"pytest:lapsed": core.OVERDUE}, False),
+    ],
+)
+def test_comment_goes_out_only_when_an_entry_slips(previous_states: dict[str, str], expect_comment: bool) -> None:
+    entry = make_entry(id="lapsed", added=TODAY - timedelta(days=20), expires=TODAY - timedelta(days=2))
+    built = report.build_report(report.collect([entry], TODAY), previous_states, core.DEFAULT_GRACE_DAYS)
+    assert (built.comment is not None) == expect_comment
+    if expect_comment:
+        assert "@PostHog/team-devex" in built.comment
+
+
+@pytest.mark.parametrize(
+    "ours, expected_number",
+    [
+        ([], None),
+        ([False], None),
+        ([True], 1),
+        ([False, True], 2),
+        ([True, False], 1),
+    ],
+)
+def test_open_issue_claims_only_an_issue_it_wrote(
+    monkeypatch: pytest.MonkeyPatch, ours: list[bool], expected_number: int | None
+) -> None:
+    digest = report.build_report([], {}, core.DEFAULT_GRACE_DAYS).body
+    listed = [
+        {"number": number, "body": digest if is_ours else "A person put the label on their own issue."}
+        for number, is_ours in enumerate(ours, start=1)
+    ]
+    monkeypatch.setattr(report, "_gh", lambda *a, **k: json.dumps(listed))
+    found = report.open_issue("PostHog/posthog")
+    assert (found[0] if found else None) == expected_number
+
+
+def test_open_issue_refuses_to_choose_between_two_digest_issues(monkeypatch: pytest.MonkeyPatch) -> None:
+    digest = report.build_report([], {}, core.DEFAULT_GRACE_DAYS).body
+    listed = [{"number": 1, "body": digest}, {"number": 2, "body": digest}]
+    monkeypatch.setattr(report, "_gh", lambda *a, **k: json.dumps(listed))
+    with pytest.raises(RuntimeError, match=r"#1, #2"):
+        report.open_issue("PostHog/posthog")
+
+
+@pytest.mark.parametrize(
+    "has_items, existing, expected_action, expected_subcommands, expected_preview",
+    [
+        (False, None, "nothing to report", [], "nothing to report"),
+        (False, (7, ""), "closed #7", ["issue close"], "would close #7\n\n{close_comment}"),
+        (True, None, "opened https://x/1", ["label create", "issue create"], "would open a new issue\n\n{body}"),
+        (
+            True,
+            (7, ""),
+            "updated #7 and notified owners",
+            ["issue comment", "issue edit"],
+            "would update #7 and notify owners\n\n{body}\n\n--- comment ---\n{comment}",
+        ),
+    ],
+)
+def test_preview_and_apply_agree_on_the_tracking_issue(
+    monkeypatch: pytest.MonkeyPatch,
+    has_items: bool,
+    existing: tuple[int, str] | None,
+    expected_action: str,
+    expected_subcommands: list[str],
+    expected_preview: str,
+) -> None:
+    calls: list[str] = []
+
+    def fake_gh(*args: str, repo: str, stdin: str | None = None) -> str:
+        calls.append(" ".join(args[:2]))
+        return "https://x/1"
+
+    monkeypatch.setattr(report, "_gh", fake_gh)
+    entries = [make_entry(added=TODAY - timedelta(days=20), expires=TODAY - timedelta(days=2))] if has_items else []
+    built = report.build_report(report.collect(entries, TODAY), {}, core.DEFAULT_GRACE_DAYS)
+    assert report.preview(built, existing) == expected_preview.format(
+        body=built.body, comment=built.comment, close_comment=report.CLOSE_COMMENT
+    )
+    assert report.apply(built, existing, "PostHog/posthog") == expected_action
+    assert calls == expected_subcommands
+
+
+def test_a_failed_comment_does_not_advance_the_state_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def fake_gh(*args: str, repo: str, stdin: str | None = None) -> str:
+        calls.append(args[1])
+        if args[1] == "comment":
+            raise RuntimeError("502 from GitHub")
+        return ""
+
+    monkeypatch.setattr(report, "_gh", fake_gh)
+    entry = make_entry(id="lapsed", added=TODAY - timedelta(days=20), expires=TODAY - timedelta(days=2))
+    built = report.build_report(report.collect([entry], TODAY), {}, core.DEFAULT_GRACE_DAYS)
+    with pytest.raises(RuntimeError):
+        report.apply(built, (7, ""), "PostHog/posthog")
+    assert calls == ["comment"]
+
+
+def test_dry_run_previews_what_a_real_run_would_post(monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = make_entry(id="lapsed", added=TODAY - timedelta(days=20), expires=TODAY - timedelta(days=2))
+    already_reported = report.build_report(report.collect([entry], TODAY), {}, core.DEFAULT_GRACE_DAYS).body
+    monkeypatch.setattr(report, "open_issue", lambda repo: (7, already_reported))
+    monkeypatch.setattr(report, "_gh", lambda *a, **k: pytest.fail("a dry run must not write"))
+
+    built, action = report.run([entry], TODAY, repo="PostHog/posthog", dry_run=True)
+    assert built.comment is None
+    assert action == f"would update #7\n\n{built.body}"
