@@ -95,6 +95,28 @@ describe('the person header', () => {
         it('returns undefined for a person without a profile', () => {
             expect(asLink({ distinct_ids: ['a uuid'] })).toBeUndefined()
         })
+
+        // A resolvable person UUID (carried by e.g. the activity feed's person column) must win over the
+        // distinct-id route, so merged/previously-anonymous subjects resolve instead of dead-ending.
+        it.each([
+            {
+                name: 'uuid is preferred over distinct_id',
+                person: { uuid: 'the-uuid', distinct_id: 'anon-did', properties: {} },
+                expectedLink: urls.personByUUID('the-uuid'),
+            },
+            {
+                name: 'id is preferred over distinct_ids',
+                person: { id: 'the-id', distinct_ids: ['anon-did'], properties: {} },
+                expectedLink: urls.personByUUID('the-id'),
+            },
+            {
+                name: 'falls back to distinct-id route when no uuid is present',
+                person: { distinct_id: 'anon-did', properties: {} },
+                expectedLink: urls.personByDistinctId('anon-did'),
+            },
+        ])('$name', ({ person, expectedLink }) => {
+            expect(asLink(person)).toEqual(expectedLink)
+        })
     })
 
     const displayTestCases = [

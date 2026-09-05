@@ -198,10 +198,10 @@ export function PersonDisplay({
     return (
         <Popover
             overlay={
-                person?.distinct_id || person?.distinct_ids?.[0] || person?.id ? (
+                person?.distinct_id || person?.distinct_ids?.[0] || person?.id || person?.uuid ? (
                     <PersonPreview
                         distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
-                        personId={person?.id}
+                        personId={person?.id || person?.uuid}
                         onClose={() => setVisible(false)}
                     />
                 ) : null
