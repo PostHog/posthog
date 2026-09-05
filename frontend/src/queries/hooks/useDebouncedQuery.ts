@@ -18,7 +18,21 @@ export function useDebouncedQuery<T extends Node = Node, V extends string = stri
         queryRef.current = query
     }, [query])
 
+    // resync when the query value changes from outside, e.g. the user clears a filter
+    // or the search resets, so the input never drifts from the query behind the list
+    useEffect(() => {
+        setLocalValue(propsValue)
+    }, [propsValue])
+
     const timeoutRef = useRef<number>()
+
+    // clear a pending debounce on unmount, so a stale value never reaches setQuery
+    useEffect(() => {
+        return () => {
+            timeoutRef.current && clearTimeout(timeoutRef.current)
+        }
+    }, [])
+
     const onChange = (newValue: V): void => {
         setLocalValue(newValue)
         timeoutRef.current && clearTimeout(timeoutRef.current)
