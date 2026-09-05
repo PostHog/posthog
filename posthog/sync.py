@@ -31,13 +31,18 @@ def _restore_context(context: contextvars.Context) -> None:
         cvalue = context.get(cvar)
         try:
             changed = cvar.get() != cvalue
-        except (LookupError, RuntimeError):
+        except LookupError:
+            changed = True
+        except RuntimeError as error:
+            # Log it because this branch also absorbs a RuntimeError that has nothing to do with
+            # concurrent mutation, and the copy below would then hide it.
+            logger.warning("contextvar_comparison_failed", contextvar=cvar.name, error=str(error))
             changed = True
         if changed:
             cvar.set(cvalue)
 
 
-asgiref.sync._restore_context = _restore_context
+asgiref.sync._restore_context = _restore_context  # ty: ignore[invalid-assignment]
 
 # Prometheus metric to track database_sync_to_async execution time
 DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
