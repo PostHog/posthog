@@ -248,7 +248,7 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = () => zod.object({
 })
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to one run group via `run_scope` (default_branch, pull_request, merge_queue). Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const EngineeringAnalyticsWorkflowHealthParams = () => zod.object({
     project_id: zod
@@ -274,10 +274,10 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = () => zod.object({
             "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     run_scope: zod
-        .enum(['all', 'pull_request'])
+        .enum(['all', 'default_branch', 'merge_queue', 'pull_request'])
         .optional()
         .describe(
-            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master\/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400."
+            "Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400."
         ),
     source_id: zod
         .string()
@@ -321,7 +321,7 @@ export const EngineeringAnalyticsWorkflowJobsQueryParams = () => zod.object({
 })
 
 /**
- * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an empty list when the job-level source isn't synced.
+ * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch` or one run group via `run_scope`. Returns an empty list when the job-level source isn't synced.
  */
 export const EngineeringAnalyticsWorkflowRunnerCostsParams = () => zod.object({
     project_id: zod
@@ -341,6 +341,12 @@ export const EngineeringAnalyticsWorkflowRunnerCostsQueryParams = () => zod.obje
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
     repo: zod.string().describe("'owner\/name' repository the workflow belongs to."),
+    run_scope: zod
+        .enum(['all', 'default_branch', 'merge_queue', 'pull_request'])
+        .optional()
+        .describe(
+            "Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400."
+        ),
     source_id: zod
         .string()
         .optional()

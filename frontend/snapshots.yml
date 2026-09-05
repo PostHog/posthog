@@ -6755,11 +6755,11 @@ snapshots:
     scenes-app-engineering-analytics-repo-overview--repo-overview--dark:
         hash: v1.k794b7964.09ef64d9006267921169bce24946a123da357220b073672855c5748cbfd70a8a.rmBqV1xBSmBbQ4ytQu1Wfbn8rU8G-_ygxdg4Iv2ZYa0
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
-        hash: v1.k794b7964.9d8340734437cceaf8eafb5841d32cf348aba3984880deb43a087ca52a7c141e.i--Tf67fIXrujVAuex5BOv6a_g07DMjU4zt0M-wvE5s
+        hash: v1.k794b7964.ff024adbf12bfe26aa95b0fede2474ff666d8386b6e054b253c3aa1aafd5aa82.ql2bGlQAXiUDvfhmM_FNno9iznQZP70xGq6s5FvSu1E
     scenes-app-engineering-analytics-repo-overview--repo-overview-with-trunk-queue-data--dark:
         hash: v1.k794b7964.09ef64d9006267921169bce24946a123da357220b073672855c5748cbfd70a8a.ZiDTQAtUGNSPIkKZAW9-A9Wg_gWA56jWWWnsyrEC73A
     scenes-app-engineering-analytics-repo-overview--repo-overview-with-trunk-queue-data--light:
-        hash: v1.k794b7964.9d8340734437cceaf8eafb5841d32cf348aba3984880deb43a087ca52a7c141e.a_ZXGTwAUt8Kl-DWfRAgHk82rJGHJ-xmR4V-kLHpsqo
+        hash: v1.k794b7964.ff024adbf12bfe26aa95b0fede2474ff666d8386b6e054b253c3aa1aafd5aa82.vOGfPMjEPBWTH5sUB7RD8DKZSX7plRforvUVN8U3dFI
     scenes-app-engineering-analytics-run-activity-chart--default--dark:
         hash: v1.k794b7964.7f17c5ac7c6862493f7c4d59e6e3c3146c42e3d7b08908ee1716d387c129ba64.lPsE9KrOSZee9wJq8zjqYnvk09numvEFWOn4mdCOgJE
     scenes-app-engineering-analytics-run-activity-chart--default--light:
@@ -6776,6 +6776,22 @@ snapshots:
         hash: v1.k794b7964.322bfce5ccced64987eb75406fa77e8a2ad80575597378810b984986f9fede0f.EwXIJ9x_Rc-dgkCVJJZBQM1W3voRSFtgHX95x8GbYIE
     scenes-app-engineering-analytics-test-health--trunk-quarantine-debt-owners-unavailable--light:
         hash: v1.k794b7964.8916de545edf558f799cc98ee4a901c19ba00fe7d0bb4f5312266705755e3e70.EO6V5mC_JCbSh5ZRrmyU09RT-hFV9f4Mtu_JkZ9m5Ng
+    scenes-app-engineering-analytics-workflow--workflow-detail--dark:
+        hash: v1.k794b7964.ad73605b9d2ce14499651b5092db854d5a33b289a2ba801c9932b82097d17551._vTR7s7pTsPf4Jqpud9Ros3xTEyMKDNRq_bxZGH4YQI
+    scenes-app-engineering-analytics-workflow--workflow-detail--light:
+        hash: v1.k794b7964.a8bae4a9f8c99831a40efc40d45830929c821f92dc64c178c928cb79fb28d803.kemt_E5bLDSNKFkToY4RgYKdKinS7OU3toQ2ANADIH0
+    scenes-app-engineering-analytics-workflow--workflow-detail-scoped-to-pull-requests--dark:
+        hash: v1.k794b7964.83266d8311cba1868fcb04ee01b7adbb735eaf21be4d3a97aa2d9969bd9f2054.EpETGKuRmOC-qs9veuhqMy4Q4mH64ZPsSsoWUoIwt0Q
+    scenes-app-engineering-analytics-workflow--workflow-detail-scoped-to-pull-requests--light:
+        hash: v1.k794b7964.ff4f0f9ac036004b077df9e764d70f458a2cabaff6120247405db4f20c48c22a.-_2pgTbtA7m9D09Ii-ma2Csf4Hd9KaDYqD0-aCYz-88
+    scenes-app-engineering-analytics-workflows--workflow-list--dark:
+        hash: v1.k794b7964.a6574f63289438debc52ecec13b02dbe441bc929a8d6f710da3186331cd8d1eb.KpORwpMNnIj4CILhscu52yveUkN_65SPEzYkBUAaumU
+    scenes-app-engineering-analytics-workflows--workflow-list--light:
+        hash: v1.k794b7964.5f05abb04f8ecaedb71a23c181ece577502973cffc121b6efa62a625b387b849.kvJE0j7aXn3msG_CABO1vJ0JnwNSl7xR6WvTI-96Uf4
+    scenes-app-engineering-analytics-workflows--workflow-list-scoped-to-merge-queue--dark:
+        hash: v1.k794b7964.0d776627e8ea6f451edda646d46213ff1824622bfbf05f241cedde4f389eea53.T-N7suNL7SWI82Itg8Aj1zG_e4VWpLwxD637Yyc4kJw
+    scenes-app-engineering-analytics-workflows--workflow-list-scoped-to-merge-queue--light:
+        hash: v1.k794b7964.902b8f58f105c902d7b9bb33d334270050dd87cec247278a70ba336b5a2ce65e.cj8sq9zPxFNH6EBZ0wlMjJJEZy5aZQregQk3jrD6X80
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.30ace8f015100159e1dedbed07ff9f0b0b770535870d5c98ea764b10ff1f7621.dTVw9qLa7D_e7ZNme4tVuPZov-0Gg1o84aiDl5zihF0
     scenes-app-error-project-unavailable--access-revoked--light:
