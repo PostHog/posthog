@@ -93,6 +93,7 @@ export function processEvent(event: PluginEvent, { global, logger }: UserAgentMe
     }
 
     const agentInfo = detect(userAgent)
+    const inAppBrowser = detectInAppBrowser(userAgent)
     const device = detectDevice(userAgent)
     const deviceType = detectDeviceType(userAgent)
 
@@ -117,7 +118,7 @@ export function processEvent(event: PluginEvent, { global, logger }: UserAgentMe
     properties['$device_type'] = deviceType
 
     if (agentInfo) {
-        properties['$browser'] = agentInfo.name
+        properties['$browser'] = inAppBrowser ?? agentInfo.name
         properties['$browser_version'] = agentInfo.version
         properties['$os'] = agentInfo.os
         // Custom property
@@ -127,6 +128,33 @@ export function processEvent(event: PluginEvent, { global, logger }: UserAgentMe
     event.properties = properties
 
     return event
+}
+
+// `detect-browser` names a few in-app browsers (facebook, instagram, kakaotalk) but only
+// from their iOS markers. The Android builds of those same apps carry different markers and
+// fall through to `chrome`/`chromium-webview`, so one app reports two different `$browser`
+// values depending on the platform, and the rest of the in-app families are not detected at
+// all. Names here stay lowercase to match the ones `detect-browser` already emits.
+const IN_APP_BROWSERS: [RegExp, string][] = [
+    // FBAN/FBIOS on iOS, FB_IAB/FB4A on Android; FBAV is the app version on both.
+    [/\b(FBAN|FB_IAB|FB4A|FBAV)\b/i, 'facebook'],
+    [/\bInstagram\b/i, 'instagram'],
+    [/\[LinkedInApp\]/i, 'linkedin'],
+    // musical_ly is TikTok's legacy name; BytedanceWebview covers the newer builds.
+    // No trailing \b: the marker ships as `musical_ly_2022803040`, and `_` is a word character.
+    [/\b(musical_ly|BytedanceWebview)/i, 'tiktok'],
+    [/\bMicroMessenger\//i, 'wechat'],
+    [/\bLine\/[\d.]+/i, 'line'],
+    [/\b(TwitterAndroid)\b|Twitter for \w+/i, 'twitter'],
+]
+
+/**
+ * Resolve the in-app browser a user agent belongs to, if any.
+ *
+ * Returns undefined for ordinary browsers so the caller keeps `detect-browser`'s own name.
+ */
+function detectInAppBrowser(userAgent: string): string | undefined {
+    return IN_APP_BROWSERS.find(([pattern]) => pattern.test(userAgent))?.[1]
 }
 
 // detectDevice and detectDeviceType from https://github.com/PostHog/posthog-js/blob/9abedce5ac877caeb09205c4b693988fc09a63ca/src/utils.js#L808-L837
