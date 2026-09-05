@@ -15,7 +15,8 @@ const RETRY_PROMPT_DELAY_MS = 8000
  * `retryImport` and `ChunkLoadErrorBoundary`; a chunk that only hangs reaches neither, so
  * without this the person waits on a dead screen. The reload shares the boundary's guard,
  * which stops a chunk that keeps failing from reloading in a loop. When the guard blocks the
- * reload, the fallback explains the wait and offers a manual reload instead.
+ * reload, or the browser cannot store the guard stamp, the fallback explains the wait and
+ * offers a manual reload instead.
  *
  * `showSpinner` comes from `appLogic.showingDelayedSpinner`, which starts its delay
  * at app boot. The boot spinner can therefore be on screen before this fallback
@@ -27,11 +28,12 @@ export function AuthenticatedShellFallback({ showSpinner }: { showSpinner: boole
 
     useEffect(() => {
         const retryTimer = window.setTimeout(() => {
-            const autoReload = !reloadedForChunkFailureRecently()
+            // A stalled chunk can still arrive, so reload only while the stamp persists to stop the
+            // next reload. A browser that cannot store the stamp would otherwise reload every 8s.
+            const autoReload = !reloadedForChunkFailureRecently() && markChunkFailureReload()
             // sendBeacon survives the page unloading under the reload below.
             posthog.capture('app shell load stalled', { auto_reloaded: autoReload }, { transport: 'sendBeacon' })
             if (autoReload) {
-                markChunkFailureReload()
                 window.location.reload()
                 return
             }

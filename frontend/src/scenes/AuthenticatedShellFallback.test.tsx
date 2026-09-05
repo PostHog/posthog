@@ -26,6 +26,7 @@ describe('AuthenticatedShellFallback', () => {
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
     it('takes spinner visibility from the app-level delay instead of restarting it', () => {
@@ -59,8 +60,17 @@ describe('AuthenticatedShellFallback', () => {
         )
     })
 
-    it('offers a manual reload instead of reloading again after a recent reload', () => {
-        markChunkFailureReload()
+    test.each([
+        { case: 'a reload already happened', blockGuard: () => markChunkFailureReload() },
+        {
+            case: 'the browser cannot store the reload stamp',
+            blockGuard: () =>
+                jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+                    throw new Error('QuotaExceededError')
+                }),
+        },
+    ])('offers a manual reload instead of reloading again when $case', ({ blockGuard }) => {
+        blockGuard()
         render(<AuthenticatedShellFallback showSpinner />)
 
         act(() => {

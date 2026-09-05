@@ -16,12 +16,17 @@ export function reloadedForChunkFailureRecently(): boolean {
     }
 }
 
-export function markChunkFailureReload(): void {
+/**
+ * Stamps this reload and returns whether the stamp reached storage. A caller can only count its
+ * reloads while the stamp persists, so a false result means the next page load starts again with
+ * no record of this one.
+ */
+export function markChunkFailureReload(): boolean {
     try {
         window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
+        return true
     } catch {
         // localStorage may throw QuotaExceededError (Safari private mode, full storage).
-        // Skip the guard and reload anyway - without the timestamp the worst case is
-        // a reload loop, which only happens if the chunk itself keeps failing.
+        return false
     }
 }

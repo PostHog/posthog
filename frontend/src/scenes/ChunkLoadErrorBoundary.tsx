@@ -38,6 +38,8 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
             return
         }
         console.warn('[ChunkLoadErrorBoundary] Chunk-load failure (likely stale deploy); reloading.')
+        // The chunk already failed and one reload is the usual recovery from a stale deploy, so
+        // reload even when the stamp does not persist.
         markChunkFailureReload()
         if (this.props.reload) {
             this.props.reload()
