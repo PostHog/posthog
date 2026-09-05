@@ -55,6 +55,7 @@ def _event_definitions_source_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool,
     conditions: str,
+    project_first: bool = False,
 ) -> str:
     """FROM/JOIN/WHERE shared by the page fetch and the count that pages it."""
     # LEFT, not FULL OUTER. The two return the same rows here, on two independent grounds:
@@ -80,10 +81,19 @@ def _event_definitions_source_sql(
     # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
     # for any `name` equality in `conditions`. The equivalent form
     # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
+    source = "posthog_eventdefinition"
+    scope = "COALESCE(project_id, team_id) = %(project_id)s"
+    if project_first:
+        # OFFSET 0 prevents predicate pushdown: ILIKE must run after the project scan, so it
+        # cannot read the global trigram posting lists. Unlike a materialized name list,
+        # this streams base rows once and joins enterprise metadata only for search matches.
+        source = f"(SELECT * FROM posthog_eventdefinition WHERE {scope} OFFSET 0) AS posthog_eventdefinition"
+        scope = "true"
+
     return f"""
-            FROM posthog_eventdefinition
+            FROM {source}
             {enterprise_join}
-            WHERE COALESCE(project_id, team_id) = %(project_id)s
+            WHERE {scope}
             {conditions}
         """
 
@@ -92,13 +102,14 @@ def create_event_definitions_count_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
+    project_first: bool = False,
 ) -> str:
     """Counts the rows `create_event_definitions_sql` pages over.
 
     Selecting no column lets Postgres drop the enterprise join whenever `conditions` reads only
     base-table columns, so the common count is an index-only scan.
     """
-    return f"SELECT count(*) {_event_definitions_source_sql(event_type, is_enterprise, conditions)}"
+    return f"SELECT count(*) {_event_definitions_source_sql(event_type, is_enterprise, conditions, project_first)}"
 
 
 def create_event_definitions_sql(
@@ -107,6 +118,7 @@ def create_event_definitions_sql(
     conditions: str = "",
     order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
     paginated: bool = True,
+    project_first: bool = False,
 ) -> str:
     if order_expressions is None:
         order_expressions = []
@@ -145,7 +157,7 @@ def create_event_definitions_sql(
 
     return f"""
             SELECT {",".join(selected_fields)}
-            {_event_definitions_source_sql(event_type, is_enterprise, conditions)}
+            {_event_definitions_source_sql(event_type, is_enterprise, conditions, project_first)}
             ORDER BY {",".join(additional_ordering)}
             {limit_clause}
         """
@@ -381,6 +393,16 @@ class EventDefinitionViewSet(
 
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+        project_first = (
+            bool(search_query)
+            and posthoganalytics.feature_enabled(
+                "event-definition-project-first-search",
+                str(self.project_id),
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+            is True
+        )
 
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
@@ -448,6 +470,7 @@ class EventDefinitionViewSet(
             conditions=search_query,
             order_expressions=order_expressions,
             paginated=not tags_list,
+            project_first=project_first,
         )
 
         if tags_list:
@@ -466,6 +489,7 @@ class EventDefinitionViewSet(
             event_type,
             is_enterprise=EE_AVAILABLE,
             conditions=search_query,
+            project_first=project_first,
         )
         # The count has to run on the connection the page fetch will use, or it describes a
         # different row set than the one it bounds.

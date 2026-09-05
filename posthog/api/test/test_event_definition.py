@@ -72,7 +72,13 @@ class TestEventDefinitionAPI(APIBaseTest):
             )
             assert abs((dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds()) < 1
 
-    def test_list_event_definitions_scopes_by_project_across_environments(self):
+    @parameterized.expand([("listing", "", False), ("search", "e", False), ("project_first", "e", True)])
+    def test_list_event_definitions_scopes_by_project_across_environments(
+        self, _name: str, search: str, project_first: bool
+    ):
+        self.enterContext(
+            patch("posthog.api.event_definition.posthoganalytics.feature_enabled", return_value=project_first)
+        )
         # Rows written before the project backfill have project_id NULL and scope by team_id; rows written
         # since carry project_id. Both must be visible from any environment of the project, and a sibling
         # project's rows must not. Guards the scope predicate against a rewrite to only one of the columns.
@@ -84,10 +90,14 @@ class TestEventDefinitionAPI(APIBaseTest):
         EventDefinition.objects.create(
             team=other_project_team, project_id=other_project_team.project_id, name="from_other_project"
         )
+        EventDefinition.objects.create(
+            team=other_project_team, project_id=other_project_team.project_id, name="from_other_env"
+        )
 
-        response = self.client.get("/api/projects/@current/event_definitions/")
+        response = self.client.get("/api/projects/@current/event_definitions/", data={"search": search})
 
         assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS) + 1
         result_names = {r["name"] for r in response.json()["results"]}
         assert "from_other_env" in result_names
         assert "from_other_project" not in result_names
@@ -273,7 +283,11 @@ class TestEventDefinitionAPI(APIBaseTest):
             assert len(response.json()["results"]) == (100 if i < 2 else 6)  # Each page has 100 except the last one
             assert response.json()["results"][0]["name"] == f"z_event_{event_checkpoints[i]}"
 
-    def test_list_reads_only_the_requested_page_from_postgres(self):
+    @parameterized.expand([("default", False), ("project_first", True)])
+    def test_list_reads_only_the_requested_page_from_postgres(self, _name: str, project_first: bool):
+        flag = self.enterContext(
+            patch("posthog.api.event_definition.posthoganalytics.feature_enabled", return_value=project_first)
+        )
         EventDefinition.objects.bulk_create(
             [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]
         )
@@ -290,6 +304,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         ]
         assert page_fetches
         assert all("LIMIT 10" in sql for sql in page_fetches)
+        assert not any(call.args[0] == "event-definition-project-first-search" for call in flag.call_args_list)
 
         expected_names = sorted(f"z_event_{i}" for i in range(1, 301))
         for offset in (0, 11, 300, 301):
@@ -322,7 +337,11 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json() == self.permission_denied_response("You don't have access to the project.")
 
-    def test_query_event_definitions(self):
+    @parameterized.expand([("default", False), ("project_first", True)])
+    def test_query_event_definitions(self, _name: str, project_first: bool):
+        self.enterContext(
+            patch("posthog.api.event_definition.posthoganalytics.feature_enabled", return_value=project_first)
+        )
         # Regular search
         response = self.client.get("/api/projects/@current/event_definitions/?search=app")
         assert response.status_code == status.HTTP_200_OK
@@ -724,9 +743,18 @@ class TestEventDefinitionAPI(APIBaseTest):
 
 
 class TestCreateEventDefinitionsSql(SimpleTestCase):
-    @parameterized.expand([("enterprise", True), ("open source", False)])
-    def test_selects_columns_in_a_stable_order(self, _name: str, is_enterprise: bool):
-        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=is_enterprise)
+    @parameterized.expand(
+        [
+            ("enterprise", True, False),
+            ("open source", False, False),
+            ("enterprise search", True, True),
+            ("open source search", False, True),
+        ]
+    )
+    def test_selects_columns_in_a_stable_order(self, _name: str, is_enterprise: bool, project_first: bool):
+        sql = create_event_definitions_sql(
+            EventDefinitionType.EVENT, is_enterprise=is_enterprise, project_first=project_first
+        )
         select_clause = sql.split("SELECT ", 1)[1].split("FROM", 1)[0]
         columns = [column.strip() for column in select_clause.split(",")]
         assert columns == sorted(columns)
@@ -759,9 +787,15 @@ class TestEventDefinitionExcludeStale(APIBaseTest):
                 "?exclude_stale=true",
                 {"fresh_event", "never_seen_event"},
             ),
+            (
+                "search hides stale events but keeps never-seen",
+                "?exclude_stale=true&search=event",
+                {"fresh_event", "never_seen_event"},
+            ),
         ]
     )
     def test_exclude_stale_filter(self, _description: str, query_string: str, expected_names: set[str]) -> None:
+        self.enterContext(patch("posthog.api.event_definition.posthoganalytics.feature_enabled", return_value=True))
         now = timezone.now()
         EventDefinition.objects.create(team=self.team, name="fresh_event", last_seen_at=now - timedelta(days=1))
         EventDefinition.objects.create(team=self.team, name="stale_event", last_seen_at=now - timedelta(days=45))
