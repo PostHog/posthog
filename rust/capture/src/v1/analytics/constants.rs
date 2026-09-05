@@ -70,9 +70,14 @@ pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
 /// were not flagged `historical_migration: true`.
 pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop";
 
-/// Detail tag for events dropped by an AI-mode deployment because they are not
-/// on the AI lane.
-pub(super) const DETAIL_NON_AI_EVENT: &str = "non_ai_event";
+/// Detail tag for an event posted to the wrong capture endpoint, in either
+/// direction: an AI-lane event name on `/i/v1/analytics/events`, or a
+/// non-AI-lane name on `/i/v1/ai/events`. One tag covers both because the
+/// caller's mistake and its fix are the same in each case -- use the other
+/// capture method. The warning's `path` detail records which way it went, and
+/// on the metric the emitting deployment does (capture-analytics vs
+/// capture-ai), so neither loses the direction.
+pub(super) const DETAIL_MISROUTED_EVENT: &str = "misrouted_event";
 
 /// Detail tag for events dropped due to uncoercible options fields.
 pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
