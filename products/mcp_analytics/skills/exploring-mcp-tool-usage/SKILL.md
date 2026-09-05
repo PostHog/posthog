@@ -19,10 +19,8 @@ skill — that answers what they choose.
 
 Every per-tool tool here is gated behind the `mcp-analytics` flag, takes a
 `toolName` (the effective tool name — resolved server-side, so pass the name the
-agent actually invokes — **except `posthog:query-mcp-tool-failures`**, which
-matches `$exception` events and so takes the raw registered `$mcp_tool_name`)
-plus a `dateRange`, and runs the same query runner the tool-detail UI uses. So
-results match the UI, and you never hand-write the HogQL.
+agent actually invokes) plus a `dateRange`, and runs the same query runner the
+tool-detail UI uses. So results match the UI, and you never hand-write the HogQL.
 
 ## Suggested questions
 
@@ -33,7 +31,7 @@ Lead with these when the user is unsure what to ask:
 | "Which tools fail most, or are slowest?"          | `posthog:query-mcp-tools` — every tool ranked, then `posthog:query-mcp-tool-stats` to drill in |
 | "How is tool X doing overall?"                    | `posthog:query-mcp-tool-stats` — calls, errors, p50/p95, users, sessions, intents              |
 | "How has tool X trended?"                         | `posthog:query-mcp-tool-daily-stats` — day-by-day series                                       |
-| "Why is tool X failing?"                          | `posthog:query-mcp-tool-failures` — top error messages, by harness (raw tool name)             |
+| "Why is tool X failing?"                          | `posthog:query-mcp-tool-failures` — top error messages, by harness                             |
 | "Who uses tool X the most?"                       | `posthog:query-mcp-tool-top-users` — top callers (incl. person email/name)                     |
 | "What gets called right before/after tool X?"     | `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`)                       |
 | "What are agents trying to do with tool X?"       | `posthog:query-mcp-tool-sample-intents` — recent agent intents                                 |
@@ -50,8 +48,9 @@ asked a broad "which tool…" question, start with `posthog:query-mcp-tools`, wh
 ranks every tool and needs no parameters, pick the one that stands out, then
 drill in with the per-tool tools above. The name to pass is the **effective**
 tool name (the inner tool for single-exec wrapper calls) — the same string the tool-quality ranking returns.
-The one exception is `posthog:query-mcp-tool-failures`, which matches `$exception`
-events by the raw registered `$mcp_tool_name`, not the effective inner tool.
+Every per-tool tool takes that name, `posthog:query-mcp-tool-failures` included:
+it reads the errored `$mcp_tool_call` events, so it resolves the name the same way
+the ranking does.
 
 ## How to use a per-tool tool
 
