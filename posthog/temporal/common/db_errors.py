@@ -34,6 +34,11 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # down" above, just raised by the pooler in front of Postgres rather than Postgres itself.
     # A connect failure through a pooler, so no SQLSTATE — falls through to this message match.
     "pooler is shutting down",
+    # libpq refuses to send on a connection that still has an unfinished command on it. On a
+    # pooled connection this means the previous command was interrupted (a cancelled activity
+    # thread, a dropped backend) and left the socket mid-command. The connection is discarded and
+    # remade on the next attempt, so the condition clears without us doing anything special.
+    "another command is already in progress",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and
