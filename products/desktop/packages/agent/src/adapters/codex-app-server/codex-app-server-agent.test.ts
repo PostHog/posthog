@@ -2742,6 +2742,47 @@ describe("CodexAppServerAgent", () => {
     );
   });
 
+  it("carries the app-server cause and its classification on a fatal error", async () => {
+    // The display carries the app-server's cause, and the error data carries its
+    // classification so the host can tell a transient upstream cut from a real
+    // agent error. Without the classification the host skips its bounded turn
+    // retry and the run dies.
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", {
+      willRetry: false,
+      error: { message: "unexpected status 503 Service Unavailable: retry" },
+    });
+
+    const err = await done.then(
+      () => {
+        throw new Error("prompt resolved instead of rejecting");
+      },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(RequestError);
+    // Exact match: the client renders this sentence, so a stray "Internal
+    // error: " prefix from RequestError.internalError() would be a regression a
+    // substring assertion could not catch.
+    expect((err as RequestError).message).toBe(
+      "The agent stopped before completing this request: unexpected status 503 Service Unavailable: retry",
+    );
+    expect((err as RequestError).data).toEqual({
+      classification: "upstream_provider_failure",
+      result: "unexpected status 503 Service Unavailable: retry",
+    });
+  });
+
   it("rejects the prompt when the fatal error is a gateway billing denial", async () => {
     // A silent refusal would hide the free-tier gate: the host only shows the
     // upgrade modal when the prompt rejects with the gateway's message.

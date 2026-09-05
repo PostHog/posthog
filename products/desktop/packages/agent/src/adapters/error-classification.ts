@@ -11,6 +11,10 @@ export type AgentErrorClassification =
   | "agent_error";
 
 const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
+// The codex app-server reports a provider HTTP failure as
+// "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
+const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
+  /unexpected status\s*(?:429|5\d\d)\b/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
   /\[ede_diagnostic\]\s+result_type=user\b/i;
 // Anthropic's exact CLI wording for a Claude Pro/Max own-subscription limit
@@ -57,7 +61,10 @@ export function classifyAgentError(
   if (/API Error:.*\b(?:timed out|timeout)\b/i.test(text)) {
     return "upstream_timeout";
   }
-  if (UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text)) {
+  if (
+    UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
+    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text)
+  ) {
     return "upstream_provider_failure";
   }
   if (/API Error:\s*Content block\b/i.test(text)) {

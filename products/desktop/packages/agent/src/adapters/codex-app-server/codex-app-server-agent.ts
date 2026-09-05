@@ -60,6 +60,7 @@ import {
   emptyBaseline,
   estimateTokens,
 } from "../claude/context-breakdown";
+import { classifyAgentError } from "../error-classification";
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
@@ -106,7 +107,6 @@ import { parseStructuredOutput } from "./structured-output";
 import { TurnController } from "./turn-controller";
 import { mergeUsage, UsageTracker } from "./usage-tracker";
 
-const ACP_INTERNAL_ERROR_CODE = -32603;
 const CYBER_POLICY_ERROR_MESSAGE =
   "This request was blocked because it may pose a cybersecurity risk. Revise the request and try again.";
 const POLICY_ERROR_MESSAGE =
@@ -1806,11 +1806,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           void this.refuseTurnWithMessage(message);
           return;
         }
+        // Keep the app-server's cause in the display, and carry its
+        // classification as error data so the host can tell a transient
+        // upstream cut from a fatal agent error and fire its bounded turn
+        // retry. Build the error directly rather than via `internalError`,
+        // which would prepend "Internal error: " to the sentence the client
+        // renders.
         void this.failTurn(
-          new RequestError(
-            ACP_INTERNAL_ERROR_CODE,
-            describeFatalError(message),
-          ),
+          new RequestError(-32603, describeFatalError(message), {
+            classification: classifyAgentError(message),
+            result: message,
+          }),
         );
       }
     }
