@@ -295,6 +295,15 @@ def to_config(
             else:
                 config_types = typing.get_args(field_type)
 
+            has_default = field.default is not dataclasses.MISSING or field.default_factory is not dataclasses.MISSING
+            if has_default and not _mapping_holds_nested_config(
+                config_types, d, (field_flat_key, field_nested_key, field.name), field_meta, top_level_prefixes
+            ):
+                # Nothing in the mapping addresses this nested config, so its default stands. The
+                # flat-structure path below would otherwise read the enclosing config's own keys
+                # and build, for example, an SSH tunnel out of the database host, port and password.
+                continue
+
             for config_type in config_types:
                 if not is_config(config_type):
                     if config_type is type(None):
@@ -373,6 +382,33 @@ def to_config(
         if not missing:
             raise
         raise TypeError(f"Cannot build '{config_cls.__name__}': missing required field(s) {missing}") from e
+
+
+def _mapping_holds_nested_config(
+    config_types: tuple[typing.Any, ...],
+    d: dict[str, typing.Any],
+    field_keys: tuple[str, ...],
+    field_meta: MetaConfig | None,
+    top_level_prefixes: tuple[str, ...],
+) -> bool:
+    """Whether a mapping carries any value for a nested config field.
+
+    A nested config is addressed either by one of the field's own keys, when the value is a
+    nested mapping, or by prefixed keys for its members, when the mapping is flat.
+    """
+    if any(field_key in d for field_key in field_keys):
+        return True
+
+    for config_type in config_types:
+        config_type_meta = _try_get_meta(config_type)
+        if config_type_meta is None:
+            continue
+
+        prefix = "_".join(_resolve_field_prefixes(config_type, config_type_meta, field_meta, top_level_prefixes))
+        if any(key.startswith(f"{prefix}_") for key in d):
+            return True
+
+    return False
 
 
 def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
