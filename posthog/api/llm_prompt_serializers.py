@@ -192,6 +192,11 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         help_text=CONTENT_MODE_HELP,
     )
 
+    def validate_label(self, value: str) -> str:
+        if not value.strip():
+            return ""
+        return validate_prompt_label_name_value(value)
+
 
 class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
     version_id = serializers.UUIDField(
