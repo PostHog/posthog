@@ -67749,7 +67749,7 @@ export namespace Schemas {
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
-      /** HTTPS or mailto URL for link questions. */
+      /** HTTPS or mailto URL for link questions. To deep link into a mobile app, add the app's URL scheme to survey_config.allowed_link_schemes on the project first (e.g. ["myapp"]), then use it here (e.g. myapp://home). */
       link: string;
     }
 

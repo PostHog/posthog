@@ -456,7 +456,11 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
-                    link: zod.string().describe('HTTPS or mailto URL for link questions.'),
+                    link: zod
+                        .string()
+                        .describe(
+                            'HTTPS or mailto URL for link questions. To deep link into a mobile app, add the app\'s URL scheme to survey_config.allowed_link_schemes on the project first (e.g. [\"myapp\"]), then use it here (e.g. myapp:\/\/home).'
+                        ),
                 }),
                 zod.object({
                     id: zod
@@ -2176,7 +2180,11 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
-                    link: zod.string().describe('HTTPS or mailto URL for link questions.'),
+                    link: zod
+                        .string()
+                        .describe(
+                            'HTTPS or mailto URL for link questions. To deep link into a mobile app, add the app\'s URL scheme to survey_config.allowed_link_schemes on the project first (e.g. [\"myapp\"]), then use it here (e.g. myapp:\/\/home).'
+                        ),
                 }),
                 zod.object({
                     id: zod

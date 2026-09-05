@@ -40,6 +40,7 @@ from products.surveys.backend.api.survey import (
     get_survey_api_translations,
     get_surveys_response,
     nh3_clean_with_allow_list,
+    resolve_allowed_link_schemes,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
@@ -3982,6 +3983,63 @@ class TestSurveyQuestionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == invalid_url
+
+    @parameterized.expand(
+        [
+            ("no_setting", None, ["https", "mailto"]),
+            ("registered", ["myapp"], ["https", "mailto", "myapp"]),
+            ("uppercase", ["MyApp"], ["https", "mailto", "myapp"]),
+            ("never_registrable_dropped", ["javascript", "smb", "myapp"], ["https", "mailto", "myapp", "smb"]),
+            ("not_a_list", "myapp", ["https", "mailto"]),
+            ("malformed_entries", ["not a scheme", 7], ["https", "mailto"]),
+        ]
+    )
+    def test_resolve_allowed_link_schemes(self, _name: str, registered, expected: list[str]):
+        assert resolve_allowed_link_schemes({"allowed_link_schemes": registered}) == expected
+
+    def _register_link_schemes(self, *schemes: str) -> None:
+        self.team.survey_config = {"allowed_link_schemes": list(schemes)}
+        self.team.save(update_fields=["survey_config"])
+
+    def _post_link_survey(self, link: str):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+                "questions": [{"type": "link", "link": link, "question": "What do you think?"}],
+            },
+            format="json",
+        )
+
+    def test_create_rejects_an_app_scheme_the_project_did_not_register(self):
+        response = self._post_link_survey("example-mobile://home")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Link must be a URL with one of these schemes: [https, mailto]"
+
+    def test_create_accepts_an_app_scheme_the_project_registered(self):
+        self._register_link_schemes("example-mobile")
+
+        response = self._post_link_survey("example-mobile://home")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["questions"][0]["link"] == "example-mobile://home"
+
+    def test_registering_a_scheme_we_never_allow_grants_nothing(self):
+        # The read-time filter is what stops a project admin turning survey links into an XSS
+        # vector against their own respondents.
+        self._register_link_schemes("javascript")
+
+        response = self._post_link_survey("javascript:alert(1)")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_rejects_an_unparseable_link_with_400(self):
+        # urlparse raises on an unbalanced bracket, which would otherwise surface as a 500.
+        response = self._post_link_survey("https://[")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_validate_link_mailto(self):
         response = self.client.post(
