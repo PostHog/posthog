@@ -163,7 +163,13 @@ class PersonStrategy(ActorStrategy):
                             right=ast.Constant(value=f"%{search}%"),
                         ),
                         parse_expr(
-                            "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
+                            # Filter distinct_ids in the raw scan, before the argMax dedup runs.
+                            # distinct_id is the group key, so this early filter cannot change which
+                            # row wins the argMax, but it stops ClickHouse from deduplicating the
+                            # team's whole distinct_id table just to drop most rows afterwards.
+                            "id in (select argMax(person_id, version) from raw_person_distinct_ids "
+                            "where ilike(distinct_id, {search}) group by distinct_id "
+                            "having argMax(is_deleted, version) = 0)",
                             {"search": ast.Constant(value=f"%{search}%")},
                         ),
                     ]
