@@ -118,6 +118,12 @@
                     "order": {
                         "type": "number"
                     },
+                    "secret_keys": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
                     "templating": {
                         "description": "* `hog` - hog\n* `liquid` - liquid",
                         "enum": ["hog", "liquid"],
@@ -171,6 +177,9 @@
                     },
                     "secret": {
                         "default": false,
+                        "type": "boolean"
+                    },
+                    "secret_entries": {
                         "type": "boolean"
                     },
                     "templating": {
@@ -293,6 +302,12 @@
                                         "order": {
                                             "type": "number"
                                         },
+                                        "secret_keys": {
+                                            "items": {
+                                                "type": "string"
+                                            },
+                                            "type": "array"
+                                        },
                                         "templating": {
                                             "description": "* `hog` - hog\n* `liquid` - liquid",
                                             "enum": ["hog", "liquid"],
@@ -344,6 +359,9 @@
                                         },
                                         "secret": {
                                             "default": false,
+                                            "type": "boolean"
+                                        },
+                                        "secret_entries": {
                                             "type": "boolean"
                                         },
                                         "templating": {

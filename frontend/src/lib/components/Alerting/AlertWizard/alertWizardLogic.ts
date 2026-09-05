@@ -206,6 +206,7 @@ export interface alertWizardLogicValues {
                 bytecode?: any
                 order?: number | undefined
                 secret?: boolean | undefined
+                secret_keys?: string[] | undefined
                 templating?: 'hog' | 'liquid' | undefined
                 value: any
             }
@@ -296,6 +297,7 @@ export interface alertWizardLogicActions {
             bytecode?: any
             order?: number | undefined
             secret?: boolean | undefined
+            secret_keys?: string[] | undefined
             templating?: 'hog' | 'liquid' | undefined
             value: any
         }
@@ -354,6 +356,7 @@ export interface alertWizardLogicMeta {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -365,6 +368,7 @@ export interface alertWizardLogicMeta {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }

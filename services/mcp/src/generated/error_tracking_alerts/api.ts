@@ -122,6 +122,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemHiddenDefault),
+                secret_entries: zod.boolean().optional(),
                 description: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
             })
@@ -137,6 +138,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                 bytecode: zod.array(zod.unknown()).optional(),
                 order: zod.number().optional(),
                 transpiled: zod.unknown().optional(),
+                secret_keys: zod.array(zod.string()).optional(),
             })
         )
         .optional()
@@ -221,6 +223,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                             hidden: zod
                                 .boolean()
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemHiddenDefault),
+                            secret_entries: zod.boolean().optional(),
                             description: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                         })
@@ -238,6 +241,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                             bytecode: zod.array(zod.unknown()).optional(),
                             order: zod.number().optional(),
                             transpiled: zod.unknown().optional(),
+                            secret_keys: zod.array(zod.string()).optional(),
                         })
                     )
                     .optional(),
@@ -376,6 +380,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemHiddenDefault),
+                secret_entries: zod.boolean().optional(),
                 description: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
             })
@@ -391,6 +396,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                 bytecode: zod.array(zod.unknown()).optional(),
                 order: zod.number().optional(),
                 transpiled: zod.unknown().optional(),
+                secret_keys: zod.array(zod.string()).optional(),
             })
         )
         .optional()
@@ -475,6 +481,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                             hidden: zod
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemHiddenDefault),
+                            secret_entries: zod.boolean().optional(),
                             description: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                         })
@@ -492,6 +499,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                             bytecode: zod.array(zod.unknown()).optional(),
                             order: zod.number().optional(),
                             transpiled: zod.unknown().optional(),
+                            secret_keys: zod.array(zod.string()).optional(),
                         })
                     )
                     .optional(),

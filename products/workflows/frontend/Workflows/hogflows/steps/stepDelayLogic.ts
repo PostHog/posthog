@@ -273,6 +273,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -288,6 +289,7 @@ export interface stepDelayLogicActions {
                                           bytecode?: any
                                           order?: number | undefined
                                           secret?: boolean | undefined
+                                          secret_keys?: string[] | undefined
                                           templating?: 'hog' | 'liquid' | undefined
                                           value: any
                                       }
@@ -314,6 +316,7 @@ export interface stepDelayLogicActions {
                                       requiredScopes?: string | undefined
                                       requires_field?: string | undefined
                                       secret?: boolean | undefined
+                                      secret_entries?: boolean | undefined
                                       templating?: boolean | undefined
                                       type:
                                           | 'boolean'
@@ -369,6 +372,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -384,6 +388,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -399,6 +404,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -414,6 +420,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -430,6 +437,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -457,6 +465,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -585,6 +594,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -600,6 +610,7 @@ export interface stepDelayLogicActions {
                                           bytecode?: any
                                           order?: number | undefined
                                           secret?: boolean | undefined
+                                          secret_keys?: string[] | undefined
                                           templating?: 'hog' | 'liquid' | undefined
                                           value: any
                                       }
@@ -626,6 +637,7 @@ export interface stepDelayLogicActions {
                                       requiredScopes?: string | undefined
                                       requires_field?: string | undefined
                                       secret?: boolean | undefined
+                                      secret_entries?: boolean | undefined
                                       templating?: boolean | undefined
                                       type:
                                           | 'boolean'
@@ -665,6 +677,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -680,6 +693,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -695,6 +709,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -721,6 +736,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -737,6 +753,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }
@@ -753,6 +770,7 @@ export interface stepDelayLogicActions {
                           bytecode?: any
                           order?: number | undefined
                           secret?: boolean | undefined
+                          secret_keys?: string[] | undefined
                           templating?: 'hog' | 'liquid' | undefined
                           value: any
                       }

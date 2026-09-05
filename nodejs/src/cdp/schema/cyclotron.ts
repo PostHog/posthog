@@ -6,6 +6,10 @@ export const CyclotronInputSchema = z.object({
     value: z.any(),
     templating: z.enum(['hog', 'liquid']).optional(),
     secret: z.boolean().optional(),
+    /** For a `dictionary` input: which of its own entries keep their values in the encrypted
+     * store. The names are not credentials, so they stay here in the clear and survive read-back.
+     * See posthog/cdp/secret_entries.py. */
+    secret_keys: z.array(z.string()).optional(),
     bytecode: z.any().optional(),
     order: z.number().optional(),
 })
@@ -49,6 +53,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
     default: z.any().optional(),
     secret: z.boolean().optional(),
     hidden: z.boolean().optional(),
+    secret_entries: z.boolean().optional(),
     templating: z.boolean().optional(),
     description: z.string().optional(),
     integration: z.string().optional(),
@@ -139,6 +144,13 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+    // Headers whose values are credentials, merged over `headers` immediately before
+    // each attempt. Like `aws_sigv4` and `standard_webhooks` above, this is the KEY of
+    // a `secret: true` dictionary input rather than the headers themselves: the
+    // cyclotron `cyclotron_jobs.state` blob is plaintext JSON, so putting an API key
+    // or auth header in `headers` would write it there in the clear and defeat the
+    // at-rest encryption on `posthog_hogfunction.encrypted_inputs`.
+    secret_headers_input: z.string().optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10

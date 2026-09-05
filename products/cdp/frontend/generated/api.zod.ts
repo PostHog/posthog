@@ -97,6 +97,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemHiddenDefault),
+                secret_entries: zod.boolean().optional(),
                 description: zod.string().optional(),
                 integration: zod.string().optional(),
                 integration_key: zod.string().optional(),
@@ -117,6 +118,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 bytecode: zod.array(zod.unknown()),
                 order: zod.number(),
                 transpiled: zod.unknown(),
+                secret_keys: zod.array(zod.string()).optional(),
             })
         )
         .optional()
@@ -208,6 +210,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                             hidden: zod
                                 .boolean()
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemHiddenDefault),
+                            secret_entries: zod.boolean().optional(),
                             description: zod.string().optional(),
                             integration: zod.string().optional(),
                             integration_key: zod.string().optional(),
@@ -230,6 +233,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                             bytecode: zod.array(zod.unknown()),
                             order: zod.number(),
                             transpiled: zod.unknown(),
+                            secret_keys: zod.array(zod.string()).optional(),
                         })
                     )
                     .optional(),
@@ -370,6 +374,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsUpdateBodyInputsSchemaItemHiddenDefault),
+                secret_entries: zod.boolean().optional(),
                 description: zod.string().optional(),
                 integration: zod.string().optional(),
                 integration_key: zod.string().optional(),
@@ -390,6 +395,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                 bytecode: zod.array(zod.unknown()),
                 order: zod.number(),
                 transpiled: zod.unknown(),
+                secret_keys: zod.array(zod.string()).optional(),
             })
         )
         .optional()
@@ -481,6 +487,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                             hidden: zod
                                 .boolean()
                                 .default(hogFunctionsUpdateBodyMappingsItemInputsSchemaItemHiddenDefault),
+                            secret_entries: zod.boolean().optional(),
                             description: zod.string().optional(),
                             integration: zod.string().optional(),
                             integration_key: zod.string().optional(),
@@ -503,6 +510,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                             bytecode: zod.array(zod.unknown()),
                             order: zod.number(),
                             transpiled: zod.unknown(),
+                            secret_keys: zod.array(zod.string()).optional(),
                         })
                     )
                     .optional(),
@@ -643,6 +651,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemHiddenDefault),
+                secret_entries: zod.boolean().optional(),
                 description: zod.string().optional(),
                 integration: zod.string().optional(),
                 integration_key: zod.string().optional(),
@@ -663,6 +672,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 bytecode: zod.array(zod.unknown()),
                 order: zod.number(),
                 transpiled: zod.unknown(),
+                secret_keys: zod.array(zod.string()).optional(),
             })
         )
         .optional()
@@ -754,6 +764,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             hidden: zod
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemHiddenDefault),
+                            secret_entries: zod.boolean().optional(),
                             description: zod.string().optional(),
                             integration: zod.string().optional(),
                             integration_key: zod.string().optional(),
@@ -776,6 +787,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             bytecode: zod.array(zod.unknown()),
                             order: zod.number(),
                             transpiled: zod.unknown(),
+                            secret_keys: zod.array(zod.string()).optional(),
                         })
                     )
                     .optional(),
@@ -920,6 +932,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsEnableBackfillsCreateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsEnableBackfillsCreateBodyInputsSchemaItemHiddenDefault),
+                secret_entries: zod.boolean().optional(),
                 description: zod.string().optional(),
                 integration: zod.string().optional(),
                 integration_key: zod.string().optional(),
@@ -940,6 +953,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                 bytecode: zod.array(zod.unknown()),
                 order: zod.number(),
                 transpiled: zod.unknown(),
+                secret_keys: zod.array(zod.string()).optional(),
             })
         )
         .optional()
@@ -1037,6 +1051,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                                 .default(
                                     hogFunctionsEnableBackfillsCreateBodyMappingsItemInputsSchemaItemHiddenDefault
                                 ),
+                            secret_entries: zod.boolean().optional(),
                             description: zod.string().optional(),
                             integration: zod.string().optional(),
                             integration_key: zod.string().optional(),
@@ -1059,6 +1074,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                             bytecode: zod.array(zod.unknown()),
                             order: zod.number(),
                             transpiled: zod.unknown(),
+                            secret_keys: zod.array(zod.string()).optional(),
                         })
                     )
                     .optional(),
@@ -1275,6 +1291,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         hidden: zod
                             .boolean()
                             .default(hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemHiddenDefault),
+                        secret_entries: zod.boolean().optional(),
                         description: zod.string().optional(),
                         integration: zod.string().optional(),
                         integration_key: zod.string().optional(),
@@ -1298,6 +1315,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         bytecode: zod.array(zod.unknown()),
                         order: zod.number(),
                         transpiled: zod.unknown(),
+                        secret_keys: zod.array(zod.string()).optional(),
                     })
                 )
                 .optional()
@@ -1401,6 +1419,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                         .default(
                                             hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemHiddenDefault
                                         ),
+                                    secret_entries: zod.boolean().optional(),
                                     description: zod.string().optional(),
                                     integration: zod.string().optional(),
                                     integration_key: zod.string().optional(),
@@ -1423,6 +1442,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     bytecode: zod.array(zod.unknown()),
                                     order: zod.number(),
                                     transpiled: zod.unknown(),
+                                    secret_keys: zod.array(zod.string()).optional(),
                                 })
                             )
                             .optional(),

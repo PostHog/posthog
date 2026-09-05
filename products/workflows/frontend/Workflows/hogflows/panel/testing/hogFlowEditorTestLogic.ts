@@ -362,6 +362,7 @@ export interface hogFlowEditorTestLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -377,6 +378,7 @@ export interface hogFlowEditorTestLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -392,6 +394,7 @@ export interface hogFlowEditorTestLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -494,6 +497,7 @@ export interface hogFlowEditorTestLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -509,6 +513,7 @@ export interface hogFlowEditorTestLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }
@@ -524,6 +529,7 @@ export interface hogFlowEditorTestLogicMeta {
                                         bytecode?: any
                                         order?: number | undefined
                                         secret?: boolean | undefined
+                                        secret_keys?: string[] | undefined
                                         templating?: 'hog' | 'liquid' | undefined
                                         value: any
                                     }

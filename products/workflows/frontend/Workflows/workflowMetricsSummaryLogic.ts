@@ -440,6 +440,7 @@ export interface workflowMetricsSummaryLogicValues {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -503,6 +504,7 @@ export interface workflowMetricsSummaryLogicValues {
                     bytecode?: any
                     order?: number | undefined
                     secret?: boolean | undefined
+                    secret_keys?: string[] | undefined
                     templating?: 'hog' | 'liquid' | undefined
                     value: any
                 }
@@ -665,6 +667,7 @@ export interface workflowMetricsSummaryLogicMeta {
                         bytecode?: any
                         order?: number | undefined
                         secret?: boolean | undefined
+                        secret_keys?: string[] | undefined
                         templating?: 'hog' | 'liquid' | undefined
                         value: any
                     }
@@ -714,6 +717,7 @@ export interface workflowMetricsSummaryLogicMeta {
                         bytecode?: any
                         order?: number | undefined
                         secret?: boolean | undefined
+                        secret_keys?: string[] | undefined
                         templating?: 'hog' | 'liquid' | undefined
                         value: any
                     }
@@ -798,6 +802,7 @@ export interface workflowMetricsSummaryLogicMeta {
                             bytecode?: any
                             order?: number | undefined
                             secret?: boolean | undefined
+                            secret_keys?: string[] | undefined
                             templating?: 'hog' | 'liquid' | undefined
                             value: any
                         }
@@ -850,6 +855,7 @@ export interface workflowMetricsSummaryLogicMeta {
                             bytecode?: any
                             order?: number | undefined
                             secret?: boolean | undefined
+                            secret_keys?: string[] | undefined
                             templating?: 'hog' | 'liquid' | undefined
                             value: any
                         }

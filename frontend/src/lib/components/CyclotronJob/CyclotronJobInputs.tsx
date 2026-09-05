@@ -12,6 +12,7 @@ import {
     IconPlus,
     IconToggleOff,
     IconTrash,
+    IconUnlock,
     IconWarning,
     IconX,
 } from '@posthog/icons'
@@ -349,86 +350,159 @@ function CyclotronJobTemplateInput(props: {
     )
 }
 
+type DictionaryEntry = {
+    key: string
+    value: any
+    /** Keeps its value in the encrypted store; only the name stays in the clear. */
+    secret: boolean
+    /** Secret and already saved, so its value is not readable here and is not resent. */
+    stored: boolean
+}
+
+function dictionaryEntriesFromInput(input: CyclotronJobInputType): DictionaryEntry[] {
+    const secretNames: string[] = Array.isArray(input.secret_keys) ? input.secret_keys : []
+    const value = input.value ?? {}
+
+    const entries: DictionaryEntry[] = Object.entries(value).map(([key, val]) => ({
+        key,
+        value: val,
+        secret: secretNames.includes(key),
+        stored: false,
+    }))
+    // A saved secret entry is named in secret_keys but absent from value, because its value never
+    // leaves the server. Render it from the name alone.
+    for (const name of secretNames) {
+        if (!entries.some((entry) => entry.key === name)) {
+            entries.push({ key: name, value: '', secret: true, stored: true })
+        }
+    }
+    return entries
+}
+
 function DictionaryField({
     input,
     onChange,
     templating,
     sampleGlobalsWithInputs,
+    allowSecretEntries,
 }: {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     templating: boolean
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    allowSecretEntries?: boolean
 }): JSX.Element {
-    const value = input.value ?? {}
-    const [entries, setEntries] = useState<[string, any][]>(() => Object.entries(value))
-    const prevFilteredEntriesRef = useRef<[string, any][]>(entries)
+    const [entries, setEntries] = useState<DictionaryEntry[]>(() => dictionaryEntriesFromInput(input))
+    const prevSentRef = useRef<{ value: Record<string, any>; secret_keys: string[] } | null>(null)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
         const filteredEntries = entries.filter(
-            ([key, val]) => key.trim() !== '' || typeof val !== 'string' || val.trim() !== ''
+            ({ key, value, secret, stored }) =>
+                key.trim() !== '' || (secret && stored) || typeof value !== 'string' || value.trim() !== ''
         )
 
-        // Compare with previous filtered entries to avoid unnecessary updates
-        if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
+        // A stored secret's value is unknown here, so it is left out and the server carries the
+        // saved one over. Sending anything for it would overwrite the credential.
+        const value = Object.fromEntries(
+            filteredEntries.filter((entry) => !(entry.secret && entry.stored)).map((entry) => [entry.key, entry.value])
+        )
+        const secretKeys = filteredEntries.filter((entry) => entry.secret).map((entry) => entry.key)
+
+        const next = { value, secret_keys: secretKeys }
+        if (objectsEqual(next, prevSentRef.current)) {
             return
         }
+        prevSentRef.current = next
 
-        // Update the ref with current filtered entries
-        prevFilteredEntriesRef.current = filteredEntries
+        onChange?.({ ...input, value, ...(allowSecretEntries ? { secret_keys: secretKeys } : {}) }) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [entries, onChange, allowSecretEntries])
 
-        const val = Object.fromEntries(filteredEntries)
-        onChange?.({ ...input, value: val }) // oxlint-disable-line react-hooks/exhaustive-deps
-    }, [entries, onChange])
+    const updateEntry = (index: number, patch: Partial<DictionaryEntry>): void => {
+        setEntries((prev) => {
+            const newEntries = [...prev]
+            newEntries[index] = { ...newEntries[index], ...patch }
+            return newEntries
+        })
+    }
 
     const handleEnableIncludeObject = (): void => {
-        setEntries((prev) => [[EXTEND_OBJECT_KEY, '{event.properties}'], ...prev])
+        setEntries((prev) => [
+            { key: EXTEND_OBJECT_KEY, value: '{event.properties}', secret: false, stored: false },
+            ...prev,
+        ])
     }
 
     return (
         <div className="deprecated-space-y-2">
-            {templating && !entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
+            {templating && !entries.some(({ key }) => key === EXTEND_OBJECT_KEY) ? (
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={handleEnableIncludeObject}>
                     Include properties from an entire object
                 </LemonButton>
             ) : null}
-            {entries.map(([key, val], index) => (
+            {entries.map(({ key, value: val, secret, stored }, index) => (
                 <div className="flex gap-2 items-center" key={index}>
                     <Tooltip title={EXTEND_OBJECT_KEY === key ? 'Include properties from an entire object' : undefined}>
                         <LemonInput
                             value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
                             disabled={key === EXTEND_OBJECT_KEY}
                             className="flex-1 min-w-60"
-                            onChange={(key) => {
-                                setEntries((prev) => {
-                                    const newEntries = [...prev]
-                                    newEntries[index] = [key, newEntries[index][1]]
-                                    return newEntries
-                                })
-                            }}
+                            onChange={(key) => updateEntry(index, { key })}
                             placeholder="Key"
                         />
                     </Tooltip>
 
-                    <CyclotronJobTemplateInput
-                        className="overflow-hidden flex-2"
-                        placeholder="Value"
-                        input={{ ...input, value: val }}
-                        onChange={(val) => {
-                            if (val.templating) {
-                                onChange?.({ ...input, templating: val.templating })
-                            }
+                    {secret && stored ? (
+                        <div className="flex flex-2 gap-2 items-center p-1 rounded border border-dashed">
+                            <span className="flex-1 p-1 italic text-secondary">
+                                This value is secret and is not displayed here.
+                            </span>
+                            <LemonButton
+                                onClick={() => updateEntry(index, { value: '', stored: false })}
+                                size="small"
+                                type="secondary"
+                            >
+                                Edit
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        <CyclotronJobTemplateInput
+                            className="overflow-hidden flex-2"
+                            placeholder="Value"
+                            input={{ ...input, value: val }}
+                            onChange={(val) => {
+                                if (val.templating) {
+                                    onChange?.({ ...input, templating: val.templating })
+                                }
+                                updateEntry(index, { value: val.value ?? '' })
+                            }}
+                            templating={templating}
+                            sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                        />
+                    )}
 
-                            setEntries((prev) => {
-                                const newEntries = [...prev]
-                                newEntries[index] = [newEntries[index][0], val.value ?? '']
-                                return newEntries
-                            })
-                        }}
-                        templating={templating}
-                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                    />
+                    {allowSecretEntries && key !== EXTEND_OBJECT_KEY ? (
+                        <Tooltip
+                            title={
+                                secret
+                                    ? 'Stored encrypted. Unlock to send this value in the clear, which clears it.'
+                                    : 'Lock to store this value encrypted, for an API token or other credential.'
+                            }
+                        >
+                            <LemonButton
+                                icon={secret ? <IconLock /> : <IconUnlock />}
+                                size="small"
+                                active={secret}
+                                data-attr="cyclotron-dictionary-entry-secret-toggle"
+                                onClick={() =>
+                                    // Unlocking cannot recover the stored value, so the row is
+                                    // emptied and has to be retyped rather than silently sending
+                                    // a blank header.
+                                    updateEntry(index, { secret: !secret, stored: false, value: secret ? '' : val })
+                                }
+                            />
+                        </Tooltip>
+                    ) : null}
 
                     <LemonButton
                         icon={<IconX />}
@@ -448,7 +522,7 @@ function DictionaryField({
                 size="small"
                 type="secondary"
                 onClick={() => {
-                    setEntries((prev) => [...prev, ['', '']])
+                    setEntries((prev) => [...prev, { key: '', value: '', secret: false, stored: false }])
                 }}
             >
                 Add entry
@@ -671,6 +745,7 @@ function CyclotronJobInputRenderer({
                     onChange={onChange}
                     templating={templating}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                    allowSecretEntries={schema.secret_entries}
                 />
             )
         case 'boolean':

@@ -23,6 +23,11 @@ if (not empty(inputs.signing_secret)) {
   }
 }
 
+// Names the input whose secret entries are headers, rather than the headers themselves: the
+// fetch queue payload is stored as plaintext, so the executor resolves and merges them
+// immediately before each attempt. inputs.headers here holds only the public entries.
+payload['secret_headers_input'] := 'headers'
+
 if (inputs.debug) {
   print('Request', inputs.url, payload)
 }
@@ -93,7 +98,9 @@ if (inputs.debug) {
             secret: false,
             required: false,
             default: { 'Content-Type': 'application/json' },
-            description: 'HTTP headers to send in the request.',
+            secret_entries: true,
+            description:
+                'HTTP headers to send in the request. Lock a header to store its value encrypted, for an API token or any other credential.',
         },
         {
             key: 'signing_secret',

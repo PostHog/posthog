@@ -233,6 +233,7 @@ export interface InputsItemApi {
     readonly bytecode: readonly unknown[]
     readonly order: number
     readonly transpiled: unknown
+    secret_keys?: string[]
 }
 
 /**
@@ -326,6 +327,7 @@ export interface InputsSchemaItemApi {
     default?: unknown
     secret?: boolean
     hidden?: boolean
+    secret_entries?: boolean
     description?: string
     integration?: string
     integration_key?: string
