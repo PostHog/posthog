@@ -121,12 +121,12 @@ Disqualifier: a survey at the end of its scheduled window naturally tails off. C
 
 - **`popover`** — `survey shown` fires when the popover auto-renders. A high dismiss rate is genuine signal: users are seeing it and immediately killing it.
 - **`widget`** — `survey shown` only fires when the user clicks the widget trigger. A high dismiss rate means users opened the widget and changed their mind, not that the team is spamming them. Baseline dismiss rates are naturally higher (50–70% is common; the Logs Feedback widget on PostHog itself runs at 64% with healthy NPS) and shouldn't be flagged as fatigue.
-- **`external_survey`** — respondents arrive through a shared link, so they self-select the same way widget respondents do. Read dismiss-rate shifts as low signal, as for `widget`.
+- **`external_survey`** — the hosted survey page renders no close control, so this type never emits `survey dismissed`. A 0% dismiss rate on it measures nothing. Read `survey sent` / `survey shown` conversion instead, and remember respondents arrive through a shared link, so they self-select the same way widget respondents do.
 - **`api`** — `survey shown` fires from SDK calls. Semantics depend on the integrating product; check `survey-get` to see how it's wired before interpreting trends.
 
 If the dismiss rate jumps sharply on a `popover` survey (e.g. baseline 30%, recent 70%), users are seeing it and immediately killing it. Common causes: the survey now appears at a worse moment in the user journey, or fatigue from displaying too often.
 
-For `widget`, `external_survey` and `api` surveys, treat dismiss-rate shifts as low signal unless they're paired with a response-volume drop — that's when something upstream of the click changed.
+For `widget` and `api` surveys, treat dismiss-rate shifts as low signal unless they're paired with a response-volume drop — that's when something upstream of the click changed.
 
 ```sql
 SELECT
