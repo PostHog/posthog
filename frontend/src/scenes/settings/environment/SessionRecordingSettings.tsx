@@ -26,7 +26,7 @@ import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/ses
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { type SessionRecordingMaskingLevel, type SessionRecordingRetentionPeriod } from '~/types'
+import { type SessionRecordingMaskingConfig, type SessionRecordingRetentionPeriod } from '~/types'
 
 export function Since(props: {
     web?: false | { version?: string }
@@ -291,32 +291,65 @@ export function ReplayMaskingSettings(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
+    const maskingConfig = currentTeam?.session_recording_masking_config ?? {}
+
+    const updateMasking = (partial: SessionRecordingMaskingConfig): void => {
         updateCurrentTeam({
-            session_recording_masking_config: getMaskingConfigFromLevel(level),
+            session_recording_masking_config: { ...maskingConfig, ...partial },
         })
     }
 
-    const maskingConfig = {
-        maskAllInputs: currentTeam?.session_recording_masking_config?.maskAllInputs ?? true,
-        maskTextSelector: currentTeam?.session_recording_masking_config?.maskTextSelector,
-        blockSelector: currentTeam?.session_recording_masking_config?.blockSelector,
-    }
-
-    const maskingLevel = getMaskingLevelFromConfig(maskingConfig)
+    const maskingLevel = getMaskingLevelFromConfig({
+        maskAllInputs: maskingConfig.maskAllInputs ?? true,
+        maskTextSelector: maskingConfig.maskTextSelector,
+    })
+    // A custom block selector can hold non-image selectors set through the API. The toggle only
+    // writes 'img', so read whether images are blocked and disable the toggle when a custom
+    // selector exists, to avoid overwriting the custom value.
+    const blockSelectors =
+        maskingConfig.blockSelector
+            ?.split(',')
+            .map((selector) => selector.trim())
+            .filter(Boolean) ?? []
+    const maskImages = blockSelectors.includes('img')
+    const hasCustomBlockSelector = blockSelectors.some((selector) => selector !== 'img')
+    const maskElementAttributes = maskingConfig.maskAllElementAttributes ?? false
 
     return (
-        <div>
+        <div className="flex flex-col gap-y-2">
             <LemonSelect
                 value={maskingLevel}
-                onChange={(val) => val && handleMaskingChange(val)}
+                onChange={(val) => val && updateMasking(getMaskingConfigFromLevel(val))}
                 options={[
-                    { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
-                    { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                    { value: 'total-privacy', label: 'Total privacy (mask all text)' },
+                    { value: 'normal', label: 'Normal (mask inputs but not text)' },
                     { value: 'free-love', label: 'Free love (mask only passwords)' },
                 ]}
                 loading={currentTeamLoading}
                 disabledReason={restrictedReason}
+            />
+            <LemonSwitch
+                label="Mask images"
+                bordered
+                checked={maskImages}
+                onChange={(checked) => updateMasking({ blockSelector: checked ? 'img' : undefined })}
+                loading={currentTeamLoading}
+                disabledReason={
+                    restrictedReason ??
+                    (hasCustomBlockSelector
+                        ? 'This project has a custom block selector. Edit it through the API so it is not overwritten.'
+                        : undefined)
+                }
+                tooltip="Block every image element from recordings. Text masking does not hide images, so turn this on to keep images private."
+            />
+            <LemonSwitch
+                label="Mask element attributes"
+                bordered
+                checked={maskElementAttributes}
+                onChange={(checked) => updateMasking({ maskAllElementAttributes: checked || undefined })}
+                loading={currentTeamLoading}
+                disabledReason={restrictedReason}
+                tooltip="Mask HTML attribute values, such as image src and link href, that can hold sensitive data."
             />
         </div>
     )

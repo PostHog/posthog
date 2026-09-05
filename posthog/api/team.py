@@ -1565,7 +1565,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        allowed_keys = {"maskAllInputs", "maskTextSelector", "blockSelector"}
+        allowed_keys = {"maskAllInputs", "maskTextSelector", "blockSelector", "maskAllElementAttributes"}
 
         if not all(key in allowed_keys for key in value.keys()):
             raise exceptions.ValidationError(
@@ -1583,6 +1583,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if "blockSelector" in value:
             if not isinstance(value["blockSelector"], str):
                 raise exceptions.ValidationError("blockSelector must be a string.")
+
+        if "maskAllElementAttributes" in value:
+            if not isinstance(value["maskAllElementAttributes"], bool):
+                raise exceptions.ValidationError("maskAllElementAttributes must be a boolean.")
 
         return value
 

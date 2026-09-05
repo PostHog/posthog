@@ -1037,6 +1037,39 @@ def team_api_test_factory():
             second_get_response = self.client.get("/api/environments/@current/")
             assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
+        def test_can_set_and_unset_session_recording_masking_config(self) -> None:
+            # can set image blocking and attribute masking independently of text masking
+            set_response = self.client.patch(
+                "/api/environments/@current/",
+                {"session_recording_masking_config": {"blockSelector": "img", "maskAllElementAttributes": True}},
+            )
+            assert set_response.status_code == status.HTTP_200_OK
+            get_response = self.client.get("/api/environments/@current/")
+            assert get_response.json()["session_recording_masking_config"] == {
+                "blockSelector": "img",
+                "maskAllElementAttributes": True,
+            }
+
+            # can unset
+            unset_response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_masking_config": None}
+            )
+            assert unset_response.status_code == status.HTTP_200_OK
+            assert self.client.get("/api/environments/@current/").json()["session_recording_masking_config"] is None
+
+        def test_rejects_invalid_session_recording_masking_config(self) -> None:
+            # unknown key is rejected
+            unknown_key_response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_masking_config": {"maskEverything": True}}
+            )
+            assert unknown_key_response.status_code == status.HTTP_400_BAD_REQUEST
+
+            # maskAllElementAttributes must be a boolean
+            wrong_type_response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_masking_config": {"maskAllElementAttributes": "yes"}}
+            )
+            assert wrong_type_response.status_code == status.HTTP_400_BAD_REQUEST
+
         def test_can_set_and_unset_survey_settings(self):
             survey_appearance = {
                 "thankYouMessageHeader": "Thanks for your feedback!",

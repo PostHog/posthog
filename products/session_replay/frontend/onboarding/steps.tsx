@@ -57,12 +57,15 @@ const SessionReplayConfigStep = (): JSX.Element => {
             teamProperty: 'session_recording_masking_config',
             onChange: (value: string | number | null) => {
                 return {
-                    session_recording_masking_config: getMaskingConfigFromLevel(value as SessionRecordingMaskingLevel),
+                    session_recording_masking_config: {
+                        ...currentTeam?.session_recording_masking_config,
+                        ...getMaskingConfigFromLevel(value as SessionRecordingMaskingLevel),
+                    },
                 }
             },
             selectOptions: [
-                { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
-                { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                { value: 'total-privacy', label: 'Total privacy (mask all text)' },
+                { value: 'normal', label: 'Normal (mask inputs but not text)' },
                 { value: 'free-love', label: 'Free love (mask only passwords)' },
             ],
             visible: true,

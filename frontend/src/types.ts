@@ -739,6 +739,7 @@ export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
     blockSelector?: string
+    maskAllElementAttributes?: boolean
 }
 
 export enum ActivationTaskStatus {
