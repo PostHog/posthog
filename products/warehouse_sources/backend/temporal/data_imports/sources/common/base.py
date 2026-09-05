@@ -229,6 +229,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def get_auth_errors(self) -> set[str]:
+        """Returns the `get_non_retryable_errors` keys that only re-authorization can fix.
+
+        A source lists here the failures that mean the connected account is expired, revoked, or
+        missing a permission the OAuth consent grants. The sync teardown marks the connected
+        integration with an authentication error, so the UI stops showing it as connected and
+        offers to reconnect; reconnecting then resumes the tables this failure turned off.
+        """
+
+        return set()
+
     def get_retryable_errors(self) -> set[str]:
         """Returns partial error messages the source already retries internally.
 

@@ -22,6 +22,13 @@ import { IntegrationType } from '~/types'
 import { integrationsLogic } from './integrationsLogic'
 import { DARK_MODE_INVERT_ICON_KINDS, getIntegrationNameFromKind } from './utils'
 
+/** `Integration.errors` value the backend writes when authenticating the connected account failed.
+ *
+ * Written for a revoked grant, but also for a provider outage or a network error, so it does not
+ * prove the credentials expired. Keep the label a statement about what failed, not about why.
+ */
+const TOKEN_REFRESH_FAILED = 'TOKEN_REFRESH_FAILED'
+
 export function IntegrationView({
     integration,
     suffix,
@@ -40,6 +47,7 @@ export function IntegrationView({
     })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
+    const authenticationFailed = errors[0] === TOKEN_REFRESH_FAILED
     const { githubRepositoriesLoading, getGitHubRepositories, getGitHubRepositoriesTotal } =
         useValues(integrationsLogic)
     const { loadGitHubRepositories } = useActions(integrationsLogic)
@@ -93,6 +101,8 @@ export function IntegrationView({
                             <span>
                                 {installationUnavailable ? (
                                     <>No longer connected</>
+                                ) : authenticationFailed ? (
+                                    <>Can't connect</>
                                 ) : refreshedAtTimestamp ? (
                                     <Tooltip
                                         title={
@@ -212,7 +222,7 @@ export function IntegrationView({
                             disabledReason: restrictedReason,
                         }}
                     >
-                        {errors[0] === 'TOKEN_REFRESH_FAILED'
+                        {authenticationFailed
                             ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>

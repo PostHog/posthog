@@ -13,7 +13,10 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    VersionDeprecation,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -1372,6 +1375,31 @@ class TestNonRetryableErrors:
         assert any(pattern in error_message for pattern in patterns), (
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
         )
+
+    def test_ungrantable_scope_error_is_not_an_auth_error(self) -> None:
+        # Meta reports a missing `business_management` scope under permission code 200, which
+        # `_is_permanent_auth_error` treats as an auth failure. If the generic re-authorize marker
+        # is prefixed onto it, the sync teardown marks the connected integration as expired and a
+        # reconnect resumes the table, so the same failure returns on the next sync.
+        body = {
+            "error": {
+                "message": "(#200) Requires business_management permission to manage the object.",
+                "type": "OAuthException",
+                "code": 200,
+            }
+        }
+        response = _mock_response(400, body)
+        response.text = json.dumps(body)
+
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(response)
+
+        message = str(exc_info.value)
+        source = MetaAdsSource()
+        assert not error_message_matches(message, source.get_auth_errors())
+        assert [key for key in source.get_non_retryable_errors() if error_message_matches(message, [key])] == [
+            "Requires business_management permission"
+        ]
 
     @pytest.mark.parametrize(
         "body,expected",
