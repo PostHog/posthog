@@ -20,6 +20,7 @@ from django.test.client import RequestFactory
 from django.utils.timezone import now
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -470,6 +471,42 @@ class TestRelativeDateParse(TestCase):
             "2019-12-31",
         )
 
+    @parameterized.expand(
+        [
+            ("years", "-7301y"),
+            ("months", "-999999m"),
+            ("weeks", "-9999999w"),
+            ("days", "-999999999d"),
+            # A numeral longer than CPython's int-string digit limit fails at int()
+            # inside get_delta_mapping_for, before the delta is applied.
+            ("too_many_digits", "-" + "1" * 4301 + "y"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_out_of_range_magnitude_raises_validation_error(self, _name, input):
+        # A magnitude that pushes the date outside datetime's range must surface as a
+        # 400 (ValidationError), not the bare ValueError dateutil raises (a 500).
+        with self.assertRaises(ValidationError) as ctx:
+            relative_date_parse(input, ZoneInfo("UTC"))
+        # A single quote in the message flips the ErrorDetail repr delimiter to double
+        # quotes, which the frontend async-query parser cannot read.
+        detail = cast(list, ctx.exception.detail)
+        self.assertNotIn("'", str(detail[0]))
+
+    @parameterized.expand(
+        [
+            # 0001-01-01 is a Monday, so -1wStart shifts the week start before datetime.min
+            ("week_start_before_min", "-1wStart", datetime(1, 1, 1, tzinfo=ZoneInfo("UTC"))),
+            # 9999-12-31 is a Friday, so -1wEnd shifts the week end past datetime.max
+            ("week_end_after_max", "-1wEnd", datetime(9999, 12, 31, tzinfo=ZoneInfo("UTC"))),
+        ]
+    )
+    def test_out_of_range_week_boundary_raises_validation_error(self, _name, input, boundary_now):
+        # QueryCompareToDateRange passes a user-supplied date_from in as `now`, so a
+        # wStart/wEnd shift at the edge of datetime's range must surface as a 400, not a 500.
+        with self.assertRaises(ValidationError):
+            relative_date_parse(input, ZoneInfo("UTC"), now=boundary_now, team_week_start_day=0)
+
 
 class TestDefaultEventName(BaseTest):
     def setUp(self):
@@ -854,6 +891,19 @@ class TestShouldRefresh(TestCase):
             date_to_delta_mapping=None,
             interval="day",
         ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 21, 20, 41, 730028))
+
+    def test_compare_period_out_of_range_raises_validation_error(self) -> None:
+        # The previous period is a second span before date_from. From a huge relative range
+        # (here "-1500y"), subtracting the span again drops before year 1, so this must raise a
+        # 400 rather than the bare OverflowError datetime raises (a 500 on comparison queries).
+        with self.assertRaises(ValidationError):
+            get_compare_period_dates(
+                date_from=datetime(526, 8, 31),
+                date_to=datetime(2026, 8, 31),
+                date_from_delta_mapping={"years": 1500},
+                date_to_delta_mapping=None,
+                interval="day",
+            )
 
 
 class TestUtilities(TestCase):

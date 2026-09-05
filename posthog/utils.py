@@ -241,23 +241,35 @@ def relative_date_parse_with_delta_mapping(
 
     match_group_dict = match.groupdict()
 
-    delta_mapping = get_delta_mapping_for(
-        **match_group_dict,
-        human_friendly_comparison_periods=human_friendly_comparison_periods,
-    )
+    try:
+        # Kept inside the guard alongside the delta application: a wStart/wEnd shift
+        # against a now near year 1 or year 9999 overflows datetime's range too.
+        if match_group_dict["kind"] == "w":
+            weekday_index = get_weekday_index(team_week_start_day, timezone_info, now)
+            if match_group_dict["position"] == "Start":
+                parsed_dt -= datetime.timedelta(days=weekday_index)
+            elif match_group_dict["position"] == "End":
+                days_to_add = 6 - weekday_index
+                parsed_dt += datetime.timedelta(days=days_to_add)
 
-    if match_group_dict["kind"] == "w":
-        weekday_index = get_weekday_index(team_week_start_day, timezone_info, now)
-        if match_group_dict["position"] == "Start":
-            parsed_dt -= datetime.timedelta(days=weekday_index)
-        elif match_group_dict["position"] == "End":
-            days_to_add = 6 - weekday_index
-            parsed_dt += datetime.timedelta(days=days_to_add)
-
-    if increase:
-        parsed_dt += relativedelta(**delta_mapping)  # type: ignore
-    else:
-        parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+        # get_delta_mapping_for runs int() on the magnitude, which raises for a
+        # numeral longer than CPython's int-string digit limit.
+        delta_mapping = get_delta_mapping_for(
+            **match_group_dict,
+            human_friendly_comparison_periods=human_friendly_comparison_periods,
+        )
+        if increase:
+            parsed_dt += relativedelta(**delta_mapping)  # type: ignore
+        else:
+            parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    except (ValueError, TypeError, OverflowError):
+        # A magnitude that overflows datetime's range (e.g. "7301y"), a numeral
+        # too long to convert, or a week-boundary shift past datetime's range
+        # becomes a 400 that names the bad input, not a 500.
+        # Keep quotes out of the message: on async query paths the frontend parses
+        # the ErrorDetail repr, whose delimiter flips to double quotes when the
+        # message itself contains a single quote.
+        raise serializers.ValidationError(f"Relative date {input} is out of range")
 
     if match_group_dict["kind"] == "q":
         # Quarter boundaries depend on the resulting month, so they can't be expressed
@@ -1272,7 +1284,14 @@ def get_compare_period_dates(
     exclude_incomplete_periods: bool = False,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
-    new_date_from = date_from - diff
+    try:
+        # The previous period sits one full span before date_from, so a date_from already
+        # near datetime's minimum (e.g. from a huge relative range like "-1500y") pushes it
+        # out of range. Surface a 400 that names the problem, not a bare OverflowError (a 500),
+        # matching the guard in relative_date_parse_with_delta_mapping.
+        new_date_from = date_from - diff
+    except OverflowError:
+        raise serializers.ValidationError("The comparison period for this date range is out of range")
     new_date_to = date_from
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
