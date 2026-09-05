@@ -4,7 +4,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { AvailableFeature, Realm } from '~/types'
+import { AvailableFeature, BillingFeatureType, Realm } from '~/types'
 
 import meCurrent from './__mocks__/@me.json'
 import { PayGateMini, PayGateMiniProps } from './PayGateMini'
@@ -117,6 +117,53 @@ export const PayGateMiniLimitFeatureProjects: Story = {
     render: ({ cloud, ...props }) => {
         useStorybookMocks({
             get: {
+                '/api/users/@me': () => [
+                    200,
+                    {
+                        ...meCurrent,
+                        organization: {
+                            ...meCurrent.organization,
+                            available_product_features: [
+                                {
+                                    key: 'organizations_projects',
+                                    name: 'Projects',
+                                    limit: 2,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        })
+
+        return (
+            <div className="p-10 max-w-4xl mx-auto">
+                <PayGateMini {...props}>
+                    <></>
+                </PayGateMini>
+            </div>
+        )
+    },
+}
+
+// Billing can return the wrong name and icon on the projects feature record — here it arrives
+// labelled as invites. The gate should still read "Projects" from the local feature key.
+export const PayGateMiniLimitFeatureProjectsMislabeledBilling: Story = {
+    args: { feature: AvailableFeature.ORGANIZATIONS_PROJECTS, currentUsage: 2 },
+    render: ({ cloud, ...props }) => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                    products: billingJson.products.map((product) => ({
+                        ...product,
+                        features: product.features.map((feature: BillingFeatureType) =>
+                            feature.key === AvailableFeature.ORGANIZATIONS_PROJECTS
+                                ? { ...feature, name: 'Invites', icon_key: 'IconMessage' }
+                                : feature
+                        ),
+                    })),
+                },
                 '/api/users/@me': () => [
                     200,
                     {
