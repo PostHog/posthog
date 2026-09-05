@@ -11,7 +11,7 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
-use crate::storage::types::{Person, SplitResult};
+use crate::storage::types::{DeletedPersonBatch, Person, SplitResult};
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
 const SPLIT_VERSION_OFFSET: i64 = 101;
@@ -481,9 +481,10 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         batch_size: i64,
-    ) -> StorageResult<i64> {
+        after_id: i64,
+    ) -> StorageResult<DeletedPersonBatch> {
         if batch_size <= 0 {
-            return Ok(0);
+            return Ok(DeletedPersonBatch::default());
         }
 
         let client = current_client_name();
@@ -499,22 +500,29 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // Select up to batch_size person IDs.
+        // Select up to batch_size person IDs after the caller's cursor. The keyset
+        // walks the (team_id, id) primary key forward, so a batch never rescans the
+        // dead index entries the previous batches left behind.
         let person_ids: Vec<i64> = sqlx::query_scalar!(
             r#"
             SELECT id::bigint as "id!" FROM posthog_person
-            WHERE team_id = $1
+            WHERE team_id = $1 AND id > $3
+            ORDER BY id
             LIMIT $2
             "#,
             team_id as i32,
-            batch_size
+            batch_size,
+            after_id
         )
         .fetch_all(&self.bulk_primary_pool)
         .await?;
 
         if person_ids.is_empty() {
-            return Ok(0);
+            return Ok(DeletedPersonBatch::default());
         }
+
+        // Ordered select, so the last id is the largest one this call covered.
+        let last_id = *person_ids.last().expect("person_ids is not empty");
 
         // Split into fixed-size chunks and delete concurrently.
         let pool = self.bulk_primary_pool.clone();
@@ -545,7 +553,10 @@ impl PersonLookup for PostgresStorage {
             .try_collect()
             .await?;
 
-        Ok(results.iter().sum())
+        Ok(DeletedPersonBatch {
+            deleted_count: results.iter().sum(),
+            last_id,
+        })
     }
 
     async fn get_persons_by_distinct_ids_cross_team(

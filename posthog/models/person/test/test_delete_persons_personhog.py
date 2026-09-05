@@ -109,7 +109,7 @@ class TestDeletePersonsForTeamsRPC(BaseTest):
             assert self.team.pk in team_ids_called
             assert other_team.pk in team_ids_called
 
-    def test_personhog_batch_rpc_loops_until_done(self):
+    def test_personhog_batch_rpc_loops_until_a_batch_is_short(self):
         p1 = create_person(team=self.team, distinct_ids=["a"])
         p2 = create_person(team=self.team, distinct_ids=["b"])
 
@@ -117,10 +117,10 @@ class TestDeletePersonsForTeamsRPC(BaseTest):
             fake.add_person(team_id=self.team.pk, person_id=p1.pk, uuid=str(p1.uuid), distinct_ids=["a"])
             fake.add_person(team_id=self.team.pk, person_id=p2.pk, uuid=str(p2.uuid), distinct_ids=["b"])
 
-            _delete_persons_for_teams([self.team.pk])
+            with patch("posthog.models.team.util.TEAM_DELETE_BATCH_SIZE", 1):
+                _delete_persons_for_teams([self.team.pk])
 
-            # Should have called at least twice: once to delete, once to confirm 0 remaining
+            # Two full batches, then a short one that ends the loop — no extra empty probe.
             calls = fake.assert_called("delete_persons_batch_for_team")
-            assert len(calls) >= 2
-            # Last call should have returned deleted_count=0
-            assert calls[-1].response.deleted_count == 0
+            assert [c.request.after_id for c in calls] == [0, p1.pk, p2.pk]
+            assert [c.response.deleted_count for c in calls] == [1, 1, 0]

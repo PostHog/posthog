@@ -22,7 +22,7 @@ class TestDeletePersonsActivity:
         with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=10, uuid=str(uuid_lib.uuid4()), distinct_ids=["d1"])
 
-            deleted, should_continue = await activity_environment.run(
+            deleted, should_continue, _ = await activity_environment.run(
                 delete_persons_activity,
                 DeletePersonsActivityInputs(team_id=1, person_ids=[10], batch_size=1000),
             )
@@ -38,7 +38,7 @@ class TestDeletePersonsActivity:
             for pid in (1, 2, 3):
                 fake.add_person(team_id=1, person_id=pid, uuid=str(uuid_lib.uuid4()), distinct_ids=[f"d{pid}"])
 
-            deleted, should_continue = await activity_environment.run(
+            deleted, should_continue, _ = await activity_environment.run(
                 delete_persons_activity,
                 DeletePersonsActivityInputs(team_id=1, person_ids=[1, 2, 3], batch_number=0, batch_size=2),
             )
@@ -51,15 +51,32 @@ class TestDeletePersonsActivity:
             for pid in (1, 2):
                 fake.add_person(team_id=1, person_id=pid, uuid=str(uuid_lib.uuid4()))
 
-            deleted, should_continue = await activity_environment.run(
+            deleted, should_continue, after_id = await activity_environment.run(
                 delete_persons_activity,
                 DeletePersonsActivityInputs(team_id=1, person_ids=[], batch_size=1),
             )
 
         assert deleted == 1
         assert should_continue is True  # deleted == batch_size, so a batch may still remain
+        # The cursor lets the next batch resume after the person this one deleted.
+        assert after_id == 1
         # whole-team mode never resolves ids; it deletes straight through the team-batch RPC
         fake.assert_called("delete_persons_batch_for_team")
+
+    async def test_whole_team_resumes_after_cursor(self, activity_environment):
+        with fake_personhog_client() as fake:
+            for pid in (1, 2):
+                fake.add_person(team_id=1, person_id=pid, uuid=str(uuid_lib.uuid4()))
+
+            deleted, _, after_id = await activity_environment.run(
+                delete_persons_activity,
+                DeletePersonsActivityInputs(team_id=1, person_ids=[], batch_size=1, after_id=1),
+            )
+
+        assert deleted == 1
+        assert after_id == 2
+        # Person 1 sits at or below the cursor, so this batch left it alone.
+        assert (1, 1) in fake._persons_by_id
 
 
 # transaction=True so the Cohort committed below is visible to the activity's threaded ORM read

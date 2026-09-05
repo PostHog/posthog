@@ -1267,23 +1267,28 @@ async fn test_delete_persons_batch_for_team() {
         .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
             team_id: ctx.team_id,
             batch_size: 1,
+            after_id: 0,
         }))
         .await
         .expect("RPC failed");
 
-    assert_eq!(response.into_inner().deleted_count, 1);
+    let first = response.into_inner();
+    assert_eq!(first.deleted_count, 1);
 
-    // Delete again — should delete the other 1
+    // Delete again from the returned cursor — should delete the other 1
     let response = ctx
         .service
         .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
             team_id: ctx.team_id,
             batch_size: 1,
+            after_id: first.last_id,
         }))
         .await
         .expect("RPC failed");
 
-    assert_eq!(response.into_inner().deleted_count, 1);
+    let second = response.into_inner();
+    assert_eq!(second.deleted_count, 1);
+    assert!(second.last_id > first.last_id);
 
     // Delete again — nothing left
     let response = ctx
@@ -1291,6 +1296,7 @@ async fn test_delete_persons_batch_for_team() {
         .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
             team_id: ctx.team_id,
             batch_size: 1,
+            after_id: second.last_id,
         }))
         .await
         .expect("RPC failed");
@@ -1313,6 +1319,7 @@ async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_siz
         .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
             team_id: ctx.team_id,
             batch_size,
+            after_id: 0,
         }))
         .await;
 

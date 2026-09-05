@@ -54,8 +54,12 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
         return deleted
 
 
-def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> int:
-    """Delete up to `batch_size` of a team's persons via personhog, returning the count."""
+def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int, after_id: int) -> tuple[int, int]:
+    """Delete up to `batch_size` of a team's persons after `after_id`.
+
+    Returns the deleted count and the batch's last person id, which the next batch
+    passes back as its cursor so it does not rescan the range already emptied.
+    """
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
@@ -66,9 +70,9 @@ def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> i
 
     with personhog_caller_tag("delete-persons/by-team"):
         resp = client.delete_persons_batch_for_team(
-            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=batch_size)
+            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=batch_size, after_id=after_id)
         )
-        return resp.deleted_count
+        return resp.deleted_count, resp.last_id
 
 
 @dataclasses.dataclass
@@ -110,6 +114,8 @@ class DeletePersonsActivityInputs:
     batch_number: int = 0
     batches: int = 1
     batch_size: int = 1000
+    # Whole-team mode only: keyset cursor from the previous batch's last person id.
+    after_id: int = 0
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -122,29 +128,34 @@ class DeletePersonsActivityInputs:
 
 
 @temporalio.activity.defn
-async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[int, bool]:
-    """Delete one batch of persons via personhog, returning (deleted_count, should_continue)."""
+async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[int, bool, int]:
+    """Delete one batch of persons.
+
+    Returns (deleted_count, should_continue, after_id). The cursor is 0 in by-ids mode,
+    which slices a fixed list instead.
+    """
     async with Heartbeater():
         logger = LOGGER.bind()
         logger.info("Deleting batch %d of %d", inputs.batch_number, inputs.batches)
 
+        after_id = 0
         if inputs.person_ids:
             # Specific persons: process this batch's slice of the id list.
             start = inputs.batch_number * inputs.batch_size
             id_slice = inputs.person_ids[start : start + inputs.batch_size]
             if not id_slice:
-                return 0, False
+                return 0, False, 0
             deleted = await asyncio.to_thread(_delete_specific_persons_via_personhog, inputs.team_id, id_slice)
             should_continue = start + inputs.batch_size < len(inputs.person_ids)
         else:
             # Whole team: delete up to batch_size and keep going until a batch is short.
-            deleted = await asyncio.to_thread(
-                _delete_team_persons_batch_via_personhog, inputs.team_id, inputs.batch_size
+            deleted, after_id = await asyncio.to_thread(
+                _delete_team_persons_batch_via_personhog, inputs.team_id, inputs.batch_size, inputs.after_id
             )
             should_continue = deleted >= inputs.batch_size
 
         logger.info("Deleted %d persons", deleted)
-        return deleted, should_continue
+        return deleted, should_continue, after_id
 
 
 @dataclasses.dataclass
@@ -211,6 +222,7 @@ class DeletePersonsWorkflow(PostHogWorkflow):
                 ),
             )
 
+        after_id = 0
         for batch_number in range(0, inputs.batches):
             await temporalio.workflow.wait_condition(lambda: not self.paused)
 
@@ -220,9 +232,12 @@ class DeletePersonsWorkflow(PostHogWorkflow):
                 batch_number=batch_number,
                 batches=inputs.batches,
                 batch_size=inputs.batch_size,
+                after_id=after_id,
             )
 
-            _, should_continue = await temporalio.workflow.execute_activity(
+            # A history recorded before the cursor existed replays as a 2-tuple, so read
+            # the cursor as optional and fall back to a full-range scan for that run.
+            _, should_continue, *cursor = await temporalio.workflow.execute_activity(
                 delete_persons_activity,
                 delete_persons_activity_inputs,
                 heartbeat_timeout=dt.timedelta(seconds=30),
@@ -237,6 +252,8 @@ class DeletePersonsWorkflow(PostHogWorkflow):
 
             if not should_continue:
                 break
+
+            after_id = cursor[0] if cursor else 0
 
     @temporalio.workflow.signal
     async def confirm(self) -> None:

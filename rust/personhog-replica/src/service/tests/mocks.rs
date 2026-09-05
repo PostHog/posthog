@@ -99,7 +99,8 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
+        _after_id: i64,
+    ) -> storage::StorageResult<storage::types::DeletedPersonBatch> {
         Err(self.error.clone())
     }
 
@@ -473,8 +474,9 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
+        _after_id: i64,
+    ) -> storage::StorageResult<storage::types::DeletedPersonBatch> {
+        Ok(storage::types::DeletedPersonBatch::default())
     }
 
     async fn split_person(
@@ -906,8 +908,9 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
+        _after_id: i64,
+    ) -> storage::StorageResult<storage::types::DeletedPersonBatch> {
+        Ok(storage::types::DeletedPersonBatch::default())
     }
 
     async fn split_person(
@@ -1315,8 +1318,9 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
+        _after_id: i64,
+    ) -> storage::StorageResult<storage::types::DeletedPersonBatch> {
+        Ok(storage::types::DeletedPersonBatch::default())
     }
 
     async fn split_person(
