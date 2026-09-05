@@ -5,6 +5,12 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    TimeoutError as RedisTimeoutError,
+)
+
 from posthog.api_queries_quota import (
     API_QUERIES_QUOTA_ERRORS_COUNTER,
     get_api_queries_bytes,
@@ -46,6 +52,30 @@ class TestApiQueriesQuotaCounter(BaseTest):
             get_api_queries_bytes("org-a")
         after = API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="read")._value.get()
         assert after == before + 1
+
+    @parameterized.expand(
+        [
+            ("timeout", RedisTimeoutError("connect timeout")),
+            ("connection", RedisConnectionError("connection reset")),
+        ]
+    )
+    def test_transient_redis_error_skips_capture(self, _name, error):
+        with (
+            patch("posthog.api_queries_quota.get_client", side_effect=error),
+            patch("posthog.api_queries_quota.capture_exception") as capture,
+        ):
+            increment_api_queries_bytes("org-a", 1000)
+            assert get_api_queries_bytes("org-a") == 0
+        capture.assert_not_called()
+
+    def test_unexpected_error_still_captured(self):
+        with (
+            patch("posthog.api_queries_quota.get_client", side_effect=Exception("redis down")),
+            patch("posthog.api_queries_quota.capture_exception") as capture,
+        ):
+            increment_api_queries_bytes("org-a", 1000)
+            get_api_queries_bytes("org-a")
+        assert capture.call_count == 2
 
     def test_next_counter_reset_rolls_month_and_year(self):
         assert next_counter_reset(datetime(2026, 8, 12, tzinfo=UTC)) == datetime(2026, 9, 1, tzinfo=UTC)
