@@ -501,8 +501,12 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         self._config()
         first_org = self.organization
         second_org = Organization.objects.create(name="Second")
-        self._fetch(organization=first_org)
+        # Insert the fetches in reverse. Organization ids are time-ordered, so second_org sorts
+        # last by organization_id while its row is physically first. Any plan that returns a page
+        # in physical order then reaches second_org before the revocation, and the run makes two
+        # LLM calls instead of one. The order the command enumerates in is the one that must win.
         self._fetch(organization=second_org)
+        self._fetch(organization=first_org)
         client = _mock_llm_client()
 
         def _revoke_after_first(*args: Any, **kwargs: Any):

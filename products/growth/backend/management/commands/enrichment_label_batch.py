@@ -282,9 +282,15 @@ class Command(BaseCommand):
             for page in _id_batches():
                 if circuit_open.is_set():
                     return
-                fetches = OrganizationEnrichmentFetch.objects.filter(
-                    id__in=[fetch_id for fetch_id, _ in page]
-                ).select_related("organization")
+                # The page arrives in keyset order, but `id__in` does not carry that order, so
+                # Postgres can return the rows of one page in any order. Sort again by
+                # organization_id. A mid-run consent revocation stops the orgs the run has not
+                # reached yet, and that set only means something under a defined order.
+                fetches = (
+                    OrganizationEnrichmentFetch.objects.filter(id__in=[fetch_id for fetch_id, _ in page])
+                    .select_related("organization")
+                    .order_by("organization_id")
+                )
                 for fetch in fetches:
                     if circuit_open.is_set():
                         return
