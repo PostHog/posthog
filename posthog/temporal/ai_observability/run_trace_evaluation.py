@@ -67,7 +67,7 @@ from posthog.temporal.ai_observability.run_evaluation import (
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
-from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -642,7 +642,7 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
                 }
             )
 
-        capture_internal_for_team(
+        capture_ai_internal_for_team(
             team_id=inputs.team_id,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
