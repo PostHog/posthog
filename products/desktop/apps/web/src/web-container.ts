@@ -533,18 +533,11 @@ container.bind(IMPERATIVE_QUERY_CLIENT).toConstantValue(queryClient);
 container.bind(AUTH_SIDE_EFFECTS).to(WebAuthSideEffects);
 
 // Interactive MCP App iframe host. Electron isolates the proxy with a custom
-// privileged scheme; web gets a separate origin for free via a blob URL of the
-// same (host-agnostic) proxy HTML. The blob is created once, lazily.
+// privileged scheme; web loads the same host-agnostic proxy HTML through a
+// data URL. The iframe sandbox keeps it on an opaque origin.
 container.bind(MCP_APP_HOST_COMPONENT).toConstantValue(McpAppHost);
-let sandboxProxyUrl: string | null = null;
-container.bind(MCP_SANDBOX_PROXY_URL).toConstantValue(() => {
-  if (!sandboxProxyUrl) {
-    sandboxProxyUrl = URL.createObjectURL(
-      new Blob([sandboxProxyHtml], { type: "text/html" }),
-    );
-  }
-  return sandboxProxyUrl;
-});
+const sandboxProxyUrl = `data:text/html;charset=utf-8,${encodeURIComponent(sandboxProxyHtml)}`;
+container.bind(MCP_SANDBOX_PROXY_URL).toConstantValue(() => sandboxProxyUrl);
 
 // ── Post-login shell: the tokens __root.tsx resolves eagerly via useService ──
 // The shared app shell (packages/ui __root.tsx) mounts the full desktop surface

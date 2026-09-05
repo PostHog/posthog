@@ -3,12 +3,7 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
 } from "@phosphor-icons/react";
-import { useService } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
-import {
-  FEEDBACK_CONTEXT_SERVICE,
-  type IFeedbackContext,
-} from "@posthog/platform/feedback-context";
 import { Button, ButtonGroup, cn } from "@posthog/quill";
 import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -26,6 +21,10 @@ import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
+import {
+  FeedbackModal,
+  type FeedbackModalMode,
+} from "@posthog/ui/features/canvas/components/FeedbackModal";
 import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
@@ -43,8 +42,6 @@ import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDe
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
 import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { FeedbackModal } from "@posthog/ui/features/feedback/FeedbackModal";
-import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
@@ -139,11 +136,8 @@ function RootLayout() {
 
   // Feedback modal shown as an intercept before "PostHog Web" opens the web
   // app, routing once the modal is submitted or skipped.
-  const feedbackMode = useFeedbackStore((state) => state.mode);
-  const openFeedback = useFeedbackStore((state) => state.open);
-  const closeFeedback = useFeedbackStore((state) => state.close);
-  const feedbackContext = useService<IFeedbackContext>(
-    FEEDBACK_CONTEXT_SERVICE,
+  const [feedbackMode, setFeedbackMode] = useState<FeedbackModalMode | null>(
+    null,
   );
   const currentProjectId = useAuthStateValue((s) => s.currentProjectId);
 
@@ -167,7 +161,7 @@ function RootLayout() {
   // only once the modal is submitted or skipped.
   const handleFeedbackFinished = () => {
     const finishedMode = feedbackMode;
-    closeFeedback();
+    setFeedbackMode(null);
     if (finishedMode === "posthog-web" && posthogWebUrl) {
       markPostHogWebFeedbackSeen();
       void openUrlInBrowser(posthogWebUrl);
@@ -182,7 +176,7 @@ function RootLayout() {
       void openUrlInBrowser(posthogWebUrl);
       return;
     }
-    openFeedback("posthog-web");
+    setFeedbackMode("posthog-web");
   };
   const {
     isOpen: commandMenuOpen,
@@ -505,7 +499,6 @@ function RootLayout() {
         <FeedbackModal
           mode={feedbackMode}
           onFinished={handleFeedbackFinished}
-          contextClient={feedbackContext}
         />
         <ExistingWorktreeDialog />
         <HedgehogMode />

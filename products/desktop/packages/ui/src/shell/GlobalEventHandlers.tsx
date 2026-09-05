@@ -16,6 +16,7 @@ import { useReviewNavigationStore } from "@posthog/ui/features/code-review/revie
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
+import { FeedbackHost } from "@posthog/ui/features/feedback/FeedbackHost";
 import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
@@ -50,7 +51,13 @@ interface GlobalEventHandlersProps {
   visualTaskOrder: TaskData[];
 }
 
-export function GlobalEventHandlers({
+const GLOBAL_HOTKEY_OPTIONS = {
+  enableOnFormTags: true,
+  enableOnContentEditable: true,
+  preventDefault: true,
+} as const;
+
+function useGlobalEventHandlers({
   allTasks,
   onToggleCommandMenu,
   onToggleShortcutsSheet,
@@ -177,21 +184,19 @@ export function GlobalEventHandlers({
     log.info("Main access token invalidated for testing");
   }, []);
 
-  const globalOptions = {
-    enableOnFormTags: true,
-    enableOnContentEditable: true,
-    preventDefault: true,
-  } as const;
-
   useHotkeys(SHORTCUTS.COMMAND_MENU, onToggleCommandMenu, {
-    ...globalOptions,
+    ...GLOBAL_HOTKEY_OPTIONS,
     enabled: !commandMenuOpen,
   });
-  useHotkeys(SHORTCUTS.NEW_TASK, handleFocusTaskMode, globalOptions);
-  useHotkeys(SHORTCUTS.SETTINGS, handleOpenSettings, globalOptions);
-  useHotkeys(SHORTCUTS.SEND_FEEDBACK, () => openFeedback(), globalOptions);
-  useHotkeys(SHORTCUTS.GO_BACK, goBack, globalOptions);
-  useHotkeys(SHORTCUTS.GO_FORWARD, goForward, globalOptions);
+  useHotkeys(SHORTCUTS.NEW_TASK, handleFocusTaskMode, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(SHORTCUTS.SETTINGS, handleOpenSettings, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(
+    SHORTCUTS.SEND_FEEDBACK,
+    () => openFeedback(),
+    GLOBAL_HOTKEY_OPTIONS,
+  );
+  useHotkeys(SHORTCUTS.GO_BACK, goBack, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(SHORTCUTS.GO_FORWARD, goForward, GLOBAL_HOTKEY_OPTIONS);
   // mod+left/right means jump to line start/end inside inputs and editors, so
   // the arrow variants skip enableOnFormTags/enableOnContentEditable.
   useHotkeys(SHORTCUTS.GO_BACK_ALT, goBack, { preventDefault: true });
@@ -208,10 +213,18 @@ export function GlobalEventHandlers({
   useHotkeys(
     SHORTCUTS.RELOAD_WINDOW,
     () => window.location.reload(),
-    globalOptions,
+    GLOBAL_HOTKEY_OPTIONS,
   );
-  useHotkeys(SHORTCUTS.TOGGLE_LEFT_SIDEBAR, toggleLeftSidebar, globalOptions);
-  useHotkeys(SHORTCUTS.TOGGLE_REVIEW_PANEL, handleToggleReview, globalOptions);
+  useHotkeys(
+    SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
+    toggleLeftSidebar,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
+  useHotkeys(
+    SHORTCUTS.TOGGLE_REVIEW_PANEL,
+    handleToggleReview,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
   // Under the spaces chrome a session's activity is the right panel, and the
   // dock this shortcut used to collapse is not rendered, so it goes to the
   // panel instead. Off that chrome, only the dock exists.
@@ -224,18 +237,22 @@ export function GlobalEventHandlers({
   }, [channelsLayout, currentTaskId]);
 
   useHotkeys(SHORTCUTS.TOGGLE_ACTIVITY_PANEL, handleToggleActivityPanel, {
-    ...globalOptions,
+    ...GLOBAL_HOTKEY_OPTIONS,
     enabled: channelsLayout,
   });
-  useHotkeys(SHORTCUTS.SHORTCUTS_SHEET, onToggleShortcutsSheet, globalOptions);
+  useHotkeys(
+    SHORTCUTS.SHORTCUTS_SHEET,
+    onToggleShortcutsSheet,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
   useHotkeys(SHORTCUTS.INBOX, navigateToInbox, {
-    ...globalOptions,
+    ...GLOBAL_HOTKEY_OPTIONS,
     enabled: inboxAvailable,
   });
-  useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, globalOptions, [
+  useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, GLOBAL_HOTKEY_OPTIONS, [
     handlePrevTask,
   ]);
-  useHotkeys(SHORTCUTS.NEXT_TASK, handleNextTask, globalOptions, [
+  useHotkeys(SHORTCUTS.NEXT_TASK, handleNextTask, GLOBAL_HOTKEY_OPTIONS, [
     handleNextTask,
   ]);
 
@@ -243,7 +260,7 @@ export function GlobalEventHandlers({
     SHORTCUTS.TOGGLE_FOCUS,
     handleToggleFocus,
     {
-      ...globalOptions,
+      ...GLOBAL_HOTKEY_OPTIONS,
       enabled: !!currentTaskId && isWorktreeTask,
     },
     [handleToggleFocus],
@@ -262,7 +279,7 @@ export function GlobalEventHandlers({
       handleSwitchTask(index);
     },
     {
-      ...globalOptions,
+      ...GLOBAL_HOTKEY_OPTIONS,
       enabled: !channelsEnabled && !browserTabStripMounted,
     },
     [handleSwitchTask],
@@ -385,4 +402,9 @@ export function GlobalEventHandlers({
   );
 
   return null;
+}
+
+export function GlobalEventHandlers(props: GlobalEventHandlersProps) {
+  useGlobalEventHandlers(props);
+  return <FeedbackHost />;
 }

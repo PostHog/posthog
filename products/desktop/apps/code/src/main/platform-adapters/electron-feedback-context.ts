@@ -47,12 +47,7 @@ export class ElectronFeedbackContext implements IFeedbackContext {
 
       const length = Math.min(size, MAX_LOG_BYTES);
       const buffer = Buffer.alloc(length);
-      const { bytesRead } = await handle.read(
-        buffer,
-        0,
-        length,
-        size - length,
-      );
+      const { bytesRead } = await handle.read(buffer, 0, length, size - length);
       const content = buffer.subarray(0, bytesRead).toString("utf8");
 
       if (length === size) return content;

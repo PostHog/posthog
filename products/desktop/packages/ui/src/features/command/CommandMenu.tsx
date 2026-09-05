@@ -1,23 +1,4 @@
 import {
-  ArchiveIcon,
-  CaretLeftIcon,
-  CaretRightIcon,
-  ChartLine,
-  ChatCircleDots,
-  CubeIcon,
-  EnvelopeSimple,
-  Gauge,
-  GitDiffIcon,
-  HashIcon,
-  SquaresFourIcon,
-} from "@phosphor-icons/react";
-import { workspaceIdSet } from "@posthog/core/command-center/eligibility";
-import { resolveService } from "@posthog/di/container";
-import {
-  HOST_TRPC_CLIENT,
-  type HostTrpcClient,
-} from "@posthog/host-router/client";
-import {
   Autocomplete,
   AutocompleteCollection,
   AutocompleteGroup,
@@ -33,13 +14,9 @@ import {
   KbdGroup,
 } from "@posthog/quill";
 import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
-import {
-  ANALYTICS_EVENTS,
-  type CommandMenuAction,
-} from "@posthog/shared/analytics-events";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
-import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   EDITOR_TEXT_CLASS,
   FeedQueryHighlight,
@@ -47,8 +24,6 @@ import {
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
-import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
-import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
 import {
   addRecentCommand,
@@ -56,13 +31,14 @@ import {
   prioritizeExactCommandMatches,
 } from "@posthog/ui/features/command/commandSearch";
 import { useFileSearchStore } from "@posthog/ui/features/command/fileSearchStore";
-import {
-  formatHotkeyParts,
-  SHORTCUTS,
-} from "@posthog/ui/features/command/keyboard-shortcuts";
+import { formatHotkeyParts } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { PaletteFilterChips } from "@posthog/ui/features/command/PaletteFilterChips";
-import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
-import { taskSearchDelay } from "@posthog/ui/features/command/taskSearchQuery";
+import {
+  useOpenReviewPanel,
+  useRemoteTaskSearch,
+  useSystemPrefersDark,
+} from "@posthog/ui/features/command/useCommandMenuRuntime";
+import { useCommandMenuSections } from "@posthog/ui/features/command/useCommandMenuSections";
 import {
   matchSummary,
   useFeedQueryCommands,
@@ -73,7 +49,6 @@ import {
   type CommandSection,
   useSearchSections,
 } from "@posthog/ui/features/command/useSearchSections";
-import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
@@ -87,38 +62,15 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
-import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
-import {
-  goBackInHistory,
-  goForwardInHistory,
-  navigateToArchived,
-  navigateToChannel,
-  navigateToCommandCenter,
-  navigateToFeed,
-  navigateToInbox,
-  navigateToLoops,
-} from "@posthog/ui/router/navigationBridge";
+import { navigateToFeed } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
-import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { showLogFolder } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import {
-  DesktopIcon,
-  FileTextIcon,
-  GearIcon,
-  HomeIcon,
-  MagnifyingGlassIcon,
-  MoonIcon,
-  ReloadIcon,
-  SunIcon,
-  ViewVerticalIcon,
-  ZoomInIcon,
-  ZoomOutIcon,
-} from "@radix-ui/react-icons";
-import {
   lazy,
+  type MutableRefObject,
   type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
   Suspense,
   useCallback,
   useEffect,
@@ -224,6 +176,220 @@ function PaletteQueryMirror({
   );
 }
 
+interface CommandMenuDialogProps {
+  bluebirdEnabled: boolean;
+  feedQuery: ReturnType<typeof useFeedQueryCommands>;
+  handleSelect: (id: string | null) => void;
+  highlightedId: MutableRefObject<string | null>;
+  inputWrapRef: RefObject<HTMLDivElement | null>;
+  onInputKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  paletteFilter: (command: { label: string; keywords?: string }) => boolean;
+  query: string;
+  sections: CommandSection[];
+  setQuery: (query: string) => void;
+  showMatchSummary: boolean;
+  spacesLayout: boolean;
+  trackCaret: () => void;
+}
+
+function CommandMenuDialog({
+  bluebirdEnabled,
+  feedQuery,
+  handleSelect,
+  highlightedId,
+  inputWrapRef,
+  onInputKeyDown,
+  onOpenChange,
+  open,
+  paletteFilter,
+  query,
+  sections,
+  setQuery,
+  showMatchSummary,
+  spacesLayout,
+  trackCaret,
+}: CommandMenuDialogProps) {
+  const {
+    hasFilterTokens,
+    hasRepairs,
+    keyChips,
+    matchCount,
+    mode,
+    partialResults,
+    shownCount,
+  } = feedQuery;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="w-[720px] max-w-[90vw] gap-0 p-0"
+        showCloseButton={false}
+      >
+        <Autocomplete<Command>
+          inline
+          defaultOpen
+          items={sections}
+          value={query}
+          autoHighlight
+          keepHighlight
+          onItemHighlighted={(value) => {
+            highlightedId.current = typeof value === "string" ? value : null;
+          }}
+          onValueChange={(val, eventDetails) => {
+            if (typeof val !== "string") return;
+            if (eventDetails.reason === "input-change") {
+              setQuery(val);
+              trackCaret();
+              return;
+            }
+            if (val === "") setQuery("");
+          }}
+          filter={paletteFilter}
+        >
+          <div ref={inputWrapRef} className="relative">
+            <PaletteQueryMirror
+              query={query}
+              wrapRef={inputWrapRef}
+              visible={spacesLayout}
+            />
+            <AutocompleteInput
+              placeholder={
+                spacesLayout
+                  ? "Search commands and tasks, or filter with created-by:"
+                  : bluebirdEnabled
+                    ? "Search commands, channels, and tasks…"
+                    : "Search commands and tasks…"
+              }
+              autoFocus
+              showClear
+              className={
+                spacesLayout
+                  ? cn(
+                      "[&_input]:whitespace-pre [&_input]:font-mono [&_input]:text-[13px] [&_input]:tracking-normal",
+                      "[&_input]:text-transparent [&_input]:caret-(--gray-12) [&_input]:placeholder:text-(--gray-9)",
+                      "[&_input]:selection:bg-(--blue-a4) [&_input]:selection:text-transparent",
+                    )
+                  : undefined
+              }
+              onKeyDown={onInputKeyDown}
+              onKeyUp={trackCaret}
+              onClick={trackCaret}
+              onSelect={trackCaret}
+            />
+          </div>
+          {keyChips.length > 0 && (
+            <PaletteFilterChips
+              key={mode}
+              chips={keyChips}
+              collapsedCount={COLLAPSED_CHIP_COUNT}
+            />
+          )}
+          {showMatchSummary ? (
+            <div className="border-(--gray-a4) border-b px-3 py-1.5 text-(--gray-9) text-xs tabular-nums">
+              {partialResults
+                ? "Some matching tasks may not be shown."
+                : matchSummary(matchCount, shownCount, hasRepairs)}
+            </div>
+          ) : (
+            query !== "" && (
+              <AutocompleteStatus
+                emptyContent={
+                  <span>
+                    No results for <strong>"{query}"</strong>
+                  </span>
+                }
+              />
+            )
+          )}
+          <AutocompleteList className="max-h-[60vh]">
+            {(section: CommandSection) => (
+              <AutocompleteGroup key={section.label} items={section.items}>
+                <AutocompleteLabel>{section.label}</AutocompleteLabel>
+                <AutocompleteCollection>
+                  {(cmd: Command) => (
+                    <AutocompleteItem
+                      key={cmd.id}
+                      value={cmd.id}
+                      onClick={() => handleSelect(cmd.id)}
+                      className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1.5 pr-2 text-left [&>span]:w-full [&>span]:overflow-visible"
+                    >
+                      {cmd.icon}
+                      <span className="wrap-break-word min-w-0 whitespace-normal">
+                        {cmd.label}
+                        {cmd.subtitle && (
+                          <span className="block truncate text-gray-9 text-xs">
+                            {cmd.subtitle}
+                          </span>
+                        )}
+                      </span>
+                      {cmd.detail && (
+                        <span className="shrink-0 text-gray-9">
+                          · {cmd.detailPrefix ?? "#"}
+                          {cmd.detail}
+                        </span>
+                      )}
+                      {cmd.shortcut && (
+                        <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
+                          {formatHotkeyParts(cmd.shortcut).map((part) => (
+                            <Kbd key={part}>{part}</Kbd>
+                          ))}
+                        </span>
+                      )}
+                    </AutocompleteItem>
+                  )}
+                </AutocompleteCollection>
+              </AutocompleteGroup>
+            )}
+          </AutocompleteList>
+        </Autocomplete>
+        <CommandKeyHints>
+          {hasFilterTokens && (
+            <div className="flex items-center gap-2">
+              <KbdGroup>
+                <Kbd>{formatHotkeyParts("mod+s").join("")}</Kbd>
+              </KbdGroup>
+              <span className="text-xs">
+                save search
+                {matchCount === 0 && " · no matches yet"}
+              </span>
+            </div>
+          )}
+        </CommandKeyHints>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function useRecentCommandSections(
+  baseSections: CommandSection[],
+  query: string,
+  recentCommands: Command[],
+): CommandSection[] {
+  return useMemo(() => {
+    if (query.trim() || recentCommands.length === 0) return baseSections;
+    const currentCommands = new Map(
+      baseSections.flatMap((section) =>
+        section.items.map((command) => [command.id, command] as const),
+      ),
+    );
+    const recentItems = recentCommands.map(
+      (command) => currentCommands.get(command.id) ?? command,
+    );
+    const recentIds = new Set(recentItems.map((command) => command.id));
+    return [
+      { label: "Recent", items: recentItems },
+      ...baseSections.flatMap((section) => {
+        const items = section.items.filter(
+          (command) => !recentIds.has(command.id),
+        );
+        return items.length > 0 ? [{ ...section, items }] : [];
+      }),
+    ];
+  }, [baseSections, query, recentCommands]);
+}
+
 export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const spacesLayout = useChannelsLayout();
   const openSettingsDialog = openSettings;
@@ -241,12 +407,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
   const openFeedback = useFeedbackStore((state) => state.open);
   const view = useAppView();
-  const setReviewMode = useReviewNavigationStore(
-    (state) => state.setReviewMode,
-  );
-  const getReviewMode = useReviewNavigationStore(
-    (state) => state.getReviewMode,
-  );
   const { data: tasks = [] } = useTasks();
   const archivedTaskIds = useArchivedTaskIds();
   const { data: workspaces, isFetched: workspacesFetched } = useWorkspaces();
@@ -257,56 +417,18 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [createChannelUsed, setCreateChannelUsed] = useState(false);
   const [recentCommands, setRecentCommands] = useState<Command[]>([]);
-  const [remoteQuery, setRemoteQuery] = useState("");
-  // The legacy title search only ever surfaces while the palette is browsing
-  // (see `showRemoteSearch` below). The feed-query `mode` that decides that is
-  // derived further down, after this debounce, so the effect reads the latest
-  // value through a ref instead because a filter query must not start a search whose
-  // results the palette then throws away.
-  const remoteSearchAllowedRef = useRef(true);
+  const { remoteQuery, remoteSearchAllowedRef, searchResults } =
+    useRemoteTaskSearch(open, query);
   const { repoPath } = useFileSearchContext();
   const canSearchFiles = !!repoPath;
   const openFilePicker = useFileSearchStore((state) => state.openPicker);
-  const [systemPrefersDark, setSystemPrefersDark] = useState(
-    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
-
-  useEffect(() => {
-    const trimmed = query.trim();
-    const delay = taskSearchDelay(trimmed);
-    if (!open || delay === null) {
-      setRemoteQuery("");
-      return;
-    }
-    const timer = window.setTimeout(
-      () => setRemoteQuery(remoteSearchAllowedRef.current ? trimmed : ""),
-      delay,
-    );
-    return () => window.clearTimeout(timer);
-  }, [open, query]);
-
-  const { data: searchResults = [] } = useTaskSearch(remoteQuery, open);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (e: MediaQueryListEvent) =>
-      setSystemPrefersDark(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
+  const systemPrefersDark = useSystemPrefersDark();
 
   // The review panel lives in the task-detail view, so the command only makes
   // sense when a task is open. Elsewhere (e.g. the new-task screen) it would be
   // a no-op, so we omit it below rather than show a dead entry.
   const reviewTaskId = view.type === "task-detail" ? view.taskId : undefined;
-
-  const openReviewPanel = useCallback(() => {
-    if (!reviewTaskId) return;
-    const mode = getReviewMode(reviewTaskId);
-    if (mode === "closed") {
-      setReviewMode(reviewTaskId, getDefaultReviewMode());
-    }
-  }, [reviewTaskId, getReviewMode, setReviewMode]);
+  const openReviewPanel = useOpenReviewPanel(reviewTaskId);
 
   // Archiving acts on the open task, so the command needs the task itself and
   // drops out of the list when the palette can't find it.
@@ -316,441 +438,51 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   });
 
   useEffect(() => {
-    if (open) {
-      track(ANALYTICS_EVENTS.COMMAND_MENU_OPENED);
-    } else {
-      setQuery("");
-    }
+    if (open) track(ANALYTICS_EVENTS.COMMAND_MENU_OPENED);
   }, [open]);
 
-  const themeOptions = useMemo<Command[]>(() => {
-    const options: Command[] = [];
-    if (theme !== "light") {
-      options.push({
-        id: "switch-theme-light",
-        label: "Switch to light mode",
-        keywords: "theme appearance",
-        icon: <SunIcon className="h-3 w-3 text-gray-11" />,
-        action: "toggle-theme",
-        onRun: () => setTheme("light"),
-      });
-    }
-    if (theme !== "dark") {
-      options.push({
-        id: "switch-theme-dark",
-        label: "Switch to dark mode",
-        keywords: "theme appearance",
-        icon: <MoonIcon className="h-3 w-3 text-gray-11" />,
-        action: "toggle-theme",
-        onRun: () => setTheme("dark"),
-      });
-    }
-    const systemMatchesCurrent =
-      (theme === "dark" && systemPrefersDark) ||
-      (theme === "light" && !systemPrefersDark);
-    if (theme !== "system" && !systemMatchesCurrent) {
-      options.push({
-        id: "switch-theme-system",
-        label: "Switch to system theme",
-        keywords: "theme appearance auto",
-        icon: <DesktopIcon className="h-3 w-3 text-gray-11" />,
-        action: "toggle-theme",
-        onRun: () => setTheme("system"),
-      });
-    }
-    return options;
-  }, [theme, setTheme, systemPrefersDark]);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) setQuery("");
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange],
+  );
 
-  const commandSections = useMemo<CommandSection[]>(() => {
-    const navigation: Command[] = [
-      {
-        id: "home",
-        label: "Home",
-        icon: <HomeIcon className="h-3 w-3 text-gray-11" />,
-        action: "home",
-        onRun: () => {
-          closeSettingsDialog();
-          openTaskInput();
-        },
-      },
-      {
-        id: "settings",
-        label: "Settings",
-        icon: <GearIcon className="h-3 w-3 text-gray-11" />,
-        action: "settings",
-        shortcut: SHORTCUTS.SETTINGS,
-        onRun: () => openSettingsDialog(),
-      },
-      ...(inboxAvailable
-        ? [
-            {
-              id: "inbox",
-              label: "Self-driving",
-              keywords: "reports pull requests agents notifications",
-              icon: <EnvelopeSimple size={12} className="text-gray-11" />,
-              action: "open-inbox",
-              shortcut: SHORTCUTS.INBOX,
-              onRun: () => {
-                closeSettingsDialog();
-                navigateToInbox();
-              },
-            } satisfies Command,
-          ]
-        : []),
-      {
-        id: "archived",
-        label: "Archived",
-        keywords: "archive archived tasks",
-        icon: <ArchiveIcon size={12} className="text-gray-11" />,
-        action: "open-archived",
-        onRun: () => {
-          closeSettingsDialog();
-          navigateToArchived();
-        },
-      },
-      {
-        id: "command-center",
-        label: "Command center",
-        keywords: "grid tasks parallel dashboard",
-        icon: <SquaresFourIcon className="h-3 w-3 text-gray-11" />,
-        action: "open-command-center",
-        onRun: () => {
-          closeSettingsDialog();
-          navigateToCommandCenter();
-        },
-      },
-      ...(loopsEnabled
-        ? [
-            {
-              id: "loops",
-              label: "Loops",
-              keywords: "automations schedules recurring",
-              icon: <LoopIcon size={12} className="text-gray-11" />,
-              action: "open-loops" as CommandMenuAction,
-              onRun: () => {
-                closeSettingsDialog();
-                navigateToLoops();
-              },
-            },
-          ]
-        : []),
-      // Gated like every other cost-management entry point: without spend
-      // analysis the settings page is hidden and redirects to General, so the
-      // command would not do what its label says.
-      ...(spendAnalysisEnabled
-        ? [
-            {
-              id: "cost-management",
-              label: "Cost management",
-              keywords: "cost spend limits budget savings recommendations",
-              icon: <Gauge size={12} className="text-gray-11" />,
-              action: "open-cost-management" as CommandMenuAction,
-              onRun: () => openSettingsDialog("cost-management"),
-            },
-          ]
-        : []),
-      {
-        id: "plan-usage",
-        label: "Plan & usage",
-        keywords: "billing spend cost credits usage plan",
-        icon: <ChartLine size={12} className="text-gray-11" />,
-        action: "open-usage",
-        onRun: () => openSettingsDialog("plan-usage"),
-      },
-      {
-        id: "go-back",
-        label: "Go back",
-        keywords: "navigate history previous",
-        icon: <CaretLeftIcon size={12} className="text-gray-11" />,
-        action: "go-back",
-        shortcut: SHORTCUTS.GO_BACK,
-        onRun: goBackInHistory,
-      },
-      {
-        id: "go-forward",
-        label: "Go forward",
-        keywords: "navigate history next",
-        icon: <CaretRightIcon size={12} className="text-gray-11" />,
-        action: "go-forward",
-        shortcut: SHORTCUTS.GO_FORWARD,
-        onRun: goForwardInHistory,
-      },
-    ];
+  const handleCreateChannel = useCallback(() => {
+    setCreateChannelUsed(true);
+    setCreateChannelOpen(true);
+  }, []);
 
-    const actions: Command[] = [
-      {
-        id: "new-task",
-        label: "New task",
-        keywords: "create",
-        icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
-        action: "new-task",
-        shortcut: SHORTCUTS.NEW_TASK,
-        onRun: () => {
-          closeSettingsDialog();
-          openTaskInput();
-        },
-      },
-      ...(bluebirdEnabled
-        ? [
-            {
-              id: "create-channel",
-              label: spacesLayout ? "New space" : "New channel",
-              keywords: "create add space channel context",
-              icon: spacesLayout ? (
-                <CubeIcon size={12} className="text-gray-11" />
-              ) : (
-                <HashIcon size={12} className="text-gray-11" />
-              ),
-              action: "create-channel" as CommandMenuAction,
-              onRun: () => {
-                closeSettingsDialog();
-                setCreateChannelUsed(true);
-                setCreateChannelOpen(true);
-              },
-            },
-          ]
-        : []),
-      {
-        id: "toggle-left-sidebar",
-        label: "Toggle left sidebar",
-        icon: <ViewVerticalIcon className="h-3 w-3 text-gray-11" />,
-        action: "toggle-left-sidebar",
-        shortcut: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
-        onRun: toggleLeftSidebar,
-      },
-      {
-        id: "send-feedback",
-        label: "Send feedback",
-        keywords: "report issue bug screenshot logs",
-        icon: <ChatCircleDots size={12} className="text-gray-11" />,
-        action: "send-feedback",
-        shortcut: SHORTCUTS.SEND_FEEDBACK,
-        onRun: () => openFeedback(),
-      },
-      ...(reviewTaskId
-        ? [
-            {
-              id: "open-review-panel",
-              label: "Open diff view",
-              icon: <GitDiffIcon className="h-3 w-3 text-gray-11" />,
-              action: "open-review-panel" as CommandMenuAction,
-              shortcut: SHORTCUTS.TOGGLE_REVIEW_PANEL,
-              onRun: openReviewPanel,
-            },
-          ]
-        : []),
-      ...(openedTask
-        ? [
-            {
-              id: "archive-task",
-              label: "Archive task",
-              keywords: "archive close remove",
-              icon: <ArchiveIcon size={12} className="text-gray-11" />,
-              action: "archive-task" as CommandMenuAction,
-              shortcut: SHORTCUTS.ARCHIVE_TASK,
-              onRun: requestArchive,
-            },
-          ]
-        : []),
-      // Last, because the first row is what a stray Enter runs.
-      ...themeOptions,
-    ];
-
-    if (canSearchFiles) {
-      actions.push({
-        id: "search-files",
-        label: "Search files",
-        keywords: "file find open",
-        icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
-        action: "search-files",
-        onRun: openFilePicker,
-      });
-    }
-
-    const developer: Command[] = [
-      {
-        id: "show-log-folder",
-        label: "Show log folder",
-        keywords: "logs debug files finder",
-        icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
-        action: "show-log-folder",
-        onRun: showLogFolder,
-      },
-      {
-        id: "reload-window",
-        label: "Reload window",
-        keywords: "refresh restart",
-        icon: <ReloadIcon className="h-3 w-3 text-gray-11" />,
-        action: "reload-window",
-        shortcut: SHORTCUTS.RELOAD_WINDOW,
-        onRun: () => window.location.reload(),
-      },
-    ];
-
-    const viewCommands: Command[] = [
-      {
-        id: "zoom-in",
-        label: "Zoom in",
-        keywords: "zoom increase larger",
-        icon: <ZoomInIcon className="h-3 w-3 text-gray-11" />,
-        action: "zoom-in",
-        shortcut: SHORTCUTS.ZOOM_IN,
-        onRun: () =>
-          void resolveService<HostTrpcClient>(
-            HOST_TRPC_CLIENT,
-          ).os.zoomIn.mutate(),
-      },
-      {
-        id: "zoom-out",
-        label: "Zoom out",
-        keywords: "zoom decrease smaller",
-        icon: <ZoomOutIcon className="h-3 w-3 text-gray-11" />,
-        action: "zoom-out",
-        shortcut: SHORTCUTS.ZOOM_OUT,
-        onRun: () =>
-          void resolveService<HostTrpcClient>(
-            HOST_TRPC_CLIENT,
-          ).os.zoomOut.mutate(),
-      },
-      {
-        id: "zoom-reset",
-        label: "Reset zoom",
-        keywords: "zoom actual size default",
-        icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
-        action: "zoom-reset",
-        shortcut: SHORTCUTS.RESET_ZOOM,
-        onRun: () =>
-          void resolveService<HostTrpcClient>(
-            HOST_TRPC_CLIENT,
-          ).os.resetZoom.mutate(),
-      },
-    ];
-
-    const out: CommandSection[] = [
-      { label: "Actions", items: actions },
-      { label: "Navigation", items: navigation },
-      { label: "View", items: viewCommands },
-      { label: "Developer", items: developer },
-    ];
-
-    if (folders.length > 0) {
-      out.push({
-        label: "New task in folder",
-        items: folders.map((folder) => ({
-          id: `new-task-folder-${folder.id}`,
-          label: `New task in ${folder.name}`,
-          keywords: folder.path,
-          icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
-          action: "new-task",
-          onRun: () => {
-            closeSettingsDialog();
-            openTaskInput(folder.id);
-          },
-        })),
-      });
-    }
-
-    return out;
-  }, [
-    folders,
-    themeOptions,
-    openSettingsDialog,
-    closeSettingsDialog,
-    toggleLeftSidebar,
-    openFeedback,
-    openReviewPanel,
-    reviewTaskId,
-    openedTask,
-    requestArchive,
-    canSearchFiles,
-    openFilePicker,
-    loopsEnabled,
-    inboxAvailable,
-    spendAnalysisEnabled,
-    bluebirdEnabled,
-    spacesLayout,
-  ]);
-
-  const taskSections = useMemo<CommandSection[]>(() => {
-    const workspaceIds = workspaceIdSet(workspaces);
-    const visibleTasks = tasks.filter(
-      (task) =>
-        !archivedTaskIds.has(task.id) &&
-        (!workspacesFetched ||
-          workspaceIds.has(task.id) ||
-          provisioningTaskIds.has(task.id)),
-    );
-    if (visibleTasks.length === 0) return [];
-    const channelsById = new Map(
-      channels.map((channel) => [channel.id, channel] as const),
-    );
-    return [
-      {
-        label: "Tasks",
-        items: visibleTasks.map((task) => {
-          const channel = task.channel
-            ? channelsById.get(task.channel)
-            : undefined;
-          return {
-            id: `task-${task.id}`,
-            label: task.title,
-            detail: channel?.name,
-            // Include the channel name so searching it surfaces filed tasks.
-            keywords: channel?.name,
-            icon: <TaskCommandIcon task={task} />,
-            action: "open-task" as CommandMenuAction,
-            channelId: bluebirdEnabled ? channel?.id : undefined,
-            onRun: () => {
-              closeSettingsDialog();
-              // Bluebird: a task filed to a channel opens in the channel-
-              // organized view under /website, keeping the channels chrome.
-              // Otherwise fall back to the /code task detail.
-              const channelTarget =
-                bluebirdEnabled && channel
-                  ? { channelId: channel.id }
-                  : undefined;
-              void openTask(task, channelTarget);
-            },
-          };
-        }),
-      },
-    ];
-  }, [
-    tasks,
-    archivedTaskIds,
-    workspaces,
-    workspacesFetched,
-    provisioningTaskIds,
-    channels,
-    bluebirdEnabled,
-    closeSettingsDialog,
-  ]);
-
-  const channelSections = useMemo<CommandSection[]>(() => {
-    if (channels.length === 0) return [];
-    return [
-      {
-        label: spacesLayout ? "Spaces" : "Channels",
-        items: channels.map((channel) => ({
-          id: `channel-${channel.id}`,
-          label: channel.name,
-          keywords: "space channel",
-          icon: channelGlyph(channel.name, {
-            personal: channel.channelType === "personal",
-            size: 12,
-            space: spacesLayout,
-            className: "text-muted-foreground",
-          }),
-          action: "open-channel" as CommandMenuAction,
-          channelId: channel.id,
-          onRun: () => {
-            closeSettingsDialog();
-            navigateToChannel(channel.id);
-          },
-        })),
-      },
-    ];
-  }, [channels, closeSettingsDialog, spacesLayout]);
+  const { channelSections, commandSections, taskSections } =
+    useCommandMenuSections({
+      archivedTaskIds,
+      bluebirdEnabled,
+      canArchiveTask: !!openedTask,
+      canSearchFiles,
+      channels,
+      closeSettingsDialog,
+      folders,
+      inboxAvailable,
+      loopsEnabled,
+      onCreateChannel: handleCreateChannel,
+      openFeedback,
+      openFilePicker,
+      openReviewPanel,
+      openSettingsDialog,
+      provisioningTaskIds,
+      requestArchive,
+      reviewTaskId,
+      setTheme,
+      spacesLayout,
+      spendAnalysisEnabled,
+      systemPrefersDark,
+      tasks,
+      theme,
+      toggleLeftSidebar,
+      workspaces,
+      workspacesFetched,
+    });
 
   const searchSections = useSearchSections({
     remoteQuery,
@@ -765,10 +497,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const [feedModalQuery, setFeedModalQuery] = useState<string | null>(null);
   const onSaveAsFeed = useCallback(
     (feedQuery: string) => {
-      onOpenChange(false);
+      handleOpenChange(false);
       setFeedModalQuery(feedQuery);
     },
-    [onOpenChange],
+    [handleOpenChange],
   );
 
   const [caret, setCaret] = useState(0);
@@ -806,24 +538,15 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     onApply: onApplyFilter,
     onShowAll: showAllMatches,
   });
-  const {
-    mode,
-    scope,
-    hasFilterTokens,
-    searchText,
-    keyChips,
-    matchCount,
-    partialResults,
-    shownCount,
-    hasRepairs,
-  } = feedQuery;
+  const { mode, scope, hasFilterTokens, searchText, keyChips, matchCount } =
+    feedQuery;
 
   // Keep the debounce's gate in step with the condition that decides whether
   // the remote search is even rendered, so the two can't drift.
   useEffect(() => {
     const browsing = mode === "browsing" || mode === "completingKey";
     remoteSearchAllowedRef.current = browsing && !scope;
-  }, [mode, scope]);
+  }, [mode, scope, remoteSearchAllowedRef]);
 
   const baseSections = useMemo(() => {
     const browsing = mode === "browsing" || mode === "completingKey";
@@ -852,27 +575,11 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     searchText,
   ]);
 
-  const sections = useMemo(() => {
-    if (query.trim() || recentCommands.length === 0) return baseSections;
-    const currentCommands = new Map(
-      baseSections.flatMap((section) =>
-        section.items.map((command) => [command.id, command] as const),
-      ),
-    );
-    const recentItems = recentCommands.map(
-      (command) => currentCommands.get(command.id) ?? command,
-    );
-    const recentIds = new Set(recentItems.map((command) => command.id));
-    return [
-      { label: "Recent", items: recentItems },
-      ...baseSections
-        .map((section) => ({
-          ...section,
-          items: section.items.filter((command) => !recentIds.has(command.id)),
-        }))
-        .filter((section) => section.items.length > 0),
-    ];
-  }, [baseSections, query, recentCommands]);
+  const sections = useRecentCommandSections(
+    baseSections,
+    query,
+    recentCommands,
+  );
 
   const paletteFilter = useCallback(
     (command: { label: string; keywords?: string }) =>
@@ -901,8 +608,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     }
     cmd.onRun();
     if (cmd.keepOpen) return;
-    onOpenChange(false);
-    setQuery("");
+    handleOpenChange(false);
   };
 
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -933,143 +639,23 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent
-          className="w-[720px] max-w-[90vw] gap-0 p-0"
-          showCloseButton={false}
-        >
-          <Autocomplete<Command>
-            inline
-            defaultOpen
-            items={sections}
-            value={query}
-            autoHighlight
-            keepHighlight
-            onItemHighlighted={(value) => {
-              highlightedId.current = typeof value === "string" ? value : null;
-            }}
-            onValueChange={(val, eventDetails) => {
-              if (typeof val !== "string") return;
-              if (eventDetails.reason === "input-change") {
-                setQuery(val);
-                trackCaret();
-                return;
-              }
-              if (val === "") setQuery("");
-            }}
-            filter={paletteFilter}
-          >
-            <div ref={inputWrapRef} className="relative">
-              <PaletteQueryMirror
-                query={query}
-                wrapRef={inputWrapRef}
-                visible={spacesLayout}
-              />
-              <AutocompleteInput
-                placeholder={
-                  spacesLayout
-                    ? "Search commands and tasks, or filter with created-by:"
-                    : bluebirdEnabled
-                      ? "Search commands, channels, and tasks…"
-                      : "Search commands and tasks…"
-                }
-                autoFocus
-                showClear
-                className={
-                  spacesLayout
-                    ? cn(
-                        "[&_input]:whitespace-pre [&_input]:font-mono [&_input]:text-[13px] [&_input]:tracking-normal",
-                        "[&_input]:text-transparent [&_input]:caret-(--gray-12) [&_input]:placeholder:text-(--gray-9)",
-                        "[&_input]:selection:bg-(--blue-a4) [&_input]:selection:text-transparent",
-                      )
-                    : undefined
-                }
-                onKeyDown={onInputKeyDown}
-                onKeyUp={trackCaret}
-                onClick={trackCaret}
-                onSelect={trackCaret}
-              />
-            </div>
-            {keyChips.length > 0 && (
-              <PaletteFilterChips
-                key={mode}
-                chips={keyChips}
-                collapsedCount={COLLAPSED_CHIP_COUNT}
-              />
-            )}
-            {showMatchSummary ? (
-              <div className="border-(--gray-a4) border-b px-3 py-1.5 text-(--gray-9) text-xs tabular-nums">
-                {partialResults
-                  ? "Some matching tasks may not be shown."
-                  : matchSummary(matchCount, shownCount, hasRepairs)}
-              </div>
-            ) : (
-              query !== "" && (
-                <AutocompleteStatus
-                  emptyContent={
-                    <span>
-                      No results for <strong>"{query}"</strong>
-                    </span>
-                  }
-                />
-              )
-            )}
-            <AutocompleteList className="max-h-[60vh]">
-              {(section: CommandSection) => (
-                <AutocompleteGroup key={section.label} items={section.items}>
-                  <AutocompleteLabel>{section.label}</AutocompleteLabel>
-                  <AutocompleteCollection>
-                    {(cmd: Command) => (
-                      <AutocompleteItem
-                        key={cmd.id}
-                        value={cmd.id}
-                        onClick={() => handleSelect(cmd.id)}
-                        className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1.5 pr-2 text-left [&>span]:w-full [&>span]:overflow-visible"
-                      >
-                        {cmd.icon}
-                        <span className="wrap-break-word min-w-0 whitespace-normal">
-                          {cmd.label}
-                          {cmd.subtitle && (
-                            <span className="block truncate text-gray-9 text-xs">
-                              {cmd.subtitle}
-                            </span>
-                          )}
-                        </span>
-                        {cmd.detail && (
-                          <span className="shrink-0 text-gray-9">
-                            · {cmd.detailPrefix ?? "#"}
-                            {cmd.detail}
-                          </span>
-                        )}
-                        {cmd.shortcut && (
-                          <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
-                            {formatHotkeyParts(cmd.shortcut).map((part) => (
-                              <Kbd key={part}>{part}</Kbd>
-                            ))}
-                          </span>
-                        )}
-                      </AutocompleteItem>
-                    )}
-                  </AutocompleteCollection>
-                </AutocompleteGroup>
-              )}
-            </AutocompleteList>
-          </Autocomplete>
-          <CommandKeyHints>
-            {hasFilterTokens && (
-              <div className="flex items-center gap-2">
-                <KbdGroup>
-                  <Kbd>{formatHotkeyParts("mod+s").join("")}</Kbd>
-                </KbdGroup>
-                <span className="text-xs">
-                  save search
-                  {matchCount === 0 && " · no matches yet"}
-                </span>
-              </div>
-            )}
-          </CommandKeyHints>
-        </DialogContent>
-      </Dialog>
+      <CommandMenuDialog
+        bluebirdEnabled={bluebirdEnabled}
+        feedQuery={feedQuery}
+        handleSelect={handleSelect}
+        highlightedId={highlightedId}
+        inputWrapRef={inputWrapRef}
+        onInputKeyDown={onInputKeyDown}
+        onOpenChange={handleOpenChange}
+        open={open}
+        paletteFilter={paletteFilter}
+        query={query}
+        sections={sections}
+        setQuery={setQuery}
+        showMatchSummary={showMatchSummary}
+        spacesLayout={spacesLayout}
+        trackCaret={trackCaret}
+      />
       <TaskFeedModal
         open={feedModalQuery !== null}
         onOpenChange={(modalOpen) => {
