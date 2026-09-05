@@ -288,3 +288,87 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
             self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&team_ids=[999999]")
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+INVOICES = {
+    "status": "ok",
+    "customer_id": 42,
+    "next": "bz0x",
+    "previous": None,
+    "results": [
+        {
+            "id": "in_1",
+            "number": "A1-0007",
+            "status": "paid",
+            "currency": "usd",
+            "subtotal": "412.50",
+            "total": "330.00",
+            "amount_due": "330.00",
+            "amount_paid": "330.00",
+            "period_start": PERIOD_START,
+            "period_end": PERIOD_END,
+            "created": PERIOD_START,
+            "due_date": None,
+        }
+    ],
+}
+LIMITS = {
+    "status": "ok",
+    "customer_id": 42,
+    "results": [
+        {
+            "key": "product_analytics",
+            "limit_usd": 500,
+            "next_period_limit_usd": None,
+            "spend_usd": "212.40",
+            "reached": False,
+        }
+    ],
+}
+
+
+class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_invoices_carry_iso_dates_and_cursor_urls(self, mock_get):
+        mock_get.return_value = _response(INVOICES)
+        response = self.client.get(self._url("invoices/?limit=1"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertEqual(body["results"][0]["period_start"], "2026-09-01T00:00:00Z")
+        self.assertIsNone(body["results"][0]["due_date"])
+        self.assertTrue(body["next"].endswith("/billing/invoices/?cursor=bz0x"))
+        self.assertIsNone(body["previous"])
+        self.assertEqual(mock_get.call_args.kwargs["params"], {"limit": 1})
+
+    @patch("ee.api.billing_public.fetch_invoice_document")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_invoice_content_streams_the_pdf_without_exposing_the_link(self, mock_billing_get, mock_upstream_get):
+        mock_billing_get.return_value = _response(
+            {"status": "ok", "customer_id": 42, "url": "https://pay.example/in_1/pdf"}
+        )
+        upstream = MagicMock()
+        upstream.status_code = 200
+        upstream.iter_content.return_value = iter([b"%PDF-1.4", b"..."])
+        mock_upstream_get.return_value = upstream
+        response = self.client.get(self._url("invoices/in_1/content/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4...")
+        self.assertEqual(mock_upstream_get.call_args.args[0], "https://pay.example/in_1/pdf")
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_limits_pass_through(self, mock_get):
+        mock_get.return_value = _response(LIMITS)
+        response = self.client.get(self._url("limits/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["results"][0]["reached"], False)
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_admin_under_owner_only_billing_is_refused_invoices_and_limits(self, mock_get):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.owner_only.return_value = True
+        for path in ("invoices/", "limits/", "invoices/in_1/content/"):
+            response = self.client.get(self._url(path))
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, path)
+        mock_get.assert_not_called()

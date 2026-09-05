@@ -754,6 +754,8 @@ class BillingManager:
             raise PermissionDenied(res.json().get("detail", "You do not have access to Billing for this organization."))
         if res.status_code == 404:
             raise NotFound(res.json().get("detail", "Not found."))
+        if res.status_code == 400:
+            raise ValidationError(res.json())
         handle_billing_service_error(res, valid_codes=(200,))
         data = res.json()
         data.pop("status", None)
@@ -785,6 +787,24 @@ class BillingManager:
 
     def get_public_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._public_get(organization, grants, "forecast/")
+
+    def get_public_invoices(
+        self, organization: Organization, grants: EffectiveBillingGrants, *, cursor: str | None, limit: int | None
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        if cursor:
+            params["cursor"] = cursor
+        if limit:
+            params["limit"] = limit
+        return self._public_get(organization, grants, "invoices/", params)
+
+    def get_public_invoice_pdf_url(
+        self, organization: Organization, grants: EffectiveBillingGrants, invoice_id: str
+    ) -> str:
+        return self._public_get(organization, grants, f"invoices/{invoice_id}/pdf-url/")["url"]
+
+    def get_public_limits(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._public_get(organization, grants, "limits/")
 
     def get_public_timeseries(
         self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]

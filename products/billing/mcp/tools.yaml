@@ -299,6 +299,28 @@ tools:
             this month cost"; for what has accrued so far call billing-spend-summary-get.
         feature_flag: billing-mcp-read-tools
         url_prefix: /organization/billing/overview
+    billing-limits-get:
+        operation: billing_limits_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get spend limits
+        description: >
+            Per product, the spend limit for the current period, a limit deferred to the next period because it was
+            set below current spend, spend so far, and whether the limit is reached. Needs full billing access. Use it
+            for "am I over my spend limit"; the quota limiting state PostHog applies is on billing-usage-summary-get.
+        feature_flag: billing-mcp-read-tools
+        url_prefix: /organization/billing/overview
+    billing-invoices-list:
+        operation: billing_invoices_list
+        enabled: false
+    billing-invoices-content-retrieve:
+        operation: billing_invoices_content_retrieve
+        enabled: false
     billing-startups-apply-create:
         operation: billing_startups_apply_create
         enabled: false

@@ -14,11 +14,13 @@ from typing import Any, Optional
 
 from django.conf import settings
 from django.db import models
+from django.http import StreamingHttpResponse
 
+import requests
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -45,6 +47,12 @@ class CatalogKind(models.TextChoices):
 
 
 PUBLIC_BILLING_PROVIDER = {"posthog": "stripe", "vercel": "vercel"}
+
+
+def fetch_invoice_document(url: str) -> requests.Response:
+    """Open the provider's PDF for streaming. Its own function so tests can stub it apart from the
+    calls to billing."""
+    return requests.get(url, stream=True, timeout=(5, 60))
 
 
 def _iso(timestamp: Optional[int]) -> Optional[str]:
@@ -296,6 +304,39 @@ class BillingForecastSerializer(serializers.Serializer):
     computed_at = serializers.DateTimeField()
 
 
+class BillingInvoiceSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    number = serializers.CharField(allow_null=True)
+    status = serializers.ChoiceField(choices=["open", "paid", "uncollectible", "void"])
+    currency = serializers.CharField(allow_null=True)
+    subtotal = serializers.CharField()
+    total = serializers.CharField()
+    amount_due = serializers.CharField()
+    amount_paid = serializers.CharField()
+    period_start = serializers.DateTimeField()
+    period_end = serializers.DateTimeField()
+    created = serializers.DateTimeField(allow_null=True)
+    due_date = serializers.DateTimeField(allow_null=True)
+
+
+class BillingInvoicesSerializer(serializers.Serializer):
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+    results = BillingInvoiceSerializer(many=True)
+
+
+class ProductLimitSerializer(serializers.Serializer):
+    key = serializers.CharField()
+    limit_usd = serializers.IntegerField(allow_null=True)
+    next_period_limit_usd = serializers.IntegerField(allow_null=True)
+    spend_usd = serializers.CharField(allow_null=True)
+    reached = serializers.BooleanField()
+
+
+class BillingLimitsSerializer(serializers.Serializer):
+    results = ProductLimitSerializer(many=True)
+
+
 class PaginatedBillingTimeSeriesPointListSerializer(serializers.Serializer):
     count = serializers.IntegerField()
     next = serializers.URLField(allow_null=True)
@@ -331,6 +372,9 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "forecast",
         "usage_timeseries",
         "spend_timeseries",
+        "invoices",
+        "invoice_content",
+        "limits",
     ]
     scope_object_write_actions: list[str] = []
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
@@ -539,6 +583,81 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @action(methods=["GET"], detail=False, url_path="spend/timeseries")
     def spend_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._timeseries(request, "spend")
+
+    def _cursor_url(self, request: Request, cursor: Optional[str]) -> Optional[str]:
+        if not cursor:
+            return None
+        return request.build_absolute_uri(f"{request.path}?cursor={cursor}")
+
+    @extend_schema(
+        operation_id="billing_invoices_list",
+        summary="List the organization's invoices",
+        parameters=[
+            OpenApiParameter("cursor", str, OpenApiParameter.QUERY, description="The cursor from a previous page."),
+            OpenApiParameter("limit", int, OpenApiParameter.QUERY, description="Invoices per page.", default=100),
+        ],
+        responses={200: OpenApiResponse(response=BillingInvoicesSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="invoices")
+    def invoices(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
+        limit = request.query_params.get("limit")
+        data = self._manager().get_public_invoices(
+            organization, grants, cursor=request.query_params.get("cursor"), limit=int(limit) if limit else None
+        )
+        results = [
+            {
+                **invoice,
+                "period_start": _iso(invoice.get("period_start")),
+                "period_end": _iso(invoice.get("period_end")),
+                "created": _iso(invoice.get("created")),
+                "due_date": _iso(invoice.get("due_date")),
+            }
+            for invoice in data.get("results", [])
+        ]
+        return Response(
+            {
+                "next": self._cursor_url(request, data.get("next")),
+                "previous": self._cursor_url(request, data.get("previous")),
+                "results": results,
+            }
+        )
+
+    @extend_schema(
+        operation_id="billing_invoices_content_retrieve",
+        summary="Download an invoice as PDF",
+        responses={(200, "application/pdf"): OpenApiResponse(response=bytes)},
+    )
+    @action(methods=["GET"], detail=False, url_path=r"invoices/(?P<invoice_id>[^/.]+)/content")
+    def invoice_content(
+        self, request: Request, *args: Any, invoice_id: str = "", **kwargs: Any
+    ) -> StreamingHttpResponse:
+        """The invoice document, streamed from the billing provider by PostHog under the same access
+        check as the list. The provider's own link never reaches the client."""
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
+        url = self._manager().get_public_invoice_pdf_url(organization, grants, invoice_id)
+        upstream = fetch_invoice_document(url)
+        if upstream.status_code != 200:
+            raise NotFound(f"No document for invoice {invoice_id}.")
+        response = StreamingHttpResponse(upstream.iter_content(chunk_size=64 * 1024), content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{invoice_id}.pdf"'
+        return response
+
+    @extend_schema(
+        operation_id="billing_limits_retrieve",
+        summary="Get the organization's spend limits",
+        responses={200: OpenApiResponse(response=BillingLimitsSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="limits")
+    def limits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
+        return Response({"results": self._manager().get_public_limits(organization, grants).get("results", [])})
 
     @extend_schema(
         operation_id="billing_usage_summary_retrieve",
