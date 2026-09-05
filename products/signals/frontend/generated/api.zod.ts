@@ -400,6 +400,8 @@ export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
 
 export const signalsScoutCreateBodyConfigOneWriteScopesMax = 4
 
+export const signalsScoutCreateBodySuggestionIdMax = 64
+
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -582,6 +584,13 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
             ),
+        suggestion_id: zod
+            .string()
+            .max(signalsScoutCreateBodySuggestionIdMax)
+            .optional()
+            .describe(
+                "Optional id of the suggestion this scout was created from. The suggestion then stops being offered on this project. An id this project's batch does not hold is ignored."
+            ),
     })
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
@@ -589,6 +598,8 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
  * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
  * @summary Start a scout chat task
  */
+export const signalsScoutChatTasksCreateBodySuggestionIdMax = 64
+
 export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
     chat_type: zod
         .enum(['author_scout', 'fleet_overview', 'recent_signals'])
@@ -597,6 +608,13 @@ export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
         )
         .describe(
             'Which scout chat to start: `author_scout` (guided scout authoring), `fleet_overview` (health of the scout fleet), or `recent_signals` (walk through recently emitted signals). The prompt template is owned server-side.\n\n\* `author_scout` - author_scout\n\* `fleet_overview` - fleet_overview\n\* `recent_signals` - recent_signals'
+        ),
+    suggestion_id: zod
+        .string()
+        .max(signalsScoutChatTasksCreateBodySuggestionIdMax)
+        .optional()
+        .describe(
+            "Optional id of a suggestion from this project's scout suggestion batch. The chat then opens on that draft instead of scanning from scratch. `author_scout` only."
         ),
 })
 
