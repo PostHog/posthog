@@ -80,14 +80,32 @@ export type CohortEditTab = 'overview' | 'history'
 
 const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'overview' || value === 'history'
 
-const checkIsPendingCalculation = (cohort: CohortType): boolean =>
-    cohort.pending_version != null &&
-    (cohort.version == null || cohort.pending_version !== cohort.version) &&
-    // A pending version that never catches up because every attempt failed is not pending, it's
-    // failed. Without this, `version` stays stuck behind `pending_version` forever (it only advances
-    // on success), so the cohort would show "pending" indefinitely and mask the calculation error.
-    // A genuine in-progress retry still flips `is_calculating`, which keeps the calculating banner up.
-    !cohort.errors_calculating
+// Tracks a recalculation the user queued this session, so we can tell a freshly retried cohort
+// (still in-progress) apart from one where every attempt has failed. `baselineErrors` is the
+// `errors_calculating` count observed when the retry was queued — the retry has failed again
+// once the count climbs past it.
+export type CalculationRetryState = { baselineErrors: number } | null
+
+export const checkIsPendingCalculation = (cohort: CohortType, retryState: CalculationRetryState): boolean => {
+    const versionOutstanding =
+        cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
+    if (!versionOutstanding) {
+        return false
+    }
+    // No error on record: a plain in-progress calculation.
+    if (!cohort.errors_calculating) {
+        return true
+    }
+    // Errors are on record. Usually that means every attempt failed and the outstanding pending
+    // version will never catch up (it only advances on success), so this is a failure, not a
+    // pending state — without this the cohort would show "pending" forever and mask the error.
+    // The exception is a retry the user just queued: treat the fresh attempt as in-progress until
+    // it records a new failure (errors climb past the count seen when it was queued) or succeeds.
+    if (retryState && cohort.errors_calculating <= retryState.baselineErrors) {
+        return true
+    }
+    return false
+}
 
 const hasFilterCriteria = (cohort: CohortType): boolean =>
     Array.isArray(cohort.filters?.properties?.values) && cohort.filters.properties.values.length > 0
@@ -103,6 +121,7 @@ const inferStaticCohortMode = (cohort: CohortType): StaticCohortMode =>
 export interface cohortEditLogicValues {
     currentProjectId: number | string // teamLogic
     activeTab: CohortEditTab
+    calculationRetryState: CalculationRetryState
     canRemovePersonFromCohort: boolean | undefined
     cohort: CohortType
     cohortAllErrors: Record<string, any>
@@ -315,6 +334,9 @@ export interface cohortEditLogicActions {
     setCohort: (cohort: CohortType) => {
         cohort: CohortType
     }
+    setCalculationRetryBaseline: (baselineErrors: number) => {
+        baselineErrors: number
+    }
     setCohortFailure: (
         error: string,
         errorObject?: any
@@ -483,7 +505,7 @@ export interface cohortEditLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         effectiveQuery: (query: DataTableNode, persistedColumns: string[] | null) => DataTableNode
         canRemovePersonFromCohort: (cohort: CohortType) => boolean | undefined
-        isPendingCalculation: (cohort: CohortType) => boolean
+        isPendingCalculation: (cohort: CohortType, calculationRetryState: CalculationRetryState) => boolean
         isCalculatingOrPending: (cohort: CohortType, isPendingCalculation: boolean) => boolean
     }
 }
@@ -508,6 +530,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     actions({
         saveCohort: (cohortParams = {}) => ({ cohortParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
+        setCalculationRetryBaseline: (baselineErrors: number) => ({ baselineErrors }),
         deleteCohort: true,
         restoreCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
@@ -744,6 +767,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+        calculationRetryState: [
+            null as CalculationRetryState,
+            {
+                // Snapshot the error count when a save actually queued a recalculation, so a
+                // subsequent pending version reads as in-progress, not as the earlier failure.
+                setCalculationRetryBaseline: (_, { baselineErrors }) => ({ baselineErrors }),
+                // Any other cohort refresh (initial load, poll completion) is a clean slate.
+                setCohort: () => null,
+            },
+        ],
     })),
 
     selectors({
@@ -768,7 +801,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return cohort.is_static && typeof cohort.id === 'number'
             },
         ],
-        isPendingCalculation: [(s) => [s.cohort], (cohort: CohortType) => checkIsPendingCalculation(cohort)],
+        isPendingCalculation: [
+            (s) => [s.cohort, s.calculationRetryState],
+            (cohort: CohortType, calculationRetryState: CalculationRetryState) =>
+                checkIsPendingCalculation(cohort, calculationRetryState),
+        ],
         isCalculatingOrPending: [
             (s) => [s.cohort, s.isPendingCalculation],
             (cohort: CohortType, isPendingCalculation: boolean) => {
@@ -937,6 +974,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
                     delete cohort['csv']
                     actions.setCohort(cohort)
+                    // Only this path queued a calculation; snapshot after setCohort, which clears
+                    // the baseline. A failed save returns early above and never reaches here, so a
+                    // retry that errored out is not mistaken for one in progress.
+                    actions.setCalculationRetryBaseline(cohort.errors_calculating ?? 0)
                     refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
@@ -1123,7 +1164,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
-            const isPendingCalculation = checkIsPendingCalculation(cohort)
+            const isPendingCalculation = checkIsPendingCalculation(cohort, values.calculationRetryState)
             const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
 
             if (isCalculatingOrPending) {
