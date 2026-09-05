@@ -23,7 +23,7 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
     def validate_saved_query_id(self, value: uuid.UUID | None) -> uuid.UUID | None:
         if value is None:
             return None
-        if not DataWarehouseSavedQuery.objects.filter(id=value, team_id=self.context["team_id"]).exists():
+        if not DataWarehouseSavedQuery.objects.filter(id=value, team_id=self.context["get_team"]().id).exists():
             raise serializers.ValidationError("Saved query not found.")
         return value
 
