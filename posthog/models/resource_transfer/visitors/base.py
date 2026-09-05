@@ -78,6 +78,15 @@ class ResourceTransferVisitor:
         return f"{cls.kind} {resource.pk}"
 
     @classmethod
+    def deduplicate_name(cls, name: str, team: Team) -> str | None:
+        """
+        Return a collision-free name for this resource within *team*, or ``None`` to fall back to
+        the default ``"<name> (Copy)"`` strategy. Override for models whose ``name`` is a SQL
+        identifier (e.g. data warehouse views) and therefore cannot contain spaces or parentheses.
+        """
+        return None
+
+    @classmethod
     def get_resource_team(cls, resource: Any) -> Team:
         """
         Return the team that owns a resource instance. Most resources have a `team` foreign key;

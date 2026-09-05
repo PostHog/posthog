@@ -10,6 +10,7 @@ ResourceKind = Literal[
     "Dashboard",
     "DashboardTile",
     "DashboardWidget",
+    "DataWarehouseSavedQuery",
     "EarlyAccessFeature",
     "Experiment",
     "ExperimentHoldout",
