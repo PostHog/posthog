@@ -41,7 +41,7 @@
 //! The sentinels are pure observers: they never influence routing or commits.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -52,7 +52,7 @@ use tracing::{info, warn};
 
 use crate::ledger_shadow::set_held_gauges;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{Held, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{AssignmentEpoch, Held, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -578,7 +578,7 @@ pub struct SentinelContext {
     /// on sub-batches so the worker's feed-order sentinel rebaselines across
     /// rebalances. Distinct from the offset ledger's generations, which move
     /// per partition and stamp offset accounting rather than stream order.
-    assignment_epoch: Option<Arc<AtomicU64>>,
+    assignment_epoch: Option<AssignmentEpoch>,
 }
 
 impl SentinelContext {
@@ -595,9 +595,9 @@ impl SentinelContext {
         }
     }
 
-    /// Wire the gRPC transport's assignment-epoch counter. Call before the
-    /// context is handed to the Kafka consumer.
-    pub fn set_assignment_epoch(&mut self, epoch: Arc<AtomicU64>) {
+    /// Wire the process-wide assignment epoch. Call before the context is
+    /// handed to the Kafka consumer.
+    pub fn set_assignment_epoch(&mut self, epoch: AssignmentEpoch) {
         self.assignment_epoch = Some(epoch);
     }
 
@@ -632,6 +632,19 @@ impl SentinelContext {
     }
 }
 
+fn partition_names(tpl: &TopicPartitionList) -> Vec<String> {
+    let elements = tpl.elements();
+    let mut partitions: Vec<(&str, i32)> = elements
+        .iter()
+        .map(|element| (element.topic(), element.partition()))
+        .collect();
+    partitions.sort_unstable();
+    partitions
+        .into_iter()
+        .map(|(topic, partition)| format!("{topic}:{partition}"))
+        .collect()
+}
+
 impl ClientContext for SentinelContext {
     /// Fired on a librdkafka thread every `statistics.interval.ms`; disabled
     /// when that is 0.
@@ -645,7 +658,11 @@ impl ConsumerContext for SentinelContext {
         match rebalance {
             Rebalance::Revoke(tpl) => {
                 counter!("ingestion_consumer_rebalances_total", "event" => "revoke").increment(1);
-                info!(partitions = tpl.count(), "Rebalance: partitions revoked");
+                info!(
+                    partitions = tpl.count(),
+                    topic_partitions = ?partition_names(tpl),
+                    "Rebalance: partitions revoked"
+                );
                 self.commit_sentinel
                     .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
                 self.forget_ledger_partitions(tpl);
@@ -665,14 +682,18 @@ impl ConsumerContext for SentinelContext {
     fn post_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         if let Rebalance::Assign(tpl) = rebalance {
             counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
-            info!(partitions = tpl.count(), "Rebalance: partitions assigned");
+            info!(
+                partitions = tpl.count(),
+                topic_partitions = ?partition_names(tpl),
+                "Rebalance: partitions assigned"
+            );
             // An assign list names partitions that start a new assignment, so
             // any surviving ledger for them is stale. The revoke callback
             // normally dropped it already; this covers losses with no revoke
             // callback (an error rebalance, a fenced member).
             self.forget_ledger_partitions(tpl);
             if let Some(epoch) = &self.assignment_epoch {
-                epoch.fetch_add(1, Ordering::Relaxed);
+                epoch.bump();
             }
         }
     }
@@ -1012,5 +1033,18 @@ mod tests {
         assert!(sentinel
             .note_sent("t:a", &[msg_at(0, 101)], SendKind::Fresh)
             .is_empty());
+    }
+
+    #[test]
+    fn partition_names_sort_by_topic_then_partition_number() {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition("overflow", 2);
+        tpl.add_partition("events", 10);
+        tpl.add_partition("events", 9);
+
+        assert_eq!(
+            partition_names(&tpl),
+            vec!["events:9", "events:10", "overflow:2"]
+        );
     }
 }

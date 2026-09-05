@@ -25,7 +25,7 @@ record of what ran before the cutover.
 ## Scoping
 
 - `products/data_warehouse/` is owned by another team, but the saved-query surface in it
-  (`presentation/views/saved_query.py` and `logic/data_load/saved_query_service.py`) is data
-  modeling's to change. Anything else under that tree needs their review.
+  (`presentation/views/saved_query.py`) is data modeling's to change. Anything else under that
+  tree needs their review.
 - `DataModelingJob` lives in `products/data_modeling/backend/models/`. Only its viewset is
   still under `products/data_warehouse/`.

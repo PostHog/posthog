@@ -182,4 +182,54 @@ describe('reportListLogic', () => {
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
         })
     })
+
+    // Which rows get a CI glyph, and which pull requests the batch endpoint is asked about. A landed
+    // or dropped pull request has no CI worth reading, and asking about it spends a GitHub call.
+    describe('pull requests still in flight on the page', () => {
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        const withPr = (id: string, overrides: Partial<SignalReport>): SignalReport => ({
+            ...makeReport(id),
+            implementation_pr_url: `https://github.com/PostHog/posthog/pull/${id}`,
+            ...overrides,
+        })
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    '/api/projects/:team_id/signals/reports/pr_ci_statuses/': { statuses: [] },
+                    [REPORTS_URL]: () => [
+                        200,
+                        {
+                            count: 5,
+                            next: null,
+                            previous: null,
+                            results: [
+                                withPr('1', {}),
+                                withPr('2', { implementation_pr_merged: true }),
+                                withPr('3', { status: SignalReportStatus.SUPPRESSED }),
+                                withPr('5', { implementation_pr_state: 'draft' }),
+                                makeReport('4'),
+                            ],
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'monitoring',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['monitoring'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('counts the rows whose pull request is still in flight, drafts included', () => {
+            expect(logic.values.livePrReportIds).toEqual(['1', '5'])
+        })
+    })
 })

@@ -55,6 +55,21 @@ describe("ContextUsageIndicator", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
+  it("shows the cost on its own when usage is null", () => {
+    enableCost(true);
+    const { container } = render(
+      <Theme>
+        <ContextUsageIndicator
+          usage={null}
+          taskId="task-1"
+          originProduct="user_created"
+        />
+      </Theme>,
+    );
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
+    expect(container.querySelector("button")).toBeNull();
+  });
+
   // The ring carries no text, so the accessible name is the only way the
   // numbers reach a reader — including the "/0 · 0%" an unknown window must
   // never claim, and the cost while it has no text of its own.
@@ -78,6 +93,7 @@ describe("ContextUsageIndicator", () => {
           <ContextUsageIndicator
             usage={usage(overrides as Partial<ContextUsage>)}
             taskId="task-1"
+            originProduct={costEnabled ? "user_created" : undefined}
           />
         </Theme>,
       );
@@ -91,17 +107,42 @@ describe("ContextUsageIndicator", () => {
     enableCost(true);
     render(
       <Theme>
-        <ContextUsageIndicator usage={usage()} taskId="task-1" />
+        <ContextUsageIndicator
+          usage={usage()}
+          taskId="task-1"
+          originProduct="user_created"
+        />
       </Theme>,
     );
     expect(screen.getByText("$0.42")).toBeInTheDocument();
+  });
+
+  it("hides the cost for a task from another product", () => {
+    enableCost(true);
+    const { container } = render(
+      <Theme>
+        <ContextUsageIndicator
+          usage={usage()}
+          taskId="task-1"
+          originProduct="slack"
+        />
+      </Theme>,
+    );
+    expect(screen.queryByText("$0.42")).not.toBeInTheDocument();
+    expect(container.querySelector("button")?.getAttribute("aria-label")).toBe(
+      "Context usage: 25%",
+    );
   });
 
   it("keeps the cost in the popover while the visible flag is off", () => {
     enableCost();
     render(
       <Theme>
-        <ContextUsageIndicator usage={usage()} taskId="task-1" />
+        <ContextUsageIndicator
+          usage={usage()}
+          taskId="task-1"
+          originProduct="user_created"
+        />
       </Theme>,
     );
     expect(screen.queryByText("$0.42")).not.toBeInTheDocument();

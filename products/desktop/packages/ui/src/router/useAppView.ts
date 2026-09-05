@@ -32,7 +32,7 @@ export interface AppView {
   initialPrompt?: string;
   initialContent?: EditorContent;
   recoveredFromKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";

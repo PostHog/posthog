@@ -109,15 +109,13 @@ interface CachedSpaceTasks {
 }
 
 /**
- * What a session is asking of you: blocked on you, then merely unread or
- * working, then quiet.
+ * What a session is asking of you: blocked on you, then unread or working,
+ * then quiet.
  *
  * Blue is its own tier rather than part of the yellow one, because the two are
- * cleared differently. `wantsAttention` is the space dot's yellow predicate, and
- * reading a session clears it: open a blocked session and its row would fall
- * past the unread rows above it while the prompt it is blocked on is still
- * sitting there unanswered. A permission prompt only goes away when answered, so
- * a blue row holds its place until it is.
+ * cleared differently. `wantsAttention` is the space dot's yellow predicate.
+ * Opening clears unread; live work stays yellow until it settles. A permission
+ * prompt only goes away when answered, so a blue row holds its place until it is.
  */
 const ATTENTION_TIERS = 3;
 

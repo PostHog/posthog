@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   activeReports: [] as SignalReport[],
+  setupStatusLoading: false,
+  setupConfigured: true,
+  navigateToAgents: vi.fn(),
   navigateToInboxReportDetail: vi.fn(),
   prefetchReport: vi.fn(),
   prefetchRoute: vi.fn(),
@@ -120,6 +123,13 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxSectionCounts", () => ({
   }),
 }));
 
+vi.mock("@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus", () => ({
+  useSelfDrivingSetupStatus: () => ({
+    isLoading: mocks.setupStatusLoading,
+    isConfigured: mocks.setupConfigured,
+  }),
+}));
+
 vi.mock("@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed", () => ({
   useTrackReportsInboxViewed: () => undefined,
 }));
@@ -139,7 +149,7 @@ vi.mock(
 );
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToAgents: vi.fn(),
+  navigateToAgents: mocks.navigateToAgents,
   navigateToInboxReportDetail: mocks.navigateToInboxReportDetail,
 }));
 
@@ -209,6 +219,8 @@ describe("ReportsInboxView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.activeReports = [];
+    mocks.setupStatusLoading = false;
+    mocks.setupConfigured = true;
     mocks.searchQuery = "checkout";
     mocks.triageFocusEnabled = false;
     mocks.triageProps = null;
@@ -247,10 +259,22 @@ describe("ReportsInboxView", () => {
     ).toEqual(["ready", "ready,pending_input", "resolved,suppressed"]);
   });
 
-  it("shows the empty state when no selected reports exist", () => {
+  it("offers agent configuration when no reports or agents exist", async () => {
+    mocks.setupConfigured = false;
+    render(<ReportsInboxView />);
+
+    expect(screen.getByText("Ship fixes while you sleep")).toBeTruthy();
+    expect(screen.getAllByText("Configure agents")).toHaveLength(1);
+    await userEvent.click(screen.getByText("Configure agents"));
+    expect(mocks.navigateToAgents).toHaveBeenCalledOnce();
+  });
+
+  it("shows the plain empty state instead of the welcome when something is configured", () => {
+    mocks.setupConfigured = true;
     render(<ReportsInboxView />);
 
     expect(screen.getByText("Nothing to review")).toBeTruthy();
+    expect(screen.queryByText("Ship fixes while you sleep")).toBeNull();
   });
 
   it("opens a report on the first click without preloading its route", async () => {
