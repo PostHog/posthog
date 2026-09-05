@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -94,12 +94,21 @@ describe('useInsightsLegendConfig', () => {
         const logic = trendsDataLogic(insightProps)
         const [first, second] = logic.values.indexedResults
 
-        result.current.onSetHiddenSeries!([String(second.id)])
+        jest.useFakeTimers()
+        try {
+            result.current.onSetHiddenSeries!([String(second.id)])
 
-        await waitFor(() => {
+            // updateInsightFilter debounces the query update by 300ms. Advance past it so the
+            // customization set settles deterministically instead of racing waitFor's real-time budget.
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(300)
+            })
+
             const { getTrendsHidden } = logic.values
             expect([getTrendsHidden(first), getTrendsHidden(second)]).toEqual([false, true])
-        })
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('groups a compared series two rows onto one visibility key', () => {
