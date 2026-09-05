@@ -27,11 +27,16 @@ function variantColor(variants: FlagVariant[], key: string): string {
 function EntityChip({ value }: { value: FlagValue }) {
   const link = value.link;
   const url = useEvidenceUrl(link?.kind ?? "person", link?.id ?? "");
+  // Narrow panels clip the row, so the chip shrinks with an ellipsis and the
+  // hover title carries the full label plus the secondary value.
+  const title = [value.label, value.secondary]
+    .filter(Boolean)
+    .join(" · ");
   const body = (
     <>
-      <span>{value.label}</span>
+      <span className="min-w-0 truncate">{value.label}</span>
       {value.secondary && (
-        <span className="font-normal text-muted-foreground">
+        <span className="min-w-0 truncate font-normal text-muted-foreground">
           {value.secondary}
         </span>
       )}
@@ -42,7 +47,7 @@ function EntityChip({ value }: { value: FlagValue }) {
     "inline-flex items-center gap-1.5 rounded-md border border-(--blue-6) bg-(--blue-2) px-2 py-px font-medium text-(--blue-11) text-xs leading-5";
   if (!url) {
     return (
-      <span className={className} title={value.raw}>
+      <span className={className} title={title || value.raw}>
         {body}
       </span>
     );
@@ -51,7 +56,7 @@ function EntityChip({ value }: { value: FlagValue }) {
     <button
       type="button"
       className={`${className} cursor-pointer hover:bg-(--blue-3)`}
-      title={value.raw}
+      title={title || value.raw}
       onClick={() => openExternalUrl(url)}
     >
       {body}
@@ -172,7 +177,7 @@ function RuleRow({
 }) {
   return (
     <div
-      className={`grid grid-cols-[22px_1fr_auto] items-center gap-x-3 border-border border-b px-3 py-2.5 last:border-b-0 ${rule.reachable === false ? "opacity-50" : ""}`}
+      className={`@container grid grid-cols-[22px_1fr_auto] items-center gap-x-3 border-border border-b px-3 py-2.5 last:border-b-0 @max-[420px]:grid-cols-[22px_1fr] ${rule.reachable === false ? "opacity-50" : ""}`}
     >
       <span className="flex size-5 items-center justify-center rounded-md border border-border bg-muted font-semibold text-[11px] text-foreground">
         {index + 1}
@@ -201,7 +206,7 @@ function RuleRow({
           ))
         )}
       </div>
-      <div className="flex items-center justify-end gap-2.5 whitespace-nowrap">
+      <div className="flex items-center justify-end gap-2.5 whitespace-nowrap @max-[420px]:col-start-2 @max-[420px]:justify-start">
         {rule.share < 100 && (
           <span className="text-[11px] text-muted-foreground tabular-nums">
             {rule.share}% of matches
@@ -270,6 +275,7 @@ function VariantsList({
             </span>
           </span>
           <span
+            title={variant.payload ?? undefined}
             className={`truncate font-mono text-xs ${variant.payload ? "text-foreground" : "text-muted-foreground"}`}
           >
             {variant.payload ?? "No payload"}
