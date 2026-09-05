@@ -27,19 +27,43 @@ const breakpointTestLogic = kea<breakpointTestLogicType>([
     })),
 ])
 
+const legacyBreakpointTestLogic = kea<breakpointTestLogicType>({
+    path: ['test', 'keaTestListeners', 'legacyBreakpointTestLogic'],
+    actions: {
+        start: (value: string) => ({ value }),
+        complete: (value: string) => ({ value }),
+    },
+    reducers: {
+        completedValue: [null as string | null, { complete: (_, { value }) => value }],
+    },
+    listeners: ({ actions }) => ({
+        start: async ({ value }, breakpoint) => {
+            await breakpoint(60_000)
+            actions.complete(value)
+        },
+    }),
+})
+
 describe('Kea test listeners', () => {
     beforeEach(() => {
         initKeaTests()
     })
 
-    it('runs delayed breakpoints on the next timer task and keeps cancellation', async () => {
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        ['builder-form logic', breakpointTestLogic],
+        ['legacy object-form logic', legacyBreakpointTestLogic],
+    ])('runs delayed breakpoints on the next timer task and keeps cancellation for %s', async (_, logicBuilder) => {
         const setTimeoutSpy = jest.spyOn(global, 'setTimeout').mockImplementation((callback, delay, ...args) => {
             if (delay === 0) {
                 callback(...args)
             }
             return 0 as unknown as NodeJS.Timeout
         })
-        const logic = breakpointTestLogic()
+        const logic = logicBuilder()
         logic.mount()
 
         logic.actions.start('first')

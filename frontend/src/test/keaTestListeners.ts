@@ -20,21 +20,27 @@ function wrapListener(listener: ListenerFunction): ListenerFunction {
         listener(payload, hasFakeTimers() ? breakpoint : fastBreakpoint(breakpoint), action, previousState)
 }
 
+export function testListenerDefinitions<L extends Logic = Logic>(
+    input: LogicInput<L>['listeners']
+): LogicInput<L>['listeners'] {
+    return (logic: L) => {
+        const listeners = (typeof input === 'function' ? input(logic) : input) as Record<
+            string,
+            ListenerFunction | ListenerFunction[]
+        >
+        return Object.fromEntries(
+            Object.entries(listeners).map(([action, listener]) => [
+                action,
+                Array.isArray(listener) ? listener.map((item) => wrapListener(item)) : wrapListener(listener),
+            ])
+        )
+    }
+}
+
 export function testListeners(listenersBuilder: ListenersBuilder): ListenersBuilder {
     return function listenersWithoutDelays<L extends Logic = Logic>(
         input: LogicInput<L>['listeners']
     ): LogicBuilder<L> {
-        return listenersBuilder<L>(((logic: L) => {
-            const listeners = (typeof input === 'function' ? input(logic) : input) as Record<
-                string,
-                ListenerFunction | ListenerFunction[]
-            >
-            return Object.fromEntries(
-                Object.entries(listeners).map(([action, listener]) => [
-                    action,
-                    Array.isArray(listener) ? listener.map((item) => wrapListener(item)) : wrapListener(listener),
-                ])
-            )
-        }) as LogicInput<L>['listeners'])
+        return listenersBuilder<L>(testListenerDefinitions(input))
     }
 }
