@@ -29,6 +29,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -65,9 +66,8 @@ from products.data_warehouse.backend.presentation.views.column_annotation_base i
     upsert_annotation,
 )
 from products.warehouse_sources.backend.facade.hogql import (
-    CLICKHOUSE_HOGQL_MAPPING,
-    clean_type,
     get_view_or_table_by_name,
+    hogql_type_name_for_clickhouse_type,
 )
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -76,6 +76,16 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
+    # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
+    # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
+    # user-safe; reduce everything else to its class name. Mirrors validate_query below, which
+    # keeps the full cause in error tracking and logs instead of the response.
+    if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
+        return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
+    return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -898,7 +908,7 @@ class DataWarehouseSavedQuerySerializer(
                 else:
                     columns = {
                         str(item[0]): {
-                            "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                             "clickhouse": item[1],
                             "valid": True,
                         }
@@ -910,7 +920,7 @@ class DataWarehouseSavedQuerySerializer(
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
-                raise serializers.ValidationError("Failed to retrieve types for view")
+                raise _view_types_validation_error(e)
 
         with transaction.atomic():
             view.save()
@@ -1082,7 +1092,7 @@ class DataWarehouseSavedQuerySerializer(
                     else:
                         columns = {
                             str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                                 "clickhouse": item[1],
                                 "valid": True,
                             }
@@ -1096,7 +1106,7 @@ class DataWarehouseSavedQuerySerializer(
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to retrieve types for view %s", view.name)
-                    raise serializers.ValidationError("Failed to retrieve types for view")
+                    raise _view_types_validation_error(e)
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
