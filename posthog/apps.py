@@ -8,6 +8,7 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
+from posthog.exception_autocapture_filter import drop_transient_connection_errors
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.organization_caching import connect_signal_handlers as connect_organization_cache_signal_handlers
 from posthog.utils import (
@@ -48,6 +49,7 @@ class PostHogConfig(AppConfig):
         # django.setup(), so a process that never builds the router (celery, temporal, migrate,
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
+        import posthog.user_exists  # noqa: F401, PLC0415 — registers the any-user-exists cache invalidation
         import posthog.storage.checks  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
@@ -68,6 +70,9 @@ class PostHogConfig(AppConfig):
         )
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
         posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
+        # Keep transient DB connection/DNS errors out of autocapture, so a self-hosted stack that
+        # boots before its Postgres hostname resolves does not flood error tracking.
+        posthoganalytics.before_send = drop_transient_connection_errors  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),

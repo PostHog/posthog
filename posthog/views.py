@@ -47,6 +47,7 @@ from posthog.models.utils import (
 )
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
+from posthog.user_exists import any_user_exists
 from posthog.utils import (
     get_available_timezones_with_offsets,
     get_can_create_org,
@@ -100,7 +101,7 @@ def login_required(view):
         # (the SPA uses its bearer token). DEBUG-gated, so prod gating is unchanged.
         if settings.DEBUG and request.COOKIES.get("ph_oauth_mode"):
             return view(request, *args, **kwargs)
-        if not User.objects.exists():
+        if not any_user_exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
             user = User.objects.filter(is_active=True).first()

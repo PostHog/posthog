@@ -148,6 +148,25 @@ def test_admin_save_model_wraps_bare_strings(db):
     assert obj4.value == 42
 
 
+def test_database_error_falls_back_to_default_without_caching(monkeypatch):
+    # This read sits inside the HogQL printer, so a transient setting-store blip must fall back to
+    # the compiled default instead of failing every query. The fallback must not be cached, so the
+    # next read hits the database again once it recovers.
+    from django.db import DatabaseError
+
+    from posthog.models import instance_setting
+    from posthog.settings import CONSTANCE_CONFIG
+
+    default = CONSTANCE_CONFIG["MATERIALIZED_COLUMNS_ENABLED"][0]
+
+    def _raise(*args, **kwargs):
+        raise DatabaseError("connection to server failed")
+
+    monkeypatch.setattr(instance_setting.InstanceSetting.objects, "filter", _raise)
+    assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") == default
+    assert "MATERIALIZED_COLUMNS_ENABLED" not in instance_setting._instance_setting_cache
+
+
 def test_db_change_propagates_after_ttl(db, monkeypatch):
     # A direct DB change (no cache_clear) stays stale while cached, then propagates once the TTL
     # elapses — guards against reverting to a permanent cache (the stale-credential bug).
