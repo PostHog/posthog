@@ -11,6 +11,7 @@ import structlog
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.dataclasses import frozen
+from posthog.email import is_email_available
 from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
@@ -230,6 +231,11 @@ def send_notifications_for_breaches(
     """
     deliveries: list[AlertDelivery] = []
     email_targets = alert.get_subscribed_users_emails()
+    if email_targets and not is_email_available():
+        # Skip email on an instance without email configured, so the hog function
+        # destinations and the in-app paths after this still run.
+        logger.warning("send_notifications_for_breaches.email_unavailable", alert_id=alert.id)
+        email_targets = []
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing for {alert.team.name}"
         campaign_key = f"alert-firing-notification-{idempotency_key}"
@@ -288,6 +294,11 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
     logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
     email_targets = [email for _, email in get_alert_error_notification_recipients(alert) if email]
     if not email_targets:
+        return []
+    if not is_email_available():
+        # Skip email on an instance without email configured, so notify_alert's in-app
+        # error notification still runs instead of aborting on ImproperlyConfigured.
+        logger.warning("send_notifications_for_errors.email_unavailable", alert_id=alert.id)
         return []
 
     alert_name = alert.name or "Your alert"
