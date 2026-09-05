@@ -19,6 +19,16 @@
 -- no-op there, and skips the table scan the DELETE would otherwise cost. On fresh
 -- or small databases (dev, CI, hobby) both steps are cheap inline. Idempotent and
 -- safe to re-run.
+--
+-- ORDER: the out-of-band build needs the new merge statements in place first. An
+-- older merge writer repoints a source membership blind, so the index turns a
+-- cohort the target already holds into a 23505 error. That error aborts the
+-- merge, and it repeats on each retry because the colliding row stays. Deploy
+-- the collision-safe statements to both merge writers, move_cohort_membership in
+-- personhog-identity and updateCohortsAndFeatureFlagsForMerge in the Node person
+-- repository, and then build the index. The bulk insert needs no ordering,
+-- because its untargeted ON CONFLICT DO NOTHING starts to skip duplicates as
+-- soon as the index exists.
 
 DO $$
 BEGIN
