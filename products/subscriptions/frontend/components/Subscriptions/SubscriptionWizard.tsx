@@ -13,6 +13,7 @@ import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { WizardReview } from 'lib/components/WizardReview'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -349,9 +350,12 @@ function SubscriptionDeliveryStep({
     logicProps: SubscriptionLogicProps
 }): JSX.Element {
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { integrations, slackIntegrations } = useValues(integrationsLogic)
     const { preflight } = useValues(preflightLogic)
     const { setSubscriptionValue } = useActions(subscriptionLogic(logicProps))
+
+    useOnMountEffect(ensureAllMembersLoaded)
 
     return (
         <div className="flex flex-col gap-4">
