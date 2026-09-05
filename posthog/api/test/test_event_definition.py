@@ -284,6 +284,21 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert page_fetches
         assert all("LIMIT 10" in sql for sql in page_fetches)
 
+        expected_names = sorted(f"z_event_{i}" for i in range(1, 301))
+        for offset in (0, 11, 300, 301):
+            with self.subTest(offset=offset):
+                response = self.client.get(
+                    "/api/projects/@current/event_definitions/",
+                    data={"search": "z_event", "ordering": "-last_seen_at", "limit": 10, "offset": offset},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["count"] == 300
+                assert [row["name"] for row in response.json()["results"]] == expected_names[offset : offset + 10]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=missing_event&limit=10")
+        assert response.json()["count"] == 0
+        assert response.json()["results"] == []
+
     def test_cant_see_event_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
         team = Team.objects.create(organization=org, name="Default Project")
