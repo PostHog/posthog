@@ -203,7 +203,8 @@ wrappers:
             it, not the tool's lifetime. Widen dateRange to reach a tool that has been idle for longer, or to find when
             a tool was really first called. Order with sortColumn (total_calls, error_rate_pct, p50_duration_ms,
             p95_duration_ms, p99_duration_ms, users, sessions, last_seen) and sortDirection. Page with limit (server
-            default 50, maximum 100) and offset. totalCount reports how many tools matched.
+            default 50, maximum 100) and offset. You get one page and no total, so a full page can mean more tools
+            matched: raise limit to 100, page on with offset, or narrow with search.
         system_prompt_hint: MCP tools called in the window ranked — calls, error rate, latency, users, sessions
         exclude_properties:
             - response
