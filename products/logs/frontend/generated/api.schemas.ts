@@ -1732,6 +1732,48 @@ export interface _LogsGroupByResponseApi {
     truncated: boolean
 }
 
+export interface _LogsImpactRequestApi {
+    /** The impact query to execute. Takes the same filters as the count query. */
+    query: _LogsCountBodyApi
+}
+
+export interface _LogsImpactTopValueApi {
+    /** The session ID or person distinct ID. */
+    value: string
+    /** Approximate number of matching logs that carry this value (topK estimate). */
+    count: number
+}
+
+export interface _LogsImpactSessionGroupKeyApi {
+    /** Attribute map the key lives in, in the group-by endpoint's vocabulary: "log" or "resource".
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * * `column` - column */
+    source: LogsGroupBySourceEnumApi
+    /** The attribute key that carries the session ID on most matching logs. */
+    key: string
+}
+
+export interface _LogsImpactResponseApi {
+    /** Number of log entries matching the filters. */
+    total: number
+    /** How many of the matching logs carry a session ID under the team's configured or conventional attribute keys. */
+    logsWithSessionId: number
+    /** Estimated number of unique session IDs across the matching logs (HyperLogLog, about 1-2% error). */
+    sessions: number
+    /** How many of the matching logs carry a person distinct ID under the team's configured or conventional attribute keys. */
+    logsWithDistinctId: number
+    /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
+    users: number
+    /** Top session IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+    topSessions: _LogsImpactTopValueApi[]
+    /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+    topUsers: _LogsImpactTopValueApi[]
+    /** The dimension that carries the session ID on most matching logs. Group by this dimension to reproduce the session counts. Null when no matching log carries a session ID. */
+    sessionGroupKey: _LogsImpactSessionGroupKeyApi | null
+}
+
 export interface LogsMetricRuleApi {
     /** Unique identifier for this metric rule. */
     readonly id: string

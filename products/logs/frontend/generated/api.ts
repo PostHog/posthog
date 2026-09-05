@@ -62,6 +62,8 @@ import type {
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
     _LogsGroupByResponseApi,
+    _LogsImpactRequestApi,
+    _LogsImpactResponseApi,
     _LogsPatternsDiffRequestApi,
     _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
@@ -490,6 +492,23 @@ export const logsHasLogsRetrieve = async (
     return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/impact/`
+}
+
+export const logsImpactCreate = async (
+    projectId: string,
+    _logsImpactRequestApi: _LogsImpactRequestApi,
+    options?: RequestInit
+): Promise<_LogsImpactResponseApi> => {
+    return apiMutator<_LogsImpactResponseApi>(getLogsImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsImpactRequestApi),
     })
 }
 
