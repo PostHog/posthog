@@ -2727,14 +2727,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['Annotations'],
     },
     {
-        path: 'Comments',
-        category: 'Metadata',
-        iconType: 'comment',
-        href: urls.comments(),
-        sceneKey: 'Comments',
-        sceneKeys: ['Comments'],
-    },
-    {
         path: 'Core events',
         category: 'Schema',
         iconType: 'event_definition' as FileSystemIconType,
