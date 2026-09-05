@@ -2,6 +2,19 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "A Replay Vision scanner: its type, targeting query, and AI configuration.",
     "properties": {
+        "creation_method": {
+            "anyOf": [
+                {
+                    "description": "* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch",
+                    "enum": ["ai", "template", "scratch"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.\n\n* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch"
+        },
         "credit_limit": {
             "anyOf": [
                 {

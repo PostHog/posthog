@@ -274,6 +274,11 @@ export interface infiniteListLogicValues {
     dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
     excludedProperties: string[] | undefined
     expandedCount: number
+    expandedCountResult: {
+        count: number
+        searchQuery: string
+    } | null
+    expandedCountResultLoading: boolean
     fuse: ListFuse
     group: TaxonomicFilterGroup | undefined
     hasAppliedInitialPin: boolean
@@ -290,25 +295,14 @@ export interface infiniteListLogicValues {
     isLocalDataLoading: boolean
     isSoleSubstantiveGroup: boolean
     isSuggestedFilters: boolean
-    items:
-        | {
-              count: number
-              expandedCount?: undefined
-              first: boolean | undefined
-              queryChanged: boolean | undefined
-              results: QuickFilterItem[]
-              searchQuery: string | undefined
-              syntheticSelectedCount: number
-          }
-        | {
-              count: number
-              expandedCount: number | undefined
-              first: boolean | undefined
-              queryChanged: boolean | undefined
-              results: (SkeletonItem | TaxonomicDefinitionTypes)[]
-              searchQuery: string | undefined
-              syntheticSelectedCount: number
-          }
+    items: {
+        count: number
+        first: boolean | undefined
+        queryChanged: boolean | undefined
+        results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+        searchQuery: string | undefined
+        syntheticSelectedCount: number
+    }
     keywordShortcutItems: QuickFilterItem[]
     limit: number
     listGroupType: TaxonomicFilterGroupType
@@ -391,6 +385,47 @@ export interface infiniteListLogicActions {
     expand: () => {
         value: true
     }
+    loadExpandedCount: ({
+        endpoint,
+        searchParams,
+        searchQuery,
+    }: {
+        endpoint: string
+        searchParams: Record<string, number | string | undefined>
+        searchQuery: string
+    }) => {
+        endpoint: string
+        searchParams: Record<string, string | number | undefined>
+        searchQuery: string
+    }
+    loadExpandedCountFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadExpandedCountSuccess: (
+        expandedCountResult: {
+            count: number
+            searchQuery: string
+        } | null,
+        payload?: {
+            endpoint: string
+            searchParams: Record<string, string | number | undefined>
+            searchQuery: string
+        }
+    ) => {
+        expandedCountResult: {
+            count: number
+            searchQuery: string
+        } | null
+        payload?: {
+            endpoint: string
+            searchParams: Record<string, string | number | undefined>
+            searchQuery: string
+        }
+    }
     loadRemoteItems: (options: LoaderOptions) => LoaderOptions
     loadRemoteItemsFailure: (
         error: string,
@@ -404,7 +439,6 @@ export interface infiniteListLogicActions {
             | ListStorage
             | {
                   count: any
-                  expandedCount: any
                   loadDurationMs: number | undefined
                   queryChanged: boolean
                   results: TaxonomicDefinitionTypes[]
@@ -416,7 +450,6 @@ export interface infiniteListLogicActions {
             | ListStorage
             | {
                   count: any
-                  expandedCount: any
                   loadDurationMs: number | undefined
                   queryChanged: boolean
                   results: TaxonomicDefinitionTypes[]
@@ -548,7 +581,8 @@ export interface infiniteListLogicMeta {
         isExpandable: (
             remoteEndpoint: string | null,
             scopedRemoteEndpoint: string | null,
-            remoteItems: ListStorage
+            remoteItems: ListStorage,
+            expandedCount: number
         ) => boolean
         isExpandableButtonSelected: (isExpandable: boolean, index: number, totalListCount: number) => boolean
         hasRemoteDataSource: (remoteEndpoint: string | null) => boolean
@@ -678,90 +712,40 @@ export interface infiniteListLogicMeta {
                 value: TaxonomicFilterValue | undefined
             },
             arg: boolean | undefined
-        ) =>
-            | {
-                  count: number
-                  expandedCount?: undefined
-                  first: boolean | undefined
-                  queryChanged: boolean | undefined
-                  results: QuickFilterItem[]
-                  searchQuery: string | undefined
-                  syntheticSelectedCount: number
-              }
-            | {
-                  count: number
-                  expandedCount: number | undefined
-                  first: boolean | undefined
-                  queryChanged: boolean | undefined
-                  results: (SkeletonItem | TaxonomicDefinitionTypes)[]
-                  searchQuery: string | undefined
-                  syntheticSelectedCount: number
-              }
-        totalResultCount: (
-            items:
-                | {
-                      count: number
-                      expandedCount: number | undefined
-                      first: boolean | undefined
-                      queryChanged: boolean | undefined
-                      results: (SkeletonItem | TaxonomicDefinitionTypes)[]
-                      searchQuery: string | undefined
-                      syntheticSelectedCount: number
-                  }
-                | {
-                      count: number
-                      expandedCount?: undefined
-                      first: boolean | undefined
-                      queryChanged: boolean | undefined
-                      results: QuickFilterItem[]
-                      searchQuery: string | undefined
-                      syntheticSelectedCount: number
-                  }
-        ) => number
+        ) => {
+            count: number
+            first: boolean | undefined
+            queryChanged: boolean | undefined
+            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            searchQuery: string | undefined
+            syntheticSelectedCount: number
+        }
+        totalResultCount: (items: {
+            count: number
+            first: boolean | undefined
+            queryChanged: boolean | undefined
+            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            searchQuery: string | undefined
+            syntheticSelectedCount: number
+        }) => number
         totalExtraCount: (isExpandable: boolean, hasRenderFunction: boolean) => number
         totalListCount: (totalResultCount: number, totalExtraCount: number) => number
         expandedCount: (
-            items:
-                | {
-                      count: number
-                      expandedCount: number | undefined
-                      first: boolean | undefined
-                      queryChanged: boolean | undefined
-                      results: (SkeletonItem | TaxonomicDefinitionTypes)[]
-                      searchQuery: string | undefined
-                      syntheticSelectedCount: number
-                  }
-                | {
-                      count: number
-                      expandedCount?: undefined
-                      first: boolean | undefined
-                      queryChanged: boolean | undefined
-                      results: QuickFilterItem[]
-                      searchQuery: string | undefined
-                      syntheticSelectedCount: number
-                  }
+            expandedCountResult: {
+                count: number
+                searchQuery: string
+            } | null,
+            searchQuery: string,
+            isExpanded: boolean
         ) => number
-        results: (
-            items:
-                | {
-                      count: number
-                      expandedCount: number | undefined
-                      first: boolean | undefined
-                      queryChanged: boolean | undefined
-                      results: (SkeletonItem | TaxonomicDefinitionTypes)[]
-                      searchQuery: string | undefined
-                      syntheticSelectedCount: number
-                  }
-                | {
-                      count: number
-                      expandedCount?: undefined
-                      first: boolean | undefined
-                      queryChanged: boolean | undefined
-                      results: QuickFilterItem[]
-                      searchQuery: string | undefined
-                      syntheticSelectedCount: number
-                  }
-        ) => QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+        results: (items: {
+            count: number
+            first: boolean | undefined
+            queryChanged: boolean | undefined
+            results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+            searchQuery: string | undefined
+            syntheticSelectedCount: number
+        }) => QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
         showSuggestedFiltersEmptyState: (
             isSuggestedFilters: boolean,
             trimmedSearchQuery: string,
@@ -785,25 +769,14 @@ export interface infiniteListLogicMeta {
         ) => number | null
         selectedItem: (
             index: number,
-            items:
-                | {
-                      count: number
-                      expandedCount: number | undefined
-                      first: boolean | undefined
-                      queryChanged: boolean | undefined
-                      results: (SkeletonItem | TaxonomicDefinitionTypes)[]
-                      searchQuery: string | undefined
-                      syntheticSelectedCount: number
-                  }
-                | {
-                      count: number
-                      expandedCount?: undefined
-                      first: boolean | undefined
-                      queryChanged: boolean | undefined
-                      results: QuickFilterItem[]
-                      searchQuery: string | undefined
-                      syntheticSelectedCount: number
-                  }
+            items: {
+                count: number
+                first: boolean | undefined
+                queryChanged: boolean | undefined
+                results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                searchQuery: string | undefined
+                syntheticSelectedCount: number
+            }
         ) => TaxonomicDefinitionTypes | undefined
         selectedItemValue: (
             selectedItem: TaxonomicDefinitionTypes | undefined,
@@ -927,7 +900,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     actions.abortAnyRunningQuery()
 
                     let response: any
-                    let expandedCountResponse: any = null
 
                     const runAbortController = cache.abortController
                     const requestOptions = { signal: runAbortController?.signal }
@@ -953,33 +925,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                                 count: transformedGroups.length,
                             }
                             actions.setHasMore(groupsResponse.hasMore || false)
-                            if (scopedRemoteEndpoint && !isExpanded) {
-                                expandedCountResponse = { count: transformedGroups.length }
-                            }
                         } else {
-                            // Use the original REST API for non-groups endpoints
-                            const [apiResponse, expandedApiResponse] = await Promise.all([
-                                // get the list of results
-                                fetchCachedListResponse(
-                                    scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                                    searchParams,
-                                    requestOptions
-                                ),
-                                // if this is an unexpanded scoped list, get the count for the full list
-                                scopedRemoteEndpoint && !isExpanded
-                                    ? fetchCachedListResponse(
-                                          remoteEndpoint,
-                                          {
-                                              ...searchParams,
-                                              limit: 1,
-                                              offset: 0,
-                                          },
-                                          requestOptions
-                                      )
-                                    : null,
-                            ])
-                            response = apiResponse
-                            expandedCountResponse = expandedApiResponse
+                            // The full count only adds a final expand row; it cannot move the search results.
+                            if (scopedRemoteEndpoint && !isExpanded && offset === 0) {
+                                actions.loadExpandedCount({ endpoint: remoteEndpoint, searchParams, searchQuery })
+                            }
+                            response = await fetchCachedListResponse(
+                                scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                                searchParams,
+                                requestOptions
+                            )
                         }
                     } catch (error: any) {
                         // An abort means either a newer query superseded this run, which owns the
@@ -1033,7 +988,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             response.count ||
                             (Array.isArray(response) ? response.length : 0) ||
                             (response.results || []).length,
-                        expandedCount: expandedCountResponse?.count,
                     }
                 },
                 updateRemoteItem: ({ item }) => {
@@ -1046,6 +1000,56 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return {
                         ...values.remoteItems,
                         results,
+                    }
+                },
+            },
+        ],
+        expandedCountResult: [
+            null as { searchQuery: string; count: number } | null,
+            {
+                loadExpandedCount: async (
+                    {
+                        endpoint,
+                        searchParams,
+                        searchQuery,
+                    }: {
+                        endpoint: string
+                        searchParams: Record<string, string | number | undefined>
+                        searchQuery: string
+                    },
+                    breakpoint
+                ) => {
+                    cache.disposables.dispose('expandedCountRequest')
+                    const controller = new AbortController()
+                    cache.expandedCountController = controller
+                    cache.disposables.add(
+                        () => {
+                            const timeout = window.setTimeout(() => controller.abort(), REMOTE_ITEMS_REQUEST_TIMEOUT_MS)
+                            return () => {
+                                window.clearTimeout(timeout)
+                                controller.abort()
+                            }
+                        },
+                        'expandedCountRequest',
+                        { pauseOnPageHidden: false }
+                    )
+                    try {
+                        const response = await fetchCachedListResponse(
+                            endpoint,
+                            { ...searchParams, limit: 1, offset: 0 },
+                            { signal: controller.signal }
+                        )
+                        breakpoint()
+                        return { searchQuery, count: response.count ?? 0 }
+                    } catch {
+                        breakpoint()
+                        // An optional expand count failing must not discard the selectable results.
+                        return null
+                    } finally {
+                        if (cache.expandedCountController === controller) {
+                            cache.disposables.dispose('expandedCountRequest')
+                            cache.expandedCountController = null
+                        }
                     }
                 },
             },
@@ -1229,14 +1233,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         hasRenderFunction: [(s) => [s.group], (group: TaxonomicFilterGroup | undefined) => !!group?.render],
         isExpandable: [
-            (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],
-            (remoteEndpoint: string | null, scopedRemoteEndpoint: string | null, remoteItems: ListStorage) =>
-                !!(
-                    remoteEndpoint &&
-                    scopedRemoteEndpoint &&
-                    remoteItems.expandedCount &&
-                    remoteItems.expandedCount > remoteItems.count
-                ),
+            (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems, s.expandedCount],
+            (
+                remoteEndpoint: string | null,
+                scopedRemoteEndpoint: string | null,
+                remoteItems: ListStorage,
+                expandedCount: number
+            ) => !!(remoteEndpoint && scopedRemoteEndpoint && expandedCount > remoteItems.count),
         ],
         isExpandableButtonSelected: [
             (s) => [s.isExpandable, s.index, s.totalListCount],
@@ -1942,7 +1945,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         remoteItems.count +
                         topMatches.filter((item) => !isSkeletonItem(item)).length,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
-                    expandedCount: remoteItems.expandedCount,
                     queryChanged: remoteItems.queryChanged,
                     first: localItems.first && remoteItems.first,
                 }
@@ -1954,7 +1956,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 items:
                     | {
                           count: number
-                          expandedCount: number | undefined
                           first: boolean | undefined
                           queryChanged: boolean | undefined
                           results: (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -1963,7 +1964,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                       }
                     | {
                           count: number
-                          expandedCount?: undefined
                           first: boolean | undefined
                           queryChanged: boolean | undefined
                           results: QuickFilterItem[]
@@ -1981,28 +1981,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (totalResultCount: number, totalExtraCount: number) => totalResultCount + totalExtraCount,
         ],
         expandedCount: [
-            (s) => [s.items],
-            (
-                items:
-                    | {
-                          count: number
-                          expandedCount: number | undefined
-                          first: boolean | undefined
-                          queryChanged: boolean | undefined
-                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
-                          searchQuery: string | undefined
-                          syntheticSelectedCount: number
-                      }
-                    | {
-                          count: number
-                          expandedCount?: undefined
-                          first: boolean | undefined
-                          queryChanged: boolean | undefined
-                          results: QuickFilterItem[]
-                          searchQuery: string | undefined
-                          syntheticSelectedCount: number
-                      }
-            ) => items.expandedCount || 0,
+            (s) => [s.expandedCountResult, s.searchQuery, s.isExpanded],
+            (result: { searchQuery: string; count: number } | null, searchQuery: string, isExpanded: boolean): number =>
+                !isExpanded && result?.searchQuery === searchQuery ? result.count : 0,
         ],
         results: [
             (s) => [s.items],
@@ -2010,7 +1991,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 items:
                     | {
                           count: number
-                          expandedCount: number | undefined
                           first: boolean | undefined
                           queryChanged: boolean | undefined
                           results: (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -2019,7 +1999,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                       }
                     | {
                           count: number
-                          expandedCount?: undefined
                           first: boolean | undefined
                           queryChanged: boolean | undefined
                           results: QuickFilterItem[]
@@ -2084,7 +2063,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 items:
                     | {
                           count: number
-                          expandedCount: number | undefined
                           first: boolean | undefined
                           queryChanged: boolean | undefined
                           results: (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -2093,7 +2071,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                       }
                     | {
                           count: number
-                          expandedCount?: undefined
                           first: boolean | undefined
                           queryChanged: boolean | undefined
                           results: QuickFilterItem[]
@@ -2178,6 +2155,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }
         },
         setSearchQuery: async () => {
+            cache.disposables.dispose('expandedCountRequest')
             const searchQueryChanged = cache.lastSearchQuery !== values.searchQuery
             cache.lastSearchQuery = values.searchQuery
 
@@ -2292,6 +2270,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.setIndex(rowIndex)
         },
         expand: () => {
+            cache.disposables.dispose('expandedCountRequest')
             actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
         abortAnyRunningQuery: () => {

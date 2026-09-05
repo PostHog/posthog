@@ -57,7 +57,8 @@ function leadTimeSeries(stats: (number[] | null)[]): DoraOverviewApi['merge_to_d
 
 const DORA: DoraOverviewApi = {
     deploy_data_available: true,
-    environment_scope: 'prod-us',
+    environment_scope: 'prod-us, prod-eu',
+    selected_environments: ['prod-us', 'prod-eu'],
     environments: ['prod-us', 'prod-eu', 'dev'],
     has_membership_data: true,
     github_teams: ['team-devex', 'team-ingestion', 'team-replay'],
@@ -94,6 +95,7 @@ const EMPTY_DORA: DoraOverviewApi = {
     ...DORA,
     deploy_data_available: false,
     environment_scope: 'persistent',
+    selected_environments: [],
     environments: [],
     github_teams: [],
     has_membership_data: false,
@@ -183,6 +185,34 @@ type Story = StoryObj<typeof meta>
 export const Health: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalyticsHealth() },
+}
+
+export const HealthWithoutAttributedPullRequests: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: urls.engineeringAnalyticsHealth(),
+        testOptions: {
+            waitForSelector: '[data-attr="engineering-analytics-dora-unattributed-empty"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/dora/': {
+                    ...DORA,
+                    deployed_pr_count: 0,
+                    deployed_pr_count_prev: 0,
+                    median_merge_to_deploy_seconds: null,
+                    median_merge_to_deploy_seconds_prev: null,
+                    median_open_to_deploy_seconds: null,
+                    median_open_to_deploy_seconds_prev: null,
+                    merge_to_deploy_series: leadTimeSeries(BUCKET_DAYS.map(() => null)),
+                    open_to_merge_series: leadTimeSeries(BUCKET_DAYS.map(() => null)),
+                    open_to_deploy_series: leadTimeSeries(BUCKET_DAYS.map(() => null)),
+                } satisfies DoraOverviewApi,
+            },
+        }),
+    ],
 }
 
 // The not-yet-synced state: the deploy endpoints aren't enabled on the GitHub source, so the tab

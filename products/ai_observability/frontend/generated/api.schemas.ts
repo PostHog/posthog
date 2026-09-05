@@ -894,7 +894,7 @@ export type EvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -905,11 +905,13 @@ export type EvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
 }
 
 /**
@@ -982,7 +984,7 @@ export interface EvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1031,7 +1033,7 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -1042,11 +1044,13 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
 }
 
 /**
@@ -1119,7 +1123,7 @@ export interface PatchedEvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1165,7 +1169,7 @@ export interface TestHogTargetConfigApi {
 
 export interface TestHogRequestApi {
     /**
-     * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+     * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
      * @minLength 1
      */
     source: string
@@ -1213,7 +1217,7 @@ export interface TestHogResultItemApi {
     /** First 200 characters of output from the sampled unit. */
     output_preview: string
     /**
-     * True = pass, False = fail, null = N/A or error.
+     * Raw boolean result, or null when the evaluation returns N/A or raises an error.
      * @nullable
      */
     result: boolean | null

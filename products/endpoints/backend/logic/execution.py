@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Literal, Union, cast
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import structlog
@@ -67,8 +68,11 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import is_materialization_fresh, saved_query_materialized_at
-from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.api import (
+    is_materialization_fresh,
+    materialize_saved_query,
+    saved_query_materialized_at,
+)
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.pagination import EndpointPagination
@@ -128,6 +132,50 @@ _QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRO
 
 def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+
+
+# Connection loss outside SQLSTATE class 08 (connection_exception).
+_CONNECTION_LOSS_SQLSTATES = frozenset(
+    {
+        "57P01",  # admin_shutdown
+        "57P02",  # crash_shutdown
+        "57P03",  # cannot_connect_now
+    }
+)
+
+
+def _pg_sqlstate(error: BaseException) -> str | None:
+    """The Postgres SQLSTATE behind a Django database error, when the server reported one.
+
+    psycopg3 exposes it as ``sqlstate`` and psycopg2 as ``pgcode``, and Django re-raises its
+    own wrapper ``from`` the driver error, so the code sits on the cause.
+    """
+    for candidate in (error, error.__cause__):
+        for attr in ("sqlstate", "pgcode"):
+            code = getattr(candidate, attr, None)
+            if isinstance(code, str):
+                return code
+    return None
+
+
+def _is_db_connection_error(error: BaseException) -> bool:
+    """Whether an error reflects a dropped/dead Postgres connection rather than a code fault.
+
+    Transient connection loss is an infra condition, not a bug — re-reporting it to error
+    tracking from the failure-handling path just adds noise to the real root cause.
+    """
+    if isinstance(error, InterfaceError):
+        return True
+    if not isinstance(error, OperationalError):
+        return False
+    sqlstate = _pg_sqlstate(error)
+    # A dropped connection is detected client-side, so libpq reports no SQLSTATE. When the
+    # server did answer, the connection was alive: only class 08 and the shutdown codes mean
+    # it went away. A statement timeout (57014) or a deadlock (40P01) is a real fault, and
+    # must keep reaching error tracking.
+    if sqlstate is None:
+        return True
+    return sqlstate.startswith("08") or sqlstate in _CONNECTION_LOSS_SQLSTATES
 
 
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
@@ -214,18 +262,25 @@ def _emit_endpoint_failure_signal(
             },
         )
     except Exception as signal_exc:
+        # endpoint.name / team_id are already-loaded scalars, so logging here can't itself
+        # touch the (possibly dead) connection. Pull team_id off the endpoint FK column to
+        # avoid lazily reloading endpoint.team.
         logger.exception(
             "Failed to emit endpoint failure signal",
             endpoint_name=endpoint.name,
-            team_id=team.id,
+            team_id=endpoint.team_id,
             signal_error_class=type(signal_exc).__name__,
             signal_error=str(signal_exc),
         )
+        # A dropped connection is the infra root cause, not a new fault — re-reporting it here
+        # just buries the real error under cascade noise. Log it and move on.
+        if _is_db_connection_error(signal_exc):
+            return
         capture_exception(
             signal_exc,
             {
                 "product": Product.ENDPOINTS,
-                "team_id": team.id,
+                "team_id": endpoint.team_id,
                 "endpoint_name": endpoint.name,
                 "signal_emission": True,
             },
@@ -800,7 +855,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 strategy.clean_response_sentinels(result.data)
 
             try:
-                strategy.transform_materialized_response(result.data, saved_query)
+                strategy.transform_materialized_response(result.data, saved_query, materialized_at)
             except MaterializedSeriesMismatchError:
                 # Series drift: query was likely edited after materialization. Trigger a refresh
                 # so future materialized reads succeed; the caller serves this request inline.
@@ -809,7 +864,18 @@ class EndpointExecutionService(PydanticModelMixin):
                     endpoint_name=endpoint.name,
                     saved_query_id=saved_query.id,
                 )
-                trigger_saved_query_schedule(saved_query)
+                try:
+                    # Nobody asked for this run, so it must not clear the suspension or reset the
+                    # failure window that stopped a repeatedly failing model.
+                    materialize_saved_query(saved_query, resume=False)
+                except Exception:
+                    # The caller still has to see the mismatch to fall back to inline, so a refresh
+                    # we could not start must not replace it on the way out.
+                    logger.exception(
+                        "Failed to trigger re-materialization after series mismatch",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=saved_query.id,
+                    )
                 raise
 
             # Freshness relative to the configured target: >1.0 means behind SLA.

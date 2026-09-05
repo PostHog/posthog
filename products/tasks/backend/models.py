@@ -43,7 +43,11 @@ from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import is_task_run_stream_presence_gated, run_stream_presence_gated
+from products.tasks.backend.feature_flags import (
+    is_task_run_stream_presence_gated,
+    is_task_run_stream_thin_tail,
+    run_stream_presence_gated,
+)
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -67,6 +71,11 @@ MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
+
+# Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
+# gateway product. Keyed by origin value.
+INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
+
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
@@ -490,6 +499,10 @@ class Task(DeletedMetaFields, models.Model):
             ),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
+            # Single-column, so the SET_NULL cascades can seek them. The composite index
+            # above leads with `team`, so a filter on `created_by` alone cannot use it.
+            models.Index(fields=["created_by"], name="posthog_task_creator_idx"),
+            models.Index(fields=["github_user_integration"], name="posthog_task_gh_user_int_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
             models.Index(
                 fields=["team", "internal", "archived", "-last_activity_at", "-id"],
@@ -738,6 +751,14 @@ class Task(DeletedMetaFields, models.Model):
             if task.ownership_version is not None:
                 state[TASK_OWNERSHIP_VERSION_STATE_KEY] = task.ownership_version
 
+            # Both conditions withhold the stamp, so a caller can only cost itself the mint.
+            # `internal` marks a pipeline-created task, whose reruns and resumes carry no stage
+            # and would otherwise land on the wider interactive cap.
+            interactive_stage = INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
+            if interactive_stage and not state.get("ai_stage") and not task.internal:
+                if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
+                    state["ai_stage"] = interactive_stage
+
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:
                 resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
@@ -747,6 +768,12 @@ class Task(DeletedMetaFields, models.Model):
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
             state.setdefault("stream_presence_gated", is_task_run_stream_presence_gated(task.origin_product))
+            # Pi tasks are forced onto the agent-proxy read leg, which serves Redis only —
+            # no durable backlog — so they must keep the full live window.
+            state.setdefault(
+                "stream_thin_tail",
+                task.runtime != Task.Runtime.PI and is_task_run_stream_thin_tail(task.origin_product),
+            )
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
@@ -1029,6 +1056,10 @@ class Task(DeletedMetaFields, models.Model):
         extra_state: dict[str, Any] = {}
         if slack_thread_url:
             extra_state["slack_thread_url"] = slack_thread_url
+        if slack_thread_context:
+            # Reply context controls presentation and MCP response shapes. It must stay
+            # separate from interaction_origin, which controls credential resolution.
+            extra_state["slack_reply_context"] = True
         if interaction_origin:
             extra_state["interaction_origin"] = interaction_origin
         elif slack_thread_context:

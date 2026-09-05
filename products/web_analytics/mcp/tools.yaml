@@ -168,6 +168,51 @@ tools:
     web-analytics-achievements-update-preferences:
         operation: web_analytics_achievements_update_preferences
         enabled: false
+    web-analytics-content-autopilot-profiles-create:
+        operation: web_analytics_content_autopilot_profiles_create
+        enabled: false
+    web-analytics-content-autopilot-profiles-discover:
+        operation: web_analytics_content_autopilot_profiles_discover
+        enabled: false
+    web-analytics-content-autopilot-profiles-list:
+        operation: web_analytics_content_autopilot_profiles_list
+        enabled: false
+    web-analytics-content-autopilot-profiles-partial-update:
+        operation: web_analytics_content_autopilot_profiles_partial_update
+        enabled: false
+    web-analytics-content-autopilot-profiles-retrieve:
+        operation: web_analytics_content_autopilot_profiles_retrieve
+        enabled: false
+    web-analytics-content-autopilot-proposals-edit:
+        operation: web_analytics_content_autopilot_proposals_edit
+        enabled: false
+    web-analytics-content-autopilot-proposals-export:
+        operation: web_analytics_content_autopilot_proposals_export
+        enabled: false
+    web-analytics-content-autopilot-proposals-list:
+        operation: web_analytics_content_autopilot_proposals_list
+        enabled: false
+    web-analytics-content-autopilot-proposals-regenerate:
+        operation: web_analytics_content_autopilot_proposals_regenerate
+        enabled: false
+    web-analytics-content-autopilot-proposals-reject:
+        operation: web_analytics_content_autopilot_proposals_reject
+        enabled: false
+    web-analytics-content-autopilot-proposals-retrieve:
+        operation: web_analytics_content_autopilot_proposals_retrieve
+        enabled: false
+    web-analytics-content-autopilot-runs-cancel:
+        operation: web_analytics_content_autopilot_runs_cancel
+        enabled: false
+    web-analytics-content-autopilot-runs-list:
+        operation: web_analytics_content_autopilot_runs_list
+        enabled: false
+    web-analytics-content-autopilot-runs-retrieve:
+        operation: web_analytics_content_autopilot_runs_retrieve
+        enabled: false
+    web-analytics-content-autopilot-runs-start:
+        operation: web_analytics_content_autopilot_runs_start
+        enabled: false
     web-analytics-fetch-llms-txt:
         operation: web_analytics_fetch_llms_txt
         enabled: false
