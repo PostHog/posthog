@@ -444,6 +444,11 @@ class TestPostgresSourceNonRetryableErrors:
             # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
             # the same refusal — must not keep retrying. Host/port are invented, not a real value.
             'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
+            # The target database has datallowconn off, or a managed provider paused/suspended it
+            # (SQLSTATE 57P03). Permanent until the customer restores it, so it must not keep retrying.
+            # Distinct from the transient "not yet accepting connections" startup refusal above (which
+            # reads "not yet", not "not currently"). Host/db are invented, not a real value.
+            'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -497,6 +502,22 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches, "connect timeout must be classified non-retryable"
         assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
         assert "firewall" in matches[0].lower()
+
+    def test_database_not_accepting_connections_surfaces_actionable_message(self, source):
+        # A paused/disallowed database must stop retrying and tell the customer to restore it,
+        # rather than storing the raw driver text (which echoes the host, IP, and database name).
+        # Mirror the finalizer's first-match selection so a future reorder that shadows it with an
+        # earlier None-valued key is caught. Host/db are invented, not a real value.
+        error_msg = 'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections'
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "a database not accepting connections must be classified non-retryable"
+        assert matches[0] is not None, "a database not accepting connections must surface an actionable message"
+        assert "re-enable the sync" in matches[0].lower()
+        assert "db.example.com" not in matches[0]
 
     def test_plan_limit_restriction_surfaces_actionable_message(self, source):
         # A proxy plan-limit refusal must stop retrying and explain how to lift the restriction,
