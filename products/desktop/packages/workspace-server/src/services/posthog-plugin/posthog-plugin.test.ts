@@ -90,6 +90,7 @@ import type { IAppMeta } from "@posthog/platform/app-meta";
 import type { IBundledResources } from "@posthog/platform/bundled-resources";
 import type { IStoragePaths } from "@posthog/platform/storage-paths";
 import { PosthogPluginService } from "./posthog-plugin";
+import { UpdateSkillsSaga } from "./update-skills-saga";
 
 /** Expose private members for testing without `as any`. */
 interface TestablePluginService {
@@ -458,6 +459,50 @@ describe("PosthogPluginService", () => {
       expect(reportedError.message).toContain("retry automatically");
     });
 
+    it("names the download failure when nothing is cached", async () => {
+      mockFetch.mockRejectedValue(new Error("Network error"));
+
+      await service.updateSkills();
+
+      const reportedError = mockAnalytics.captureException.mock
+        .calls[0][0] as Error;
+      expect(reportedError.message).toContain(
+        "skills download failed: Network error",
+      );
+    });
+
+    it("names the HTTP status when the download responds non-ok", async () => {
+      mockFetch.mockResolvedValue(mockFetchResponse(false, 404));
+
+      await service.updateSkills();
+
+      const reportedError = mockAnalytics.captureException.mock
+        .calls[0][0] as Error;
+      expect(reportedError.message).toContain(
+        "skills download failed: Download failed: 404",
+      );
+    });
+
+    it("names an empty archive when extraction yields no skills", async () => {
+      mockExtractZip.mockImplementation(
+        async (_zipPath: string, extractDir: string) => {
+          vol.mkdirSync(`${extractDir}/random-dir`, { recursive: true });
+          vol.writeFileSync(`${extractDir}/random-dir/README.md`, "nope");
+        },
+      );
+
+      await service.updateSkills();
+
+      const reportedError = mockAnalytics.captureException.mock
+        .calls[0][0] as Error;
+      expect(reportedError.message).toContain(
+        "skills archive contained no skills",
+      );
+      expect(reportedError.message).toContain(
+        "context-mill archive contained no skills",
+      );
+    });
+
     it("keeps existing skills and stays silent when a download cycle is empty", async () => {
       // Simulate a previously-downloaded skills cache from an earlier run.
       vol.mkdirSync(`${RUNTIME_SKILLS_DIR}/cached-skill`, { recursive: true });
@@ -496,6 +541,34 @@ describe("PosthogPluginService", () => {
         ? vol.readdirSync("/mock/tmp")
         : [];
       expect(tmpEntries).toHaveLength(0);
+    });
+  });
+
+  describe("UpdateSkillsSaga URL guards", () => {
+    it("skips an empty source URL and reports it as the reason", async () => {
+      const tempDir = "/mock/saga-tmp";
+      vol.mkdirSync(tempDir, { recursive: true });
+      const downloadFile = vi.fn(async () => {});
+
+      const saga = new UpdateSkillsSaga(mockLog);
+      const result = await saga.run({
+        runtimeSkillsDir: "/mock/saga-skills",
+        runtimePluginDir: "/mock/saga-plugin",
+        tempDir,
+        skillsZipUrl: "",
+        contextMillZipUrl: "",
+        downloadFile,
+      });
+
+      // Neither source is fetched, and both empty URLs are named in the error.
+      expect(downloadFile).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error).toContain("skills source URL is not configured");
+        expect(result.error).toContain(
+          "context-mill source URL is not configured",
+        );
+      }
     });
   });
 
