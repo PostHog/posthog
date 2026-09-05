@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
@@ -1391,9 +1391,6 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         [
             ("past", "2020-01-01T00:00:00Z"),
             ("malformed", "in thirty days"),
-            # A bare date carries no time of day, so it cannot become a datetime. It used to be
-            # refused at the client boundary before this serializer saw it, which cost the write.
-            ("bare_date", "2035-01-01"),
         ]
     )
     def test_remember_drops_invalid_expires_at_without_losing_the_write(self, _name: str, expires_at: str) -> None:
@@ -1410,18 +1407,25 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert row.expires_at is None
         assert row.content == "v"
 
-    def test_remember_honors_an_expiry_that_carries_no_offset(self) -> None:
-        # The agent often writes the expiry without a UTC offset. That shape is a valid instant once
-        # the server reads it in the project's own timezone, so it must set the expiry rather than
-        # cost the write.
-        expiry = (timezone.now() + timedelta(days=3)).replace(microsecond=0)
+    @parameterized.expand(
+        [
+            # The agent writes the expiry from a clock it can only guess at, so it often omits the
+            # UTC offset or gives the date alone. Both read as a valid instant in the project's
+            # timezone. Each used to be refused at the client boundary, which cost the whole write.
+            ("no_offset", "2035-10-05T09:30:00", datetime(2035, 10, 5, 9, 30, tzinfo=UTC)),
+            ("bare_date", "2035-10-05", datetime(2035, 10, 5, 0, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_remember_honors_an_expiry_that_names_no_offset(
+        self, _name: str, expires_at: str, expected: datetime
+    ) -> None:
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "expires_at": expiry.replace(tzinfo=None).isoformat()},
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK
-        assert SignalScratchpad.objects.get(team=self.team, key="k1").expires_at == expiry
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").expires_at == expected
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -1652,7 +1656,6 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             # stays. Same stance for a value no clock can read.
             ("past", "2020-01-01T00:00:00Z"),
             ("malformed", "next Friday"),
-            ("bare_date", "2035-01-01"),
         ]
     )
     def test_create_drops_invalid_expiry_without_losing_the_note(self, _name: str, expires_at: str) -> None:
