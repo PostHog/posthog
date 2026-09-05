@@ -15,6 +15,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
 import { groupsModel } from '~/models/groupsModel'
+import { SelectorQualityWarning } from '~/toolbar/elements/SelectorQualityWarning'
 import {
     ActionStepStringMatching,
     ActionStepType,
@@ -336,6 +337,7 @@ function AutocaptureFields({
                 }
                 disabledReason={disabledReason}
             />
+            <SelectorQualityWarning selector={step.selector} />
             <AndSeparator />
             <Option
                 step={step}
