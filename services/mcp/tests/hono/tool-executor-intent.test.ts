@@ -17,7 +17,7 @@ vi.mock('@/resources', () => ({
 // not a stub.
 vi.mock('@/lib/posthog', async () => {
     const { PostHogMCP } = await import('@posthog/mcp-analytics')
-    const client = new PostHogMCP('phc_test', { disabled: true })
+    const client = new PostHogMCP('phc_test', { disabled: true, captureModel: true })
     return { getPostHogClient: () => client }
 })
 
@@ -78,7 +78,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
     }
 }
 
-describe('ToolExecutor intent capture', () => {
+describe('ToolExecutor analytics capture', () => {
     let catalog: ToolCatalog
     let executor: ToolExecutor
 
@@ -88,7 +88,7 @@ describe('ToolExecutor intent capture', () => {
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
-    it('injects the context argument into advertised tools', async () => {
+    it('injects the analytics arguments into advertised tools', async () => {
         const state = makeState([], { useSingleExec: true })
 
         const result = await executor.handleToolsList(state)
@@ -98,34 +98,43 @@ describe('ToolExecutor intent capture', () => {
         // The SDK injects `context` (required, to nudge the agent to state intent)
         // while leaving the existing `command` arg untouched.
         expect(properties).toHaveProperty('context')
+        expect(properties).toHaveProperty('llm_model')
         expect(properties).toHaveProperty('command')
         expect(execEntry.inputSchema.required).toContain('context')
+        expect(execEntry.inputSchema.required).toContain('llm_model')
     })
 
     it.each([
         {
             label: 'forwards the agent intent and strips context before the handler',
-            args: { command: 'tools', context: 'investigating signup drop' },
+            args: {
+                command: 'tools',
+                context: 'investigating signup drop',
+                llm_model: 'gpt-5.6-codex',
+            },
             expectedIntent: 'investigating signup drop',
             expectedSource: 'context_parameter',
+            expectedModel: 'gpt-5.6-codex',
+            expectedModelSource: 'self_reported',
         },
         {
             label: 'captures no intent when the agent omits context',
             args: { command: 'tools' },
             expectedIntent: undefined,
             expectedSource: undefined,
+            expectedModel: undefined,
+            expectedModelSource: undefined,
         },
-    ])('exec call $label', async ({ args, expectedIntent, expectedSource }) => {
+    ])('exec call $label', async ({ args, expectedIntent, expectedSource, expectedModel, expectedModelSource }) => {
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
         const filteredTools = catalog
             .getFilteredTools({ scopes: ['*'] })
             .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
+        const state = makeState(filteredTools, { useSingleExec: true })
+        await executor.handleToolsList(state)
 
-        const result = (await executor.handleToolCall(
-            { name: 'exec', arguments: args },
-            makeState(filteredTools, { useSingleExec: false })
-        )) as any
+        const result = (await executor.handleToolCall({ name: 'exec', arguments: args }, state)) as any
 
         // context (when present) must not break exec validation — proves it was stripped.
         expect(result.isError).toBeFalsy()
@@ -135,6 +144,8 @@ describe('ToolExecutor intent capture', () => {
         expect(arg.toolName).toBe('exec')
         expect(arg.intent).toBe(expectedIntent)
         expect(arg.intentSource).toBe(expectedSource)
+        expect(arg.llmModel).toBe(expectedModel)
+        expect(arg.llmModelSource).toBe(expectedModelSource)
 
         captureSpy.mockRestore()
     })
@@ -146,18 +157,28 @@ describe('ToolExecutor intent capture', () => {
     // unstripped `context` (rejected as an unrecognized key) would satisfy this
     // test. (projects-get hits the API, which the harness can't fulfill, so we
     // assert on the captured analytics, not the tool's own result.)
-    it('strips context before a native tool validates and still forwards intent', async () => {
+    it('strips analytics arguments before a native tool validates and forwards their values', async () => {
+        const state = makeState([{ name: 'projects-get' }])
+        await executor.handleToolsList(state)
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
         await executor.handleToolCall(
-            { name: 'projects-get', arguments: { context: 'looking up the current user' } },
-            makeState([{ name: 'projects-get' }])
+            {
+                name: 'projects-get',
+                arguments: {
+                    context: 'looking up the current user',
+                    llm_model: 'claude-sonnet-4-20250514',
+                },
+            },
+            state
         )
 
         expect(captureSpy).toHaveBeenCalledTimes(1)
         const arg = captureSpy.mock.calls[0]![0]
         expect(arg.toolName).toBe('projects-get')
         expect(arg.intent).toBe('looking up the current user')
+        expect(arg.llmModel).toBe('claude-sonnet-4-20250514')
+        expect(arg.llmModelSource).toBe('self_reported')
         expect(arg.properties?.$mcp_error_type).not.toBe('validation')
 
         captureSpy.mockRestore()

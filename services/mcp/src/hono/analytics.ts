@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
+import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
@@ -117,11 +117,15 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
-export interface ToolCallIntentMeta {
+export interface ToolCallAnalyticsMeta {
     /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
     intent?: string
     /** Where it came from → `$mcp_intent_source`. */
     intentSource?: MCPAnalyticsIntentSource
+    /** The agent's self-reported model -> `$mcp_llm_model`. */
+    llmModel?: string
+    /** How the model was reported -> `$mcp_llm_model_source`. */
+    llmModelSource?: MCPAnalyticsModelSource
 }
 
 export async function trackToolCall(
@@ -130,7 +134,7 @@ export async function trackToolCall(
     isError: boolean,
     state: ResolvedState,
     extraProperties?: Record<string, unknown>,
-    intentMeta?: ToolCallIntentMeta,
+    analyticsMeta?: ToolCallAnalyticsMeta,
     servedDescription?: string
 ): Promise<void> {
     try {
@@ -170,8 +174,10 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
-            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
+            ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
+            ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
+            ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
+            ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
             properties: {
                 ...properties,
                 tool_name: toolName,
@@ -206,7 +212,7 @@ export async function trackExecuteSqlGeneration(
     args: unknown,
     state: ResolvedState,
     meta: ExecuteSqlGenerationMeta,
-    intentMeta?: ToolCallIntentMeta
+    analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
     if (toolName !== EXECUTE_SQL_TOOL_NAME) {
         return
@@ -229,7 +235,7 @@ export async function trackExecuteSqlGeneration(
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 $ai_trace_id: sessionUuid ?? randomUUID(),
                 $ai_span_name: EXECUTE_SQL_TOOL_NAME,
-                $ai_input: [{ role: 'user', content: intentMeta?.intent ?? '' }],
+                $ai_input: [{ role: 'user', content: analyticsMeta?.intent ?? '' }],
                 $ai_output_choices: [{ role: 'assistant', content: query }],
                 $ai_latency: meta.durationMs / 1000,
                 $ai_is_error: meta.isError,

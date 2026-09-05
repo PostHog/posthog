@@ -10406,11 +10406,17 @@ packages:
   '@posthog/browser-common@0.7.2':
     resolution: {integrity: sha512-ukDmETXy6fTBE4ZpaO8ccscrNz5SvTaUnhQ0Ze2JX/oYILa89rrNwqUH7lDAuhFKa+NY6EoJ9kZMuOvuu4WwLQ==}
 
+  '@posthog/core@1.49.2':
+    resolution: {integrity: sha512-AXHDo/4nisUg7OPG1TQNgREK7n+chBQXLQyttp7bDTDsDg2k9lV06TmnpvuNbwJs53q9mP9hjezKEZu4fYadfg==}
+
   '@posthog/core@1.50.0':
     resolution: {integrity: sha512-25SnQycZbqqLodQs+GaDPGDC1oxT8+XOSGlyhiS2rtdVON9Opg2hmfJ/fpFNgMBL7YDi0rpvJiR/fudy96W4pA==}
 
   '@posthog/core@1.50.5':
     resolution: {integrity: sha512-afEchuShDaVIoxAIj76kDZQ1DhfesDmgfVp+mtTzsA3wlc8DF5uoz8YjuTjnxOicWkpP5HCDqYidK/1kT125Cg==}
+
+  '@posthog/core@1.50.3':
+    resolution: {integrity: sha512-mSDH1EiFmdYh92ITLzVD5od7L91cH1/rhLm85kyUttV39TxXivT5PRxUIEFDatzlkYbWGtrPEPygzc4N93XvrQ==}
 
   '@posthog/core@1.50.3':
     resolution: {integrity: sha512-mSDH1EiFmdYh92ITLzVD5od7L91cH1/rhLm85kyUttV39TxXivT5PRxUIEFDatzlkYbWGtrPEPygzc4N93XvrQ==}
@@ -10481,6 +10487,9 @@ packages:
 
   '@posthog/types@1.409.0':
     resolution: {integrity: sha512-239umoaZVb2GBaXeEyJpwFvjhrrChJH8NHCwiao23EBSu3NA6EN0MTMoaHSmMEf4yjiXEFFoYJA6FjJAXF5HGA==}
+
+  '@posthog/types@1.408.1':
+    resolution: {integrity: sha512-zcQ3rdAbWDWegL/TA3OiC+Wc8qquNtFj2Q2RPc3QuJas3D6FYsNhR9xYmZgLWEm+GDN/zhGlOHijG3nPMEiCbw==}
 
   '@posthog/types@1.408.1':
     resolution: {integrity: sha512-zcQ3rdAbWDWegL/TA3OiC+Wc8qquNtFj2Q2RPc3QuJas3D6FYsNhR9xYmZgLWEm+GDN/zhGlOHijG3nPMEiCbw==}
@@ -29976,6 +29985,10 @@ snapshots:
       '@posthog/core': 1.50.5
       '@posthog/types': 1.409.0
 
+  '@posthog/core@1.49.2':
+    dependencies:
+      '@posthog/types': 1.407.1
+
   '@posthog/core@1.50.0':
     dependencies:
       '@posthog/types': 1.407.1
@@ -29983,6 +29996,10 @@ snapshots:
   '@posthog/core@1.50.5':
     dependencies:
       '@posthog/types': 1.409.0
+
+  '@posthog/core@1.50.3':
+    dependencies:
+      '@posthog/types': 1.408.1
 
   '@posthog/core@1.50.3':
     dependencies:
@@ -30042,6 +30059,8 @@ snapshots:
   '@posthog/types@1.407.1': {}
 
   '@posthog/types@1.409.0': {}
+
+  '@posthog/types@1.408.1': {}
 
   '@posthog/types@1.408.1': {}
 
