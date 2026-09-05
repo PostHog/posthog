@@ -17,9 +17,9 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        # trunk-merge/** heads are skipped: merge-queue PRs are ephemeral and every
-        # constituent PR already ran this in full.
-        if: github.repository == 'PostHog/posthog' && !startsWith(github.head_ref, 'trunk-merge/')
+        # Runs on trunk-merge/** heads too, not only master: the queue batches PRs, so a
+        # break that needs two of them together reaches master unless the queue runs this.
+        if: github.repository == 'PostHog/posthog'
         name: Determine need to run proto checks
         outputs:
             proto: ${{ steps.filter.outputs.proto || 'true' }}

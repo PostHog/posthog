@@ -51,12 +51,11 @@ env:
 
 jobs:
     rust-flags-integration:
+        # Runs on trunk-merge/** heads too, not only master: the queue batches PRs, so a
+        # break that needs two of them together reaches master unless the queue runs this.
         name: Rust /flags Integration Tests (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
-        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
-        # constituent PR already ran this in full.
-        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
 
         services:
             postgres:
