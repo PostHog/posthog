@@ -4017,7 +4017,101 @@ class TestFanoutParentSelection(APIBaseTest):
                     stack.enter_context(p)
                 response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{parent.id}")
             assert response.status_code == 204
+    def test_schema_soft_delete_also_soft_deletes_linked_warehouse_table(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="test_ghost_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="test_ghost_table",
+            team=self.team,
+            source=source,
+            table=table,
+        )
 
+        assert not schema.deleted
+        assert not table.deleted
+
+        schema.soft_delete()
+
+        reloaded_schema = ExternalDataSchema.objects.get(pk=schema.pk)
+        reloaded_table = DataWarehouseTable.objects.get(pk=table.pk)
+
+        assert reloaded_schema.deleted is True
+        assert reloaded_table.deleted is True
+        assert not DataWarehouseTable.objects.queryable().filter(pk=table.pk).exists()
+
+    def test_schema_soft_delete_does_not_delete_table_if_shared_with_another_active_schema(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="shared_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/shared/*",
+        )
+        active_schema = ExternalDataSchema.objects.create(
+            name="shared_table",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+        ghost_schema = ExternalDataSchema.objects.create(
+            name="shared_table_ghost",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        assert not active_schema.deleted
+        assert not ghost_schema.deleted
+        assert not table.deleted
+
+        ghost_schema.soft_delete()
+
+        reloaded_ghost = ExternalDataSchema.objects.get(pk=ghost_schema.pk)
+        reloaded_active = ExternalDataSchema.objects.get(pk=active_schema.pk)
+        reloaded_table = DataWarehouseTable.objects.get(pk=table.pk)
+
+        assert reloaded_ghost.deleted is True
+        assert reloaded_active.deleted is False
+        assert reloaded_table.deleted is False
+        assert DataWarehouseTable.objects.queryable().filter(pk=table.pk).exists()
+
+    def test_destroy_schema_via_api_does_not_delete_table_if_shared_with_another_active_schema(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="shared_api_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/shared_api/*",
+        )
+        active_schema = ExternalDataSchema.objects.create(
+            name="shared_api_table",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+        ghost_schema = ExternalDataSchema.objects.create(
+            name="shared_api_table_ghost",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{ghost_schema.id}")
+        assert response.status_code == 204
+
+        reloaded_ghost = ExternalDataSchema.objects.get(pk=ghost_schema.pk)
+        reloaded_active = ExternalDataSchema.objects.get(pk=active_schema.pk)
+        reloaded_table = DataWarehouseTable.objects.get(pk=table.pk)
+
+        assert reloaded_ghost.deleted is True
+        assert reloaded_active.deleted is False
+        assert reloaded_table.deleted is False
+        assert DataWarehouseTable.objects.queryable().filter(pk=table.pk).exists()
 
 class TestSchemaDisplayStatus(SimpleTestCase):
     @parameterized.expand(

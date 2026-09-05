@@ -1546,8 +1546,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
 
-        if instance.table:
-            instance.table.soft_delete()
         instance.soft_delete()
 
         # CDC teardown, both best-effort: leaving the table in the publication makes the

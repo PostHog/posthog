@@ -3125,16 +3125,62 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Soft-delete source, schemas, tables, and companion _cdc tables atomically
         # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
-            for schema in schemas:
-                if schema.table:
-                    schema.table.soft_delete()
+            schema_ids = [schema.id for schema in schemas]
+
+            # Candidate tables: tables referenced by this source's schemas, plus any
+            # tables belonging to this source directly (companion CDC tables or tables from
+            # schemas deleted earlier).
+            candidate_table_ids = set(
+                DataWarehouseTable.objects.filter(
+                    Q(external_data_source_id=instance.id)
+                    | Q(id__in=[s.table_id for s in schemas if s.table_id is not None]),
+                    team_id=self.team_id,
+                    deleted=False,
+                ).values_list("id", flat=True)
+            )
+
+            # Lock all candidate table rows to serialize concurrent deletions across sources
+            locked_tables = (
+                {t.id: t for t in DataWarehouseTable.objects.select_for_update().filter(id__in=candidate_table_ids)}
+                if candidate_table_ids
+                else {}
+            )
+
+            # Map candidate tables to surviving active schemas outside the source being destroyed
+            surviving_schemas_by_table: dict[Any, ExternalDataSchema] = {}
+            if candidate_table_ids:
+                surviving_schemas = (
+                    ExternalDataSchema.objects.filter(
+                        table_id__in=candidate_table_ids,
+                        deleted=False,
+                    )
+                    .exclude(id__in=schema_ids)
+                    .select_related("source")
+                )
+                for s in surviving_schemas:
+                    if s.table_id not in surviving_schemas_by_table:
+                        surviving_schemas_by_table[s.table_id] = s
+
+            shared_table_ids = set(surviving_schemas_by_table.keys())
+
+            for table_id, table in locked_tables.items():
+                if table_id in shared_table_ids:
+                    # Transfer ownership to the surviving active schema's source so
+                    # DataWarehouseTable.objects.queryable() does not exclude it when
+                    # this source is marked deleted=True.
+                    surviving_schema = surviving_schemas_by_table[table_id]
+                    if table.external_data_source_id == instance.id:
+                        table.external_data_source_id = surviving_schema.source_id
+                        table.save(update_fields=["external_data_source_id"])
+                else:
+                    table.soft_delete()
 
             # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
             # runs a SELECT + UPDATE + activity-log write each, which does not scale to
             # sources with thousands of schemas (e.g. a Slack workspace with thousands of
             # channels).
             deleted_at = datetime.now(UTC)
-            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=[schema.id for schema in schemas]).update(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=schema_ids).update(
                 deleted=True, deleted_at=deleted_at
             )
             # Mirror the bulk update onto the in-memory objects so the post-atomic
@@ -3143,14 +3189,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for schema in schemas:
                 schema.deleted = True
                 schema.deleted_at = deleted_at
-
-            # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
-            # DataWarehouseTable records linked to the source but not to schema.table.
-            DataWarehouseTable.objects.filter(
-                external_data_source_id=instance.id,
-                team_id=self.team_id,
-                deleted=False,
-            ).exclude(id__in=[s.table_id for s in schemas if s.table_id is not None]).update(deleted=True)
 
             instance.soft_delete()
 
@@ -3190,6 +3228,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             capture_exception(e)
 
         for schema in schemas:
+            if schema.table_id and schema.table_id in shared_table_ids:
+                continue
             try:
                 schema.delete_table()
             except Exception as e:
