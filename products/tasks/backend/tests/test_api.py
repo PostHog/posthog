@@ -1454,6 +1454,7 @@ class TestTaskAPI(BaseTaskAPITest):
             status=TaskRun.Status.IN_PROGRESS,
             state={
                 "mode": "interactive",
+                "claude_model_access": "own-subscription",
                 "sandbox_connect_token": "secret-token",
                 "sandbox_url": "https://sandbox.example.com",
                 "pending_dispatch": {"user_id": self.user.id},
@@ -1470,6 +1471,7 @@ class TestTaskAPI(BaseTaskAPITest):
             response.json()["state"],
             {
                 "mode": "interactive",
+                "claude_model_access": "own-subscription",
                 "slack_artifact_delivery": "canvas_file",
                 "slack_chart_delivery": True,
             },
@@ -3461,6 +3463,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ("rtk_enabled", False),
             ("benjamin_enabled", True),
             ("benjamin_enabled", False),
+            ("claude_model_access", "own-subscription"),
+            ("claude_model_access", "posthog-gateway"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -3475,10 +3479,10 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_200_OK
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
-        assert task_run.state[field] is value
+        assert task_run.state[field] == value
         mock_workflow.assert_called_once()
 
-    @parameterized.expand([("rtk_enabled",), ("benjamin_enabled",)])
+    @parameterized.expand([("rtk_enabled",), ("benjamin_enabled",), ("claude_model_access",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_omits_agent_toggle_when_not_set(self, field, mock_workflow):
         task = self.create_task()
@@ -4240,6 +4244,27 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["fast_mode"] is True
         # Token passed on a BOT resume must not be cached — only USER mode runs use it.
         assert get_cached_github_user_token(str(task_run.id)) is None
+
+    @parameterized.expand([(None, "own-subscription"), ("posthog-gateway", "posthog-gateway")])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_resume_preserves_claude_billing_unless_explicitly_changed(self, requested, expected, mock_workflow):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"runtime_adapter": "claude", "claude_model_access": "own-subscription"},
+        )
+        payload = {"mode": "interactive", "resume_from_run_id": str(previous_run.id)}
+        if requested is not None:
+            payload["claude_model_access"] = requested
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert run.state["claude_model_access"] == expected
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_resume_rejects_inherited_invalid_reasoning_effort(self, mock_workflow):
@@ -10978,13 +11003,32 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
 
+    @parameterized.expand(
+        [
+            ("workflow_missing", TaskRun.Status.IN_PROGRESS, False, 409),
+            ("stopping", TaskRun.Status.IN_PROGRESS, True, 502),
+            ("cleanup_pending", TaskRun.Status.CANCELLED, True, 502),
+            ("cancelled", TaskRun.Status.CANCELLED, False, 409),
+            ("completed", TaskRun.Status.COMPLETED, False, 409),
+            ("failed", TaskRun.Status.FAILED, False, 409),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
-    def test_command_returns_409_when_user_message_workflow_has_ended(self, mock_signal_followup):
+    def test_command_rejects_user_message_when_run_cannot_accept_it(
+        self, _name, run_status, stopping, expected_status, mock_signal_followup
+    ):
         from temporalio.service import RPCError, RPCStatusCode
 
-        mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
+        run.status = run_status
+        if stopping:
+            run.state = {**run.state, "cancel_requested_at": django_timezone.now().isoformat()}
+        run.save(update_fields=["status", "state", "updated_at"])
+        if stopping:
+            self._open_sandbox_session(run)
+        if not stopping and not run.is_terminal:
+            mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
 
         response = self.client.post(
             self._command_url(task, run),
@@ -10992,8 +11036,15 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.json()["error"], "Task run workflow has ended")
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(
+            response.json()["error"],
+            "Task run workflow has ended" if expected_status == 409 else "Failed to queue user message for task run",
+        )
+        if stopping or run.is_terminal:
+            mock_signal_followup.assert_not_called()
+        run.refresh_from_db()
+        self.assertNotIn("pending_followup_messages", run.state)
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_returns_502_while_warm_workflow_is_registering(self, mock_signal_followup):
@@ -11534,6 +11585,68 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         call_kwargs = mock_post.call_args[1]
         self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
         self.assertEqual(call_kwargs["json"]["params"]["error"], {"code": -32001, "message": "server process exited"})
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_credential_response_and_never_persists_the_token(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        token = "sk-ant-oat01-fake-test-token-0000000000000000"
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-8", "result": {"acknowledged": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        state_before = dict(run.state or {})
+
+        with self.assertLogs(level="DEBUG") as captured:
+            response = self.client.post(
+                self._command_url(task, run),
+                {
+                    "jsonrpc": "2.0",
+                    "method": "credential_response",
+                    "params": {
+                        "requestId": "cred-1",
+                        "credential": "claude_subscription_token",
+                        "token": token,
+                    },
+                    "id": "req-8",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "credential_response")
+        self.assertEqual(call_kwargs["json"]["params"]["token"], token)
+        run.refresh_from_db()
+        self.assertEqual(run.state, state_before)
+        for record in captured.records:
+            self.assertNotIn(token, record.getMessage())
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_command_rejects_credential_response_with_token_and_error(self):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "credential_response",
+                "params": {
+                    "requestId": "cred-2",
+                    "credential": "claude_subscription_token",
+                    "token": "sk-ant-oat01-fake-test-token-0000000000000000",
+                    "error": "no_token",
+                },
+                "id": "req-9",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def _create_posthog_ai_task(self, created_by: User | None = None):
         return Task.objects.create(

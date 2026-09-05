@@ -40,6 +40,13 @@ export const watchInput = z.object({
 
 export type WatchInput = z.infer<typeof watchInput>;
 
+export const designateClaudeSubscriptionInput = watchInput.omit({
+  resumeFromEntryCount: true,
+});
+export type DesignateClaudeSubscriptionInput = z.infer<
+  typeof designateClaudeSubscriptionInput
+>;
+
 export const unwatchInput = z.object({
   taskId: z.string(),
   runId: z.string(),
@@ -68,6 +75,7 @@ export const sendCommandInput = z.object({
     "permission_response",
     "set_config_option",
     "mcp_response",
+    "credential_response",
     "pi/rpc",
     "queue_get",
     "queue_clear",

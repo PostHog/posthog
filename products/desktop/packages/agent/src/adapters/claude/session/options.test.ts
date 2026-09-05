@@ -619,6 +619,32 @@ describe("buildSessionOptions", () => {
 
       expect(options.fallbackModel).toBeUndefined();
     });
+
+    it("sets the relayed OAuth token over any ambient value", () => {
+      const env = buildSessionOptions({
+        ...makeParams(),
+        machineAuth: { oauthToken: "sk-ant-oat01-fake-test-token" },
+        gatewayEnv: {
+          anthropicBaseUrl: "https://gateway.example.com",
+          anthropicAuthToken: "gateway-token",
+          openaiBaseUrl: "https://gateway.example.com/v1",
+          openaiApiKey: "gateway-token",
+          anthropicCustomHeaders: "x-posthog-property-task_id: task-abc",
+          posthogProjectId: "42",
+        },
+      }).env;
+
+      expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat01-fake-test-token");
+      for (const key of STRIPPED_KEYS) {
+        expect(env?.[key]).toBeUndefined();
+      }
+      expect(env?.OPENAI_BASE_URL).toBeUndefined();
+      expect(env?.OPENAI_API_KEY).toBeUndefined();
+      for (const [key, value] of Object.entries(env ?? {})) {
+        expect(value).not.toContain("x-posthog-");
+        expect(key).not.toMatch(/X-PostHog/i);
+      }
+    });
   });
 
   describe("per-session context wiki env", () => {

@@ -11,10 +11,15 @@ import {
   TypedEventEmitter,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import type { ICloudTaskAuth, McpRelayExecutor } from "./identifiers";
+import type {
+  ClaudeSubscriptionTokenStore,
+  ICloudTaskAuth,
+  McpRelayExecutor,
+} from "./identifiers";
 import {
   CloudTaskEvent,
   type CloudTaskEvents,
+  type DesignateClaudeSubscriptionInput,
   type SendCommandInput,
   type SendCommandOutput,
   type StopInput,
@@ -242,6 +247,26 @@ function isMcpRequestEvent(data: unknown): data is McpRequestEventData {
   );
 }
 
+interface CredentialRequestEventData {
+  type: "credential_request";
+  requestId: string;
+  credential: "claude_subscription_token";
+  expiresAt: string;
+}
+
+function isCredentialRequestEvent(
+  data: unknown,
+): data is CredentialRequestEventData {
+  if (typeof data !== "object" || data === null) return false;
+  const candidate = data as Partial<CredentialRequestEventData>;
+  return (
+    candidate.type === "credential_request" &&
+    typeof candidate.requestId === "string" &&
+    typeof candidate.expiresAt === "string" &&
+    candidate.credential === "claude_subscription_token"
+  );
+}
+
 /** Prefix marking a desktop-issued relay approval prompt, so `sendCommand` can
  *  resolve its response locally instead of POSTing it to the sandbox. */
 const RELAY_APPROVAL_REQUEST_PREFIX = "relay-approval:";
@@ -442,6 +467,7 @@ export interface CloudTaskEngineDependencies {
   analytics: IAnalytics;
   logger: RootLogger;
   mcpRelayExecutor?: McpRelayExecutor | null;
+  claudeSubscriptionTokenStore?: ClaudeSubscriptionTokenStore | null;
   streamFetch?: CloudTaskFetch;
   /**
    * Cap on the entries a snapshot carries, for hosts that page older history
@@ -469,6 +495,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private readonly auth: ICloudTaskAuth;
   private readonly analytics: IAnalytics;
   private readonly mcpRelayExecutor: McpRelayExecutor | null;
+  private readonly claudeSubscriptionTokenStore: ClaudeSubscriptionTokenStore | null;
   private readonly streamFetch: CloudTaskFetch;
   private readonly transcriptTailWindow: number | undefined;
 
@@ -477,6 +504,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     analytics,
     logger,
     mcpRelayExecutor = null,
+    claudeSubscriptionTokenStore = null,
     streamFetch = globalThis.fetch.bind(globalThis),
     transcriptTailWindow,
   }: CloudTaskEngineDependencies) {
@@ -484,6 +512,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     this.auth = auth;
     this.analytics = analytics;
     this.mcpRelayExecutor = mcpRelayExecutor;
+    this.claudeSubscriptionTokenStore = claudeSubscriptionTokenStore;
     this.streamFetch = streamFetch;
     this.transcriptTailWindow = transcriptTailWindow;
     this.log = logger.scope("cloud-task");
@@ -496,6 +525,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
    * runs or names are dropped.
    */
   private readonly relayDesignations = new Map<string, Set<string>>();
+  private readonly claudeSubscriptionRuns = new Set<string>();
+  private readonly credentialRequestsInFlight = new Set<string>();
   /** requestId dedupe — the event stream is at-least-once and replays on reconnect. */
   private readonly handledRelayRequestIds = new Set<string>();
   private readonly handledRelayRequestOrder: string[] = [];
@@ -521,6 +552,23 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       runId,
       servers,
     });
+  }
+
+  private credentialRunKey(input: DesignateClaudeSubscriptionInput): string {
+    return JSON.stringify([
+      input.apiHost.replace(/\/$/, ""),
+      input.teamId,
+      input.taskId,
+      input.runId,
+    ]);
+  }
+
+  designateClaudeSubscription(input: DesignateClaudeSubscriptionInput): void {
+    this.claudeSubscriptionRuns.add(this.credentialRunKey(input));
+    if (this.claudeSubscriptionRuns.size > MAX_HANDLED_RELAY_REQUEST_IDS) {
+      const oldest = this.claudeSubscriptionRuns.values().next().value;
+      if (oldest !== undefined) this.claudeSubscriptionRuns.delete(oldest);
+    }
   }
 
   private markRelayRequestHandled(requestId: string): void {
@@ -605,6 +653,103 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     if (!execution.payload && !execution.error) return;
 
     await this.sendRelayResponse(watcher, data, execution);
+  }
+
+  private async handleCredentialRequest(
+    watcher: WatcherState,
+    data: CredentialRequestEventData,
+  ): Promise<void> {
+    const runKey = this.credentialRunKey(watcher);
+    if (!this.claudeSubscriptionRuns.has(runKey)) return;
+    const requestKey = `${runKey}:${data.requestId}`;
+    if (
+      this.handledRelayRequestIds.has(requestKey) ||
+      this.credentialRequestsInFlight.has(requestKey)
+    )
+      return;
+    const expiresAt = Date.parse(data.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+    const deadline = Math.min(expiresAt, Date.now() + 120_000);
+    this.credentialRequestsInFlight.add(requestKey);
+    try {
+      let token: string | null = null;
+      try {
+        token = (await this.claudeSubscriptionTokenStore?.get()) ?? null;
+      } catch {
+        this.log.warn("Could not read Claude subscription token");
+      }
+      while (
+        Date.now() < deadline &&
+        this.claudeSubscriptionRuns.has(runKey) &&
+        this.watchers.get(watcherKey(watcher.taskId, watcher.runId)) === watcher
+      ) {
+        const result = await this.deliverCredentialResponse(
+          watcher,
+          data,
+          token,
+          deadline,
+        );
+        if (result !== "retry") {
+          this.markRelayRequestHandled(requestKey);
+          if (result === "sent") {
+            this.analytics.track(ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY, {
+              credential: data.credential,
+              outcome: token ? "sent" : "no_token",
+            });
+          }
+          return;
+        }
+        const delay = Math.min(1_000, deadline - Date.now());
+        if (delay > 0)
+          await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    } finally {
+      this.credentialRequestsInFlight.delete(requestKey);
+    }
+  }
+
+  private async deliverCredentialResponse(
+    watcher: WatcherState,
+    data: CredentialRequestEventData,
+    token: string | null,
+    deadline: number,
+  ): Promise<"sent" | "rejected" | "retry"> {
+    try {
+      const response = await this.auth.authenticatedFetch(
+        `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/command/`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: data.requestId,
+            method: "credential_response",
+            params: {
+              requestId: data.requestId,
+              credential: data.credential,
+              ...(token ? { token } : { error: "no_token" }),
+            },
+          }),
+          signal: AbortSignal.timeout(
+            Math.max(1, Math.min(10_000, deadline - Date.now())),
+          ),
+        },
+      );
+      if (!response.ok) {
+        return [400, 408, 429, 502, 503, 504].includes(response.status)
+          ? "retry"
+          : "rejected";
+      }
+      const body: unknown = await response.json();
+      return typeof body === "object" &&
+        body !== null &&
+        "result" in body &&
+        !("error" in body)
+        ? "sent"
+        : "rejected";
+    } catch {
+      return "retry";
+    }
   }
 
   private relayRequestExpired(expiresAt: number): boolean {
@@ -1027,6 +1172,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   }
 
   unwatchAll(): void {
+    this.claudeSubscriptionRuns.clear();
     for (const key of [...this.watchers.keys()]) {
       this.stopWatcher(key);
     }
@@ -1762,6 +1908,11 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       return null;
     }
 
+    if (isCredentialRequestEvent(event.data)) {
+      void this.handleCredentialRequest(watcher, event.data);
+      return null;
+    }
+
     if (isPermissionRequestEvent(event.data)) {
       this.emit(CloudTaskEvent.Update, {
         taskId: watcher.taskId,
@@ -2221,6 +2372,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // A terminal run gets no further relay requests; drop its designation and
     // approval state so the maps don't grow for the lifetime of the app session.
     if (isTerminalStatus(watcher.lastStatus)) {
+      this.claudeSubscriptionRuns.delete(this.credentialRunKey(watcher));
       this.relayDesignations.delete(watcher.runId);
       this.evictRelayApprovalState(watcher.runId);
     }

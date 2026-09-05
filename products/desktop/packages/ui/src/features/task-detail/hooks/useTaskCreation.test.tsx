@@ -22,6 +22,7 @@ const trackMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({ createTask: createTaskMock }),
+  useServiceOptional: () => undefined,
 }));
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({

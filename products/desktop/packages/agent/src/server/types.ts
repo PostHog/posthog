@@ -59,6 +59,7 @@ export interface AgentServerConfig {
   piRpcHostPath?: string;
   runtimeAdapter?: Adapter;
   model?: string;
+  claudeModelAccess?: "posthog-gateway" | "own-subscription";
   reasoningEffort?: EffortLevel | "off" | "minimal";
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;

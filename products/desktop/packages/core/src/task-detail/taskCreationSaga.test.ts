@@ -55,6 +55,7 @@ const sessionService = {
   watchCreatedCloudTask: vi.fn(),
   rememberInitialCloudPrompt: vi.fn(),
   markTaskCreationInFlight: vi.fn(),
+  designateClaudeSubscription: vi.fn(),
 } as unknown as SessionService;
 
 const createTask = (overrides: Partial<Task> = {}): Task => ({
@@ -137,6 +138,48 @@ describe("TaskCreationSaga", () => {
       }),
     );
   });
+
+  it.each([true, false])(
+    "starts a cold subscription run only when credential designation succeeds (%s)",
+    async (designationSucceeds) => {
+      const createTaskMock = vi.fn().mockResolvedValue(createTask());
+      const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+      const startTaskRunMock = vi
+        .fn()
+        .mockResolvedValue(createTask({ latest_run: createRun() }));
+      const designate = vi.mocked(sessionService.designateClaudeSubscription);
+      designate.mockImplementationOnce(async () => {
+        if (!designationSucceeds) throw new Error("Host unavailable");
+      });
+      const saga = makeSaga({
+        createTask: createTaskMock,
+        createTaskRun: createTaskRunMock,
+        startTaskRun: startTaskRunMock,
+      });
+
+      const result = await saga.run({
+        content: "Ship the fix",
+        repository: "posthog/posthog",
+        workspaceMode: "cloud",
+        branch: "main",
+        adapter: "claude",
+        claudeCloudModelAccess: "own-subscription",
+      });
+
+      expect(createTaskMock.mock.calls[0][0].branch).toBeUndefined();
+      expect(createTaskRunMock).toHaveBeenCalledWith(
+        "task-123",
+        expect.objectContaining({
+          claudeModelAccess: "own-subscription",
+        }),
+      );
+      expect(designate).toHaveBeenCalledWith("task-123", "run-123");
+      expect(result.success).toBe(designationSucceeds);
+      expect(startTaskRunMock).toHaveBeenCalledTimes(
+        designationSucceeds ? 1 : 0,
+      );
+    },
+  );
 
   it("waits for the cloud run response before surfacing the task", async () => {
     const createdTask = createTask();

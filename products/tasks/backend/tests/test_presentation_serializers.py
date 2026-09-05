@@ -11,6 +11,7 @@ from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
     SandboxEnvironmentWriteSerializer,
     TaskRunArtifactUploadSerializer,
+    TaskRunCommandRequestSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
@@ -143,3 +144,26 @@ class TestTaskRunArtifactUploadSerializer(SimpleTestCase):
         if not expected_valid:
             megabytes = TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)
             assert f"{megabytes}MB attachment limit" in str(serializer.errors["content"])
+
+
+class TestCredentialResponseSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({"token": ""},),
+            ({"token": "x" * 4097},),
+            ({"error": "arbitrary error body"},),
+            ({"token": "invented-token", "error": "no_token"},),
+            ({"credential": "unsupported", "token": "invented-token"},),
+            ({"requestId": "x" * 129, "token": "invented-token"},),
+        ]
+    )
+    def test_rejects_invalid_credential_response(self, params: dict[str, str]) -> None:
+        serializer = TaskRunCommandRequestSerializer(
+            data={
+                "jsonrpc": "2.0",
+                "method": "credential_response",
+                "params": {"requestId": "request-1", "credential": "claude_subscription_token", **params},
+            }
+        )
+        assert not serializer.is_valid()
+        assert "params" in serializer.errors
