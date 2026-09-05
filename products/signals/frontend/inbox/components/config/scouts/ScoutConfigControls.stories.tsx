@@ -3,6 +3,8 @@ import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { mockScoutConfigs } from '../../../__mocks__/scoutConfigs'
@@ -61,8 +63,19 @@ export const CustomCronSchedule: Story = {
 }
 
 // A scout that posts into a Slack channel: the collapsed section names the channel, so where the
-// output goes is readable without opening it.
+// output goes is readable without opening it. The workspace has to be mocked, or the header reports
+// the saved channel as disconnected, which is what an unresolvable workspace means.
 export const SlackChannelDestination: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/integrations/': () => [
+                    200,
+                    { results: [{ id: 1, kind: 'slack', display_name: 'PostHog', config: {}, errors: null }] },
+                ],
+            },
+        }),
+    ],
     render: () => (
         <EditableConfigForm
             initialConfig={{

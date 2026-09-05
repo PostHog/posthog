@@ -34,7 +34,12 @@ function server(id: string, name: string): MCPServiceAccountServerApi {
     }
 }
 
-const SERVERS = [server('linear-id', 'Linear'), server('notion-id', 'Notion')]
+const SERVERS = [
+    server('linear-id', 'Linear'),
+    server('notion-id', 'Notion'),
+    server('github-id', 'GitHub'),
+    server('stripe-id', 'Stripe'),
+]
 
 describe('ScoutMcpServersPicker', () => {
     beforeEach(() => {
@@ -81,6 +86,14 @@ describe('ScoutMcpServersPicker', () => {
         ['the servers it may use', ['linear-id'], ['Linear'], ['None', 'Notion']],
         ['nothing selected', [], ['None'], ['Linear']],
         ['a selection the team no longer shares', ['retired-id'], ['None'], []],
+        // A scout may hold up to 100 servers. An unbounded header would push the row it
+        // summarizes, and everything under it, off the screen.
+        [
+            'more servers than the header shows',
+            ['linear-id', 'notion-id', 'github-id', 'stripe-id'],
+            ['GitHub', 'Linear', 'Notion', '+1 more'],
+            ['Stripe'],
+        ],
     ])(
         'summarizes %s in the header, with the section closed',
         async (_name, selectedServerIds: string[], expected: string[], unexpected: string[]) => {
@@ -94,6 +107,22 @@ describe('ScoutMcpServersPicker', () => {
             }
         }
     )
+
+    // A scout keeps mounting every server it holds when the lookup fails, so a header that read
+    // "None" would report access the scout still has as removed.
+    it('says nothing about servers when the lookup fails', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [500, { detail: 'nope' }],
+            },
+        })
+
+        render(<ScoutMcpServersPicker compact selectedServerIds={['linear-id']} onChange={jest.fn()} />)
+
+        expect(await screen.findByText('MCP servers')).toBeInTheDocument()
+        expect(screen.queryByText('None')).not.toBeInTheDocument()
+        expect(screen.queryByText('Linear')).not.toBeInTheDocument()
+    })
 
     // The selection must be settable before the scout is enabled, or the first run of a newly
     // enabled scout races out with the wrong toolset. The form passes no disabled reason for that,

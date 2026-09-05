@@ -2,18 +2,9 @@ import { useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCollapse,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonSegmentedButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { SlackChannelPicker, SlackUserPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { urls } from 'scenes/urls'
 
@@ -21,6 +12,8 @@ import type {
     SignalScoutOutputDestinationsApi,
     SignalScoutSlackDestinationApi,
 } from 'products/signals/frontend/generated/api.schemas'
+
+import { ScoutSlackDestinationSummary } from './ScoutSlackDestinationSummary'
 
 // Mirrors MAX_SCOUT_SLACK_DM_TARGETS on the backend serializer.
 const MAX_DM_RECIPIENTS = 5
@@ -31,49 +24,6 @@ interface ScoutSlackDestinationProps {
     destination?: SignalScoutSlackDestinationApi | null
     disabledReason?: string
     onChange: (outputDestinations: SignalScoutOutputDestinationsApi) => void
-}
-
-/**
- * Where this scout's output goes, for the collapsed header. The saved destination answers on its
- * own, so a scout with Slack set up reads the same before the workspace list arrives.
- */
-function SlackDestinationSummary({
-    destination,
-    connected,
-    loading,
-}: {
-    destination?: SignalScoutSlackDestinationApi | null
-    connected: boolean
-    loading: boolean
-}): JSX.Element | null {
-    if (destination?.channel) {
-        return (
-            <>
-                <LemonTag size="small" type="option">
-                    {slackChannelDisplayName(destination.channel)}
-                </LemonTag>
-                {destination.thread_reports ? (
-                    <LemonTag size="small" type="muted">
-                        Threaded
-                    </LemonTag>
-                ) : null}
-            </>
-        )
-    }
-    const recipientCount = destination?.users?.length ?? 0
-    if (recipientCount > 0) {
-        return (
-            <span className="text-[11.5px] text-muted">
-                DM to {recipientCount} {recipientCount === 1 ? 'person' : 'people'}
-            </span>
-        )
-    }
-    // A project with Slack connected must not read "Not connected" while its workspaces load, so
-    // the header stays blank until the list resolves.
-    if (loading) {
-        return null
-    }
-    return <span className="text-[11.5px] text-muted">{connected ? 'Off' : 'Not connected'}</span>
 }
 
 /**
@@ -293,9 +243,9 @@ export function ScoutSlackDestination({
                             <div className="flex flex-1 items-center justify-between gap-2">
                                 <span className="text-xs text-default">Slack destination</span>
                                 <div className="flex flex-wrap items-center gap-1">
-                                    <SlackDestinationSummary
+                                    <ScoutSlackDestinationSummary
                                         destination={destination}
-                                        connected={integrations.length > 0}
+                                        workspaces={integrations}
                                         loading={workspacesLoading}
                                     />
                                 </div>

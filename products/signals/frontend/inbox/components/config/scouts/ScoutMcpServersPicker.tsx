@@ -13,6 +13,7 @@ import { agentServerConnectionIssue } from 'products/mcp_store/frontend/gateway/
 import type { MCPServiceAccountServerApi } from 'products/mcp_store/frontend/generated/api.schemas'
 
 import { scoutMcpServersLogic } from '../../../logics/scoutMcpServersLogic'
+import { ScoutMcpServersSummary } from './ScoutMcpServersSummary'
 
 /** Rows shown before the list collapses behind "See more". */
 const MAX_VISIBLE_SERVERS = 2
@@ -195,7 +196,7 @@ function FullPicker(props: ScoutMcpServersPickerProps): JSX.Element {
  */
 function CompactPicker(props: ScoutMcpServersPickerProps): JSX.Element {
     useMountedLogic(scoutMcpServersLogic)
-    const { teamScoutServers } = useValues(scoutMcpServersLogic)
+    const { scoutAccount, teamScoutServers } = useValues(scoutMcpServersLogic)
     const state = usePickerState(props)
     const selectedServers = teamScoutServers.filter((server) => props.selectedServerIds.includes(server.id))
 
@@ -259,8 +260,9 @@ function CompactPicker(props: ScoutMcpServersPickerProps): JSX.Element {
                             <div className="flex flex-1 items-center justify-between gap-2">
                                 <span className="text-xs text-default">MCP servers</span>
                                 <div className="flex flex-wrap items-center gap-1">
-                                    <SelectedServersSummary
+                                    <ScoutMcpServersSummary
                                         loading={state.initialLoading}
+                                        resolved={scoutAccount !== null}
                                         selectedServers={selectedServers}
                                     />
                                 </div>
@@ -271,35 +273,5 @@ function CompactPicker(props: ScoutMcpServersPickerProps): JSX.Element {
                 ]}
             />
         </div>
-    )
-}
-
-/**
- * What the scout may reach, for the collapsed header. The names come from the team's shared
- * servers, so a selected id whose share was withdrawn drops out, matching what a run mounts.
- */
-function SelectedServersSummary({
-    loading,
-    selectedServers,
-}: {
-    loading: boolean
-    selectedServers: MCPServiceAccountServerApi[]
-}): JSX.Element | null {
-    // The share list decides the names, so the header stays blank until it arrives rather than
-    // reading "None" at a scout that does have servers.
-    if (loading) {
-        return null
-    }
-    if (selectedServers.length === 0) {
-        return <span className="text-[11.5px] text-muted">None</span>
-    }
-    return (
-        <>
-            {selectedServers.map((server) => (
-                <LemonTag key={server.id} size="small" type="option">
-                    {server.name}
-                </LemonTag>
-            ))}
-        </>
     )
 }
