@@ -116,6 +116,13 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         assert "Anomaly detected" in result.breaches[0]
         # "staking" is at index 1 in the breakdown results
         assert result.triggered_metadata == {"series_index": 1}
+        assert result.interval == "day"
+        # The live path scores only the latest interval (detect()), so it cannot localize an
+        # anomaly across the window: it must not emit per-interval attribution that would read as
+        # naming a specific interval. Those fields belong to the simulation path (detect_batch).
+        assert result.triggered_dates is None
+        assert result.triggered_points is None
+        assert result.anomaly_scores is None
 
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_does_not_fire_when_all_breakdowns_are_normal(self, mock_calc: MagicMock) -> None:
@@ -222,30 +229,6 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         assert "Anomaly detected" in result.breaches[0]
         # Non-breakdown alerts should not set triggered_metadata
         assert result.triggered_metadata is None
-
-    @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
-    def test_breakdown_result_includes_anomaly_scores(self, mock_calc: MagicMock) -> None:
-        mock_calc.return_value = InsightResult(
-            result=[
-                _make_trend_result("staking", ANOMALOUS_DATA, "staking"),
-            ],
-            columns=[],
-            timezone="UTC",
-            last_refresh=None,
-            cache_key="",
-            is_cached=False,
-        )
-
-        team = MagicMock()
-        alert = _make_alert(team, ZSCORE_DETECTOR_CONFIG)
-        insight = MagicMock(spec=Insight)
-        query = _make_query_with_breakdown()
-
-        result = check_detector_alert(alert, insight, query)
-
-        assert result.anomaly_scores is not None
-        assert result.triggered_points is not None
-        assert result.interval == "day"
 
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_empty_query_result_reports_zero(self, mock_calc: MagicMock) -> None:
