@@ -5,6 +5,7 @@ import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } fro
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -72,6 +73,16 @@ export function DashboardsTableContainer(): JSX.Element {
     return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} />
 }
 
+function DashboardsLoadError(): JSX.Element {
+    const { loadDashboards } = useActions(dashboardsModel)
+
+    return (
+        <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadDashboards() }} className="my-4">
+            Could not load dashboards. This is usually temporary.
+        </LemonBanner>
+    )
+}
+
 interface DashboardsTableProps {
     dashboards: DashboardBasicType[]
     dashboardsLoading: boolean
@@ -86,6 +97,7 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
+    const { dashboardsLoadFailed } = useValues(dashboardsModel)
     const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
     const { tableSorting, filters, filedDashboardIds } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
@@ -345,7 +357,7 @@ export function DashboardsTable({
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}
                 onSort={tableSortingChanged}
-                emptyState="No dashboards matching your filters!"
+                emptyState={dashboardsLoadFailed ? <DashboardsLoadError /> : 'No dashboards matching your filters!'}
                 nouns={['dashboard', 'dashboards']}
                 bulkSelection={{
                     barClassName: 'mb-2',

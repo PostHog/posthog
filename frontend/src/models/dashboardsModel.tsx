@@ -74,6 +74,7 @@ export function mergeTileTextUpdatesIntoDashboard(
 export interface dashboardsModelValues {
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardLoading: boolean
+    dashboardsLoadFailed: boolean
     dashboardsLoading: boolean
     nameSortedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
     pagedDashboards: PaginatedResponse<DashboardBasicType> | null
@@ -572,6 +573,14 @@ export const dashboardsModel = kea<dashboardsModelType>([
             false,
             {
                 dashboardsFullyLoaded: () => true,
+            },
+        ],
+        dashboardsLoadFailed: [
+            false,
+            {
+                loadDashboards: () => false,
+                loadDashboardsSuccess: () => false,
+                loadDashboardsFailure: () => true,
             },
         ],
         redirect: [
