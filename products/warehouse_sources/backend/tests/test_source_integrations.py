@@ -58,9 +58,11 @@ def _job(team: Any, source: ExternalDataSource, *, started_at: dt.datetime) -> E
     return job
 
 
-def _schema(team: Any, source: ExternalDataSource, *, name: str, error: str | None, status: str | None) -> Any:
+def _schema(
+    team: Any, source: ExternalDataSource, *, name: str, error: str | None, status: str | None, deleted: bool = False
+) -> Any:
     return ExternalDataSchema.objects.create(
-        team=team, source=source, name=name, should_sync=False, latest_error=error, status=status
+        team=team, source=source, name=name, should_sync=False, latest_error=error, status=status, deleted=deleted
     )
 
 
@@ -114,6 +116,16 @@ def test_reconnect_resumes_only_the_tables_the_auth_failure_stopped(team: Any) -
         team, source, name="ads", error="Meta could not return this data", status=ExternalDataSchemaStatus.FAILED
     )
     turned_off_by_user = _schema(team, source, name="adsets", error=None, status=ExternalDataSchemaStatus.COMPLETED)
+    # Deleting a table leaves its failure recorded, so without a filter the reconnect would write
+    # to a row the customer removed and put its schedule back for one run.
+    deleted_by_user = _schema(
+        team,
+        source,
+        name="ad_creatives",
+        error=META_AUTH_ERROR_MESSAGE,
+        status=ExternalDataSchemaStatus.FAILED,
+        deleted=True,
+    )
 
     with patch("products.warehouse_sources.backend.source_integrations.update_should_sync") as mock_update_should_sync:
         resumed = resume_syncs_paused_by_auth_failure(integration_id=integration.id, team_id=team.id)
@@ -125,8 +137,10 @@ def test_reconnect_resumes_only_the_tables_the_auth_failure_stopped(team: Any) -
     }
     other_failure.refresh_from_db()
     turned_off_by_user.refresh_from_db()
+    deleted_by_user.refresh_from_db()
     assert other_failure.should_sync is False
     assert turned_off_by_user.should_sync is False
+    assert deleted_by_user.should_sync is False
 
 
 def test_reconnect_resumes_from_the_background_task(team: Any) -> None:

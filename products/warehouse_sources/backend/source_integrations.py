@@ -105,7 +105,7 @@ def resume_syncs_paused_by_auth_failure(*, integration_id: int, team_id: int) ->
             continue
         schemas = ExternalDataSchema.objects.filter(
             team_id=team_id, source=source, should_sync=False, status=ExternalDataSchemaStatus.FAILED
-        )
+        ).exclude(deleted=True)
         for schema in schemas:
             latest_error = (schema.latest_error or "").lower()
             if not any(marker.lower() in latest_error for marker in markers):
