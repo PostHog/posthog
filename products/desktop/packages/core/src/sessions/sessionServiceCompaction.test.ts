@@ -118,6 +118,10 @@ function createHarness() {
       await vi.advanceTimersByTimeAsync(SESSION_EVENT_FLUSH_MS);
     },
     isCompacting: () => sessions[RUN_ID].isCompacting,
+    session: () => sessions[RUN_ID],
+    setStatus: (status: AgentSession["status"]) => {
+      sessions[RUN_ID] = { ...sessions[RUN_ID], status };
+    },
   };
 }
 
@@ -152,5 +156,66 @@ describe("compaction busy state", () => {
     expect(h.isCompacting()).toBe(false);
     await h.service.sendPrompt(TASK_ID, "carry on");
     expect(h.prompt).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sendPrompt while connecting", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("queues the prompt instead of throwing", async () => {
+    const h = createHarness();
+    h.setStatus("connecting");
+
+    const result = await h.service.sendPrompt(TASK_ID, "start on this");
+
+    expect(result.stopReason).toBe("queued");
+    expect(h.session().messageQueue).toHaveLength(1);
+    expect(h.prompt).not.toHaveBeenCalled();
+  });
+
+  it("keeps only the first prompt while connecting", async () => {
+    const h = createHarness();
+    h.setStatus("connecting");
+
+    await h.service.sendPrompt(TASK_ID, "first");
+    await h.service.sendPrompt(TASK_ID, "second");
+
+    expect(h.session().messageQueue).toHaveLength(1);
+  });
+
+  it("still throws when the session is in error", async () => {
+    const h = createHarness();
+    h.setStatus("error");
+
+    await expect(h.service.sendPrompt(TASK_ID, "retry")).rejects.toThrow();
+    expect(h.session().messageQueue).toHaveLength(0);
+  });
+
+  // A failed connect must not silently drop the prompt the user queued while
+  // waiting; it stays available to the retry flow.
+  it("preserves the queued prompt when the connect fails", async () => {
+    const h = createHarness();
+    h.setStatus("connecting");
+    await h.service.sendPrompt(TASK_ID, "hold this");
+    expect(h.session().messageQueue).toHaveLength(1);
+
+    (
+      h.service as unknown as {
+        setErrorSession: (
+          taskId: string,
+          taskRunId: string,
+          taskTitle: string,
+          errorMessage: string,
+        ) => void;
+      }
+    ).setErrorSession(TASK_ID, RUN_ID, "Local Task", "connect failed");
+
+    expect(h.session().status).toBe("error");
+    expect(h.session().messageQueue).toHaveLength(1);
   });
 });

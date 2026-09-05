@@ -58,6 +58,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     repoPath,
     isCloud,
     isRunning,
+    isConnecting,
     hasError,
     events,
     isPromptPending,
@@ -168,6 +169,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               taskId={taskId}
               task={task}
               isRunning={isRunning}
+              isConnecting={isConnecting}
               isSuspended={isSuspended}
               onRestoreWorktree={
                 isSuspended ? handleRestoreWorktree : undefined

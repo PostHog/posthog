@@ -39,6 +39,7 @@ vi.mock("../sessions/sessionStore", () => ({
   useModeConfigOptionForTask: () => undefined,
   useModelConfigOptionForTask: () => undefined,
   usePendingPermissionsForTask: () => new Map(),
+  useQueuedMessagesForTask: () => [],
   useSessionSelector: () => false,
   useThoughtLevelConfigOptionForTask: () => undefined,
 }));
