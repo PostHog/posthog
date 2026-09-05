@@ -52,7 +52,7 @@ export const SyncProgressStep = (): JSX.Element => {
     const { cancelWizard, closeWizard } = useActions(sourceWizardLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourceManagementLogic)
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
-    const schemas = source?.schemas ?? []
+    const schemas = source && 'schemas' in source ? source.schemas : []
     const sourceAccessMethod = getSourceAccessMethod(wizardSource.access_method, source?.access_method)
     const isDirectQuerySource = sourceAccessMethod === 'direct'
 

@@ -4,14 +4,16 @@ import uuid
 import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
-from django.db.models import Prefetch, Q, QuerySet
+from django.db.models import Count, Exists, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
+from django.db.models.functions import Coalesce, JSONObject
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
 
@@ -1583,6 +1585,106 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return updated_source
 
 
+class ExternalDataSourceSummaryAnnotations(Protocol):
+    _summary_latest_error: str | None
+    _summary_schemas_count: int
+    _summary_rows_synced: int
+    _summary_syncing_schemas: list[dict[str, str | None]] | None
+
+
+class ExternalDataSourceSummarySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """Source-level fields for index pages, without the potentially huge nested schema payload."""
+
+    created_by = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
+    last_run_at = serializers.SerializerMethodField(read_only=True)
+    schemas_count = serializers.SerializerMethodField(read_only=True)
+    rows_synced = serializers.SerializerMethodField(read_only=True)
+    schema_status_names = serializers.SerializerMethodField(read_only=True)
+    engine = serializers.ChoiceField(
+        source="connection_metadata.engine",
+        read_only=True,
+        allow_null=True,
+        required=False,
+        choices=DIRECT_CONNECTION_ENGINE_CHOICES,
+    )
+    revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
+        source="revenue_analytics_config_safe", read_only=True
+    )
+    access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
+
+    class Meta:
+        model = ExternalDataSource
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "created_via",
+            "status",
+            "source_type",
+            "latest_error",
+            "prefix",
+            "description",
+            "access_method",
+            "direct_query_enabled",
+            "engine",
+            "last_run_at",
+            "revenue_analytics_config",
+            "user_access_level",
+            "schemas_count",
+            "rows_synced",
+            "schema_status_names",
+        ]
+        read_only_fields = fields
+
+    def get_created_by(self, instance: ExternalDataSource) -> str | None:
+        return instance.created_by.email if instance.created_by else None
+
+    def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
+        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
+        return latest_completed_run.created_at.isoformat() if latest_completed_run else None
+
+    def get_status(self, instance: ExternalDataSource) -> str:
+        status_priority = (
+            ("_summary_has_failures", ExternalDataSchema.Status.FAILED),
+            ("_summary_has_billing_limits", "Billing limits"),
+            ("_summary_has_billing_limit_too_low", "Billing limits too low"),
+            ("_summary_has_paused", ExternalDataSchema.Status.PAUSED),
+            ("_summary_has_running", ExternalDataSchema.Status.RUNNING),
+            ("_summary_has_completed", ExternalDataSchema.Status.COMPLETED),
+        )
+        for attribute, status_value in status_priority:
+            if getattr(instance, attribute):
+                return status_value
+        return instance.status
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, instance: ExternalDataSource) -> str | None:
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_latest_error
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_schemas_count(self, instance: ExternalDataSource) -> int:
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_schemas_count
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_rows_synced(self, instance: ExternalDataSource) -> int:
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_rows_synced
+
+    def _syncing_schemas(self, instance: ExternalDataSource) -> list[dict[str, str | None]]:
+        return cast(ExternalDataSourceSummaryAnnotations, instance)._summary_syncing_schemas or []
+
+    @extend_schema_field(serializers.DictField(child=serializers.ListField(child=serializers.CharField())))
+    def get_schema_status_names(self, instance: ExternalDataSource) -> dict[str, list[str]]:
+        names_by_status: dict[str, list[str]] = {}
+        for schema in self._syncing_schemas(instance):
+            status_value = schema["status"]
+            name = schema["name"]
+            if status_value is not None and name is not None:
+                names_by_status.setdefault(status_value, []).append(name)
+        return names_by_status
+
+
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
     source_type = serializers.ChoiceField(
         choices=ExternalDataSourceType.choices,
@@ -2049,6 +2151,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "stored_credentials",
         "webhook_info",
         "cdc_status",
+        "summary",
     ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
@@ -2122,14 +2225,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # tracing. Done here rather than by overriding `list`, since a method named `list` would shadow
         # the builtin `list[...]` type used in annotations elsewhere in this class. Guarded for shape
         # because finalize_response also runs for error responses (no `results`) and other actions.
-        if self.action == "list" and isinstance(response.data, dict):
+        if self.action in ("list", "summary") and isinstance(response.data, dict):
             results = response.data.get("results")
             if isinstance(results, list):
                 span = trace.get_current_span()
                 span.set_attribute("data_warehouse.sources.count", len(results))
                 span.set_attribute(
                     "data_warehouse.sources.schemas.count",
-                    sum(len(source.get("schemas") or []) for source in results if isinstance(source, dict)),
+                    sum(
+                        source.get("schemas_count", len(source.get("schemas") or []))
+                        for source in results
+                        if isinstance(source, dict)
+                    ),
                 )
         return response
 
@@ -2138,6 +2245,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return ExternalDataSourceCreateSerializer
         if self.action == "database_schema":
             return DatabaseSchemaRequestSerializer
+        if self.action == "summary":
+            return ExternalDataSourceSummarySerializer
         return ExternalDataSourceSerializers
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -2145,7 +2254,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Building the full HogQL Database and serializing per-schema table columns is expensive
         # and only needed when a caller reads `schemas[].table.columns` — which the source list view
         # never does (it only reads name/row_count). Gate both to single-source reads.
-        include_columns = self.action != "list"
+        include_columns = self.action not in ("list", "summary")
         context["include_columns"] = include_columns
         # The list serializes a trimmed per-schema shape; single-source reads serialize the full one.
         context["schemas_list_only"] = self.action == "list"
@@ -2165,8 +2274,58 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # (include_columns=True), and building them reads `table.credential.access_key` per schema
         # (see DataWarehouseTable.hogql_definition), so keep the join off the list path only.
         schema_select = ["table__external_data_source"]
-        if self.action != "list":
+        if self.action not in ("list", "summary"):
             schema_select.append("table__credential")
+
+        queryset = queryset.select_related("created_by", "revenue_analytics_config")
+
+        if self.action == "summary":
+            schemas = ExternalDataSchema.objects.filter(
+                team_id=self.team_id,
+                source_id=OuterRef("pk"),
+            ).exclude(deleted=True)
+            active_schemas = schemas.filter(Q(should_sync=True) | Q(latest_error__isnull=False))
+            synced_rows = (
+                schemas.exclude(table__deleted=True)
+                .values("source_id")
+                .annotate(total=Sum("table__row_count"))
+                .values("total")[:1]
+            )
+            schema_count = schemas.values("source_id").annotate(total=Count("id")).values("total")[:1]
+            syncing_schemas = (
+                schemas.filter(should_sync=True)
+                .values("source_id")
+                .annotate(
+                    schema_details=ArrayAgg(
+                        JSONObject(status="status", name=Coalesce("label", "name")), order_by="name"
+                    )
+                )
+                .values("schema_details")[:1]
+            )
+            latest_error = schemas.filter(latest_error__isnull=False).order_by("name").values("latest_error")[:1]
+
+            return (
+                queryset.annotate(
+                    _summary_has_failures=Exists(
+                        schemas.filter(should_sync=True, status=ExternalDataSchema.Status.FAILED)
+                    ),
+                    _summary_has_billing_limits=Exists(
+                        schemas.filter(should_sync=True, status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
+                    ),
+                    _summary_has_billing_limit_too_low=Exists(
+                        schemas.filter(should_sync=True, status=ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW)
+                    ),
+                    _summary_has_paused=Exists(active_schemas.filter(status=ExternalDataSchema.Status.PAUSED)),
+                    _summary_has_running=Exists(active_schemas.filter(status=ExternalDataSchema.Status.RUNNING)),
+                    _summary_has_completed=Exists(active_schemas.filter(status=ExternalDataSchema.Status.COMPLETED)),
+                    _summary_latest_error=Subquery(latest_error),
+                    _summary_rows_synced=Coalesce(Subquery(synced_rows), Value(0), output_field=IntegerField()),
+                    _summary_schemas_count=Coalesce(Subquery(schema_count), Value(0), output_field=IntegerField()),
+                    _summary_syncing_schemas=Subquery(syncing_schemas),
+                )
+                .prefetch_related(latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"))
+                .order_by(self.ordering)
+            )
 
         return (
             queryset
@@ -2174,7 +2333,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # serialization. select_related folds them into the main query instead of firing one
             # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
             # list load (up to one query, and a get_or_create write, per source).
-            .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
                 latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"),
                 # The one place schemas are read during serialization. `active_schemas` used to be a
@@ -2187,8 +2345,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     .select_related(*schema_select)
                     .order_by("name"),
                 ),
-            )
-            .order_by(self.ordering)
+            ).order_by(self.ordering)
         )
 
     @extend_schema(
@@ -2201,6 +2358,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not is_service_auth(request):
             queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
         return Response(ExternalDataSourceExistsResponseSerializer({"exists": queryset.exists()}).data)
+
+    @extend_schema(
+        responses=ExternalDataSourceSummarySerializer(many=True),
+        description="List source-level status and row aggregates without embedding schemas.",
+    )
+    @action(methods=["GET"], detail=False, url_path="summary")
+    def summary(self, request: Request, *args, **kwargs) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def _resolve_stored_credential(self, source_type: str, payload: dict) -> ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.

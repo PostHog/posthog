@@ -32,11 +32,13 @@ import type {
     ExternalDataSourcesRepairCdcCreate200,
     ExternalDataSourcesResumeCdcCreate200,
     ExternalDataSourcesStoredCredentialsListParams,
+    ExternalDataSourcesSummaryListParams,
     ExternalDataSourcesWizardRetrieveParams,
     IntegrationAccountsResponseApi,
     PaginatedExternalDataDestinationListApi,
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceSerializersListApi,
+    PaginatedExternalDataSourceSummaryListApi,
     PaginatedWarehouseColumnStatisticsListApi,
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
@@ -1370,6 +1372,42 @@ export const externalDataSourcesStoredCredentialsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getExternalDataSourcesSummaryListUrl = (
+    projectId: string,
+    params?: ExternalDataSourcesSummaryListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/summary/`
+}
+
+/**
+ * List source-level status and row aggregates without embedding schemas.
+ */
+export const externalDataSourcesSummaryList = async (
+    projectId: string,
+    params?: ExternalDataSourcesSummaryListParams,
+    options?: RequestInit
+): Promise<PaginatedExternalDataSourceSummaryListApi> => {
+    return apiMutator<PaginatedExternalDataSourceSummaryListApi>(
+        getExternalDataSourcesSummaryListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSourcesWizardRetrieveUrl = (

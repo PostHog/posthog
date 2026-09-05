@@ -244,6 +244,7 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import type { PaginatedExternalDataSourceSummaryListApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -5903,6 +5904,11 @@ const api = {
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
+        },
+        async listSummaries(
+            options?: ApiMethodOptions | undefined
+        ): Promise<PaginatedExternalDataSourceSummaryListApi> {
+            return await new ApiRequest().externalDataSources().withAction('summary').get(options)
         },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()

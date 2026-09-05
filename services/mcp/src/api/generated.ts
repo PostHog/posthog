@@ -39739,6 +39739,41 @@ export namespace Schemas {
       readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
     }
 
+    export type ExternalDataSourceSummarySchemaStatusNames = {[key: string]: string[]};
+
+    /**
+     * Source-level fields for index pages, without the potentially huge nested schema payload.
+     */
+    export interface ExternalDataSourceSummary {
+      readonly id: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: string | null;
+      readonly created_via: ExternalDataSourceCreatedViaEnum | null;
+      readonly status: string;
+      readonly source_type: ExternalDataSourceTypeEnum;
+      /** @nullable */
+      readonly latest_error: string | null;
+      /** @nullable */
+      readonly prefix: string | null;
+      /** @nullable */
+      readonly description: string | null;
+      readonly access_method: ExternalDataSourceAccessMethodEnum;
+      readonly direct_query_enabled: boolean;
+      readonly engine: EngineEnum | null;
+      /** @nullable */
+      readonly last_run_at: string | null;
+      readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly schemas_count: number;
+      readonly rows_synced: number;
+      readonly schema_status_names: ExternalDataSourceSummarySchemaStatusNames;
+    }
+
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
 
 
@@ -55625,6 +55660,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ExternalDataSourceSerializers[];
+    }
+
+    export interface PaginatedExternalDataSourceSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExternalDataSourceSummary[];
     }
 
     export interface PaginatedFeatureFlagList {
@@ -96012,6 +96056,21 @@ export namespace Schemas {
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
      */
     source_type?: string;
+    };
+
+    export type ExternalDataSourcesSummaryListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type ExternalDataSourcesWizardRetrieveParams = {

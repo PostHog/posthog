@@ -92,6 +92,7 @@ import type { CommentSlackThreadRefApi } from 'products/platform_features/fronte
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ExternalDataSourceSummaryApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -6462,7 +6463,9 @@ export interface ExternalDataSourceConnectionMetadata {
     available_functions?: string[]
 }
 
-export interface ExternalDataSource {
+export interface ExternalDataSource extends Partial<
+    Pick<ExternalDataSourceSummaryApi, 'rows_synced' | 'schemas_count'>
+> {
     id: string
     source_id: string
     connection_id: string
@@ -6488,6 +6491,8 @@ export interface ExternalDataSource {
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
 }
+
+export type ExternalDataSourceListItem = ExternalDataSource | ExternalDataSourceSummaryApi
 
 export interface ExternalDataSourceApiVersionDeprecation {
     /** The deprecated vendor API version this source is pinned to */
