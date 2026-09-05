@@ -13,9 +13,11 @@ set -uo pipefail
 # the whole pipeline then reads as failed and the warning never prints.
 staged=$(git diff --cached --name-only)
 
+# A package's consumer guide is its AGENTS.md or, where the guide is split by topic, any
+# doc under its src/docs/.
 if grep -qE '^packages/quill/packages/[^/]+/src/.*\.(ts|tsx|css)$' <<< "$staged" \
-    && ! grep -qE '^packages/quill/.*AGENTS\.md$' <<< "$staged"; then
+    && ! grep -qE '^packages/quill/.*(AGENTS\.md|/src/docs/[^/]+\.md)$' <<< "$staged"; then
     printf "\n\033[33mWarning: quill component sources changed without an AGENTS.md update.\n"
     printf "If variants, composition, or spacing changed, update the consumer guide\n"
-    printf "(packages/quill/packages/<pkg>/AGENTS.md) in the same PR.\033[0m\n\n"
+    printf "(packages/quill/packages/<pkg>/AGENTS.md, or a topic doc under its src/docs/) in the same PR.\033[0m\n\n"
 fi

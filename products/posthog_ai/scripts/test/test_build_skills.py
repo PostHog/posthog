@@ -16,6 +16,7 @@ from products.posthog_ai.scripts.build_skills import (
     SkillBuilder,
     SkillDiscoverer,
     SkillRenderer,
+    _check_repo_paths,
     _check_tool_references,
     parse_frontmatter,
     validate_frontmatter,
@@ -526,6 +527,29 @@ def test_lint_all_checks_reference_links_against_the_bundle(tmp_path: Path, link
         output_dir=tmp_path / "output",
     )
     assert builder.lint_all() is expected
+
+
+@pytest.mark.parametrize(
+    "cited,flagged",
+    [
+        ("frontend/src/lib/hooks.ts", False),
+        ("frontend/src/lib/", False),
+        ("frontend/src/lib/moved.ts", True),
+        ("frontend/src/...", False),
+        ("products/*/skills/", False),
+        ("references/payload.md", False),
+        ("frontend/lib", False),
+        ("Frontend/src/lib/moved.ts", False),
+    ],
+)
+def test_check_repo_paths_flags_only_missing_repo_paths(tmp_path: Path, cited: str, flagged: bool) -> None:
+    (tmp_path / "frontend" / "src" / "lib").mkdir(parents=True)
+    (tmp_path / "frontend" / "src" / "lib" / "hooks.ts").write_text("")
+    (tmp_path / "products").mkdir()
+
+    findings = _check_repo_paths(f"Read `{cited}` first.\n", "SKILL.md", tmp_path)
+
+    assert [f.name for f in findings] == ([cited.rstrip("/")] if flagged else [])
 
 
 def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:

@@ -49,6 +49,12 @@ output="$(run .github/scripts/check-quill-agents-md.sh)"
 [ -z "$output" ] || fail "quill warning fired even though AGENTS.md was staged too"
 
 from_head
+stage packages/quill/packages/charts/src/charts/LineChart/LineChart.tsx
+stage packages/quill/packages/charts/src/docs/tooltips.md
+output="$(run .github/scripts/check-quill-agents-md.sh)"
+[ -z "$output" ] || fail "quill warning fired even though a topic doc was staged too"
+
+from_head
 stage posthog/models/team/team.py
 output="$(run .github/scripts/check-claude-hooks.sh)"
 [ -z "$output" ] || fail "hooks warning fired on an unrelated path"
