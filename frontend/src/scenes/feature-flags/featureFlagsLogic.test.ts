@@ -3,7 +3,9 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
@@ -281,6 +283,56 @@ describe('the feature flags logic', () => {
         }).toMatchValues({
             activeTab: FeatureFlagsTab.HISTORY,
         })
+    })
+
+    it('redirects a disabled usage deep link to overview after flags load', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        expect(router.values.searchParams['tab']).toEqual('overview')
+    })
+
+    it('redirects from usage when the rollout flag is disabled', async () => {
+        router.actions.push(urls.featureFlags())
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+        logic.actions.setActiveTab(FeatureFlagsTab.USAGE)
+
+        await expectLogic(logic, () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([], {})
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        expect(router.values.searchParams['tab']).toEqual('overview')
+    })
+
+    it('stays on usage when the rollout flag is enabled', async () => {
+        const flags = {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        }
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], flags)
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+
+        await expectLogic(logic, () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], flags)
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+        expect(router.values.searchParams['tab']).toEqual('usage')
+    })
+
+    it('does not rewrite another scene URL when the rollout flag is disabled', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+        logic.actions.setActiveTab(FeatureFlagsTab.USAGE)
+        router.actions.push('/project/997/experiments/1')
+
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+
+        expect(router.values.location.pathname).toEqual('/project/997/experiments/1')
     })
 
     describe('activity deep-link', () => {

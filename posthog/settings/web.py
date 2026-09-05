@@ -610,6 +610,7 @@ SPECTACULAR_SETTINGS = {
             #
             # The choices come from a typing.Literal via get_args; there is no class.
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
+            "FeatureFlagRequestTypeEnum": ["remote_evaluation", "local_evaluation"],
             "PropertyFilterTypeEnum": [
                 "event",
                 "event_metadata",
