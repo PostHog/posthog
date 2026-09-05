@@ -234,6 +234,82 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=run_id)
         self.assertNotIn("ai_stage", task_run.state)
 
+    def test_create_run_stamps_inbox_on_a_report_linked_signal_report_task(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Discuss report",
+            description="From the Inbox",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertEqual(run.state["ai_stage"], "inbox")
+
+    def test_create_run_leaves_a_bare_signal_report_task_unstamped(self):
+        # The origin is client-settable; only the report link proves an Inbox run.
+        task = Task.objects.create(
+            team=self.team,
+            title="Bare signal_report",
+            description="No report link",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertNotIn("ai_stage", run.state)
+
+    def test_create_run_keeps_the_pipeline_stage_over_the_interactive_stamp(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Auto-started implementation",
+            description="Pipeline",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+
+        run = task.create_run(extra_state={"ai_stage": "implementation"})
+
+        self.assertEqual(run.state["ai_stage"], "implementation")
+
+    def test_create_run_leaves_a_pipeline_created_task_unstamped(self):
+        # Stamping a pipeline-created task would move a rerun of self-driving work onto the
+        # interactive cap.
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Auto-started implementation",
+            description="Pipeline",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+            internal=True,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertNotIn("ai_stage", run.state)
+
+    def test_create_run_stamps_chat_on_a_signals_chat_task(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Suggest a scout",
+            description="Chat",
+            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertEqual(run.state["ai_stage"], "chat")
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")

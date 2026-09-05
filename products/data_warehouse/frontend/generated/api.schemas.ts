@@ -1106,35 +1106,13 @@ export interface PatchedDataWarehouseExpressionApi {
     connection_id?: string | null
 }
 
-export interface DataWarehouseModelPathApi {
-    readonly id: string
-    readonly path: readonly string[]
-    team: number
-    /** @nullable */
-    table?: string | null
-    /** @nullable */
-    saved_query?: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedDataWarehouseModelPathListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataWarehouseModelPathApi[]
-}
-
 /**
  * * `Cancelled` - Cancelled
  * * `Modified` - Modified
  * * `Completed` - Completed
  * * `Failed` - Failed
  * * `Running` - Running
+ * * `Skipped` - Skipped
  */
 export type DataWarehouseSavedQueryStatusEnumApi =
     (typeof DataWarehouseSavedQueryStatusEnumApi)[keyof typeof DataWarehouseSavedQueryStatusEnumApi]
@@ -1145,6 +1123,7 @@ export const DataWarehouseSavedQueryStatusEnumApi = {
     Completed: 'Completed',
     Failed: 'Failed',
     Running: 'Running',
+    Skipped: 'Skipped',
 } as const
 
 /**
@@ -1180,13 +1159,6 @@ export interface DataWarehouseSavedQueryMinimalApi {
     /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag: boolean
     readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
-    /** The status of when this SavedQuery last ran.
-     *
-     * * `Cancelled` - Cancelled
-     * * `Modified` - Modified
-     * * `Completed` - Completed
-     * * `Failed` - Failed
-     * * `Running` - Running */
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -1501,13 +1473,6 @@ export interface DataWarehouseSavedQueryApi {
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
-    /** The status of when this SavedQuery last ran.
-     *
-     * * `Cancelled` - Cancelled
-     * * `Modified` - Modified
-     * * `Completed` - Completed
-     * * `Failed` - Failed
-     * * `Running` - Running */
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -1632,13 +1597,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
-    /** The status of when this SavedQuery last ran.
-     *
-     * * `Cancelled` - Cancelled
-     * * `Modified` - Modified
-     * * `Completed` - Completed
-     * * `Failed` - Failed
-     * * `Running` - Running */
     readonly status?: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -1695,6 +1653,35 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
+}
+
+/**
+ * Body of the `ancestors` and `descendants` actions.
+ */
+export interface SavedQueryLineageRequestApi {
+    /**
+     * How many hops to walk, so 1 gives the immediate neighbours. Omit to walk the whole cone.
+     * @minimum 1
+     * @nullable
+     */
+    level?: number | null
+}
+
+export interface SavedQueryAncestorsApi {
+    /** Ids of the saved queries and warehouse tables this query reads from, directly or through other queries, and the names of the PostHog tables among them. */
+    ancestors: string[]
+}
+
+export interface SavedQueryDependenciesApi {
+    /** How many tables and queries this query reads from directly. */
+    upstream_count: number
+    /** How many queries read from this query directly. */
+    downstream_count: number
+}
+
+export interface SavedQueryDescendantsApi {
+    /** Ids of the saved queries that read from this query, directly or through other queries. */
+    descendants: string[]
 }
 
 /**
@@ -1775,6 +1762,14 @@ export interface IncrementalEligibilityApi {
     blockers: string[]
     /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */
     warnings: string[]
+}
+
+/**
+ * Body of the `resume_schedules` action.
+ */
+export interface SavedQueryResumeSchedulesRequestApi {
+    /** Ids of the saved queries to resume. An id is ignored when it is not in this project, has been deleted, or you cannot edit it. */
+    view_ids: string[]
 }
 
 export interface DataWarehouseSavedQueryDraftApi {
@@ -3250,6 +3245,10 @@ export interface CredentialApi {
  * * `Anvil` - Anvil
  * * `Coolify` - Coolify
  * * `SocialPilot` - SocialPilot
+ * * `Strato` - Strato
+ * * `Medusa` - Medusa
+ * * `Membrain` - Membrain
+ * * `RecallAI` - RecallAI
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4580,6 +4579,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Anvil: 'Anvil',
     Coolify: 'Coolify',
     SocialPilot: 'SocialPilot',
+    Strato: 'Strato',
+    Medusa: 'Medusa',
+    Membrain: 'Membrain',
+    RecallAI: 'RecallAI',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5103,17 +5106,6 @@ export type WarehouseExpressionsListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type WarehouseModelPathsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type WarehouseSavedQueriesListParams = {

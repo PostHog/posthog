@@ -23,8 +23,12 @@ from posthog.rate_limit import (
 from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded, floor_to_bucket, run_scan
 from products.logs.backend.series_bands import (
     BASELINE_WEEKS,
+    MAX_WINDOW_DAYS,
+    MAX_WINDOW_START_AGE_DAYS,
     MIN_BASELINE_WEEKS_FOR_BAND,
     SeriesBandsFetchTruncated,
+    SeriesBandsWindowInvalid,
+    resolve_window,
     run_series_bands,
 )
 
@@ -209,9 +213,30 @@ class LogsAnomalyScanErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Human readable description of why the scan could not run.")
 
 
+class _SeriesBandsDateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text='End of the window. Same format as date_from. Omit or null for "now".',
+    )
+
+
 class LogsSeriesBandsRequestSerializer(serializers.Serializer):
     serviceName = serializers.CharField(
         help_text="Service whose per-series volume to chart (the log record's service_name).",
+    )
+    dateRange = _SeriesBandsDateRangeSerializer(
+        required=False,
+        help_text=(
+            f"Window to chart. Defaults to the last {MAX_WINDOW_DAYS} days. It may span at most "
+            f"{MAX_WINDOW_DAYS} days and start at most {MAX_WINDOW_START_AGE_DAYS} days ago, "
+            f"past which the volume rollup no longer reaches."
+        ),
     )
     intervalMinutes = serializers.ChoiceField(
         choices=[60],
@@ -350,6 +375,10 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 response=LogsSeriesBandsResponseSerializer,
                 description="Observed volume and expected band per series of the service.",
             ),
+            400: OpenApiResponse(
+                response=LogsSeriesBandsErrorSerializer,
+                description="The requested window is empty, too wide, or starts before the volume rollup reaches.",
+            ),
             422: OpenApiResponse(
                 response=LogsSeriesBandsErrorSerializer,
                 description="The service has too many series to chart in one response.",
@@ -357,9 +386,10 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         },
         summary="Per-series log volume with expected bands",
         description=(
-            "Returns the last 7 days of log volume for every (namespace, environment, severity) series "
-            "of one service, with a time-of-week expected band derived from the prior weeks of the "
-            "volume rollup. Synchronous and read only."
+            "Returns log volume over the requested window for every (namespace, environment, severity) "
+            "series of one service, with a time-of-week expected band derived from the prior weeks of "
+            f"the volume rollup. The window defaults to the last {MAX_WINDOW_DAYS} days and may span at "
+            f"most {MAX_WINDOW_DAYS} days. Synchronous and read only."
         ),
     )
     @action(
@@ -373,17 +403,35 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = request.validated_data
         service_name: str = data["serviceName"]
         interval_minutes: int = int(data["intervalMinutes"])
+        date_range: dict[str, Any] = data.get("dateRange") or {}
+        try:
+            window = resolve_window(
+                date_range.get("date_from"),
+                date_range.get("date_to"),
+                interval_minutes=interval_minutes,
+            )
+        except SeriesBandsWindowInvalid as err:
+            return Response({"error": str(err)}, status=status.HTTP_400_BAD_REQUEST)
 
         cache_key = (
             "logs_series_bands/"
-            + hashlib.sha256(f"{self.team.id}/{service_name}/{interval_minutes}".encode()).hexdigest()
+            + hashlib.sha256(
+                f"{self.team.id}/{service_name}/{interval_minutes}/"
+                f"{window.start.isoformat()}/{window.end.isoformat()}".encode()
+            ).hexdigest()
         )
         cached = cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
         try:
-            result = run_series_bands(self.team, service_name, interval_minutes=interval_minutes)
+            result = run_series_bands(
+                self.team,
+                service_name,
+                window_start=window.start,
+                window_end=window.end,
+                interval_minutes=interval_minutes,
+            )
         except SeriesBandsFetchTruncated as err:
             return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 

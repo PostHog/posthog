@@ -25,6 +25,11 @@ describe("classifyAgentError", () => {
     ["API Error: Request timed out.", "upstream_timeout"],
     ["API Error: 429 rate limited", "upstream_provider_failure"],
     ["API Error: 529 overloaded", "upstream_provider_failure"],
+    ["API Error: Content block not found", "content_block_rejection"],
+    [
+      "API Error: Content block is not a thinking block",
+      "content_block_rejection",
+    ],
     [
       "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
       "turn_ended_without_response",
@@ -32,6 +37,10 @@ describe("classifyAgentError", () => {
     [
       "[ede_diagnostic] result_type=assistant last_content_type=text stop_reason=null",
       "agent_error",
+    ],
+    [
+      "Claude AI usage limit reached. Your limit will reset at 3pm.",
+      "subscription_usage_limit",
     ],
     ["API Error: 400 invalid request", "agent_error"],
     // 413 is a hard client rejection, never a transient upstream failure.

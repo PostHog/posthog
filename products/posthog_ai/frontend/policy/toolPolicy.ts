@@ -50,6 +50,7 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'feature-requests-remove-evidence-create',
     'heatmaps-saved-regenerate',
     'inbox-reports-bulk-set-state',
+    'inbox-reports-claim',
     'inbox-reports-set-state',
     'llma-prompt-label-set',
     'opt-outs-add',
@@ -151,6 +152,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
  */
 const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'dashboard-create',
+    'dashboard-create-tile',
     'dashboard-create-text-tile',
     'dashboard-tile-copy',
     'dashboard-widgets-batch-add',

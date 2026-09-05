@@ -318,6 +318,19 @@ describe('tracingDataLogic', () => {
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
+
+        it('re-fetches the sparkline on an explicit refresh with an unchanged scope', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            // The refresh button asks for newer data without touching the filters, so the
+            // memoized scope must not stop it from hitting the endpoint again.
+            await expectLogic(logic, () => {
+                logic.actions.refreshQuery()
+            }).toDispatchActions(['fetchSparklineSuccess'])
+            expect(sparklineSpy).toHaveBeenCalledTimes(2)
+            sparklineSpy.mockRestore()
+        })
     })
 
     describe('loading state across superseded queries', () => {

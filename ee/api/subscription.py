@@ -65,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_QUERY_FAILURE_TYPE,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -412,7 +413,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
             },
             "count": {"help_text": "Total number of deliveries before the subscription stops. Null for unlimited."},
-            "start_date": {"help_text": "When to start delivering (ISO 8601 datetime)."},
+            "start_date": {
+                "help_text": (
+                    "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in "
+                    "the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted "
+                    "for backward compatibility, but delivery happens during the next cycle instead of at that exact minute."
+                )
+            },
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
@@ -1517,6 +1524,11 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     error_type = serializers.CharField(
         allow_null=True, help_text="Exception class name when the query failed; null on success."
     )
+    error_code = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Stable query API error code when available; null on success and for unclassified errors.",
+    )
     human_readable_error = serializers.CharField(
         allow_null=True,
         required=False,
@@ -1527,6 +1539,10 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    AI_REPORT_SCRUBBED_ERROR = {
+        "type": AI_REPORT_QUERY_FAILURE_TYPE,
+        "message": "The report could not be computed.",
+    }
     # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
     # scrubbed for a caller without query access (content_snapshot is a non-null object, the rest
     # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
@@ -1655,6 +1671,8 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         # user-authored and already readable on the subscription, so it is deliberately not scrubbed.
         if self.context.get("hide_ai_report"):
             data.update(self.AI_REPORT_SCRUBBED)
+            if isinstance(data.get("error"), dict) and data["error"].get("type") == AI_REPORT_QUERY_FAILURE_TYPE:
+                data["error"] = self.AI_REPORT_SCRUBBED_ERROR
             return data
         # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt
         # fields, so drop the same keys from content_snapshot to avoid shipping the report twice.

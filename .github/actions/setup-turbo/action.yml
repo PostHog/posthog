@@ -1,0 +1,51 @@
+name: Install turbo
+description: |
+    Puts the lockfile-pinned `turbo` binary on PATH, for a job that runs turbo
+    tasks but does not need the workspace installed.
+
+    Requires pnpm and Node on PATH already: pnpm resolves and fetches the
+    package, and turbo shells out through pnpm to launch each task.
+
+inputs:
+    lockfile:
+        description: 'pnpm lockfile that pins the turbo version and integrity.'
+        required: false
+        default: pnpm-lock.yaml
+
+runs:
+    using: composite
+    steps:
+        - name: Install turbo
+          shell: bash
+          env:
+              LOCKFILE: ${{ inputs.lockfile }}
+              npm_config_fetch_retries: 3
+              npm_config_fetch_retry_mintimeout: 10000
+              npm_config_fetch_retry_maxtimeout: 60000
+          run: |
+              set -euo pipefail
+
+              # Every turbo entry, as "<name>@<version> <integrity>". Comparing the
+              # whole set catches a registry that serves different bytes than the
+              # ones committed here, which resolving by version alone would accept.
+              turbo_packages='.packages | to_entries
+                  | map(select(.key | test("^(turbo|@turbo/)")))
+                  | map(.key + " " + .value.resolution.integrity) | sort | .[]'
+
+              version=$(yq -e '.importers["."].devDependencies.turbo.version' "$LOCKFILE")
+
+              # Outside the workspace, so pnpm treats it as its own project and
+              # writes nothing into the checkout.
+              dir="$RUNNER_TEMP/turbo"
+              mkdir -p "$dir"
+              echo '{"name":"turbo-runner","private":true}' > "$dir/package.json"
+              pnpm --dir "$dir" add "turbo@$version"
+
+              if ! diff <(yq -r "$turbo_packages" "$LOCKFILE") \
+                        <(yq -r "$turbo_packages" "$dir/pnpm-lock.yaml"); then
+                  echo "::error::turbo resolved to different bytes than $LOCKFILE pins"
+                  exit 1
+              fi
+
+              echo "$dir/node_modules/.bin" >> "$GITHUB_PATH"
+              "$dir/node_modules/.bin/turbo" --version

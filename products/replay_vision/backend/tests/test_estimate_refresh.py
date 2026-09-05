@@ -23,12 +23,14 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.queries import (
     DISABLED_ESTIMATE_STALE_AFTER,
     ESTIMATE_STALE_AFTER,
+    SAVE_ESTIMATE_BUDGET,
     ScannerVolumeEstimate,
     project_monthly_observations,
     refresh_scanner_estimate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     _ESTIMATE_EVENTS_SAMPLE_FACTOR,
+    BATCH_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
 )
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
@@ -65,7 +67,7 @@ def _make_scanner(**overrides: Any) -> ReplayScanner:
         "name": "estimate-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
+        "model": ScannerModel.GEMINI_3_8_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -75,6 +77,12 @@ def _set_estimate(scanner: ReplayScanner, value: int, hours_ago: float) -> None:
     ReplayScanner.objects.filter(pk=scanner.pk).update(
         estimated_monthly_observations=value,
         estimated_at=timezone.now() - dt.timedelta(hours=hours_ago),
+    )
+
+
+def _set_attempt(scanner: ReplayScanner, hours_ago: float) -> None:
+    ReplayScanner.objects.filter(pk=scanner.pk).update(
+        estimate_attempted_at=timezone.now() - dt.timedelta(hours=hours_ago)
     )
 
 
@@ -118,33 +126,63 @@ _EVENT_FILTERED_AND_QUERY = RecordingsQuery(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "execute_outcomes, expected_matched, expected_sampled, expected_budgets",
+    "budget, execute_outcomes, expected_matched, expected_sampled, expected_budgets, expected_query_types",
     [
-        ([MagicMock(results=[[5, None]])], 5, False, [15]),
-        ([ClickHouseQueryTimeOut(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
-        ([ClickHouseQueryMemoryLimitExceeded(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
+        (
+            BATCH_ESTIMATE_BUDGET,
+            [MagicMock(results=[[5, None]])],
+            5,
+            False,
+            [15],
+            ["ReplayVisionScannerEstimateExactQuery"],
+        ),
+        (
+            BATCH_ESTIMATE_BUDGET,
+            [ClickHouseQueryTimeOut(), MagicMock(results=[[5, None]])],
+            50,
+            True,
+            [15, 30],
+            ["ReplayVisionScannerEstimateExactQuery", "ReplayVisionScannerEstimateSampledQuery"],
+        ),
+        (
+            BATCH_ESTIMATE_BUDGET,
+            [ClickHouseQueryMemoryLimitExceeded(), MagicMock(results=[[5, None]])],
+            50,
+            True,
+            [15, 30],
+            ["ReplayVisionScannerEstimateExactQuery", "ReplayVisionScannerEstimateSampledQuery"],
+        ),
+        # A save blocks the request, so it skips the exact attempt and runs one sampled query.
+        (
+            SAVE_ESTIMATE_BUDGET,
+            [MagicMock(results=[[5, None]])],
+            50,
+            True,
+            [10],
+            ["ReplayVisionScannerEstimateSampledQuery"],
+        ),
     ],
 )
 def test_estimate_falls_back_to_sampling_only_when_the_exact_count_times_out(
-    execute_outcomes: list[Any], expected_matched: int, expected_sampled: bool, expected_budgets: list[int]
+    budget: Any,
+    execute_outcomes: list[Any],
+    expected_matched: int,
+    expected_sampled: bool,
+    expected_budgets: list[int],
+    expected_query_types: list[str],
 ) -> None:
     scanner = _make_scanner()
     with patch(
         "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
         side_effect=execute_outcomes,
     ) as mock_execute:
-        estimate = estimate_scanner_session_volume(team=scanner.team, query=_EVENT_FILTERED_AND_QUERY)
+        estimate = estimate_scanner_session_volume(team=scanner.team, query=_EVENT_FILTERED_AND_QUERY, budget=budget)
     assert estimate.matched_sessions == expected_matched
     assert estimate.sampled == expected_sampled
     settings = [call.kwargs["settings"] for call in mock_execute.call_args_list]
     assert [s.max_execution_time for s in settings] == expected_budgets
     assert all(s.timeout_overflow_mode == "throw" for s in settings)
-    query_types = [call.kwargs["query_type"] for call in mock_execute.call_args_list]
-    assert query_types == (
-        ["ReplayVisionScannerEstimateExactQuery", "ReplayVisionScannerEstimateSampledQuery"]
-        if expected_sampled
-        else ["ReplayVisionScannerEstimateExactQuery"]
-    )
+    assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_query_types
 
 
 @pytest.mark.django_db
@@ -204,8 +242,11 @@ class TestRefreshScannerEstimate:
         scanner.refresh_from_db()
         assert scanner.estimated_monthly_observations == 30
         assert scanner.estimated_at is not None
+        # The attempt is stamped when the query starts, so it never trails the success stamp.
+        assert scanner.estimate_attempted_at is not None
+        assert scanner.estimate_attempted_at <= scanner.estimated_at
 
-    def test_raises_and_leaves_fields_untouched_when_the_estimate_query_errors(self) -> None:
+    def test_raises_and_stamps_only_the_attempt_when_the_estimate_query_errors(self) -> None:
         scanner = _make_scanner()
         with patch(_ESTIMATE_QUERY, side_effect=RuntimeError("clickhouse down")):
             with pytest.raises(RuntimeError, match="clickhouse down"):
@@ -214,6 +255,7 @@ class TestRefreshScannerEstimate:
         scanner.refresh_from_db()
         assert scanner.estimated_monthly_observations is None
         assert scanner.estimated_at is None
+        assert scanner.estimate_attempted_at is not None
 
     def test_does_not_bump_scanner_version(self) -> None:
         scanner = _make_scanner()
@@ -345,11 +387,17 @@ class TestListStaleScannerEstimatesActivity:
         # Disabled scanners run on the slower clock: stale for an enabled scanner, not for a disabled one.
         disabled_recent = _make_scanner(name="disabled-recent", enabled=False)
         _set_estimate(disabled_recent, 10, hours_ago=_STALE_HOURS + 24)
+        # A failed attempt sorts a never-computed estimate by that attempt instead of at the head.
+        failed_earlier = _make_scanner(name="failed-earlier")
+        _set_attempt(failed_earlier, hours_ago=_STALE_HOURS + 12)
+        # A recent failed attempt is skipped until the backoff has passed.
+        failed_recently = _make_scanner(name="failed-recently")
+        _set_attempt(failed_recently, hours_ago=0.1)
 
         entries = list_stale_scanner_estimates_activity()
 
         # Disabled scanners are included but sort behind enabled ones even when staler.
-        assert [e.scanner_id for e in entries] == [never.id, very_stale.id, stale.id, disabled.id]
+        assert [e.scanner_id for e in entries] == [never.id, very_stale.id, failed_earlier.id, stale.id, disabled.id]
         assert entries[0].team_id == never.team_id
 
     def test_caps_the_batch(self) -> None:
