@@ -3,12 +3,13 @@
 //! [`Stage1Worker::spawn`] drains one partition's two lanes on a dedicated tokio task. Per live
 //! sub-batch it produces membership changes and straggler re-keys, awaits all acks, then marks the
 //! offset processed. A produce failure holds the offset; a store error is logged and the event is
-//! skipped. Between live sub-batches it takes at most one run-sized quantum of seeds, so live
-//! latency is at most one seed turn and an admitted seed backlog never queues in front of live
+//! skipped. Between live sub-batches it applies at most one seed run: a quantum of seeds leaves
+//! the lane only once the previous quantum has fully applied, and its runs go one per round, so
+//! live latency is at most one run and an admitted seed backlog never queues in front of live
 //! traffic.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -52,8 +53,8 @@ use crate::workers::event_path::{
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::reconcile::{handle_reconcile_drain, ReconcileQueue};
-use crate::workers::seed_apply::{handle_seed_groups, ApplyDeps};
-use crate::workers::seed_run::{group_seeds, row_weight, Admitted};
+use crate::workers::seed_apply::{apply_seed_group, ApplyDeps, BatchMarks};
+use crate::workers::seed_run::{group_seeds, row_weight, Admitted, SeedGroup};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -150,8 +151,18 @@ impl Stage1Worker {
 enum Turn {
     /// A live sub-batch, or `None` for a closed live lane.
     Live(Option<Vec<ShuffleMessage>>),
+    /// The pending quantum has a run to apply.
+    Run,
     /// Seeds taken from the lane this round; `0` means the lane closed.
     Seeds(usize),
+}
+
+/// One quantum's runs, applied one per round so live batches interleave with them. The marks are
+/// published only after the last run (see [`BatchMarks`]); a hold publishes as it happens.
+#[derive(Default)]
+struct PendingRuns {
+    groups: VecDeque<SeedGroup>,
+    marks: BatchMarks,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -191,28 +202,55 @@ async fn run_worker(
         mut live,
         mut seeds,
     } = inbox;
-    // The seed quantum, from the run ceiling so one turn gathers exactly one run. `NonZeroUsize`
-    // on purpose: `recv_many` with a limit of 0 returns 0 at once, which reads here as a closed
-    // lane.
+    // The seed quantum, from the run ceiling: one turn takes at most one run's worth of seeds.
+    // The row budget, a kind change or a control seed can still cut a quantum into several runs,
+    // which then apply one per round. `NonZeroUsize` on purpose: `recv_many` with a limit of 0
+    // returns 0 at once, which reads here as a closed lane.
     let quantum = merge.seed_budget.seeds.get();
-    let mut seed_buf: Vec<ConsumedSeed> = Vec::with_capacity(quantum);
+    // Grown by `recv_many` as seeds arrive, not sized up front: the run ceiling is a config knob,
+    // and an oversized one must not reserve that many seeds per worker at spawn.
+    let mut seed_buf: Vec<ConsumedSeed> = Vec::new();
+    let mut pending = PendingRuns::default();
     let (mut live_open, mut seed_open) = (true, true);
     loop {
-        // Live first: a seed turn is bounded work, a live backlog is not. The seed branch is
-        // reached only while the live lane is empty, so live latency is at most one seed turn.
+        // Live first: a seed run is bounded work, a live backlog is not. A seed branch is reached
+        // only while the live lane is empty, so live latency is at most one seed run.
+        //
+        // A partition whose live lane is never empty makes no seed progress, by design: live
+        // arrivals there already outpace the worker, a seed run would only deepen that backlog,
+        // and the seed consumer's live-lag gate stops admitting to it. Its lane then fills and
+        // `try_route_seeds` refuses, which is the alarm: `cohort_seed_paused_partitions` under
+        // cause `channel_full` and `cohort_seed_oldest_held_age_ms` rise while
+        // `cohort_seed_apply_run_size` goes flat.
         let turn = tokio::select! {
             biased;
             batch = live.recv(), if live_open => Turn::Live(batch),
-            taken = seeds.recv_many(&mut seed_buf, quantum), if seed_open => Turn::Seeds(taken),
-            // Both lanes are closed and drained, so nothing more can arrive.
+            // Ready at once: the quantum's remaining runs go one per round, behind any live batch.
+            () = std::future::ready(()), if !pending.groups.is_empty() => Turn::Run,
+            // The lane is polled again only once the previous quantum has fully applied.
+            taken = seeds.recv_many(&mut seed_buf, quantum),
+                if seed_open && pending.groups.is_empty() => Turn::Seeds(taken),
+            // Both lanes are closed and drained and no run is pending, so nothing more can arrive.
             else => break,
         };
         match turn {
             Turn::Live(None) => live_open = false,
             Turn::Seeds(0) => seed_open = false,
-            // `recv_many` appends, so drain it: otherwise turn n re-applies turns 1..n-1.
+            // `recv_many` appends, so drain it: otherwise turn n re-groups turns 1..n-1.
             Turn::Seeds(_) => {
-                apply_seed_runs(
+                debug_assert!(
+                    pending.groups.is_empty(),
+                    "a quantum is taken only once the last one applied"
+                );
+                pending = group_seed_turn(
+                    partition_id,
+                    &catalog,
+                    &merge,
+                    seed_buf.drain(..).map(Admitted::from).collect(),
+                );
+            }
+            Turn::Run => {
+                apply_next_run(
                     partition_id,
                     &handle,
                     &catalog,
@@ -221,9 +259,15 @@ async fn run_worker(
                     &mut queue,
                     &mut reconcile_queue,
                     &mut last_updated_clock,
-                    seed_buf.drain(..).map(Admitted::from).collect(),
+                    &mut pending,
                 )
                 .await;
+                if pending.groups.is_empty() {
+                    // The whole quantum applied: its marks can publish, and the lane's meter stops
+                    // counting the seeds it took.
+                    std::mem::take(&mut pending.marks).publish(&merge.seed_tracker, partition_id);
+                    seeds.finish_turn();
+                }
             }
             Turn::Live(Some(batch)) => {
                 let mut buffer = OutputBuffer::new();
@@ -536,25 +580,16 @@ async fn flush_event_changes_before_inline(
     false
 }
 
-/// Apply one seed turn's quantum as runs.
+/// Split one quantum into the runs it will apply, one per worker round.
 ///
 /// No live-buffer flush is needed first: the live `OutputBuffer` is produced (or its batch held) at
-/// the end of every live sub-batch, so it is always empty when a seed turn starts.
-#[allow(clippy::too_many_arguments)]
-async fn apply_seed_runs(
+/// the end of every live sub-batch, so it is always empty when a seed run starts.
+fn group_seed_turn(
     partition_id: u16,
-    handle: &StoreHandle,
     catalog: &CatalogHandle,
-    sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<BehavioralKey>,
-    reconcile_queue: &mut ReconcileQueue,
-    clock: &mut LastUpdatedClock,
     seeds: Vec<Admitted<SeedWork>>,
-) {
-    if seeds.is_empty() {
-        return;
-    }
+) -> PendingRuns {
     // Worker receipt is the first point that both proves these exact seeds landed and orders their
     // ceiling before even a zero-work run can mark them processed. The dispatcher also records the
     // delivered batch maximum, but that post-send accounting can race a fast worker on a
@@ -564,7 +599,31 @@ async fn apply_seed_runs(
             .seed_tracker
             .mark_dispatched(partition_id as i32, max + 1);
     }
+    let snapshot = catalog.load();
+    let groups = group_seeds(seeds, merge.seed_budget, |work| row_weight(&snapshot, work));
+    PendingRuns {
+        groups: groups.into(),
+        marks: BatchMarks::default(),
+    }
+}
 
+/// Apply the pending quantum's next run. Each run folds under its own catalog snapshot, so a
+/// catalog refresh between two runs of one quantum is the same edit race a live batch runs under.
+#[allow(clippy::too_many_arguments)]
+async fn apply_next_run(
+    partition_id: u16,
+    handle: &StoreHandle,
+    catalog: &CatalogHandle,
+    sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
+    queue: &mut EvictionQueue<BehavioralKey>,
+    reconcile_queue: &mut ReconcileQueue,
+    clock: &mut LastUpdatedClock,
+    pending: &mut PendingRuns,
+) {
+    let Some(group) = pending.groups.pop_front() else {
+        return;
+    };
     let snapshot = catalog.load();
     let deps = ApplyDeps {
         partition_id,
@@ -573,8 +632,15 @@ async fn apply_seed_runs(
         sink,
         merge,
     };
-    let groups = group_seeds(seeds, merge.seed_budget, |work| row_weight(&snapshot, work));
-    handle_seed_groups(deps, queue, reconcile_queue, clock, groups).await;
+    apply_seed_group(
+        deps,
+        queue,
+        reconcile_queue,
+        clock,
+        &mut pending.marks,
+        group,
+    )
+    .await;
 }
 
 pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
@@ -1451,13 +1517,15 @@ mod tombstone_redirect_tests {
         );
         seed_tx.send(consumed_reconcile(tile, 5)).await.unwrap();
         drop(seed_tx);
-        // Bounded: a tile that never lands in the backlog must fail this test, not hang CI.
-        for remaining in (0..10_000).rev() {
-            if !backlog.is_empty() {
-                break;
-            }
-            assert!(remaining > 0, "the reconcile tile was never admitted");
-            tokio::task::yield_now().await;
+        // Bounded by the clock, not by a poll count: the admission's store section runs on the
+        // blocking pool, so a busy CI box needs wall time, not yields.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while backlog.is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "the reconcile tile was never admitted"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
         live_tx
             .send(vec![ShuffleMessage::ReconcileDrain])

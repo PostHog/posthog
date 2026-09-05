@@ -162,7 +162,7 @@ impl SeedHold {
 }
 
 /// What every stage borrows. `Copy`, so a stage can hand it on without ceremony. `catalog` is one
-/// snapshot per channel batch, where the per-seed apply loaded its own per seed.
+/// snapshot per run, where the per-seed apply loaded its own per seed.
 #[derive(Clone, Copy)]
 pub(crate) struct ApplyDeps<'a> {
     pub partition_id: u16,
@@ -1129,7 +1129,9 @@ fn settle(
     }
 }
 
-/// Apply one channel batch's seed groups in order on the owning partition worker.
+/// Apply one collection's seed groups in order, as one shot. The partition worker applies them one
+/// per round instead, through [`apply_seed_group`], so live batches can interleave; this is the
+/// test rig's form of the same sequence.
 ///
 /// A group that holds pins the commit floor at its own first offset; later groups still run, and
 /// the floor keeps the published mark from leapfrogging the hold — the same envelope as the
@@ -1137,6 +1139,7 @@ fn settle(
 ///
 /// The mark itself is published once, after the last group, because groups' spans interleave (see
 /// [`BatchMarks`]).
+#[cfg(test)]
 pub(crate) async fn handle_seed_groups(
     deps: ApplyDeps<'_>,
     queue: &mut EvictionQueue<BehavioralKey>,
@@ -1146,32 +1149,43 @@ pub(crate) async fn handle_seed_groups(
 ) {
     let mut marks = BatchMarks::default();
     for group in groups {
-        match group {
-            SeedGroup::Tiles(run) => {
-                apply::<crate::workers::seed_path::TileHead>(deps, queue, clock, &mut marks, run)
-                    .await;
-            }
-            SeedGroup::Persons(run) => {
-                apply::<crate::workers::person_seed_path::PersonHead>(
-                    deps, queue, clock, &mut marks, run,
-                )
-                .await;
-            }
-            SeedGroup::Reconcile(Admitted { work, offset }) => admit_reconcile(
-                deps.partition_id,
-                deps.merge,
-                reconcile_queue,
-                &mut marks,
-                &work,
-                offset,
-            ),
-            SeedGroup::Skip(Admitted { work, offset }) => {
-                counter!(SEED_TILES_SKIPPED_TOTAL, "reason" => work.as_str()).increment(1);
-                marks.mark(offset);
-            }
-        }
+        apply_seed_group(deps, queue, reconcile_queue, clock, &mut marks, group).await;
     }
     marks.publish(&deps.merge.seed_tracker, deps.partition_id);
+}
+
+/// Apply one group of a collection: its mark lands in `marks`, a hold publishes at once. The
+/// caller publishes `marks` only after the collection's last group (see [`BatchMarks`]), which is
+/// what lets the partition worker apply the groups one per round with live batches in between.
+pub(crate) async fn apply_seed_group(
+    deps: ApplyDeps<'_>,
+    queue: &mut EvictionQueue<BehavioralKey>,
+    reconcile_queue: &mut ReconcileQueue,
+    clock: &mut LastUpdatedClock,
+    marks: &mut BatchMarks,
+    group: SeedGroup,
+) {
+    match group {
+        SeedGroup::Tiles(run) => {
+            apply::<crate::workers::seed_path::TileHead>(deps, queue, clock, marks, run).await;
+        }
+        SeedGroup::Persons(run) => {
+            apply::<crate::workers::person_seed_path::PersonHead>(deps, queue, clock, marks, run)
+                .await;
+        }
+        SeedGroup::Reconcile(Admitted { work, offset }) => admit_reconcile(
+            deps.partition_id,
+            deps.merge,
+            reconcile_queue,
+            marks,
+            &work,
+            offset,
+        ),
+        SeedGroup::Skip(Admitted { work, offset }) => {
+            counter!(SEED_TILES_SKIPPED_TOTAL, "reason" => work.as_str()).increment(1);
+            marks.mark(offset);
+        }
+    }
 }
 
 #[cfg(test)]

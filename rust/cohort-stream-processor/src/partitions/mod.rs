@@ -34,7 +34,8 @@ pub use rebalance::{
     ConsumerCommandSender, RebalanceEvent, RebalanceEventReceiver,
 };
 pub use router::{
-    PartitionRouter, RouteError, SeedRefusal, SeedSendOutcome, SendOutcome, WorkerInbox,
+    PartitionRouter, RouteError, SeedReceiver, SeedRefusal, SeedSendOutcome, SendOutcome,
+    WorkerInbox,
 };
 pub use shuffle_message::ShuffleMessage;
 pub use watermarks::{LiveWatermarks, WatermarkMs};
