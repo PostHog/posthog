@@ -25,6 +25,15 @@ jest.mock('~/queries/query')
 
 const mockPropertyDefinitionsList = propertyDefinitionsList as jest.Mock
 
+const AI_EVENTS_HEAVY_PROPERTIES = [
+    '$ai_input',
+    '$ai_output',
+    '$ai_output_choices',
+    '$ai_input_state',
+    '$ai_output_state',
+    '$ai_tools',
+]
+
 const jsonField = (name = 'properties'): DatabaseSchemaField => ({
     name,
     hogql_value: name,
@@ -36,7 +45,20 @@ describe('queryDatabaseLogic', () => {
     describe('property definition targets', () => {
         test.each([
             ['event properties', 'events', 'properties', jsonField(), { type: 'event' }],
-            ['AI event properties', 'ai_events', 'properties', jsonField(), { type: 'event' }],
+            [
+                'AI event properties',
+                'ai_events',
+                'properties',
+                jsonField(),
+                { type: 'event', excludedProperties: AI_EVENTS_HEAVY_PROPERTIES },
+            ],
+            [
+                'qualified AI event properties',
+                'posthog.ai_events',
+                'properties',
+                jsonField(),
+                { type: 'event', excludedProperties: AI_EVENTS_HEAVY_PROPERTIES },
+            ],
             ['person properties', 'persons', 'properties', jsonField(), { type: 'person' }],
             ['person properties joined to events', 'events', 'person.properties', jsonField(), { type: 'person' }],
             [
@@ -65,6 +87,23 @@ describe('queryDatabaseLogic', () => {
         ])('%s map to the stored definition type', (_name, tableName, columnPath, field, expected) => {
             expect(getSidebarPropertyDefinitionTarget(tableName, columnPath, field)).toEqual(expected)
         })
+    })
+
+    it('hides the properties that the ai_events view stores in their own columns', async () => {
+        initKeaTests()
+        mockPropertyDefinitionsList.mockReset().mockResolvedValue({ count: 0, results: [] })
+        const logic = queryDatabaseLogic()
+        logic.mount()
+
+        const target = getSidebarPropertyDefinitionTarget('posthog.ai_events', 'properties', jsonField())
+        await expectLogic(logic, () =>
+            logic.actions.loadPropertyDefinitions('posthog.ai_events:properties', target!, 0)
+        ).toDispatchActions(['loadPropertyDefinitionsSuccess'])
+
+        const params = mockPropertyDefinitionsList.mock.calls.at(-1)?.[1]
+        expect(JSON.parse(params.excluded_properties)).toEqual(AI_EVENTS_HEAVY_PROPERTIES)
+
+        logic.unmount()
     })
 
     it('loads pre-expanded properties, paginates, and filters them', async () => {
@@ -117,7 +156,7 @@ describe('queryDatabaseLogic', () => {
         expect(propertyNode()?.record?.propertyDefinitionTarget).toEqual({ type: 'event' })
         expect(mockPropertyDefinitionsList).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ limit: 25, offset: 0, type: 'event' })
+            expect.objectContaining({ excluded_properties: undefined, limit: 25, offset: 0, type: 'event' })
         )
         expect(propertyNode()?.children?.map((item) => item.name)).toEqual([
             '$browser',

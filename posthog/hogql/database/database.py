@@ -866,6 +866,9 @@ class Database(BaseModel):
             "persons",
             "sessions",
             "logs",
+            # Namespaced tables stay out of this list by default. Name one here to expose it,
+            # and keep it in step with the sidebar allowlist in `databaseTableListLogic.ts`.
+            "posthog.ai_events",
             *self.get_system_table_names(),
         ]
 
