@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { webAnalyticsAchievementsLogic } from 'scenes/web-analytics/achievements/webAnalyticsAchievementsLogic'
-import { BREAKDOWN_NULL_DISPLAY, exactMatchOperatorFor } from 'scenes/web-analytics/common'
+import { BREAKDOWN_NULL_DISPLAY, buildBreakdownPropertyFilter } from 'scenes/web-analytics/common'
 
 import {
     ProductIntentContext,
@@ -12,7 +12,6 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import {
-    AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
@@ -21,35 +20,6 @@ import {
 } from '~/types'
 
 import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
-
-/**
- * Build a property filter for a breakdown value. When the value is the
- * BREAKDOWN_NULL_DISPLAY placeholder ("(none)"), the property isn't literally
- * set to "(none)" — it just isn't set — so use IsNotSet instead of an exact
- * match. Otherwise `exactMatchOperatorFor` decides which exact match handles a
- * path-cleaned value.
- */
-const buildBreakdownPropertyFilter = (
-    key: string,
-    type: PropertyFilterType.Event | PropertyFilterType.Session | PropertyFilterType.Person,
-    value: string,
-    doPathCleaning?: boolean
-): AnyPropertyFilter => {
-    if (value === BREAKDOWN_NULL_DISPLAY) {
-        return {
-            key,
-            type,
-            value: null,
-            operator: PropertyOperator.IsNotSet,
-        } as AnyPropertyFilter
-    }
-    return {
-        key,
-        type,
-        value: [value],
-        operator: exactMatchOperatorFor(key, type, doPathCleaning),
-    } as AnyPropertyFilter
-}
 
 /**
  * Map breakdown types to their corresponding property filter type
