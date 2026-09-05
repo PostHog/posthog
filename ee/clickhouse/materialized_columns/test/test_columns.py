@@ -9,6 +9,9 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, get_
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.core.cache import cache
+
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -16,21 +19,24 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.property import PropertyName, TableColumn
-from posthog.settings import CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_DATABASE, MATERIALIZED_COLUMNS_CACHE_TIMEOUT
 
 from ee.clickhouse.materialized_columns.columns import (
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     MaterializedColumnDetails,
     _clear_materialized_columns_cache,
+    _get_enabled_materialized_columns_cached,
     backfill_materialized_columns,
     drop_column,
     get_bloom_filter_index_name,
     get_bloom_filter_lower_index_name,
     get_enabled_materialized_columns,
     get_materialized_columns,
+    get_materialized_columns_cache_key,
     get_minmax_index_name,
     get_ngram_lower_index_name,
     materialize,
@@ -81,6 +87,81 @@ class TestMaterializedColumnDetails(TestCase):
 
         with pytest.raises(ValueError):
             MaterializedColumnDetails.from_column_comment("column_materializer::column::property::enabled")
+
+
+class TestMaterializedColumnsTransientFallback(TestCase):
+    # A transient ClickHouse failure during this schema-introspection lookup must not fail HogQL
+    # query preparation: on the read path (`fallback_on_error=True`) `_get_all` degrades gracefully
+    # rather than propagate the error. Schema-mutation callers keep the fail-loud default so they
+    # never mutate the comment-based registry against a degraded (empty) view of it.
+    TRANSIENT_ERRORS = [
+        ("capacity", ClickHouseAtCapacity()),
+        ("connection_refused", NetworkError("Connection refused")),
+        ("socket_timeout", SocketTimeoutError("timed out")),
+        ("socket_error", OSError("connection reset")),
+        ("closed_stream", EOFError("Unexpected EOF")),
+    ]
+
+    def setUp(self):
+        _clear_materialized_columns_cache("events")
+        _get_enabled_materialized_columns_cached.clear_cache()
+        self.addCleanup(_clear_materialized_columns_cache, "events")
+        self.addCleanup(_get_enabled_materialized_columns_cached.clear_cache)
+
+    @parameterized.expand(TRANSIENT_ERRORS)
+    def test_falls_back_to_empty_when_query_fails_and_no_cache(self, _name, error):
+        with patch(
+            "ee.clickhouse.materialized_columns.columns.sync_execute",
+            side_effect=error,
+        ):
+            assert MaterializedColumn._get_all("events", fallback_on_error=True) == []
+
+    @parameterized.expand(TRANSIENT_ERRORS)
+    def test_reraises_when_query_fails_and_fallback_disabled(self, _name, error):
+        # The mutation path (default fallback_on_error=False) must fail loud: swallowing the error
+        # would let `materialize` treat existing columns as absent and corrupt the registry.
+        with patch(
+            "ee.clickhouse.materialized_columns.columns.sync_execute",
+            side_effect=error,
+        ):
+            with pytest.raises(type(error)):
+                MaterializedColumn._get_all("events")
+
+    def test_falls_back_to_stale_cache_when_query_fails(self):
+        cached: list[tuple[str, str, str, bool, list[str]]] = [
+            ("mat_foo", "column_materializer::properties::foo", "String", False, [])
+        ]
+        cache.set(get_materialized_columns_cache_key("events"), cached, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
+
+        # Force the probabilistic cache bypass (only reachable outside TEST mode) so the query path
+        # runs despite a populated cache, then verify the fallback reuses the stale entry.
+        with (
+            patch("ee.clickhouse.materialized_columns.columns.TEST", False),
+            patch("ee.clickhouse.materialized_columns.columns.random.random", return_value=0.0),
+            patch(
+                "ee.clickhouse.materialized_columns.columns.sync_execute",
+                side_effect=NetworkError("Connection refused"),
+            ),
+        ):
+            assert MaterializedColumn._get_all("events", fallback_on_error=True) == cached
+
+    def test_transient_failure_does_not_poison_enabled_columns_cache(self):
+        # The read path degrades on a transient failure, but that empty result must not be memoized
+        # by cache_for (which serves it for 15 minutes and, with background_refresh, overwrites the
+        # last-good registry). Once ClickHouse recovers, the next call must return the real registry.
+        recovered_rows = [("mat_foo", "column_materializer::properties::foo", "String", False, [])]
+
+        with patch(
+            "ee.clickhouse.materialized_columns.columns.sync_execute",
+            side_effect=NetworkError("Connection refused"),
+        ):
+            assert get_enabled_materialized_columns("events", use_cache=True) == {}
+
+        with patch(
+            "ee.clickhouse.materialized_columns.columns.sync_execute",
+            return_value=recovered_rows,
+        ):
+            assert ("foo", "properties") in get_enabled_materialized_columns("events", use_cache=True)
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):

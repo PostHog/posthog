@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.utils.timezone import now
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.client import sync_execute
@@ -24,6 +25,7 @@ from posthog.clickhouse.materialized_column_types import (
     TablesWithMaterializedColumns,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -40,6 +42,12 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
+
+# Failures that mean ClickHouse cannot answer the metadata query right now, rather than a wrong
+# result. `ClickHouseAtCapacity` is concurrency pressure; the rest are connection-level (refused
+# connection, timeout, dropped socket, closed stream). On any of these `_get_all` degrades instead
+# of failing the HogQL query that triggered the lookup.
+TRANSIENT_METADATA_ERRORS = (ClickHouseAtCapacity, NetworkError, SocketTimeoutError, OSError, EOFError)
 
 SHORT_TABLE_COLUMN_NAME = {
     "properties": "p",
@@ -96,14 +104,17 @@ class MaterializedColumn:
             )
 
     @staticmethod
-    def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, str, bool, list[str]]]:
+    def _get_all(
+        table: TablesWithMaterializedColumns, *, fallback_on_error: bool = False
+    ) -> list[tuple[str, str, str, bool, list[str]]]:
         # In TEST mode never do the probabilistic refresh: test-mode cache is process-local and
         # every schema mutation invalidates the key explicitly, so a random bypass would cause
         # non-deterministic extra system.columns queries that break assertNumQueries / snapshot tests.
         refresh_cache = not TEST and random.random() < 0.002  # we run around 50 of those queries per minute
-        if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
-            cache_key = get_materialized_columns_cache_key(table)
+        use_cache = table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE
+        cache_key = get_materialized_columns_cache_key(table)
 
+        if use_cache and not refresh_cache:
             try:
                 cached_result = cache.get(cache_key)
                 if cached_result is not None:
@@ -116,16 +127,17 @@ class MaterializedColumn:
         table_info = tables.get(table)
         data_table = table_info.data_table if table_info else table
 
-        with tags_context(
-            name="get_all_materialized_columns",
-            product=Product.INTERNAL,
-            feature=Feature.SCHEMA_INTROSPECTION,
-        ):
-            # Query columns and their indexes using multiple LEFT JOINs
-            # Returns index names as an array, parsed in Python to set boolean flags
-            # Note: Columns exist on both distributed and data tables, but indexes only exist on data tables
-            result = sync_execute(
-                """
+        try:
+            with tags_context(
+                name="get_all_materialized_columns",
+                product=Product.INTERNAL,
+                feature=Feature.SCHEMA_INTROSPECTION,
+            ):
+                # Query columns and their indexes using multiple LEFT JOINs
+                # Returns index names as an array, parsed in Python to set boolean flags
+                # Note: Columns exist on both distributed and data tables, but indexes only exist on data tables
+                result = sync_execute(
+                    """
                 SELECT
                     c.name,
                     c.comment,
@@ -154,11 +166,37 @@ class MaterializedColumn:
                   AND c.comment LIKE '%%column_materializer::%%'
                   AND c.comment not LIKE '%%column_materializer::elements_chain::%%'
                 """,
-                {"database": CLICKHOUSE_DATABASE, "table": table, "data_table": data_table},
-                ch_user=ClickHouseUser.HOGQL,
+                    {"database": CLICKHOUSE_DATABASE, "table": table, "data_table": data_table},
+                    ch_user=ClickHouseUser.HOGQL,
+                )
+        except TRANSIENT_METADATA_ERRORS:
+            # Only the HogQL read path (fallback_on_error=True) tolerates a failed lookup. This is a
+            # lightweight schema-introspection query, but it shares ClickHouse's connection and
+            # query-concurrency budget with real analytics queries. When ClickHouse is unreachable or
+            # at capacity it must not fail HogQL query preparation - degrade gracefully instead:
+            # reuse the last cached result (even if stale), or fall back to no materialized columns so
+            # the query still runs via JSON extraction rather than dying before it executes.
+            #
+            # Schema-mutation callers (materialize, _materialized_column_name) must never degrade:
+            # an empty result reads as "column absent" and makes them create a colliding column or
+            # revive a disabled one, corrupting the comment-based registry. They keep the default and
+            # fail loud so the mutation aborts instead.
+            if not fallback_on_error:
+                raise
+            if use_cache:
+                try:
+                    stale_result = cache.get(cache_key)
+                except Exception:
+                    stale_result = None
+                if stale_result is not None:
+                    return stale_result
+            logger.warning(
+                "Could not fetch materialized columns for table %s; falling back to no materialized columns",
+                table,
             )
+            return []
 
-        if table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE:
+        if use_cache:
             try:
                 cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
             except Exception:
@@ -168,12 +206,14 @@ class MaterializedColumn:
         return result
 
     @staticmethod
-    def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
+    def get_all(
+        table: TablesWithMaterializedColumns, *, fallback_on_error: bool = False
+    ) -> Iterator[MaterializedColumn]:
         if table not in MATERIALIZATION_VALID_TABLES:
             logger.error("HogQL trying to get materialized columns for table: %s", table)
             return
 
-        rows = MaterializedColumn._get_all(table)
+        rows = MaterializedColumn._get_all(table, fallback_on_error=fallback_on_error)
         for name, comment, column_type, is_nullable, index_names in rows:
             # Exact name matches: a prefix check would mismatch `bloom_filter_` against `bloom_filter_lower_`
             yield MaterializedColumn(
@@ -246,10 +286,36 @@ def get_materialized_columns(
 
 
 @cache_for(timedelta(minutes=15), background_refresh=True)
-def get_enabled_materialized_columns(
+def _get_enabled_materialized_columns_cached(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
-    return {k: column for k, column in get_materialized_columns(table).items() if not column.details.is_disabled}
+    # Memoized read for the HogQL path. Fail loud on a transient ClickHouse failure so the degraded
+    # result never enters this cache: cache_for only preserves the previous entry when the call
+    # raises, so returning an empty registry here would be memoized for the full 15-minute TTL and,
+    # with background_refresh, a failed refresh would overwrite the last-good registry. The
+    # per-query fallback lives in get_enabled_materialized_columns below, outside this memo.
+    return {
+        (column.details.property_name, column.details.table_column): column
+        for column in MaterializedColumn.get_all(table)
+        if not column.details.is_disabled
+    }
+
+
+def get_enabled_materialized_columns(
+    table: TablesWithMaterializedColumns, **cache_kwargs: Any
+) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
+    # HogQL read path. Serve the memoized registry, but if fetching it hits a transient ClickHouse
+    # failure (only on a cold cache - a warm entry is served as-is), degrade to a non-memoized read
+    # so query preparation still compiles via JSON extraction. Keeping the fallback out here means a
+    # blip degrades that one lookup instead of poisoning the 15-minute memo for every later query.
+    try:
+        return _get_enabled_materialized_columns_cached(table, **cache_kwargs)
+    except TRANSIENT_METADATA_ERRORS:
+        return {
+            (column.details.property_name, column.details.table_column): column
+            for column in MaterializedColumn.get_all(table, fallback_on_error=True)
+            if not column.details.is_disabled
+        }
 
 
 @dataclass
