@@ -507,11 +507,8 @@ def _row_predicates(node: ast.SelectQuery) -> list[_RowPredicate]:
     while join is not None:
         alias = _join_alias(join)
         if join.constraint is not None and join.constraint.constraint_type == "ON":
-            prunes_left, prunes_right = _on_prunes(join.join_type)
-            aliases = set(left) if prunes_left else set()
-            if prunes_right and alias is not None:
-                aliases.add(alias)
-            predicates.append(_RowPredicate(expr=join.constraint.expr, aliases=frozenset(aliases)))
+            scope = _on_scope(join.join_type, left, alias)
+            predicates.append(_RowPredicate(expr=join.constraint.expr, aliases=scope))
         if alias is not None:
             left.add(alias)
         join = join.next_join
@@ -524,21 +521,21 @@ def _join_alias(join: ast.JoinExpr) -> str | None:
     return str(join.table.chain[-1]) if isinstance(join.table, ast.Field) else None
 
 
-def _on_prunes(join_type: str | None) -> tuple[bool, bool]:
-    """Which sides of a join an ON condition can remove rows from.
+def _on_scope(join_type: str | None, left: set[str], right: str | None) -> frozenset[str]:
+    """The aliases an ON condition on this join can remove rows from.
 
     An outer join keeps every row of the side it preserves, so a condition on that side decides
     whether the other side matches, not whether the row is read. A semi join returns only matching
     rows on both sides, so its condition does filter both.
     """
-    if join_type is None:
-        return True, True
-    words = set(join_type.upper().split())
-    if _SEMI_JOIN in words:
-        return True, True
-    left_preserved = bool(words & _LEFT_PRESERVING_JOINS)
-    right_preserved = bool(words & _RIGHT_PRESERVING_JOINS)
-    return not left_preserved, not right_preserved
+    words = set(join_type.upper().split()) if join_type else set()
+    semi = _SEMI_JOIN in words
+    aliases: set[str] = set()
+    if semi or not words & _LEFT_PRESERVING_JOINS:
+        aliases |= left
+    if right is not None and (semi or not words & _RIGHT_PRESERVING_JOINS):
+        aliases.add(right)
+    return frozenset(aliases)
 
 
 def _combine(exprs: list[ast.Expr]) -> ast.Expr | None:
