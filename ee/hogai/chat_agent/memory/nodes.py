@@ -56,6 +56,7 @@ from .prompts import (
     INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT,
+    MEMORY_COLLECTOR_CONTEXT_PROMPT,
     MEMORY_COLLECTOR_PROMPT,
     MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
     MEMORY_INITIALIZED_CONTEXT_PROMPT,
@@ -416,7 +417,11 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
             return PartialAssistantState(memory_collection_messages=[remember_command_result])
 
         prompt = ChatPromptTemplate.from_messages(
-            [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
+            [
+                ("system", MEMORY_COLLECTOR_PROMPT),
+                ("system", MEMORY_COLLECTOR_CONTEXT_PROMPT),
+            ],
+            template_format="mustache",
         ) + await self._aconstruct_messages(state)
         chain = prompt | self._model | check_memory_collection_completed
 
