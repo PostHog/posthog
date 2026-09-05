@@ -152,12 +152,12 @@ export interface reportListLogicValues {
     hasMore: boolean
     isLoaded: boolean
     listApiParams: any
+    livePrReportIds: string[]
     loadedContext: {
         hasActiveFilters: boolean
         scope: InboxScope
     } | null
     loadedQueryKey: string | null
-    livePrReportIds: string[]
     pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
     reports: SignalReport[]
