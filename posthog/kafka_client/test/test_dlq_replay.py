@@ -6,6 +6,8 @@ from typing import Any, Optional
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.core.management.base import CommandError
+
 from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
@@ -16,6 +18,7 @@ from posthog.kafka_client.dlq_replay import (
     build_replay_headers,
     drain_dlq,
 )
+from posthog.management.commands.replay_kafka_dlq import _parse_producer_config
 
 REBALANCE_IN_PROGRESS = KafkaError.REBALANCE_IN_PROGRESS  # type: ignore[attr-defined]
 TIMED_OUT = KafkaError._TIMED_OUT  # type: ignore[attr-defined]
@@ -232,6 +235,20 @@ class DrainDlqTest(TestCase):
         assert result == {"replayed": 0, "exhausted": 0, "skipped": 0, "errors": 1}
         assert consumer.commits == 0
 
+    def test_producer_config_overrides_the_defaults(self) -> None:
+        producer = FakeProducer()
+
+        self._drain(
+            [[FakeMessage(b"one")]],
+            producer,
+            producer_settings={"max_request_size": 4_000_000},
+            producer_config={"batch.size": "131072", "acks": "1", "message.max.bytes": "8000000"},
+        )
+
+        assert producer.conf["batch.size"] == "131072"
+        assert producer.conf["acks"] == "1"
+        assert producer.conf["message.max.bytes"] == "8000000"
+
     def test_batch_of_exhausted_messages_still_commits(self) -> None:
         producer = FakeProducer()
         at_cap = [(REPLAY_COUNT_HEADER, b"2")]
@@ -353,3 +370,15 @@ class ThrottleDelayTest(TestCase):
         self, _name: str, produced: int, rate: Optional[float], elapsed: float, expected: float
     ) -> None:
         self.assertAlmostEqual(_throttle_delay(produced, rate, elapsed), expected, places=6)
+
+
+class ParseProducerConfigTest(TestCase):
+    def test_parses_pairs_and_keeps_equals_in_the_value(self) -> None:
+        parsed = _parse_producer_config(["batch.size=131072", "sasl.password=a=b=c"])
+
+        assert parsed == {"batch.size": "131072", "sasl.password": "a=b=c"}
+
+    @parameterized.expand([("no_equals", "batch.size"), ("empty_key", "=gzip")])
+    def test_rejects_malformed_pair(self, _name: str, pair: str) -> None:
+        with self.assertRaises(CommandError):
+            _parse_producer_config([pair])
