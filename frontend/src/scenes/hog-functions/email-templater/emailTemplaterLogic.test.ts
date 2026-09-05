@@ -9,6 +9,7 @@ import {
     EditorRef,
     EmailTemplate,
     EmailTemplaterLogicProps,
+    decodeMergeTagEncoding,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
 
@@ -620,5 +621,17 @@ describe('emailTemplaterLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.isModalOpen).toBe(true)
         })
+    })
+})
+
+describe('decodeMergeTagEncoding', () => {
+    it('decodes a merge tag Unlayer percent-encoded into a link href', () => {
+        const href = 'href="{{%20unsubscribe_url%20}}"'
+        expect(decodeMergeTagEncoding(href)).toBe('href="{{ unsubscribe_url }}"')
+    })
+
+    it('leaves an unencoded tag and non-tag percent escapes untouched', () => {
+        const html = '<a href="https://example.com/path%20one">{{ person.properties.first_name }}</a>'
+        expect(decodeMergeTagEncoding(html)).toBe(html)
     })
 })

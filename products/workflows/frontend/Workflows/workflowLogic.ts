@@ -17,6 +17,7 @@ import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { SPECIAL_MERGE_TAGS } from 'scenes/hog-functions/email-templater/types'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -118,6 +119,51 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
 
+// Liquid literal keywords render on their own - `{{ true }}`, `{{ nil }}`, `{{ blank }}` etc. are
+// valid output, not undefined variables.
+const LIQUID_LITERAL_KEYWORDS = ['true', 'false', 'nil', 'null', 'empty', 'blank']
+
+// Top-level Liquid references that resolve on their own: the special merge tags, the literal
+// keywords, and the templating globals the runtime injects (including `now`, the current time).
+// Anything else bare (e.g. `{{ first_name }}`) points at nothing and sends empty, so person data
+// must be addressed as `person.properties.first_name`.
+const KNOWN_BARE_LIQUID_REFERENCES = new Set<string>([
+    ...SPECIAL_MERGE_TAGS,
+    ...LIQUID_LITERAL_KEYWORDS,
+    'event',
+    'person',
+    'groups',
+    'inputs',
+    'source',
+    'project',
+    'now',
+])
+
+// Liquid parses `{{ first_name }}` as valid, then renders it empty because no such variable
+// exists. Catch a bare identifier that isn't a known top-level reference before it reaches an
+// inbox. Property access (`person.properties.x`) and literals are left alone.
+function getUndefinedVariableError(value: string): string | undefined {
+    // A template can define its own variables with `assign`/`capture`/`for`; those bare references
+    // are legitimate, so collect them first and let them through.
+    const localNames = new Set<string>(['forloop'])
+    for (const [, name] of value.matchAll(/\{%-?\s*(?:assign|capture|for)\s+([A-Za-z_]\w*)/g)) {
+        localNames.add(name)
+    }
+
+    for (const [, rawExpression] of value.matchAll(/\{\{([^{}]+)\}\}/g)) {
+        // Strip Liquid whitespace-control markers so `{{- first_name -}}` is checked like
+        // `{{ first_name }}`; a leading/trailing hyphen here can only come from `{{-`/`-}}`.
+        const expression = rawExpression.replace(/^-|-$/g, '').split('|')[0].trim()
+        if (
+            /^[A-Za-z_]\w*$/.test(expression) &&
+            !KNOWN_BARE_LIQUID_REFERENCES.has(expression) &&
+            !localNames.has(expression)
+        ) {
+            return `"{{ ${expression} }}" isn't a known variable, so it sends empty. Did you mean {{ person.properties.${expression} }}?`
+        }
+    }
+}
+
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
@@ -125,6 +171,7 @@ function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): strin
         } catch (e: any) {
             return `Liquid template error: ${e.message}`
         }
+        return getUndefinedVariableError(value)
     }
 }
 
