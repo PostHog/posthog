@@ -122,6 +122,18 @@ pub const METRICS_AVRO_SCHEMA: &str = r#"
     "type": ["null", "long"],
     "default": null,
     "doc": "Stable per-series identity assigned at ingest (hash of metric_name, metric_type, service_name, and sorted resource/data-point attributes). Stored verbatim by ClickHouse, never recomputed. u64 bits carried as a signed long."
+    },
+    {
+    "name": "has_labels",
+    "type": "boolean",
+    "default": true,
+    "doc": "True when this record carries the series labels (attributes). ClickHouse writes the series and attribute rollups only from records with has_labels set; a record without the field counts as labelled."
+    },
+    {
+    "name": "retention_days",
+    "type": ["null", "int"],
+    "default": null,
+    "doc": "Per-row retention in days. Null when unset - ClickHouse then falls back to the batch `retention-days` header, then to its default. capture-logs always writes null; it does not evaluate team rules."
     }
 ]
 }"#;
