@@ -229,17 +229,28 @@ pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "tokio_blocking_queue_depth";
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";
 /// Messages dropped while routing (no live worker), labelled by `reason` (counter).
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
-/// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
+/// Sub-batches queued in a partition worker's live lane, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
-/// Events held back because a partition worker's channel was full, labelled by `partition` (counter).
-/// Backpressure, not loss: the partition is paused and its events redispatch once the channel drains.
-/// Re-counted on every retry of a still-full holdover, so it is a pressure rate, not a distinct-event
-/// count.
+/// Events held back because a partition worker's live lane was full, labelled by `partition`
+/// (counter). Backpressure, not loss: the partition is paused and its events redispatch once the
+/// lane drains. Re-counted on every retry of a still-full holdover, so it is a pressure rate, not a
+/// distinct-event count.
 pub const PARTITION_CHANNEL_FULL_TOTAL: &str = "partition_channel_full_total";
-/// Un-drained events in a partition worker's channel (plus the batch it is processing), labelled by
-/// `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags a
-/// stuck worker.
+/// Un-drained events in a partition worker's live lane (plus the batch it is processing), labelled
+/// by `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags
+/// a stuck worker.
 pub const PARTITION_INTAKE_EVENTS: &str = "partition_intake_events";
+/// Seeds resident in a partition worker's seed lane, queued plus the quantum being applied,
+/// labelled by `partition` (gauge). The router adds what it lands, the worker releases a quantum
+/// once its last run has applied, and a revoke zeroes the series. A value pinned near
+/// `PARTITION_INTAKE_MAX_SEEDS` means the worker is serving live traffic and the seed lane is
+/// backing up behind it: a partition whose live lane never empties makes no seed progress by
+/// design, and shows under [`SEED_PAUSED_PARTITIONS`] with cause `channel_full`.
+pub const PARTITION_SEED_CHANNEL_DEPTH: &str = "partition_seed_channel_depth";
+/// Seeds held back because a partition worker's seed lane was full, labelled by `partition`
+/// (counter). Backpressure, not loss, and re-counted on every retry of a still-full holdover, like
+/// its live twin [`PARTITION_CHANNEL_FULL_TOTAL`].
+pub const PARTITION_SEED_CHANNEL_FULL_TOTAL: &str = "partition_seed_channel_full_total";
 /// Partitions currently paused on the events consumer to shed downstream backpressure (gauge).
 pub const PARTITIONS_PAUSED: &str = "partitions_paused";
 /// Events currently held across all paused partitions, awaiting redispatch (gauge). Bounded — a
@@ -798,6 +809,11 @@ mod tests {
     fn partition_backpressure_metric_names_are_stable() {
         assert_eq!(PARTITION_CHANNEL_FULL_TOTAL, "partition_channel_full_total");
         assert_eq!(PARTITION_INTAKE_EVENTS, "partition_intake_events");
+        assert_eq!(PARTITION_SEED_CHANNEL_DEPTH, "partition_seed_channel_depth");
+        assert_eq!(
+            PARTITION_SEED_CHANNEL_FULL_TOTAL,
+            "partition_seed_channel_full_total"
+        );
         assert_eq!(PARTITIONS_PAUSED, "partitions_paused");
         assert_eq!(PENDING_HELD_EVENTS, "pending_held_events");
     }
