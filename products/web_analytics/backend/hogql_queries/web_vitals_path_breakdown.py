@@ -20,6 +20,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
 from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
+    resolve_thresholds,
 )
 
 
@@ -28,6 +29,7 @@ class WebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner[WebVitalsPathBre
     cached_response: CachedWebStatsTableQueryResponse
 
     def to_query(self):
+        good_threshold, needs_improvements_threshold = resolve_thresholds(self.query)
         return parse_select(
             """
 SELECT * FROM (
@@ -46,8 +48,8 @@ LIMIT 20 BY band
             timings=self.timings,
             placeholders={
                 "inner_query": self._inner_query(),
-                "good_threshold": ast.Constant(value=self.query.thresholds[0]),
-                "needs_improvements_threshold": ast.Constant(value=self.query.thresholds[1]),
+                "good_threshold": ast.Constant(value=good_threshold),
+                "needs_improvements_threshold": ast.Constant(value=needs_improvements_threshold),
             },
         )
 
