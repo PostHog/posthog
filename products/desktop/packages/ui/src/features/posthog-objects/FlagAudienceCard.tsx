@@ -273,10 +273,8 @@ function ruleKey(rule: FlagRule, index: number): string {
  * first-match-wins table where every row ends in its result.
  */
 export function FlagAudienceCard({ audience }: { audience: FlagAudience }) {
-  // A rule with no conditions at 100% matches everyone, so nobody reaches the fallback.
-  const fallbackReachable = !audience.rules.some(
-    (rule) => rule.conditions.length === 0 && rule.share === 100,
-  );
+  // The shaper computes reachability once: a reachable rule with no
+  // conditions at 100% already matches everyone, so the fallback never runs.
   return (
     <Card size="sm">
       <CardContent>
@@ -308,7 +306,7 @@ export function FlagAudienceCard({ audience }: { audience: FlagAudience }) {
               variants={audience.variants}
             />
           ))}
-          {fallbackReachable && (
+          {audience.fallbackReachable && (
             <div className="grid grid-cols-[22px_1fr_auto] items-center gap-x-3 px-3 py-2.5 text-[13px] text-muted-foreground">
               <span />
               <span>Everyone else</span>

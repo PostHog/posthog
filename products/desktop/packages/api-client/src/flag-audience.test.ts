@@ -61,6 +61,15 @@ describe("flag audience shaping", () => {
     expect(audience.summary).not.toContain("b");
   });
 
+  it("keeps the summary consistent with the hidden fallback row on a catch-all", () => {
+    const audience = shapeFlagAudience(
+      flagWith({ groups: [{ rollout_percentage: 100 }] }),
+    );
+
+    expect(audience.fallbackReachable).toBe(false);
+    expect(audience.summary).not.toContain("Everyone else gets false.");
+  });
+
   it("renders a readable label for operators that only reach flags through the API", () => {
     const audience = shapeFlagAudience(
       flagWith({

@@ -14,6 +14,8 @@ export interface FlagAudience {
   rules: FlagRule[];
   /** What a check returns when no rule matches. */
   fallback: FlagResult;
+  /** False when a reachable rule already matches everyone, so the fallback row is hidden. */
+  fallbackReachable: boolean;
   variants: FlagVariant[];
 }
 
@@ -346,6 +348,11 @@ function joinAudiences(labels: string[]): string {
   return `${labels.length} audiences`;
 }
 
+/** A reachable rule with no conditions at 100% matches everyone, leaving nobody for the fallback. */
+function catchAllRule(rule: FlagRule): boolean {
+  return rule.reachable && rule.conditions.length === 0 && rule.share === 100;
+}
+
 export function shapeFlagAudience(
   flag: Schemas.FeatureFlag,
   people: Map<string, ResolvedPerson> = new Map(),
@@ -417,6 +424,7 @@ export function shapeFlagAudience(
       disabled,
       rules,
       fallback,
+      fallbackReachable: !rules.some(catchAllRule),
       variants,
     };
   }
@@ -433,6 +441,7 @@ export function shapeFlagAudience(
       disabled,
       rules,
       fallback,
+      fallbackReachable: true,
       variants,
     };
   }
@@ -446,6 +455,7 @@ export function shapeFlagAudience(
       disabled,
       rules,
       fallback,
+      fallbackReachable: true,
       variants,
     };
   }
@@ -470,7 +480,10 @@ export function shapeFlagAudience(
       `${more} more ${more === 1 ? "rule applies" : "rules apply"}.`,
     );
   }
-  sentences.push("Everyone else gets false.");
+  const fallbackReachable = !rules.some(catchAllRule);
+  if (fallbackReachable) {
+    sentences.push("Everyone else gets false.");
+  }
 
   return {
     headline,
@@ -478,6 +491,7 @@ export function shapeFlagAudience(
     disabled,
     rules,
     fallback,
+    fallbackReachable,
     variants,
   };
 }
