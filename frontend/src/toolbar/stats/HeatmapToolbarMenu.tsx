@@ -80,7 +80,8 @@ const SectionButton = ({
 }
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
-    const { wildcardHref, autoWildcardEnabled } = useValues(currentPageLogic)
+    const { wildcardHref, autoWildcardEnabled, wildcardHrefTooSpecific, wildcardHrefEndsWithSlash } =
+        useValues(currentPageLogic)
     const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
     const areaFilterFlagEnabled = useToolbarFeatureFlag('toolbar-heatmap-area-filter')
 
@@ -163,6 +164,21 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }}
                     />
                 </div>
+                {wildcardHrefTooSpecific && (
+                    <p className="text-xs text-secondary mt-1 mb-0">
+                        {wildcardHrefEndsWithSlash ? (
+                            <>
+                                A trailing slash matches only URLs that end there, so deeper pages and query strings
+                                drop out. Use <code>*</code> to include them.
+                            </>
+                        ) : (
+                            <>
+                                This URL is specific, so it matches less data. Use <code>*</code> as a wildcard to match
+                                more.
+                            </>
+                        )}
+                    </p>
+                )}
 
                 <div className="flex flex-row items-center gap-2 py-2 border-b">
                     <DateFilter
