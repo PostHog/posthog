@@ -25,9 +25,22 @@ Disabled flags (`active: false`) are not considered stale — they were intentio
 
 ## Workflow
 
-### 1. List stale flags
+### 1. List every stale flag
 
-Call `posthog:feature-flag-get-all` with `active: "STALE"`. This returns all stale flags in a single request — PostHog handles the staleness detection server-side using the criteria described above.
+Call `posthog:feature-flag-get-all` with `active: "STALE"`. PostHog handles the staleness detection server-side, using the criteria described above.
+
+The response is one page, not the full set.
+It contains `count` (the total number of stale flags), `results` (this page only),
+and `next` (a URL that carries the offset of the following page, or null on the last page).
+The page holds fewer flags than `count` in most projects, so collect the pages in a loop:
+
+1. Pass `limit: 100` to keep the number of calls low.
+2. While `next` is not null, call the tool again with the same filters and `offset` set to the number of flags you already have.
+   Add each page of `results` to your list.
+3. Stop when `next` is null, then check that your list holds `count` flags.
+
+Do not start step 2 before you have every page.
+A single page silently under-reports the flags the user can clean up.
 
 ### 2. Assess each candidate
 
@@ -47,6 +60,8 @@ A flag last updated years ago with no recent calls is a stronger removal candida
 
 **Summarize for the user:**
 
+Cover every flag you collected in step 1, not only the first page.
+State the total count, and say so plainly if you shorten the table, so the user knows how many flags are left out.
 For each stale flag, present:
 
 - Flag key and description
@@ -124,7 +139,8 @@ Once the user has chosen and confirms their code changes are deployed, apply the
 User: "Can you help me clean up our stale feature flags?"
 
 Agent steps:
-- Call posthog:feature-flag-get-all with active: "STALE" to get all stale flags in one request
+- Call posthog:feature-flag-get-all with active: "STALE" and limit: 100
+- Follow the `next` link until it is null, so the list holds all `count` stale flags
 - For each stale flag, call posthog:feature-flag-get-definition to check experiment_set and dependencies
 - Present findings:
 
@@ -187,7 +203,7 @@ Agent steps:
 
 ## Related tools
 
-- `posthog:feature-flag-get-all`: List and search feature flags (supports `active: "STALE"` filter)
+- `posthog:feature-flag-get-all`: List and search feature flags (supports `active: "STALE"` filter; paginated, so follow `next` for the full set)
 - `posthog:feature-flag-get-definition`: Get full flag details including experiment associations
 - `posthog:feature-flags-status-retrieve`: Get the status and reason for a single flag
 - `posthog:feature-flag-disable`: Turn a flag off without touching its targeting
