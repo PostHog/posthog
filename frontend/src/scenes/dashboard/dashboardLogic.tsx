@@ -161,6 +161,7 @@ import {
     searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
     shouldSnapshotUrlAtEditModeEntry,
+    stripEmptyFilterValues,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -320,10 +321,12 @@ export interface dashboardLogicValues {
     }[]
     error404: boolean
     externalFilters: DashboardFilter
+    filtersDirty: boolean
     filtersOverrideForLoad: DashboardFilter
     hasIntermittentFilters: boolean
     hasInvalidDashboardId: boolean
     hasUnsavedColorChanges: boolean
+    hasUnsavedEditModeChanges: boolean
     hasUnsavedLayoutChanges: boolean
     hasUrlFilters: boolean
     hasVariables: boolean
@@ -385,6 +388,7 @@ export interface dashboardLogicValues {
         variables?: unknown
     } | null
     urlVariables: Record<string, HogQLVariable>
+    variablesDirty: boolean
     widgetRefreshStatus: Record<
         number,
         {
@@ -1553,7 +1557,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         const persistedFilters = currentDashboard.persisted_filters || {}
                         const persistedVariables = currentDashboard.persisted_variables || {}
-                        const persistedBreakdownColors = currentDashboard.breakdown_colors || []
+                        const persistedBreakdownColors = Array.isArray(currentDashboard.breakdown_colors)
+                            ? currentDashboard.breakdown_colors
+                            : []
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
 
                         const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
@@ -2631,6 +2637,36 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return effectiveEditBarFilters
             },
         ],
+        // Whether the filters currently on screen differ from what's saved on the dashboard.
+        // Compared after normalizing empty values so restoring a filter to its saved state
+        // (which can leave e.g. `properties: []`) reads as "not dirty" rather than an override.
+        filtersDirty: [
+            (s) => [s.dashboard, s.effectiveEditBarFilters],
+            (dashboard: DashboardType<QueryBasedInsightModel> | null, effectiveEditBarFilters: DashboardFilter) =>
+                !equal(
+                    stripEmptyFilterValues(dashboard?.persisted_filters || {}),
+                    stripEmptyFilterValues(effectiveEditBarFilters || {})
+                ),
+        ],
+        variablesDirty: [
+            (s) => [s.dashboard, s.effectiveDashboardVariableOverrides],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                effectiveDashboardVariableOverrides: Record<string, HogQLVariable>
+            ) => !equal(dashboard?.persisted_variables || {}, effectiveDashboardVariableOverrides || {}),
+        ],
+        // Any change the Save button would persist: filters, variables, colors/theme, or layout.
+        // Mirrors the change checks in saveEditModeChanges so Save reflects real unsaved state
+        // rather than merely being in edit mode.
+        hasUnsavedEditModeChanges: [
+            (s) => [s.filtersDirty, s.variablesDirty, s.hasUnsavedColorChanges, s.hasUnsavedLayoutChanges],
+            (
+                filtersDirty: boolean,
+                variablesDirty: boolean,
+                hasUnsavedColorChanges: boolean,
+                hasUnsavedLayoutChanges: boolean
+            ) => filtersDirty || variablesDirty || hasUnsavedColorChanges || hasUnsavedLayoutChanges,
+        ],
         // Does any tile on this dashboard reach past the team's events retention window? Runs the same date
         // precedence and the same rule the tiles do, so the banner and a tile's icon can't disagree.
         anyInsightExceedsRetention: [
@@ -3168,9 +3204,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 autoBreakdownColorsEnabled: boolean,
                 dataColorTheme: DataColorTheme | null
             ): BreakdownColorConfig[] => {
+                // The API accepts JSON objects in breakdown_colors (a schema violation), which
+                // would cause mergeBreakdownColorConfigs to throw "r is not iterable". Normalize
+                // to an array so the dashboard loads gracefully instead of crashing.
+                const breakdownColorsArray = Array.isArray(dashboard?.breakdown_colors)
+                    ? dashboard.breakdown_colors
+                    : []
                 const merged = mergeBreakdownColorConfigs(
                     temporaryBreakdownColors,
-                    dashboard?.breakdown_colors ?? []
+                    breakdownColorsArray
                 ).filter((config) => !!config.colorToken)
 
                 if (!autoBreakdownColorsEnabled) {
@@ -3200,7 +3242,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 temporaryDataColorThemeId: { themeId: number | null } | null,
                 dashboard: DashboardType<QueryBasedInsightModel> | null
             ): boolean => {
-                const persisted = dashboard?.breakdown_colors ?? []
+                const persisted = Array.isArray(dashboard?.breakdown_colors)
+                    ? dashboard.breakdown_colors
+                    : []
                 const colorsChanged = temporaryBreakdownColors.some((config) => {
                     const persistedConfig = findBreakdownColorConfig(
                         persisted,
