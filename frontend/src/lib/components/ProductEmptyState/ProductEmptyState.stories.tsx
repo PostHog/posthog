@@ -8,6 +8,7 @@ import { clustersEmptyState } from 'products/ai_observability/frontend/emptyStat
 import { datasetsEmptyState } from 'products/ai_observability/frontend/emptyState/datasetsEmptyState'
 import { evaluationsEmptyState } from 'products/ai_observability/frontend/emptyState/evaluationsEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
+import { alertsEmptyState } from 'products/alerts/frontend/emptyState/alertsEmptyState'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { businessKnowledgeEmptyState } from 'products/business_knowledge/frontend/emptyState/businessKnowledgeEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
@@ -15,6 +16,7 @@ import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsE
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
 import { customerAnalyticsEmptyState } from 'products/customer_analytics/frontend/emptyState/customerAnalyticsEmptyState'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
+import { dataCatalogEmptyState } from 'products/data_catalog/frontend/emptyState/dataCatalogEmptyState'
 import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
@@ -26,11 +28,13 @@ import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
+import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { subscriptionsEmptyState } from 'products/subscriptions/frontend/emptyState/subscriptionsEmptyState'
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
@@ -343,6 +347,35 @@ export const WebVitalsWaitingForData: ProductEmptyStateStory = productEmptyState
     'waiting-for-data',
     { mocks: webVitalsMocks }
 )
+
+// Alerts detection counts both alert kinds on mount - answer "none yet" to each.
+export const AlertsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(alertsEmptyState, 'needs-setup', {
+    mocks: {
+        get: {
+            '/api/projects/:team_id/alerts/': [200, emptyEntityList],
+            '/api/projects/:team_id/logs/alerts/': [200, emptyEntityList],
+        },
+    },
+})
+
+// Subscriptions detection counts subscriptions on mount - answer "none yet".
+export const SubscriptionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    subscriptionsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/subscriptions/': [200, emptyEntityList] } } }
+)
+
+// Data catalog detection counts metrics on mount - answer "none yet".
+export const DataCatalogNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dataCatalogEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/data_catalog/metrics/': [200, emptyEntityList] } } }
+)
+
+// Notebooks detection counts notebooks on mount - answer "none yet".
+export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(notebooksEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/notebooks/': [200, { count: 0, results: [] }] } },
+})
 
 // Data warehouse detection lists sources and tables on mount - answer "none yet".
 export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(

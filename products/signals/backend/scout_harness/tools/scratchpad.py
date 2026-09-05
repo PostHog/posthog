@@ -81,9 +81,10 @@ def search_scratchpad(
     Expired entries (`expires_at` in the past) are excluded by default, so a memory a
     scout wrote as time-boxed stops loading into run prompts on its own rather than
     waiting for a `forget` that rarely comes. `include_expired=True` brings them back
-    for a human auditing what the fleet remembered and when it lapsed. Note this filters
-    the read only — nothing deletes the row, so `forget` and the `remember` upsert still
-    see an expired key.
+    for a human auditing what the fleet remembered and when it lapsed. This filters the
+    read only — while an entry is inside its post-expiry grace, `forget` and the
+    `remember` upsert still see the key. Once the expiry is well past (see
+    `prune_expired_scratchpad_entries`), the daily janitor hard-deletes the row.
 
     `key` is an exact match on the unique `(team, key)` pair — at most one row, and the
     only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE

@@ -59,7 +59,6 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.facade.api import saved_query_workflow_exists, unpause_saved_query_schedule
 from products.data_warehouse.backend.presentation.views.column_annotation_base import (
     DESCRIPTION_HELP_TEXT,
     upsert_annotation,
@@ -1350,6 +1349,19 @@ class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
 
 
+class SavedQueryResumeSchedulesRequestSerializer(serializers.Serializer):
+    """Body of the `resume_schedules` action."""
+
+    view_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text=(
+            "Ids of the saved queries to resume. An id is ignored when it is not in this project, "
+            "has been deleted, or you cannot edit it."
+        ),
+    )
+
+
 class SavedQueryLineageRequestSerializer(serializers.Serializer):
     """Body of the `ancestors` and `descendants` actions."""
 
@@ -1889,21 +1901,32 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False)
+    @extend_schema(request=SavedQueryResumeSchedulesRequestSerializer, responses={202: None})
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
-        Resume paused materialization schedules for multiple matviews.
+        Resume materialization for several models that were suspended after repeated failures.
 
         Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
-        This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+        This endpoint is idempotent - calling it on models that are already running is safe.
         """
-        view_ids = request.data.get("view_ids", [])
-        if not view_ids:
-            return response.Response({"error": "view_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
-        saved_queries = DataWarehouseSavedQuery.objects.filter(id__in=view_ids, team_id=self.team_id)
-        for saved_query in saved_queries:
-            if saved_query_workflow_exists(saved_query):
-                unpause_saved_query_schedule(saved_query)
+        from products.data_modeling.backend.facade.api import resume_saved_query
+
+        serializer = SavedQueryResumeSchedulesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Skip rather than refuse, so one id the caller cannot edit does not cost them the rest of
+        # the batch. Every skipped id looks the same from outside, whether it is absent, in another
+        # project, deleted, or denied - the response would otherwise confirm that a model exists.
+        candidates = list(
+            DataWarehouseSavedQuery.objects.filter(
+                id__in=serializer.validated_data["view_ids"], team_id=self.team_id
+            ).exclude(deleted=True)
+        )
+        self.user_access_control.preload_object_access_controls(cast(list[Model], candidates))
+        for saved_query in candidates:
+            if self.user_access_control.check_access_level_for_object(saved_query, "editor"):
+                resume_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryAncestorsSerializer})

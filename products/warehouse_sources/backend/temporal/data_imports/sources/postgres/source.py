@@ -1532,6 +1532,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
+        table_rebuild_pending = inputs.reset_pipeline or schema.delta_revive_required is not None
 
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
@@ -1558,10 +1559,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 row_filters=inputs.row_filters,
                 # xmin state is read straight off the schema here (the generic `SourceInputs` stays
                 # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
+                # A reset, and a pending corrupt-delta revive, both delete the Delta table before
+                # this read, so the cursor has to go with it: kept, the read covers only the window
+                # since the last run, and the overwrite collapses the table to that slice. The
+                # activity drops the incremental cursor for both cases for the same reason; the xmin
+                # cursor is dropped here because it is read here.
                 is_xmin=schema.is_xmin,
-                xmin_last_value=schema.xmin_last_value,
-                xmin_num_wraparound=schema.xmin_num_wraparound,
+                xmin_last_value=None if table_rebuild_pending else schema.xmin_last_value,
+                xmin_num_wraparound=None if table_rebuild_pending else schema.xmin_num_wraparound,
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
+                activity_attempt=inputs.activity_attempt,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

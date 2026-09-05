@@ -47,6 +47,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         auto_pause_exempt: false,
         tags: [],
         mcp_gateway_server_ids: [],
+        write_scopes: [],
         source_product: null,
         source_id: null,
         created_at: '2026-06-11T09:00:00Z',
@@ -61,6 +62,7 @@ export const mockScoutConfigs: SignalScoutConfigApi[] = [
         description: 'new errors, regressions, and spikes in Error tracking',
         run_interval_minutes: 60,
         last_run_at: '2026-06-10T23:30:00Z',
+        write_scopes: ['dashboard:write'],
     }),
     makeMockScout({
         id: 'scout-session-replay',
@@ -111,6 +113,7 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'new errors, regressions, and spikes in Error tracking',
         run_interval_minutes: 60,
         last_run_at: '2026-06-10T23:30:00Z',
+        write_scopes: ['dashboard:write'],
     }),
     makeMockScout({
         id: 'scout-checkout-health',

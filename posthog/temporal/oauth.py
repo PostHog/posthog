@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -8,7 +8,9 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.models import OAuthAccessToken, OAuthApplication
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import (
     API_SCOPE_OBJECTS,
@@ -261,7 +263,10 @@ class ScoutScopePosture(TypedDict):
     extra_write_scopes: list[str]
 
 
-PosthogMcpScopes = McpScopePreset | list[str] | ScoutScopePosture
+# `ScoutScopePosture` must come before `list[str]`: Temporal's payload converter tries union
+# members in order and `list[str]` accepts a dict, so a posture placed after it decodes as its
+# keys and the run's token holds the scopes `preset` and `extra_write_scopes` instead.
+PosthogMcpScopes = McpScopePreset | ScoutScopePosture | list[str]
 
 MCP_SCOPE_PRESETS = (
     "read_only",
@@ -283,18 +288,20 @@ RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
 
 def scout_scope_posture(
     preset: ScoutScopePreset,
-    extra_write_scopes: Iterable[str] = (),
+    extra_write_scopes: object = (),
 ) -> ScoutScopePosture:
     """Build the scope posture one scout run is dispatched with.
 
-    Callers pass whatever the scout's stored grant holds. Anything outside
-    `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected, because a person is
-    told their input was invalid where they entered it, not at dispatch. A scope removed from
-    the allowlist after it was granted therefore stops reaching new runs with no data migration.
+    Callers pass whatever the scout's stored grant holds, in whatever shape the JSON column holds
+    it. Anything outside `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected,
+    because a person is told their input was invalid where they entered it, not at dispatch. A
+    scope removed from the allowlist after it was granted therefore stops reaching new runs with no
+    data migration. The value is handed to `_grantable_write_scopes` unshaped: `list()` on a stray
+    JSON object would yield its keys, and `{"dashboard:write": false}` would become a grant.
     """
     return {
         "preset": preset,
-        "extra_write_scopes": _grantable_write_scopes(list(extra_write_scopes)),
+        "extra_write_scopes": _grantable_write_scopes(extra_write_scopes),
     }
 
 
@@ -306,7 +313,7 @@ def _grantable_write_scopes(raw: object) -> list[str]:
     built, because an unhashable entry makes `set(raw)` raise and aborts the run that a
     malformed grant is supposed to degrade safely.
     """
-    if not isinstance(raw, list):
+    if not isinstance(raw, list | tuple):
         return []
     return sorted({scope for scope in raw if isinstance(scope, str)} & SCOUT_GRANTABLE_WRITE_SCOPES)
 
@@ -542,12 +549,38 @@ def get_wizard_app() -> OAuthApplication:
     )
 
 
+def _organization_id_for_team(team_id: int) -> str:
+    """The organization the run is pinned to. Not the user's current one, which is
+    writable through `PATCH /api/users/@me/` and so cannot carry a ban."""
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    return str(organization_id) if organization_id else ""
+
+
+class WizardIdentityBlockedError(Exception):
+    """The abuse blocklist refuses this identity a wizard credential. Distinct from
+    the mint's RuntimeError cases because it is permanent, and a caller that retries
+    a transient token failure must not retry this one."""
+
+
 def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
 
     Deliberately separate from the sandbox/agent token (`create_oauth_access_token_for_user`) so the
     wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
+
+    Gated here rather than only at the HTTP kickoff, which a workflow retry or
+    resume reaches with no request in front of it.
     """
+    if wizard_identity_blocked(
+        distinct_id=str(user.distinct_id),
+        email=user.email,
+        surface="wizard_mint",
+        user_uuid=str(user.uuid),
+        organization_ids=[_organization_id_for_team(team_id)],
+        team_ids=[team_id],
+    ):
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
     app = get_wizard_app()
 
     ceiling = resolve_ceiling(app.ceiling_scopes)

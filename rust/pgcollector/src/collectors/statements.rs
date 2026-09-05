@@ -4,6 +4,7 @@
 
 use crate::collector::*;
 use crate::collectors::declarative::{column_types, row_to_values};
+use crate::logs::fingerprint::FINGERPRINT_VERSION;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -21,6 +22,9 @@ pub struct Extra {
     pub known_ids: BTreeSet<i64>,
     pub dealloc: Option<i64>,
     pub warned_missing: bool,
+    /// `FINGERPRINT_VERSION` the known ids were fingerprinted with.
+    #[serde(default)]
+    pub fingerprint_version: u32,
 }
 
 pub struct Source<'a> {
@@ -183,8 +187,16 @@ pub async fn collect(
 }
 
 pub fn load_extra(prev: Option<&State>) -> Extra {
-    prev.map(|p| serde_json::from_value(p.extra.clone()).unwrap_or_default())
-        .unwrap_or_default()
+    let mut extra: Extra = prev
+        .map(|p| serde_json::from_value(p.extra.clone()).unwrap_or_default())
+        .unwrap_or_default();
+    // A normaliser change makes every stored fingerprint stale; forgetting the ids
+    // makes the next ticks re-fetch their text and upsert fresh fingerprints.
+    if extra.fingerprint_version != FINGERPRINT_VERSION {
+        extra.known_ids.clear();
+        extra.fingerprint_version = FINGERPRINT_VERSION;
+    }
+    extra
 }
 
 pub async fn pgss_installed(cx: &CollectCtx<'_>) -> bool {

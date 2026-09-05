@@ -63,6 +63,7 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -77,13 +78,12 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
-from posthog.models.property.property import Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
-from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
@@ -113,7 +113,7 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 from products.product_analytics.backend.facade.models import Insight
 
 
-# Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
+# Mirrors SerializedPerson in posthog/hogql_queries/serialized_actors.py.
 # Nullability mirrors the TypedDict: only Optional[...] fields are nullable; matched_recordings
 # and value_at_data_point are always present in the response (always-set keys), even if empty/None.
 class CohortPersonResultSerializer(serializers.Serializer):
@@ -326,6 +326,59 @@ class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 # Keep in sync with OperatorType in posthog/models/property/property.py
 DATE_OPERATORS = ("is_date_after", "is_date_before")
 
+# Operators that compare against exactly one value. A multi-value list is meaningful for
+# `icontains`/`not_icontains` in HogQL, which turns it into multiSearchAnyCaseInsensitive, so
+# only the single-element case is unwrapped here.
+SINGLE_VALUE_OPERATORS = (
+    "icontains",
+    "not_icontains",
+    *STRING_PREFIX_SUFFIX_OPERATORS,
+    *DATE_OPERATORS,
+)
+
+# Filter variants that inherit PersonValueValidationMixin, and so store an unwrapped value.
+SINGLE_VALUE_FILTER_TYPES = ("person", "person_metadata")
+
+
+def _single_value_operator_value(operator: str | None, value: Any) -> Any:
+    """Unwrap `["x"]` to `"x"` for operators that compare against one string.
+
+    The two cohort readers disagree about a single-element list. HogQL unwraps it
+    (posthog/hogql/property.py), so the cohort lists the person, while the Rust flag evaluator
+    stringifies it and searches for the literal text `["x"]`, so the flag never matches. Storing
+    the unwrapped string is what both readers already agree on.
+    """
+    if operator in SINGLE_VALUE_OPERATORS and isinstance(value, list) and len(value) == 1:
+        # Unwrapping `[None]` gives `None`, which the missing-value check below rejects. That
+        # payload saves today, so leave a non-string element wrapped.
+        if isinstance(value[0], str):
+            return value[0]
+    return value
+
+
+def _coerce_stored_filter_values(filters: Any) -> Any:
+    """Apply the single-value unwrap to a stored filters dict, without re-running validation.
+
+    `update()` compares the incoming filters against the stored ones to decide whether the
+    criteria changed. Incoming filters have already been unwrapped by `validate_filters`, so a row
+    written before the unwrap existed would compare unequal on a save that touched no criteria,
+    and a static cohort holding such a value would become uneditable.
+    """
+    if isinstance(filters, list):
+        return [_coerce_stored_filter_values(item) for item in filters]
+    if not isinstance(filters, dict):
+        return filters
+
+    coerced = {
+        key: _coerce_stored_filter_values(value) if key in ("properties", "values") else value
+        for key, value in filters.items()
+    }
+    # An is_set/is_not_set filter stores no value key, and validate_filters serializes with
+    # exclude_none, so writing `value: None` here would make an unchanged filter compare unequal.
+    if coerced.get("type") in SINGLE_VALUE_FILTER_TYPES and "value" in coerced:
+        coerced["value"] = _single_value_operator_value(coerced.get("operator"), coerced.get("value"))
+    return coerced
+
 
 class PersonValueValidationMixin(BaseModel):
     """Shared value/operator presence and date-value validation for the person and
@@ -335,6 +388,12 @@ class PersonValueValidationMixin(BaseModel):
 
     operator: str | None = None  # accept any legacy operator
     value: Any | None = None  # mostly likely it's list[str], str, or None
+
+    @model_validator(mode="after")
+    def _coerce_single_value_list(self) -> "PersonValueValidationMixin":
+        # Runs before the date check below so that check sees the unwrapped value.
+        self.value = _single_value_operator_value(self.operator, self.value)
+        return self
 
     @model_validator(mode="after")
     def _missing_keys_check(self):
@@ -1268,7 +1327,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
-        filters_changed = "filters" in validated_data and validated_data.get("filters") != cohort.filters
+        filters_changed = "filters" in validated_data and validated_data.get("filters") != _coerce_stored_filter_values(
+            cohort.filters
+        )
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:

@@ -1639,6 +1639,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Deliberately NOT excluded from activity logging, because changing which external tools
     # a scout reaches is a security-relevant change, like `network_access`.
     mcp_gateway_server_ids = models.JSONField(default=list, db_default=[])
+    # User-facing write scopes a person granted this one scout, on top of the fleet-wide posture
+    # every scout carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding
+    # a grantable object later is one allowlist entry rather than a new column. Empty means the
+    # scout reads the project and writes only what the fleet grants every scout.
+    # Validated against `SCOUT_GRANTABLE_WRITE_SCOPES` at the API boundary and intersected against
+    # it again when a run's token is minted, so a stored grant cannot widen a token past the
+    # allowlist. Deliberately NOT excluded from activity logging, and gated in the config API to the
+    # scout's acting user and project admins: this field decides what an unattended agent may change
+    # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
+    write_scopes = models.JSONField(default=list, db_default=[])
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -2094,9 +2104,13 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     Most entries are durable, so `expires_at` is nullable and unset by default. It
     exists for the memories that are true only for a while — a cooldown, a window to
     watch — which a scout would otherwise have to come back and `forget` by hand.
-    Expiry hides a row from `search_scratchpad`, it does not delete it: the key stays
-    taken (so the upsert keeps working) and a human auditing the fleet's memory can
-    still read it back with `include_expired`.
+    Expiry first hides a row from `search_scratchpad`: the key stays taken (so the
+    upsert keeps working) and a human auditing the fleet's memory can still read it
+    back with `include_expired`. Then, once its expiry is more than
+    `SCRATCHPAD_EXPIRY_GRACE_DAYS` in the past, the daily
+    `prune_expired_scratchpad_entries` janitor hard-deletes the row, so a lapsed
+    memory cannot pile up forever. A durable entry (`expires_at` NULL) is never
+    swept.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
