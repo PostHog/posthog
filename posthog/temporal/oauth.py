@@ -263,7 +263,10 @@ class ScoutScopePosture(TypedDict):
     extra_write_scopes: list[str]
 
 
-PosthogMcpScopes = McpScopePreset | list[str] | ScoutScopePosture
+# `ScoutScopePosture` must come before `list[str]`: Temporal's payload converter tries union
+# members in order and `list[str]` accepts a dict, so a posture placed after it decodes as its
+# keys and the run's token holds the scopes `preset` and `extra_write_scopes` instead.
+PosthogMcpScopes = McpScopePreset | ScoutScopePosture | list[str]
 
 MCP_SCOPE_PRESETS = (
     "read_only",

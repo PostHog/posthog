@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
@@ -25,6 +26,7 @@ from posthog.temporal.oauth import (
     SCOUT_USER_WRITE_SCOPES,
     SCRATCHPAD_INTERNAL_SCOPES,
     McpScopePreset,
+    PosthogMcpScopes,
     ScoutScopePosture,
     ScoutScopePreset,
     WizardIdentityBlockedError,
@@ -221,6 +223,16 @@ class TestResolveScopes(SimpleTestCase):
         # Temporal payloads, so it has to resolve the same after `json.dumps` / `json.loads`.
         posture = scout_scope_posture("signals_scout_reports", ["insight:write", "dashboard:write"])
         assert resolve_scopes(json.loads(json.dumps(posture))) == resolve_scopes(posture)
+
+    def test_scout_posture_survives_a_typed_temporal_payload_round_trip(self) -> None:
+        # The workflow input declares the field as `PosthogMcpScopes`, and Temporal decodes a
+        # payload against the union's members in order. With `list[str]` ahead of the posture,
+        # the dict decodes as its two keys and the run's token holds no read scope at all.
+        posture = scout_scope_posture("signals_scout_reports", ["insight:write", "dashboard:write"])
+        converter = JSONPlainPayloadConverter()
+        decoded = converter.from_payload(converter.to_payload(posture), PosthogMcpScopes)
+        assert decoded == posture
+        assert resolve_scopes(decoded) == resolve_scopes(posture)
 
     def test_grantable_write_scopes_are_mcp_write_scopes(self) -> None:
         # A typo or an internal scope in the allowlist would offer a person a switch that grants
