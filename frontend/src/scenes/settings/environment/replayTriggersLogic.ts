@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'
 
-import type { AugmentedTeamSdkVersionsInfo } from '../../onboarding/shared/sdkHealth/sdkHealthLogic'
+import type { AugmentedTeamSdkVersionsInfo, SdkType } from '../../onboarding/shared/sdkHealth/sdkHealthLogic'
 
 export type ReplayPlatform = 'web' | 'mobile'
 
@@ -30,6 +30,57 @@ export const OUTDATED_TRAFFIC_SHARE_THRESHOLD = 0.05
 export interface WebRelease {
     version: string
     count: number
+}
+
+/**
+ * First mobile SDK versions that honor the replay sample rate. Older builds ignore it and record every session,
+ * so a project set to 10% still bills 100% of mobile traffic on these versions. The web SDK is not listed
+ * because it has honored sampling since long before trigger groups.
+ */
+export const MOBILE_SAMPLING_MIN_SDK_VERSIONS = {
+    'posthog-android': { label: 'Android', version: '3.34.0' },
+    'posthog-ios': { label: 'iOS', version: '3.42.0' },
+    'posthog-react-native': { label: 'React Native', version: '4.37.0' },
+} as const satisfies Partial<Record<SdkType, { label: string; version: string }>>
+
+export interface MobileSamplingGap {
+    label: string
+    minVersion: string
+    outdatedCount: number
+    totalCount: number
+    share: number
+}
+
+// Unparseable versions count as "predates" so we stay conservative and prompt an upgrade.
+function versionPredates(version: string, floor: string): boolean {
+    try {
+        return compareVersion(version, floor) < 0
+    } catch {
+        return true
+    }
+}
+
+/**
+ * Per mobile SDK, how much recent traffic runs on versions that predate sample-rate support. Returns one entry
+ * for each mobile SDK that has such traffic, so the UI can warn that those sessions record and bill at 100%
+ * regardless of the configured sample rate.
+ */
+export function mobileSamplingGaps(augmentedData: AugmentedTeamSdkVersionsInfo): MobileSamplingGap[] {
+    const gaps: MobileSamplingGap[] = []
+    for (const [lib, { label, version }] of Object.entries(MOBILE_SAMPLING_MIN_SDK_VERSIONS)) {
+        const releases = augmentedData?.[lib as SdkType]?.allReleases ?? []
+        const totalCount = releases.reduce((sum, r) => sum + r.count, 0)
+        if (totalCount === 0) {
+            continue
+        }
+        const outdatedCount = releases
+            .filter((r) => versionPredates(r.version, version))
+            .reduce((sum, r) => sum + r.count, 0)
+        if (outdatedCount > 0) {
+            gaps.push({ label, minVersion: version, outdatedCount, totalCount, share: outdatedCount / totalCount })
+        }
+    }
+    return gaps
 }
 
 const NEW_URL_TRIGGER = { url: '', matching: 'regex' }
@@ -122,6 +173,7 @@ export interface replayTriggersLogicValues {
     isProposedUrlBlocklistValid: boolean
     isProposedUrlTriggerSubmitting: boolean
     isProposedUrlTriggerValid: boolean
+    mobileSamplingGaps: MobileSamplingGap[]
     outdatedWebTraffic: {
         outdatedCount: number
         share: number
@@ -347,6 +399,7 @@ export interface replayTriggersLogicMeta {
             share: number
             totalCount: number
         }
+        mobileSamplingGaps: (augmentedData: AugmentedTeamSdkVersionsInfo) => MobileSamplingGap[]
         isAddUrlTriggerConfigFormVisible: (editUrlTriggerIndex: number | null) => boolean
         urlTriggerToEdit: (
             urlTriggerConfig: UrlTriggerConfig[] | null,
@@ -573,6 +626,12 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                 augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
             ): { outdatedCount: number; totalCount: number; share: number } =>
                 outdatedWebTrafficShare(augmentedData?.web?.allReleases ?? []),
+        ],
+        mobileSamplingGaps: [
+            (s) => [s.augmentedData],
+            (
+                augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
+            ): MobileSamplingGap[] => mobileSamplingGaps(augmentedData),
         ],
         isAddUrlTriggerConfigFormVisible: [
             (s) => [s.editUrlTriggerIndex],
