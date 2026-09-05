@@ -1136,6 +1136,45 @@ describe('MenuFilterCombobox', () => {
             expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
         })
 
+        it.each(['Recent', 'Pinned'])('never hides %s behind skeletons when switched to mid-search', async (label) => {
+            const user = userEvent.setup()
+            apiGet.mockResolvedValue({ results: [{ id: 1, name: 'browser_opened' }], count: 1 })
+            const resolvedEntry = makeEntry(TaxonomicFilterGroupType.Events, `browser_${label.toLowerCase()}`, 'Events')
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                searchQuery: 'browser',
+                recentEntries: label === 'Recent' ? [resolvedEntry] : undefined,
+                pinnedEntries: label === 'Pinned' ? [resolvedEntry] : undefined,
+            })
+            await waitFor(() => expect(rowTexts().some((text) => text.includes('browser_opened'))).toBe(true))
+
+            // The skeleton is inserted and removed within one event's commits, so a
+            // final-state query cannot see it. Record every insertion instead.
+            let skeletonInsertions = 0
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    for (const node of Array.from(mutation.addedNodes)) {
+                        if (
+                            node instanceof HTMLElement &&
+                            (node.matches('[data-attr="menu-filter-loading"]') ||
+                                node.querySelector('[data-attr="menu-filter-loading"]'))
+                        ) {
+                            skeletonInsertions += 1
+                        }
+                    }
+                }
+            })
+            observer.observe(document.body, { childList: true, subtree: true })
+            try {
+                await user.click(screen.getByLabelText('Filter category'))
+                await user.click(await within(await openedCategoryPopup()).findByText(label))
+                await waitFor(() => expect(rowTexts().some((text) => text.includes(resolvedEntry.name))).toBe(true))
+            } finally {
+                observer.disconnect()
+            }
+            expect(skeletonInsertions).toBe(0)
+        })
+
         it('hides stale results during a refetch and reveals once it settles', async () => {
             const user = userEvent.setup()
             let resolveSecond: ((value: { results: any[]; count: number }) => void) | undefined

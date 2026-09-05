@@ -235,9 +235,11 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, { query?: string; fetching: boolean }>>({})
-    // Only engages while actively searching a fetching scope. Recent/Pinned
-    // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
-    const searching = !drillItems && !!searchQuery.trim()
+    // Only engages while actively searching a fetching scope. Recent/Pinned read
+    // pre-resolved entries (`drillItems` when drilled to, the recents/pinned props
+    // when picked from the category select) and never fetch, so they're never gated.
+    const readsResolvedEntries = !!drillItems || activeScope === 'recent' || activeScope === 'pinned'
+    const searching = !readsResolvedEntries && !!searchQuery.trim()
     // Reveal barrier (ported from the legacy `taxonomicFilterLogic`): on a fresh
     // search we hold the result list behind skeletons until every visible group's
     // fetch settles (or a 5s fallback), so slower groups don't render on top of a
