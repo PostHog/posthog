@@ -17,6 +17,9 @@ Never invent env vars or hand-roll OTel providers — every environment below al
 | Monorepo Node services (`nodejs/`)                     | — (services don't run posthog-node)                                                                    | internal twin: `nodejs/src/common/metrics/otel-metrics.ts`                                               |
 | PostHog-owned standalone service / script / other repo | SDK per public docs: `posthog.metrics.count/gauge/histogram`                                           | OTLP env vars per docs (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=<host>/i/v1/metrics`, Bearer project token) |
 
+> [!WARNING]
+> **In a Temporal worker the OTel fallback is not a fallback — it is silence.** `OTEL_METRICS_EXPORT_URL`/`_TOKEN` are set on the web deployment, not on the worker deployments, so `OtelInstrumentFactory` binds a no-op meter there and every twin is dropped. No metric recorded through the factory from a worker activity has ever reached the Metrics product, while SDK-path metrics from the same pods do. The `prometheus_client` half of a twin does not cover for it either: the worker pods' scraped endpoint carries the Temporal SDK's own metrics, not the Python registry. From a worker, use the SDK path or the Temporal metric meter.
+
 ## Step 2 — check the version gate (don't assume)
 
 `posthog.metrics` shipped in: **posthog-python 7.23.0** (`posthoganalytics` is the same package renamed), **posthog-node 5.43.0**, **posthog-js ~1.399.0** (runtime check: `typeof posthog.metrics?.count === 'function'`).
@@ -50,7 +53,7 @@ _otel.histogram("myarea.job.duration", unit="s").record(1.87, {"queue": "default
 _otel.gauge("myarea.backlog").set(42)
 ```
 
-Reference call sites: `products/dashboards/backend/access.py` (smallest), `products/replay_vision/backend/temporal/metrics.py` (full module).
+Reference call sites: `products/dashboards/backend/access.py` (smallest, web), `products/managed_warehouse/backend/metrics.py` (SDK path from a Temporal worker).
 If a `prometheus_client` instrument already exists at the site and its Grafana series must be kept, mirror it with `record_counter_twin`/`record_histogram_twin`/`record_gauge_twin`/`timed_histogram_twin` instead of a direct instrument — the twin derives name/buckets from it so the sinks can't drift.
 
 **Rules for both paths**: dot-separated stable names (`jobs.processed`, not `metric1`); explicit `unit` on histograms; low-cardinality attributes only (`route`, `status`, `plan` — never user/session/request IDs; `team_id` sparingly and deliberately).

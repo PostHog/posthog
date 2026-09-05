@@ -1,35 +1,37 @@
 """Business-level counters for signals pipeline incident alerts.
 
 Pipeline counters go to the Temporal metric meter, so they only record inside a workflow or an
-activity. The scout coordinator counters are Prometheus instruments with an OTLP twin instead
-(the `replay_vision` pattern): both sinks carry one name, and the twin puts fleet dispatch
-health in the PostHog Metrics product, where it can be alerted on directly rather than inferred
-from downstream tool-call volume.
+activity. The scout coordinator counters keep a Prometheus instrument for Grafana and push the
+same name through the PostHog SDK metrics client, which puts fleet dispatch health in the
+PostHog Metrics product, where it can be alerted on directly rather than inferred from
+downstream tool-call volume.
 """
 
+import posthoganalytics
 from prometheus_client import Counter
 from temporalio import activity, workflow
 
-from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.temporal.common.metrics import get_metric_meter
-
-_otel = OtelInstrumentFactory("signals")
 
 COORDINATOR_DISPATCH_STARTED = "started"
 COORDINATOR_DISPATCH_DEDUPED = "deduped"
 
+SCOUT_COORDINATOR_TICKS_METRIC = "signals_scout_coordinator_ticks_total"
+SCOUT_COORDINATOR_PLANNED_METRIC = "signals_scout_coordinator_planned_total"
+SCOUT_COORDINATOR_DISPATCHED_METRIC = "signals_scout_coordinator_dispatched_total"
+
 SCOUT_COORDINATOR_TICKS = Counter(
-    "signals_scout_coordinator_ticks_total",
+    SCOUT_COORDINATOR_TICKS_METRIC,
     "Signals scout coordinator ticks that finished planning",
 )
 
 SCOUT_COORDINATOR_PLANNED = Counter(
-    "signals_scout_coordinator_planned_total",
+    SCOUT_COORDINATOR_PLANNED_METRIC,
     "Scout runs the coordinator planned to dispatch",
 )
 
 SCOUT_COORDINATOR_DISPATCHED = Counter(
-    "signals_scout_coordinator_dispatched_total",
+    SCOUT_COORDINATOR_DISPATCHED_METRIC,
     "Scout child workflows the coordinator dispatched, by outcome",
     ["outcome"],
 )
@@ -180,6 +182,20 @@ def increment_scout_run(status: str) -> None:
     ).add(1)
 
 
+def _push_coordinator_metric(name: str, value: float, attributes: dict[str, str]) -> None:
+    """Push one coordinator counter into the PostHog Metrics product.
+
+    The SDK client is the only sink that carries a counter out of a Temporal worker into the
+    Metrics product: the worker exports no `prometheus_client` series there, and it has no OTLP
+    push configured. Failures are swallowed, because this runs in the planning activity and a
+    telemetry error that failed the tick would cause the dispatch stall these counters watch for.
+    """
+    try:
+        posthoganalytics.setup().metrics.count(name, value, attributes=attributes)
+    except Exception:
+        pass
+
+
 def increment_coordinator_tick(planned_count: int) -> None:
     """Count a coordinator tick that finished planning, and the scout runs it planned.
 
@@ -188,10 +204,10 @@ def increment_coordinator_tick(planned_count: int) -> None:
     tells them apart.
     """
     SCOUT_COORDINATOR_TICKS.inc()
-    _otel.record_counter_twin(SCOUT_COORDINATOR_TICKS, 1, {})
+    _push_coordinator_metric(SCOUT_COORDINATOR_TICKS_METRIC, 1, {})
     # Zero is the reading that matters, so the series is kept alive rather than guarded away.
     SCOUT_COORDINATOR_PLANNED.inc(planned_count)
-    _otel.record_counter_twin(SCOUT_COORDINATOR_PLANNED, planned_count, {})
+    _push_coordinator_metric(SCOUT_COORDINATOR_PLANNED_METRIC, planned_count, {})
     # A labeled counter has no child series until code calls .labels(), and the dispatch counter is
     # only touched after a dispatch. So warm both outcomes to zero every tick. A stall is a run of
     # zero-plan ticks that never dispatch, which is exactly when the dispatch series would otherwise
@@ -203,4 +219,4 @@ def increment_coordinator_tick(planned_count: int) -> None:
 def increment_coordinator_dispatch(outcome: str, count: int) -> None:
     """Count scout child workflows the coordinator dispatched, by outcome."""
     SCOUT_COORDINATOR_DISPATCHED.labels(outcome=outcome).inc(count)
-    _otel.record_counter_twin(SCOUT_COORDINATOR_DISPATCHED, count, {"outcome": outcome})
+    _push_coordinator_metric(SCOUT_COORDINATOR_DISPATCHED_METRIC, count, {"outcome": outcome})
