@@ -5814,6 +5814,22 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
+/**
+ * Flag evaluations that never produced a variant, measured over `$feature_flag_called`
+ * events for the experiment's flag. Present on the response only when the errored share
+ * is above the threshold and the sample is large enough to read.
+ */
+export interface ExposureCoverage {
+    /** Entities that called the flag and got a variant back at least once. */
+    evaluated_entities: integer
+    /** Entities that called the flag and only ever got an error back. */
+    errored_entities: integer
+    /** Errored entities as a percentage (0-100) of all entities that called the flag. */
+    errored_percentage: number
+    /** Errored entity counts by `$feature_flag_error` value, largest first. */
+    error_reasons: Record<string, integer>
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -5821,6 +5837,7 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    exposure_coverage?: ExposureCoverage
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }

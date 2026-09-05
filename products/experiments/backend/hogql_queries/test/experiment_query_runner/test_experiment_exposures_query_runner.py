@@ -1818,6 +1818,100 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
 
+    def _flag_call_journey(self, distinct_id: str, error: str | None) -> dict:
+        properties: dict[str, str] = {"$feature_flag": self.feature_flag.key}
+        if error is None:
+            properties["$feature_flag_response"] = "control"
+            properties[f"$feature/{self.feature_flag.key}"] = "control"
+        else:
+            properties["$feature_flag_error"] = error
+        return {distinct_id: [{"event": "$feature_flag_called", "timestamp": "2024-01-02", "properties": properties}]}
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_coverage_reports_flag_callers_that_only_errored(self):
+        # Errored flag calls carry no variant, so the exposure query cannot see them at all.
+        self.experiment.end_date = None
+        self.experiment.save()
+
+        journeys: dict = {}
+        for index in range(96):
+            journeys.update(self._flag_call_journey(f"user_ok_{index}", None))
+        for index in range(4):
+            journeys.update(self._flag_call_journey(f"user_timeout_{index}", "timeout"))
+        journeys.update(self._flag_call_journey("user_conn_0", "connection_error"))
+        journeys_for(journeys, self.team)
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=None,
+        )
+        result = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        coverage = result.exposure_coverage
+        assert coverage is not None
+        self.assertEqual(coverage.evaluated_entities, 96)
+        self.assertEqual(coverage.error_reasons, {"timeout": 4, "connection_error": 1})
+        self.assertAlmostEqual(coverage.errored_percentage, 5 / 101 * 100, places=5)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_coverage_skipped_when_experiment_has_ended(self):
+        # Bootstrapping the SDK only helps while the experiment is still collecting data.
+        journeys: dict = {}
+        for index in range(96):
+            journeys.update(self._flag_call_journey(f"user_ok_{index}", None))
+        for index in range(5):
+            journeys.update(self._flag_call_journey(f"user_timeout_{index}", "timeout"))
+        journeys_for(journeys, self.team)
+
+        def _runner(end_date: str | None) -> ExperimentExposuresQueryRunner:
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=self.experiment.id,
+                experiment_name=self.experiment.name,
+                feature_flag=model_to_dict(self.feature_flag),
+                start_date=self.experiment.start_date.isoformat(),
+                end_date=end_date,
+                exposure_criteria=None,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        self.assertIsNone(_runner(self.experiment.end_date.isoformat()).calculate().exposure_coverage)
+        self.assertIsNotNone(_runner(None).calculate().exposure_coverage)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_coverage_skipped_for_custom_exposure_event(self):
+        # Exposures then come from an event the flag-call outcomes say nothing about.
+        self.experiment.end_date = None
+        self.experiment.exposure_criteria = {
+            "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "custom_exposure", "properties": []}
+        }
+        self.experiment.save()
+
+        journeys: dict = {}
+        for index in range(96):
+            journeys.update(self._flag_call_journey(f"user_ok_{index}", None))
+        for index in range(5):
+            journeys.update(self._flag_call_journey(f"user_timeout_{index}", "timeout"))
+        journeys_for(journeys, self.team)
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+        result = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertIsNone(result.exposure_coverage)
+
     def test_date_range_follows_query_not_model(self):
         # The result is cached under a key hashed from the query (see get_cache_payload), so the window
         # must come from the query — not live model state. A query whose end_date differs from the

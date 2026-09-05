@@ -280,6 +280,60 @@ class ExposureQueryBuilder:
             return ast.Constant(value=True)
         return ast.Call(name="notEmpty", args=[ast.Field(chain=[self.context.entity_key])])
 
+    def flag_call_outcomes_query(self) -> ast.SelectQuery:
+        """
+        Returns entity counts per flag-evaluation outcome, over `$feature_flag_called`
+        events for this experiment's flag.
+
+        Rows are (reason, entities). An empty reason means the entity got a variant back
+        at least once; any other reason is the `$feature_flag_error` value of an entity
+        that only ever got errors.
+
+        Always reads `$feature_flag_called` rather than the configured exposure event:
+        this measures what the SDK reported, and a failed evaluation carries no variant
+        for the exposure query to match on.
+
+        Returns:
+            SelectQuery with columns: reason, entities
+        """
+        error_property = parse_expr("ifNull(toString(properties.$feature_flag_error), '')")
+        query = parse_select(
+            """
+            SELECT reason, count() AS entities
+            FROM (
+                SELECT
+                    {entity_key} AS entity_id,
+                    if(
+                        countIf(empty({error_property})) > 0,
+                        '',
+                        anyIf({error_property}, notEmpty({error_property}))
+                    ) AS reason
+                FROM events
+                WHERE timestamp >= {date_from}
+                    AND timestamp <= {date_to}
+                    AND event = {flag_called_event}
+                    AND {flag_property} = {feature_flag_key}
+                    AND {test_accounts_filter}
+                    AND {entity_key_filter}
+                GROUP BY entity_id
+            )
+            GROUP BY reason
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.context.entity_key),
+                "error_property": error_property,
+                "date_from": self.context.date_range_query.date_from_as_hogql(),
+                "date_to": self.context.date_range_query.date_to_as_hogql(),
+                "flag_called_event": ast.Constant(value=DEFAULT_EXPOSURE_EVENT),
+                "flag_property": ast.Field(chain=["properties", "$feature_flag"]),
+                "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
+                "test_accounts_filter": self.build_test_accounts_filter(),
+                "entity_key_filter": self.build_entity_key_filter(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def build_exposure_predicate(self) -> ast.Expr:
         """
         Builds the exposure predicate as an AST expression.

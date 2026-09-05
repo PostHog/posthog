@@ -13,6 +13,7 @@ from posthog.schema import (
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
+    ExposureCoverage,
     IntervalType,
     SampleRatioMismatch,
 )
@@ -32,7 +33,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.experiments.backend.analysis_health import evaluate_bias_risk, evaluate_exposure_coverage
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -45,7 +46,12 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    get_entity_key,
+    has_activation_config,
+    is_default_exposure_config,
+    normalize_to_exposure_criteria,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -141,12 +147,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             spill_to_disk=True,
         )
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
+    def _build_query_builder(self) -> ExperimentQueryBuilder:
         exposure_params = get_exposure_config_params_for_builder(
             self.exposure_criteria, self.team, self.experiment.start_date
         )
-
-        builder = ExperimentQueryBuilder(
+        return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_params.exposure_config,
@@ -158,6 +163,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             activation_config=exposure_params.activation_config,
         )
 
+    def _get_exposure_query(self, builder: ExperimentQueryBuilder) -> ast.SelectQuery:
         # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
         # Until then, the duration gate here is unconditional — the main runner
         # lets PrecomputationMode.PRECOMPUTED bypass the gate, but this path has
@@ -298,6 +304,45 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             total_exposures=total_exposures,
         )
 
+    def _evaluate_exposure_coverage(self, builder: ExperimentQueryBuilder) -> ExposureCoverage | None:
+        """
+        Flag callers that only ever got an error back, so they never became exposures.
+        Skipped for stopped experiments (the fix, bootstrapping the SDK, only helps while
+        running) and for custom exposure events (exposures then come from an event the
+        flag-call outcomes say nothing about).
+        """
+        if self.window_end_date is not None:
+            return None
+        criteria = normalize_to_exposure_criteria(self.exposure_criteria)
+        if criteria is not None and not is_default_exposure_config(criteria.exposure_config):
+            return None
+
+        try:
+            with tags_context(experiment_query_surface="flag_call_outcomes"):
+                response = execute_hogql_query(
+                    query_type="ExperimentFlagCallOutcomesQuery",
+                    query=builder.get_flag_call_outcomes_query(),
+                    team=self.team,
+                    user=self.user,
+                    timings=self.timings,
+                    modifiers=create_default_modifiers_for_team(self.team),
+                    settings=HogQLGlobalSettings(max_execution_time=60),
+                )
+        except Exception:
+            # A missing coverage signal must not take the exposure chart down with it.
+            logger.exception("exposure_coverage_query_failed", experiment_id=self.experiment.id)
+            return None
+
+        evaluated_entities = 0
+        errored_entities_by_reason: dict[str, int] = {}
+        for reason, entities in response.results or []:
+            if reason:
+                errored_entities_by_reason[str(reason)] = int(entities)
+            else:
+                evaluated_entities += int(entities)
+
+        return evaluate_exposure_coverage(evaluated_entities, errored_entities_by_reason)
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
         # Adding experiment specific tags to the tag collection
@@ -315,7 +360,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
         # Set limit to avoid being cut-off by the default 100 rows limit
-        query = self._get_exposure_query()
+        builder = self._build_query_builder()
+        query = self._get_exposure_query(builder)
         query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
 
         response = execute_hogql_query(
@@ -371,6 +417,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures)
+        exposure_coverage = self._evaluate_exposure_coverage(builder)
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
@@ -378,6 +425,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range=self.date_range,
             sample_ratio_mismatch=sample_ratio_mismatch,
             bias_risk=bias_risk,
+            exposure_coverage=exposure_coverage,
         )
 
     def to_query(self) -> ast.SelectQuery:

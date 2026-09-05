@@ -8512,6 +8512,9 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "exposure_coverage": {
+                    "$ref": "#/definitions/ExposureCoverage"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -24565,6 +24568,9 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "exposure_coverage": {
+                    "$ref": "#/definitions/ExposureCoverage"
+                },
                 "kind": {
                     "const": "ExperimentExposureQuery",
                     "type": "string"
@@ -26078,6 +26084,33 @@
                 }
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
+            "type": "object"
+        },
+        "ExposureCoverage": {
+            "additionalProperties": false,
+            "description": "Flag evaluations that never produced a variant, measured over `$feature_flag_called` events for the experiment's flag. Present on the response only when the errored share is above the threshold and the sample is large enough to read.",
+            "properties": {
+                "error_reasons": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Errored entity counts by `$feature_flag_error` value, largest first.",
+                    "type": "object"
+                },
+                "errored_entities": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Entities that called the flag and only ever got an error back."
+                },
+                "errored_percentage": {
+                    "description": "Errored entities as a percentage (0-100) of all entities that called the flag.",
+                    "type": "number"
+                },
+                "evaluated_entities": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Entities that called the flag and got a variant back at least once."
+                }
+            },
+            "required": ["evaluated_entities", "errored_entities", "errored_percentage", "error_reasons"],
             "type": "object"
         },
         "ExternalDataSourceType": {
@@ -42269,6 +42302,9 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "exposure_coverage": {
+                            "$ref": "#/definitions/ExposureCoverage"
                         },
                         "kind": {
                             "const": "ExperimentExposureQuery",
