@@ -45,7 +45,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _safe_convert_datetime,
     _sanitize_identifier,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import (
+    _INVALID_CREDENTIALS_ERROR,
+    MySQLSource,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 # ---------------------------------------------------------------------------
@@ -2463,7 +2466,7 @@ class TestMySQLSourceValidateCredentials:
             # that sends the user to inspect the host/port instead. Mirrors Postgres.
             (
                 pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
-                "Invalid user or password",
+                _INVALID_CREDENTIALS_ERROR,
             ),
         ],
     )
