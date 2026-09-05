@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ElementsEventType } from '~/toolbar/types'
@@ -419,10 +420,38 @@ describe('heatmapToolbarMenuLogic', () => {
 
             await expectLogic(logic, () => logic.actions.startLoadingAllElementStats()).toDispatchActions([
                 'getElementStatsSuccess',
-                'getElementStatsSuccess',
             ])
+            expect(logic.values.loadingAllElementStats).toBe(true)
+
+            await expectLogic(logic).toDispatchActions(['getElementStatsSuccess'])
 
             expect(page).toHaveBeenCalledTimes(2)
+            expect(logic.values.loadingAllElementStats).toBe(false)
+        })
+
+        it('ends the run when the page navigates', async () => {
+            // every page reports another page, so only the navigation can end the run
+            jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: 'http://localhost/api/element/stats?offset=100', previous: null },
+            } as any)
+            jest.spyOn(toolbarApi.elementStats, 'page').mockResolvedValue({
+                ok: true,
+                status: 200,
+                data: { results: [], next: 'http://localhost/api/element/stats?offset=200', previous: null },
+            } as any)
+
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
+                'getElementStatsSuccess',
+                'getElementStatsSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.startLoadingAllElementStats()).toDispatchActions([
+                'getElementStatsSuccess',
+            ])
+            expect(logic.values.loadingAllElementStats).toBe(true)
+
+            currentPageLogic.actions.setHref('http://localhost/another-page')
             expect(logic.values.loadingAllElementStats).toBe(false)
         })
 

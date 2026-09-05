@@ -819,6 +819,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 getElementStatsFailure: () => false,
                 resetElementStats: () => false,
                 disableHeatmap: () => false,
+                // the run belongs to the page and pattern it started on
+                setHref: () => false,
+                setWildcardHref: () => false,
             },
         ],
         heatmapEnabled: [

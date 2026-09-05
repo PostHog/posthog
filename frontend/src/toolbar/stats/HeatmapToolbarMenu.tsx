@@ -353,6 +353,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                         startLoadingAllElementStats()
                                         posthog.capture('heatmap_load_all_started_on_heatmap')
                                     }}
+                                    // a loading button is disabled, and the run needs to stay stoppable
                                     loading={elementStatsLoading && !loadingAllElementStats}
                                     tooltip={
                                         loadingAllElementStats
