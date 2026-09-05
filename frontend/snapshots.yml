@@ -2800,6 +2800,10 @@ snapshots:
         hash: v1.k794b7964.6720b50c7ba8f3918a8c142a86467b7a910a5c6f0d88d49ca8042afbf628877e.I5xU7-YqIfvND-ac2n3lc_kN5TEraGL5oLW-VNPkmcI
     filters-taxonomic-filter--six-groups-default-layout--light:
         hash: v1.k794b7964.2b35cab321e44ea92319f32ba472e98060a16f33a9f78add392558f355fa65f8.WVEXHn1UNrYtkOhxbuTA_AXUp8EZZMeUuxb9nSgBLxg
+    filters-taxonomic-filter--slow-expansion-count--dark:
+        hash: v1.k794b7964.f8bab5e9a170682fbaad198c797d11f9bf4b8ad0c963d15284e275a8288c3103.NBrTJPSNHo80dbma7MGbu1AXsJpkb03Mx-MwAk5DLzU
+    filters-taxonomic-filter--slow-expansion-count--light:
+        hash: v1.k794b7964.949427396f7f328e1312778ebc41c332f662f9b04a3eb767fb626c309f59fd3c.dFGW6CBI5dxi8Lrebe7-Y-z29RGsX7NnmRc16RyJJIM
     filters-taxonomic-filter--suggested-filters-five-recents-with-truncation--dark:
         hash: v1.k794b7964.40e8f6390fa4df285ef22407eb2e6d3fc8be46ad51c70969d8e7df72292e26db.QbM8TTsW3Nntp4SpQl2u4XLYhVdO6Gr2d0VX84f-qt4
     filters-taxonomic-filter--suggested-filters-five-recents-with-truncation--light:
