@@ -398,6 +398,10 @@ export const signalsScoutCreateBodyConfigOneTagsMax = 10
 
 export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
 
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 4
+
+export const signalsScoutCreateBodySuggestionIdMax = 64
+
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -567,11 +571,25 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
                     ),
+                write_scopes: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
+                    .optional()
+                    .describe(
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                    ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
             .optional()
             .describe(
                 'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
+            ),
+        suggestion_id: zod
+            .string()
+            .max(signalsScoutCreateBodySuggestionIdMax)
+            .optional()
+            .describe(
+                "Optional id of the suggestion this scout was created from. The suggestion then stops being offered on this project. An id this project's batch does not hold is ignored."
             ),
     })
     .describe('Create a runnable custom scout and its config in one atomic request.')
@@ -580,6 +598,8 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
  * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
  * @summary Start a scout chat task
  */
+export const signalsScoutChatTasksCreateBodySuggestionIdMax = 64
+
 export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
     chat_type: zod
         .enum(['author_scout', 'fleet_overview', 'recent_signals'])
@@ -588,6 +608,13 @@ export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
         )
         .describe(
             'Which scout chat to start: `author_scout` (guided scout authoring), `fleet_overview` (health of the scout fleet), or `recent_signals` (walk through recently emitted signals). The prompt template is owned server-side.\n\n\* `author_scout` - author_scout\n\* `fleet_overview` - fleet_overview\n\* `recent_signals` - recent_signals'
+        ),
+    suggestion_id: zod
+        .string()
+        .max(signalsScoutChatTasksCreateBodySuggestionIdMax)
+        .optional()
+        .describe(
+            "Optional id of a suggestion from this project's scout suggestion batch. The chat then opens on that draft instead of scanning from scratch. `author_scout` only."
         ),
 })
 
@@ -615,6 +642,8 @@ export const signalsScoutConfigCreateBodyModelMax = 200
 export const signalsScoutConfigCreateBodyTagsMax = 10
 
 export const signalsScoutConfigCreateBodyMcpGatewayServerIdsMax = 100
+
+export const signalsScoutConfigCreateBodyWriteScopesMax = 4
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
@@ -742,6 +771,13 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
             ),
+        write_scopes: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyWriteScopesMax)
+            .optional()
+            .describe(
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+            ),
         skill_name: zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
@@ -777,6 +813,8 @@ export const signalsScoutConfigUpdateBodyModelMax = 200
 export const signalsScoutConfigUpdateBodyTagsMax = 10
 
 export const signalsScoutConfigUpdateBodyMcpGatewayServerIdsMax = 100
+
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 4
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -909,6 +947,13 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
             ),
+        write_scopes: zod
+            .array(zod.string())
+            .max(signalsScoutConfigUpdateBodyWriteScopesMax)
+            .optional()
+            .describe(
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+            ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
@@ -935,11 +980,11 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
             ),
-        expires_at: zod.iso
-            .datetime({ offset: true })
+        expires_at: zod
+            .string()
             .nullish()
             .describe(
-                "Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted."
+                "Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost."
             ),
     })
     .describe('Request body for `notes-create`.')
@@ -1512,8 +1557,8 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .describe(
                 "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run."
             ),
-        expires_at: zod.iso
-            .datetime({ offset: true })
+        expires_at: zod
+            .string()
             .nullish()
             .describe(
                 "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost."

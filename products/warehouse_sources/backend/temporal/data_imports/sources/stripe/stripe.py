@@ -1487,6 +1487,18 @@ def _is_stripe_webhook_limit_error(error_str: str) -> bool:
     return "maximum of" in lowered and "webhook endpoint" in lowered
 
 
+def _is_stripe_connected_account_webhook_error(error_str: str) -> bool:
+    """Detect Stripe's refusal to manage webhook endpoints on a connected account.
+
+    A Connect request (platform key plus a ``stripe_account`` header, which every OAuth
+    connection uses) can never create the endpoint on the connected account, so the message
+    carries "permission" and would otherwise land in the generic permission branch and tell the
+    user to widen a scope or reconnect. Neither can lift the restriction.
+    """
+    lowered = error_str.lower()
+    return "connected account" in lowered and "webhook endpoint" in lowered
+
+
 def create_webhook(
     api_key: str,
     stripe_account_id: str | None,
@@ -1550,6 +1562,15 @@ def create_webhook(
                     "Stripe account. The 'Account id' in your source settings only applies to Stripe Connect "
                     "platform accounts — remove or correct it if your key belongs directly to the account, "
                     "then retry. Otherwise, set up the webhook manually below."
+                ),
+            )
+
+        if _is_stripe_connected_account_webhook_error(error_str):
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Stripe doesn't allow creating a webhook endpoint on a connected account. "
+                    "Set up the webhook manually below, on your platform account in Stripe."
                 ),
             )
 

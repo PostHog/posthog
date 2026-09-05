@@ -11,6 +11,9 @@ _INJECTED_COLUMNS = {
     "dt": "Time of the data, Unix UTC timestamp.",
 }
 
+# One Call 4.0 returns alert IDs inline on weather rows; the full alert is a separate lookup.
+_ALERTS_COLUMN = "IDs of the government weather alerts covering the location, from the One Call API 4.0."
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "current_weather": {
         "description": "Current weather snapshot for a configured location, from the OpenWeather Current Weather Data API.",
@@ -71,10 +74,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "components": "Forecasted pollutant concentrations in μg/m³: co, no, no2, o3, so2, pm2_5, pm10, nh3.",
         },
     },
-    # One Call API 3.0 tables. Each row is one section of the shared `/data/3.0/onecall` response.
+    # One Call tables, served by both One Call 3.0 (one section of the shared `/data/3.0/onecall`
+    # response) and One Call 4.0 (one endpoint per table).
     "current": {
-        "description": "Current weather snapshot for a configured location, from the OpenWeather One Call API 3.0.",
-        "docs_url": "https://openweathermap.org/api/one-call-3",
+        "description": "Current weather snapshot for a configured location, from the OpenWeather One Call API.",
+        "docs_url": "https://openweathermap.org/api/one-call-4",
         "columns": {
             **_INJECTED_COLUMNS,
             "temp": "Temperature (units depend on the `units` request parameter; standard is Kelvin).",
@@ -93,11 +97,44 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "sunrise": "Sunrise time, Unix UTC timestamp.",
             "sunset": "Sunset time, Unix UTC timestamp.",
             "weather": "List of weather condition objects (id, main, description, icon).",
+            "alerts": _ALERTS_COLUMN,
+        },
+    },
+    "minutely": {
+        "description": "Minute-by-minute precipitation forecast for the next hour; one row per minute.",
+        "docs_url": "https://openweathermap.org/api/one-call-4",
+        "columns": {
+            **_INJECTED_COLUMNS,
+            "precipitation": "Forecasted precipitation volume for the minute, mm/h.",
+            "alerts": _ALERTS_COLUMN,
+        },
+    },
+    "quarter_hourly": {
+        "description": "15 minute weather forecast timeline for a configured location; one row per 15 minute slot.",
+        "docs_url": "https://openweathermap.org/api/one-call-4",
+        "columns": {
+            **_INJECTED_COLUMNS,
+            "temp": "Forecasted temperature for the slot.",
+            "feels_like": "Human-perceived temperature for the slot.",
+            "pressure": "Atmospheric pressure at sea level, hPa.",
+            "humidity": "Humidity, as a percentage.",
+            "dew_point": "Atmospheric temperature below which dew forms.",
+            "uvi": "UV index.",
+            "clouds": "Cloudiness, as a percentage.",
+            "visibility": "Average visibility in metres.",
+            "wind_speed": "Wind speed.",
+            "wind_gust": "Wind gust, where available.",
+            "wind_deg": "Wind direction, degrees (meteorological).",
+            "pop": "Probability of precipitation, from 0 to 1.",
+            "rain": "Rain volume for the slot, where available (`1h`).",
+            "snow": "Snow volume for the slot, where available (`1h`).",
+            "weather": "List of weather condition objects for the slot.",
+            "alerts": _ALERTS_COLUMN,
         },
     },
     "hourly": {
-        "description": "Hourly weather forecast (48 hours) for a configured location; one row per hour.",
-        "docs_url": "https://openweathermap.org/api/one-call-3",
+        "description": "Hourly weather forecast for a configured location; one row per hour.",
+        "docs_url": "https://openweathermap.org/api/one-call-4",
         "columns": {
             **_INJECTED_COLUMNS,
             "temp": "Forecasted temperature for the hour.",
@@ -115,11 +152,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "rain": "Rain volume for the hour, where available (`1h`).",
             "snow": "Snow volume for the hour, where available (`1h`).",
             "weather": "List of weather condition objects for the hour.",
+            "alerts": _ALERTS_COLUMN,
         },
     },
     "daily": {
-        "description": "Daily weather forecast (8 days) for a configured location; one row per day.",
-        "docs_url": "https://openweathermap.org/api/one-call-3",
+        "description": "Daily weather forecast for a configured location; one row per day.",
+        "docs_url": "https://openweathermap.org/api/one-call-4",
         "columns": {
             **_INJECTED_COLUMNS,
             "summary": "Human-readable summary of the day's weather.",
@@ -142,6 +180,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "moonset": "Moonset time, Unix UTC timestamp.",
             "moon_phase": "Moon phase, from 0 to 1.",
             "weather": "List of weather condition objects for the day.",
+            "visibility": "Average visibility in metres.",
+            "alerts": _ALERTS_COLUMN,
         },
     },
 }

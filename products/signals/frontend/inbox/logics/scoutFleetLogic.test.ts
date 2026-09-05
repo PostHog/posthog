@@ -66,6 +66,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     output_destinations: {},
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
+    write_scopes: [],
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
@@ -446,12 +447,15 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
-    it('starts the chat task server-side and navigates to it', async () => {
+    it('starts the chat task server-side once and navigates to it', async () => {
         mockSignalsScoutChatTasksCreate.mockResolvedValue({ task_id: 'task-1' })
 
         logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+        // A second press while the first request is out must not mint a second paid task.
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
         await expectLogic(logic).toDispatchActions(['startScoutChatTaskSuccess'])
 
+        expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledTimes(1)
         expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), {
             chat_type: 'author_scout',
         })

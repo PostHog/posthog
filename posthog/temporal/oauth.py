@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -263,7 +263,10 @@ class ScoutScopePosture(TypedDict):
     extra_write_scopes: list[str]
 
 
-PosthogMcpScopes = McpScopePreset | list[str] | ScoutScopePosture
+# `ScoutScopePosture` must come before `list[str]`: Temporal's payload converter tries union
+# members in order and `list[str]` accepts a dict, so a posture placed after it decodes as its
+# keys and the run's token holds the scopes `preset` and `extra_write_scopes` instead.
+PosthogMcpScopes = McpScopePreset | ScoutScopePosture | list[str]
 
 MCP_SCOPE_PRESETS = (
     "read_only",
@@ -285,19 +288,35 @@ RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
 
 def scout_scope_posture(
     preset: ScoutScopePreset,
-    extra_write_scopes: Iterable[str] = (),
+    extra_write_scopes: object = (),
 ) -> ScoutScopePosture:
     """Build the scope posture one scout run is dispatched with.
 
-    Callers pass whatever the scout's stored grant holds. Anything outside
-    `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected, because a person is
-    told their input was invalid where they entered it, not at dispatch. A scope removed from
-    the allowlist after it was granted therefore stops reaching new runs with no data migration.
+    Callers pass whatever the scout's stored grant holds, in whatever shape the JSON column holds
+    it. Anything outside `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected,
+    because a person is told their input was invalid where they entered it, not at dispatch. A
+    scope removed from the allowlist after it was granted therefore stops reaching new runs with no
+    data migration. The value is handed to `_grantable_write_scopes` unshaped: `list()` on a stray
+    JSON object would yield its keys, and `{"dashboard:write": false}` would become a grant.
     """
     return {
         "preset": preset,
-        "extra_write_scopes": _grantable_write_scopes(list(extra_write_scopes)),
+        "extra_write_scopes": _grantable_write_scopes(extra_write_scopes),
     }
+
+
+def scout_mcp_scopes(posture: ScoutScopePosture) -> PosthogMcpScopes:
+    """The value to dispatch a scout run with: the plain preset unless the posture adds a grant.
+
+    The preset string and a posture with no extras resolve to the same token, so the string loses
+    nothing. It is also the shape every worker version reads the same way. The dict is newer, and
+    a worker that predates it decodes the dict as `list[str]` and mints a token from its keys, so
+    the run loses every scout tool. Sending the dict only when a grant needs it keeps a worker
+    that lags one deploy behind from taking the whole fleet down with it.
+    """
+    if not posture["extra_write_scopes"]:
+        return posture["preset"]
+    return posture
 
 
 def _grantable_write_scopes(raw: object) -> list[str]:
@@ -308,7 +327,7 @@ def _grantable_write_scopes(raw: object) -> list[str]:
     built, because an unhashable entry makes `set(raw)` raise and aborts the run that a
     malformed grant is supposed to degrade safely.
     """
-    if not isinstance(raw, list):
+    if not isinstance(raw, list | tuple):
         return []
     return sorted({scope for scope in raw if isinstance(scope, str)} & SCOUT_GRANTABLE_WRITE_SCOPES)
 

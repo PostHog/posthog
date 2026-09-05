@@ -325,6 +325,7 @@ from .curve.source import CurveSource
 from .custom.source import CustomSource
 from .customer_io.source import CustomerIOSource
 from .customerly.source import CustomerlySource
+from .cybersource.source import CybersourceSource
 from .d2l_brightspace.source import D2lBrightspaceSource
 from .dagster_cloud.source import DagsterCloudSource
 from .databricks.source import DatabricksSource
@@ -446,6 +447,7 @@ from .float_app.source import FloatAppSource
 from .flowlu.source import FlowluSource
 from .flutterwave.source import FlutterwaveSource
 from .fly_io.source import FlyIoSource
+from .folk.source import FolkSource
 from .formbricks.source import FormbricksSource
 from .fortnox.source import FortnoxSource
 from .fourthwall.source import FourthwallSource
@@ -1170,6 +1172,7 @@ from .telnyx.source import TelnyxSource
 from .tempo.source import TempoSource
 from .temporalio.source import TemporalIOSource
 from .tenable_vulnerability_management.source import TenableVulnerabilityManagementSource
+from .tenjin.source import TenjinSource
 from .terabox.source import TeraBoxSource
 from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
