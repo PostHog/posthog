@@ -1,9 +1,10 @@
+import clsx from 'clsx'
 import { useActions } from 'kea'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { isExternalLink } from 'lib/utils/url'
 
 import { HealthCheck, HealthCheckStatus } from '../healthCheckTypes'
@@ -21,47 +22,69 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
         check.action?.onClick?.()
     }
 
-    return (
-        <div className="flex items-start gap-3 p-3 rounded border border-primary/10 bg-surface-primary">
-            <StatusIcon status={check.status} urgent={check.urgent} />
-            <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                    {check.title.startsWith('$') ? (
-                        <code className="font-medium text-sm bg-fill-primary px-1.5 py-0.5 rounded">{check.title}</code>
-                    ) : (
-                        <span className="font-medium">{check.title}</span>
-                    )}
-                    {check.docsUrl && (
-                        <Link to={check.docsUrl} target="_blank" className="text-xs text-muted">
-                            Docs
-                        </Link>
-                    )}
-                </div>
-                <div className="text-sm text-secondary mt-0.5">
-                    {check.status === 'loading' ? <LemonSkeleton className="w-32 h-4" /> : check.description}
-                </div>
-            </div>
-            {check.action && (
-                <div className="flex-shrink-0">
-                    {check.action.to ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={check.action.to}
-                            // External docs links must open in a new tab — navigating in place tears
-                            // down the app (and ends any active session recording).
-                            targetBlank={isExternalLink(check.action.to)}
-                            onClick={handleActionClick}
-                        >
-                            {check.action.label}
-                        </LemonButton>
-                    ) : check.action.onClick ? (
-                        <LemonButton type="secondary" size="small" onClick={handleActionClick}>
-                            {check.action.label}
-                        </LemonButton>
-                    ) : null}
-                </div>
+    const hasAction = !!check.action && (!!check.action.to || !!check.action.onClick)
+    // External docs links must open in a new tab — navigating in place tears down the app
+    // (and ends any active session recording).
+    const targetBlank = !!check.action?.to && isExternalLink(check.action.to)
+    const summary = (
+        <>
+            {check.title.startsWith('$') ? (
+                <code className="font-medium text-sm bg-fill-primary px-1.5 py-0.5 rounded">{check.title}</code>
+            ) : (
+                <span className="font-medium">{check.title}</span>
             )}
+            <div className="text-sm text-secondary mt-0.5">
+                {check.status === 'loading' ? <LemonSkeleton className="w-32 h-4" /> : check.description}
+            </div>
+        </>
+    )
+
+    return (
+        <div
+            className={clsx(
+                'flex items-start gap-3 p-3 rounded border border-primary/10 bg-surface-primary',
+                hasAction && 'hover:bg-fill-highlight-50'
+            )}
+        >
+            <StatusIcon status={check.status} urgent={check.urgent} />
+            {hasAction ? (
+                // The title and the description are where people click first, so the whole text
+                // block runs the same action as the button on the right. LinkPrimitive renders a
+                // real anchor when the action has a destination, so a modifier click opens it in a
+                // new tab like the button beside it.
+                <LinkPrimitive
+                    to={check.action?.to}
+                    target={targetBlank ? '_blank' : undefined}
+                    className="flex-1 min-w-0 text-left cursor-pointer"
+                    onClick={handleActionClick}
+                >
+                    {summary}
+                </LinkPrimitive>
+            ) : (
+                <div className="flex-1 min-w-0">{summary}</div>
+            )}
+            <div className="flex items-center gap-3 flex-shrink-0">
+                {check.docsUrl && (
+                    <Link to={check.docsUrl} target="_blank" className="text-xs text-muted">
+                        Docs
+                    </Link>
+                )}
+                {check.action?.to ? (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={check.action.to}
+                        targetBlank={targetBlank}
+                        onClick={handleActionClick}
+                    >
+                        {check.action.label}
+                    </LemonButton>
+                ) : check.action?.onClick ? (
+                    <LemonButton type="secondary" size="small" onClick={handleActionClick}>
+                        {check.action.label}
+                    </LemonButton>
+                ) : null}
+            </div>
         </div>
     )
 }
