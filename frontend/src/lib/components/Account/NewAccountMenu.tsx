@@ -23,6 +23,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { useSubmenuSafeTriangle } from 'lib/ui/Menus/useSubmenuSafeTriangle'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -69,6 +70,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
+    const projectSubmenu = useSubmenuSafeTriangle()
+    const organizationSubmenu = useSubmenuSafeTriangle()
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -169,6 +172,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
                                             openOnHover={false}
+                                            ref={projectSubmenu.triggerRef}
                                             render={
                                                 <ButtonPrimitive
                                                     menuItem
@@ -192,7 +196,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 className="z-[var(--z-popover)]"
                                                 collisionPadding={{ top: 50, bottom: 50 }}
                                             >
-                                                <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
+                                                <Menu.Popup
+                                                    ref={projectSubmenu.popupRef}
+                                                    className="primitive-menu-content w-min max-w-[var(--available-width)]"
+                                                >
                                                     {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                     <div onKeyDown={(e) => e.stopPropagation()}>
                                                         <ProjectSwitcher dialog={false} />
@@ -268,6 +275,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger
                                         openOnHover={false}
+                                        ref={organizationSubmenu.triggerRef}
                                         render={
                                             <ButtonPrimitive
                                                 menuItem
@@ -297,7 +305,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             className="z-[var(--z-popover)]"
                                             collisionPadding={{ top: 50, bottom: 50 }}
                                         >
-                                            <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
+                                            <Menu.Popup
+                                                ref={organizationSubmenu.popupRef}
+                                                className="primitive-menu-content w-min max-w-[var(--available-width)]"
+                                            >
                                                 {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                 <div onKeyDown={(e) => e.stopPropagation()}>
                                                     <OrgSwitcher dialog={false} />
