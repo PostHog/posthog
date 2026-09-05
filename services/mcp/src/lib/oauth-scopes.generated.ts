@@ -11,6 +11,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'openid',
     'profile',
     'email',
+    'introspection',
     'action:read',
     'action:write',
     'access_control:read',
