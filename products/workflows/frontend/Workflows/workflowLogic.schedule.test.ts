@@ -2,10 +2,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_STATE, ONE_TIME_RRULE } from './hogflows/steps/components/rrule-helpers'
-import { HogFlowSchedule } from './hogflows/types'
+import { HogFlowSchedule, HogFlowWithSchedules } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
 const WEEKLY_MONDAY_RRULE = 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO'
@@ -17,6 +18,48 @@ const makeSchedule = (overrides: Partial<HogFlowSchedule> = {}): HogFlowSchedule
     starts_at: STARTS_AT,
     timezone: 'UTC',
     ...overrides,
+})
+
+const WORKFLOW_ID = 'wf-schedule-1'
+
+const makeScheduledWorkflow = (overrides: Partial<HogFlowWithSchedules> = {}): HogFlowWithSchedules =>
+    ({
+        id: WORKFLOW_ID,
+        name: 'Scheduled workflow',
+        actions: [],
+        edges: [],
+        status: 'active',
+        team_id: 1,
+        trigger: { type: 'batch', filters: {} },
+        created_at: STARTS_AT,
+        updated_at: STARTS_AT,
+        ...overrides,
+    }) as HogFlowWithSchedules
+
+describe('workflowLogic schedules from the workflow response', () => {
+    let logic: ReturnType<typeof workflowLogic.build>
+
+    it('keeps the schedule when the schedules sub-resource read fails', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [
+                    200,
+                    makeScheduledWorkflow({ schedules: [makeSchedule({ next_run_at: '2099-01-04T09:00:00.000Z' })] }),
+                ],
+                '/api/environments/:team_id/hog_flows/:id/schedules': () => [500, { error: 'nope' }],
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'setSchedules'])
+
+        expect(logic.values.nextScheduledRun).toEqual({ at: '2099-01-04T09:00:00.000Z', timezone: 'UTC' })
+        // A seeded schedule must not read as an edit, or saving would delete it.
+        expect(logic.values.pendingSchedule).toBe(false)
+    })
 })
 
 describe('workflowLogic schedule reducers', () => {

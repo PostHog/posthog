@@ -49,6 +49,7 @@ import {
     HogFlowActionValidationResult,
     type HogFlowEdge,
     type HogFlowSchedule,
+    type HogFlowWithSchedules,
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
@@ -4018,6 +4019,13 @@ export const workflowLogic = kea<workflowLogicType>([
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
+            // The response already carries the schedules, so seed them before the sub-resource read
+            // below. An empty list must mean "no schedule", not "not read yet". The trigger button
+            // tells a person whether a manual run is extra on top of a schedule.
+            const { schedules } = originalWorkflow as HogFlowWithSchedules
+            if (schedules) {
+                actions.setSchedules(schedules)
+            }
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.replayDeferredResourceEdited()
