@@ -69,19 +69,21 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
 
 
 def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
-    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
+    """Floor an events-table scan to ``timestamp >= toStartOfMonth(now()) - toIntervalMonth(retention_months)``.
 
     Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
     events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
-    Uses a calendar-month interval so the boundary lands on the exact date (no leap-year / 365-day drift).
+    The floor sits on the 1st of a month so data ages out on the 1st of the month after the window, which keeps
+    month-over-month and year-over-year comparisons whole. ``now()`` carries the project timezone, so the 1st is the
+    customer's 1st.
     """
     field_table_type = _table_filter_type(table_type)
     return ast.CompareOperation(
-        op=ast.CompareOperationOp.Gt,
+        op=ast.CompareOperationOp.GtEq,
         left=ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=field_table_type)),
         right=ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
-            left=ast.Call(name="now", args=[]),
+            left=ast.Call(name="toStartOfMonth", args=[ast.Call(name="now", args=[])]),
             right=ast.Call(name="toIntervalMonth", args=[ast.Constant(value=retention_months)]),
         ),
         type=ast.BooleanType(),

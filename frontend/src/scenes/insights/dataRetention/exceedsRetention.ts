@@ -48,5 +48,6 @@ export function exceedsRetention({
     if (!resolvedDateFrom) {
         return false
     }
-    return dayjs(resolvedDateFrom).isBefore(dayjs().subtract(retentionMonths, 'month'))
+    // The query floor sits on the 1st of the month, so data ages out on the 1st, not on the day of its timestamp.
+    return dayjs(resolvedDateFrom).isBefore(dayjs().startOf('month').subtract(retentionMonths, 'month'))
 }
