@@ -5,11 +5,13 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Transient_Error_Messages
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import EXPORT_TRUNCATED_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
 
 LOGGER = structlog.get_logger()
@@ -155,3 +157,12 @@ class TestNonRetryableErrors:
     )
     def test_transient_failures_stay_retryable(self, _name: str, other_error: str) -> None:
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
+
+    def test_truncated_export_is_classified_retryable(self) -> None:
+        observed_error = f"{EXPORT_TRUNCATED_ERROR} for 2024-01-01"
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+
+    def test_truncated_export_has_customer_facing_copy(self) -> None:
+        # The shared map keys on a literal, so a reworded error would silently lose its copy.
+        assert EXPORT_TRUNCATED_ERROR in Transient_Error_Messages
