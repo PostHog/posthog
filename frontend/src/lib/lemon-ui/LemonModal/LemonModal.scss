@@ -1,3 +1,14 @@
+// react-modal adds this class to <body> while any modal is open — LemonModal and LemonDrawer
+// both use the default class, so this lock intentionally covers drawers too. Without it the page
+// behind the modal remains scrollable, so on touch devices swipe gestures scroll the page instead
+// of the modal's own scroll area. scrollbar-gutter keeps the scrollbar's space reserved on the
+// few surfaces where the body is the scroller (exported/shared pages, plain-layout scenes), so
+// locking doesn't shift the page sideways on classic-scrollbar systems.
+body.ReactModal__Body--open {
+    overflow: hidden;
+    scrollbar-gutter: stable;
+}
+
 .LemonModal__overlay {
     position: fixed;
     inset: 0;
@@ -40,6 +51,11 @@
 
     // Always give toasts some space at the bottom
     max-height: calc(100vh - 60px - 2rem);
+
+    // On mobile browsers 100vh includes the area behind the collapsible browser toolbar, so a
+    // vh-sized modal can extend below the visible viewport, leaving its bottom unreachable.
+    // dvh tracks the actually-visible viewport; 100vh above stays as the fallback.
+    max-height: calc(100dvh - 60px - 2rem);
     margin: 1rem auto;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border-bold);
@@ -86,11 +102,19 @@
         flex: 1;
         flex-direction: column;
         overflow-y: hidden;
+
+        // `simple` modals render their own scroll containers here rather than in
+        // .LemonModal__content, so their edge-swipes must be contained at this level too.
+        overscroll-behavior: contain;
     }
 
     .LemonModal__content {
         padding: 1rem;
         overflow-y: auto;
+
+        // Reaching the top or bottom of the modal's scroll area must not chain the scroll
+        // gesture to the page behind the modal.
+        overscroll-behavior: contain;
 
         &.LemonModal__content--embedded {
             padding: 0;
