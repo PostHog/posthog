@@ -1155,9 +1155,6 @@ export interface eventUsageLogicActions {
     reportExperimentBiasWarningShown: (experiment: Experiment) => {
         experiment: Experiment
     }
-    reportExperimentExposureCoverageWarningShown: (experiment: Experiment) => {
-        experiment: Experiment
-    }
     reportExperimentCreated: (
         experiment: Experiment,
         metadata?: {
@@ -1200,6 +1197,9 @@ export interface eventUsageLogicActions {
     ) => {
         existingCohort: CohortType
         newCohort: CohortType
+    }
+    reportExperimentExposureCoverageWarningShown: (experiment: Experiment) => {
+        experiment: Experiment
     }
     reportExperimentFeatureFlagModalOpened: () => {}
     reportExperimentFeatureFlagSelected: (featureFlagKey: string) => {
