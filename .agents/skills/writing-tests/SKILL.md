@@ -159,9 +159,9 @@ Escalating to the next rung is the last resort, not the default.
   - For a final async result, use `wait_for` / `waitFor` on the observable result.
   - For an in-flight state, make the mocked boundary await a promise controlled by the
     test. Assert the pending state, release the promise, then assert the final state.
-  Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
-  pending on the next line. Test setup may shorten internal delays without changing
-  production behavior.
+    Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
+    pending on the next line. Test setup may shorten internal delays without changing
+    production behavior.
 - **No `time.sleep` / arbitrary waits.** A sleep is a flake waiting to happen, and it
   slows every run. Replace it with the matching control above or `freeze_time`.
 - **An absolute date in a test is a time bomb until you pin the clock.**
