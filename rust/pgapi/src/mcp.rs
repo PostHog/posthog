@@ -348,9 +348,15 @@ impl ServerHandler for PgMcp {
 }
 
 pub fn service(state: Arc<AppState>) -> StreamableHttpService<PgMcp, LocalSessionManager> {
+    let mut config = StreamableHttpServerConfig::default();
+    if state.allowed_hosts.is_empty() {
+        config = config.disable_allowed_hosts();
+    } else {
+        config = config.with_allowed_hosts(state.allowed_hosts.clone());
+    }
     StreamableHttpService::new(
         move || Ok(PgMcp::new(state.clone())),
         LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default(),
+        config,
     )
 }
