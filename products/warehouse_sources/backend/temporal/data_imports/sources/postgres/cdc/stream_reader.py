@@ -127,6 +127,7 @@ class PgCDCStreamReader:
                 user=self._params.user,
                 password=self._params.password,
                 require_ssl=self._params.require_ssl,
+                team_id=self._source.team_id if self._source is not None else None,
                 # statement_timeout (30m) is a server-side ceiling so a stalled WAL decode can't
                 # hang the streaming connection indefinitely; it bounds a single peek, the caller's
                 # soft deadline bounds the whole run. idle_in_transaction_session_timeout=0 stops the
@@ -291,6 +292,7 @@ class PgCDCStreamReader:
                 user=self._params.user,
                 password=self._params.password,
                 require_ssl=self._params.require_ssl,
+                team_id=self._source.team_id if self._source is not None else None,
             ),
             logger,
         )

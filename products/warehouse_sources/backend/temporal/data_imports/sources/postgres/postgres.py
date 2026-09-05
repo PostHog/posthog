@@ -4,6 +4,7 @@ import re
 import math
 import time
 import errno
+import ipaddress
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -59,7 +60,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    check_resolved_addresses,
+    open_ssh_tunnel,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -822,13 +826,75 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
 _resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
 
 
-def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
-    """`psycopg.connect` that retries without the libpq `options` startup parameter when the
-    server rejects it.
+def _pinned_host_kwargs(host: str, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
+    """Resolve `host` once, validate the answer, and return the libpq `host`/`hostaddr` pair that
+    dials exactly those addresses.
 
-    See `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
+    Bounds psycopg's Python-side DNS lookup, which would otherwise hang the sync activity on a
+    stalled resolver until Temporal's `start_to_close_timeout`. The same lookup is the one the
+    host policy judges: the tunnel layer checks the host but yields the hostname, and a record
+    can answer public there and private on the next lookup. Validating the set libpq dials
+    leaves that record nothing to slip past. The hostname is repeated once per address because
+    libpq pairs `host` and `hostaddr` positionally; keeping the name is what preserves SNI, which
+    Neon and the Supabase pooler need, and keeping every address preserves libpq's per-address
+    failover (see `split_attempts` in psycopg/_conninfo_utils.py).
+
+    An IP literal, a Unix socket path, or an empty host has no lookup to race and comes back
+    unchanged. The SSH tunnel yields its own loopback bind address this way; the policy would
+    refuse it, and there is nothing to pin. A lookup that fails is refused rather than left to
+    libpq to retry, because that retry would be a second, unvalidated lookup. A lookup that
+    times out raises `psycopg.OperationalError` unchanged so it stays retryable.
+
+    Dev and test connect to local or fake hosts, so the lookup is skipped there. This mirrors
+    `_get_sslmode`.
+    """
+    if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
+        return {"host": host}
+
+    if not _is_hostname(host):
+        return {"host": host}
+
+    addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout) or []
+    resolution = check_resolved_addresses(host, addresses, team_id)
+    if resolution.connect_host is None:
+        raise Exception(f"Database host not allowed: {resolution.error}")
+    if not resolution.addresses:
+        # An exempt host whose lookup failed. The policy does not apply, and there is nothing to
+        # pin, so libpq resolves the name itself as it did before.
+        return {"host": host}
+
+    return {
+        "host": ",".join([host] * len(resolution.addresses)),
+        "hostaddr": ",".join(resolution.addresses),
+    }
+
+
+def _is_hostname(host: str) -> bool:
+    if not host or host.startswith("/"):
+        return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return True
+    return False
+
+
+def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
+    """The one `psycopg.connect` in this module. Every connection to a source database opens
+    here so that `_pinned_host_kwargs` decides what gets dialed.
+
+    Retries without the libpq `options` startup parameter when the server rejects it. See
+    `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
     `options` and why dropping it is safe.
     """
+    connect_kwargs.update(
+        _pinned_host_kwargs(
+            connect_kwargs["host"],
+            connect_kwargs.get("port", 5432),
+            connect_kwargs.get("connect_timeout", 15),
+            team_id,
+        )
+    )
     try:
         return psycopg.connect(**connect_kwargs)
     except psycopg.OperationalError as e:
@@ -849,6 +915,7 @@ def _connect_to_postgres(
     password: str,
     require_ssl: bool = False,
     connect_timeout: int = 15,
+    team_id: int | None = None,
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
@@ -859,19 +926,9 @@ def _connect_to_postgres(
     # cleanly. We always force UTF8 and append any caller-supplied `options` after it.
     caller_options = kwargs.pop("options", None)
     options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
-    # Bound psycopg's Python-side DNS lookup in production (see `_resolve_hostaddr_with_timeout`).
-    # Dev/test connect to local or fake hosts, so skip the real lookup there — mirrors `_get_sslmode`.
-    if not (settings.TEST or settings.DEBUG or settings.E2E_TESTING):
-        addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
-        if addresses:
-            # A comma-separated `host`/`hostaddr` pair of matching length is how psycopg/libpq
-            # represent multiple attempts (see `split_attempts` in psycopg/_conninfo_utils.py) — this
-            # keeps its per-address failover intact for a dual-stack host instead of pinning the
-            # connection to whichever single address `getaddrinfo` happened to return first.
-            host = ",".join([host] * len(addresses))
-            kwargs["hostaddr"] = ",".join(addresses)
     try:
-        return _connect_with_options_fallback(
+        return _open_connection(
+            team_id=team_id,
             host=host,
             port=port,
             dbname=database,
@@ -912,10 +969,17 @@ def pg_connection(
     user: str,
     password: str,
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> Iterator[psycopg.Connection]:
     """Context manager that opens a postgres connection and ensures it is closed on exit."""
     conn = _connect_to_postgres(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     )
     try:
         yield conn
@@ -1409,13 +1473,20 @@ def get_postgres_row_count(
     password: str,
     schema: str | None,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, int]:
     if _normalize_selected_schema(schema) is None and not names:
         return {}
     try:
         with pg_connection(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         ) as connection:
             return _row_counts_from_conn(connection, schema, names)
     except:
@@ -1533,6 +1604,7 @@ def get_schemas(
     schema: str | None,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
@@ -1556,7 +1628,13 @@ def get_schemas(
     # `_is_dropped_or_connection_limit` matches only these known-transient conditions.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         )
         try:
             return _schemas_from_conn(connection, schema, names)
@@ -1580,13 +1658,20 @@ def get_primary_keys_for_schemas(
     port: int,
     table_names: list[str],
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys for all tables in a single query."""
     result: dict[str, list[str] | None] = dict.fromkeys(table_names)
 
     try:
         with pg_connection(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         ) as connection:
             pks = get_primary_key_columns(connection, schema, table_names)
             for table_name, pk_cols in pks.items():
@@ -1673,11 +1758,18 @@ def get_foreign_keys(
     schema: str | None,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
     with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     ) as connection:
         return _foreign_keys_from_conn(connection, schema, names)
 
@@ -1689,9 +1781,16 @@ def get_connection_metadata(
     password: str,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> dict[str, Any]:
     with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_database(), version()")
@@ -3304,7 +3403,8 @@ def postgres_source(
 
         def _open_setup_connection() -> psycopg.Connection:
             try:
-                conn = _connect_with_options_fallback(
+                conn = _open_connection(
+                    team_id=team_id,
                     host=host,
                     port=port,
                     dbname=database,
@@ -3674,7 +3774,8 @@ def postgres_source(
 
             def get_connection():
                 try:
-                    connection = _connect_with_options_fallback(
+                    connection = _open_connection(
+                        team_id=team_id,
                         host=host,
                         port=port,
                         dbname=database,

@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
     _is_host_safe,
+    check_resolved_addresses,
     make_ssh_tunnel_factory,
     open_ssh_tunnel,
     resolve_safe_host,
@@ -153,6 +154,9 @@ class TestIsHostSafe(SimpleTestCase):
             resolution = resolve_safe_host("dual-stack.example.com", team_id=999)
 
         assert resolution.connect_host == "52.1.2.3"
+        # Every validated address travels with the result, so a client that can dial more than one
+        # keeps the failover the single pinned address gives up.
+        assert resolution.addresses == ("2600:1f16:1c4:661c:d148:b481:5246:e29d", "52.1.2.3")
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_unresolvable_host_blocked(self):
@@ -550,3 +554,68 @@ class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
                     pass
 
         assert error_message_matches(str(exc.value), Any_Source_Errors.keys())
+
+
+class TestCheckResolvedAddresses(SimpleTestCase):
+    # A client that resolves the host itself and dials that answer validates the dialed set here.
+    # The set it checks is the set it connects to, so a record that answers public on one lookup
+    # and private on the next has nothing to slip past.
+    @parameterized.expand(
+        [
+            ("internal_first", ["10.0.0.5", "203.0.113.5"]),
+            ("internal_second", ["203.0.113.5", "169.254.169.254"]),
+            ("ipv6_mapped_internal", ["::ffff:10.0.0.1"]),
+            ("nat64_imds", ["64:ff9b::169.254.169.254"]),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_any_internal_address_in_the_set_is_refused(self, _name: str, addresses: list[str]):
+        with patch(f"{_MIXINS_MODULE}.logger"):
+            resolution = check_resolved_addresses("db.example.com", addresses, team_id=999)
+
+        assert resolution.connect_host is None
+        assert resolution.addresses == ()
+        assert resolution.error is not None
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_public_set_is_returned_whole_in_resolver_order(self):
+        with (
+            patch(f"{_MIXINS_MODULE}.logger"),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+        ):
+            resolution = check_resolved_addresses("db.example.com", ["2600:1f18::1", "52.1.2.3"], team_id=999)
+
+        assert resolution.error is None
+        assert resolution.connect_host == "2600:1f18::1"
+        assert resolution.addresses == ("2600:1f18::1", "52.1.2.3")
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_an_empty_set_is_a_failed_lookup_and_is_refused(self):
+        with patch(f"{_MIXINS_MODULE}.logger"):
+            resolution = check_resolved_addresses("db.example.com", [], team_id=999)
+
+        assert resolution.connect_host is None
+        assert resolution.error is not None
+        assert "resolve" in resolution.error
+
+    @parameterized.expand(
+        [
+            ("team_allowlist", "US", "db.internal.example.com", 2),
+            ("not_cloud", None, "db.internal.example.com", 999),
+            ("posthog_managed", "US", "warehouse.postwh.com", 999),
+        ]
+    )
+    def test_exemptions_skip_the_check_and_keep_the_set(
+        self, _name: str, deployment: str | None, host: str, team_id: int
+    ):
+        # The exemptions `resolve_safe_host` grants apply here too, or a client that pins would
+        # refuse the internal-analytics teams and PostHog-managed hosts that the unpinned path allows.
+        with (
+            override_settings(CLOUD_DEPLOYMENT=deployment),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            resolution = check_resolved_addresses(host, ["10.0.0.5"], team_id=team_id)
+
+        assert resolution.error is None
+        assert resolution.connect_host == host
+        assert resolution.addresses == ("10.0.0.5",)
