@@ -507,6 +507,7 @@ function EditSubscriptionForm({
                                             data-attr="subscribed-emails"
                                             options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
+                                            caseInsensitiveOptionMatching
                                             placeholder="Enter an email address"
                                         />
                                     )}

@@ -381,6 +381,7 @@ function SubscriptionDeliveryStep({
                                 allowCustomValues
                                 options={usersLemonSelectOptions(meFirstMembers.map((member) => member.user))}
                                 loading={membersLoading}
+                                caseInsensitiveOptionMatching
                                 placeholder="Enter an email address"
                             />
                         )}
