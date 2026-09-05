@@ -4,6 +4,7 @@ import {
   describeGithubConnectError,
   describeIntegrationDisconnectError,
   isAlreadyDisconnectedError,
+  isGithubConnectionRequiredError,
   isGithubConnectPendingApproval,
 } from "./connectErrors";
 
@@ -99,5 +100,21 @@ describe("isGithubConnectPendingApproval", () => {
     [undefined, false],
   ])("code %s -> %s", (code, expected) => {
     expect(isGithubConnectPendingApproval(code)).toBe(expected);
+  });
+});
+
+describe("isGithubConnectionRequiredError", () => {
+  it.each([
+    ["GitHub is not connected for this project", true],
+    ["github_authorization_required", true],
+    ["Link a GitHub account with repo access before running this task.", true],
+    [
+      "User-authored run requires a linked GitHub account with repo access.",
+      true,
+    ],
+    ["GitHub returned a temporary API error", false],
+    [null, false],
+  ])("classifies %s", (message, expected) => {
+    expect(isGithubConnectionRequiredError(message)).toBe(expected);
   });
 });

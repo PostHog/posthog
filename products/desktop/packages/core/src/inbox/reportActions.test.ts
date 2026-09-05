@@ -1,3 +1,4 @@
+import { buildLocalCodeSnapshotPrompt } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
@@ -185,6 +186,24 @@ describe("buildDiscussReportPrompt", () => {
     });
     expect(withQuestion).toMatch(/can't fetch the report/i);
     expect(withoutQuestion).toMatch(/can't fetch the report/i);
+  });
+
+  it("requires code-backed answers to disclose scan coverage", () => {
+    const prompt = buildDiscussReportPrompt({
+      reportId: "abc123",
+      isDevBuild: false,
+    });
+    expect(prompt).toContain("Code context checked");
+    expect(prompt).toContain("number of files scanned");
+    expect(prompt).toContain("excluded or unreadable path");
+  });
+
+  it("marks local code fallback results as limited and possibly stale", () => {
+    const prompt = buildLocalCodeSnapshotPrompt("Investigate this report.");
+    expect(prompt).toContain("uses the selected local folder directly");
+    expect(prompt).toContain("limited to the folder state during this run");
+    expect(prompt).toContain("possibly stale");
+    expect(prompt).toContain("ongoing background investigations");
   });
 });
 
