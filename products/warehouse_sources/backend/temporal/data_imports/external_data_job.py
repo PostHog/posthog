@@ -225,6 +225,13 @@ Transient_Error_Messages: dict[str, str] = {
     "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
+    # Mixpanel signals a server-side abort inside an already-committed 200 body, so the export
+    # stops part-way through a day (mixpanel.py `EXPORT_TRUNCATED_ERROR`). The day is re-fetched
+    # in-process first; this copy is what the customer reads once those retries run out.
+    "Mixpanel export: stream ended early": (
+        "Mixpanel stopped sending a day of events before the export finished. This is on "
+        "Mixpanel's side and usually clears on its own; the next sync runs on schedule."
+    ),
 }
 
 

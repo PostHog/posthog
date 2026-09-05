@@ -411,7 +411,7 @@ class TestExportStreamRetry:
         # Cursor only advances once the day finally completes.
         assert [s.from_date for s in manager.saved] == ["2024-01-02"]
 
-    def test_retries_day_when_stream_ends_in_a_non_event_line(self) -> None:
+    def test_retries_day_when_the_stream_carries_the_abort_marker(self) -> None:
         manager = FakeManager()
         day = date(2024, 1, 1)
         truncated = FakeResponse(lines=[self._line("i1"), b"terminated early"])
@@ -439,6 +439,32 @@ class TestExportStreamRetry:
         assert mock_request.call_count == 2
         mock_sleep.assert_called_once()
         assert [s.from_date for s in manager.saved] == ["2024-01-02"]
+
+    def test_does_not_retry_a_line_without_the_abort_marker(self) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        unparseable = FakeResponse(lines=[self._line("i1"), b"<html>gateway</html>"])
+        with (
+            patch.object(mp, "_request", side_effect=[unparseable]) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            with pytest.raises(orjson.JSONDecodeError):
+                list(
+                    mp._iter_export(
+                        "us",
+                        "u",
+                        "s",
+                        "123",
+                        LOGGER,
+                        manager,  # type: ignore[arg-type]
+                        start_date=day,
+                        end_date=day,
+                        api_version=MIXPANEL_API_VERSION_V1,
+                    )
+                )
+
+        assert mock_request.call_count == 1
+        mock_sleep.assert_not_called()
 
     def test_gives_up_after_max_attempts(self) -> None:
         manager = FakeManager()
