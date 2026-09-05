@@ -55,12 +55,14 @@ function ZendeskImportForm(): JSX.Element {
         apiToken,
         defaultEmailChannelId,
         emailConfigs,
+        emailConfigsError,
+        emailConfigsLoading,
         importJob,
         importJobLoading,
         isImportRunning,
         importProgressLabel,
     } = useValues(zendeskImportLogic)
-    const { setSubdomain, setEmailAddress, setApiToken, setDefaultEmailChannelId, submitImport } =
+    const { setSubdomain, setEmailAddress, setApiToken, setDefaultEmailChannelId, submitImport, loadEmailConfigs } =
         useActions(zendeskImportLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
@@ -130,16 +132,30 @@ function ZendeskImportForm(): JSX.Element {
                 label="Default inbox"
                 info="Fallback email channel for tickets whose original Zendesk recipient doesn't match one of your configured support addresses (e.g. a *.zendesk.com address, or a non-email ticket). Tickets that do match are assigned to the matching channel regardless of this setting."
             >
-                <LemonSelect<string | null>
-                    value={defaultEmailChannelId}
-                    onChange={setDefaultEmailChannelId}
-                    disabled={isImportRunning}
-                    placeholder="No default (leave unmatched tickets without an inbox)"
-                    options={[
-                        { label: 'No default', value: null },
-                        ...emailConfigs.map((config) => ({ label: config.from_email, value: config.id })),
-                    ]}
-                />
+                {emailConfigsError ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Retry',
+                            onClick: loadEmailConfigs,
+                            loading: emailConfigsLoading,
+                        }}
+                    >
+                        We couldn't load your connected email channels, so we can't show the inbox options. Retry, or
+                        continue without a default inbox.
+                    </LemonBanner>
+                ) : (
+                    <LemonSelect<string | null>
+                        value={defaultEmailChannelId}
+                        onChange={setDefaultEmailChannelId}
+                        disabled={isImportRunning || emailConfigsLoading}
+                        placeholder="No default (leave unmatched tickets without an inbox)"
+                        options={[
+                            { label: 'No default', value: null },
+                            ...emailConfigs.map((config) => ({ label: config.from_email, value: config.id })),
+                        ]}
+                    />
+                )}
             </LemonField.Pure>
             {defaultEmailChannelId === null && !isImportRunning && (
                 <LemonBanner type="warning">

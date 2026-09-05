@@ -63,6 +63,8 @@ export interface supportSettingsLogicValues {
     domainInputValue: string
     editingDomainIndex: number | null
     emailConfigs: EmailConfigStatus[]
+    emailConfigsError: boolean
+    emailConfigsLoading: boolean
     emailConnected: boolean
     emailConnecting: boolean
     emailTestingConfigId: string | null
@@ -225,6 +227,9 @@ export interface supportSettingsLogicActions {
     }
     loadEmailConfigsDone: (configs: EmailConfigStatus[]) => {
         configs: EmailConfigStatus[]
+    }
+    loadEmailConfigsFailed: () => {
+        value: true
     }
     loadGithubIntegrations: () => any
     loadGithubIntegrationsFailure: (
@@ -637,6 +642,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
         loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
+        loadEmailConfigsFailed: true,
         setAddEmailFormVisible: (visible: boolean) => ({ visible }),
         setNewEmailFromEmail: (value: string) => ({ value }),
         setNewEmailFromName: (value: string) => ({ value }),
@@ -768,6 +774,22 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                             : c
                     )
                 },
+            },
+        ],
+        emailConfigsLoading: [
+            false,
+            {
+                loadEmailConfigs: () => true,
+                loadEmailConfigsDone: () => false,
+                loadEmailConfigsFailed: () => false,
+            },
+        ],
+        emailConfigsError: [
+            false,
+            {
+                loadEmailConfigs: () => false,
+                loadEmailConfigsDone: () => false,
+                loadEmailConfigsFailed: () => true,
             },
         ],
         addEmailFormVisible: [
@@ -1184,7 +1206,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         connectSlack: async ({ nextPath }) => {
             const query = encodeURIComponent(nextPath)
             // nosemgrep: prefer-codegen-api
@@ -1367,12 +1389,24 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         // Email multi-config listeners
         loadEmailConfigs: async () => {
+            // Both this logic and the connected Zendesk import form request configs on mount.
+            // Collapse their concurrent loads into one request so a split success/failure outcome
+            // can't publish a stale error or loading state over already-good data.
+            if (cache.emailConfigsInFlight) {
+                return
+            }
+            cache.emailConfigsInFlight = true
             try {
                 // nosemgrep: prefer-codegen-api
                 const response = await api.get('api/conversations/v1/email/status')
                 actions.loadEmailConfigsDone(response.configs || [])
             } catch {
-                actions.loadEmailConfigsDone([])
+                // Flag the failure instead of degrading to an empty list. An empty list reads as
+                // "no email channels connected", which hides a broken fetch and leaves selects
+                // that build their options from it looking like dead controls.
+                actions.loadEmailConfigsFailed()
+            } finally {
+                cache.emailConfigsInFlight = false
             }
         },
         connectEmail: async () => {
