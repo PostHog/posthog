@@ -1818,8 +1818,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
 
-    def _flag_call_journey(self, distinct_id: str, error: str | None, variant: str | None = None) -> dict:
-        properties: dict[str, str] = {"$feature_flag": self.feature_flag.key}
+    def _flag_call_journey(
+        self,
+        distinct_id: str,
+        error: str | None,
+        variant: str | None = None,
+        extra: dict[str, str] | None = None,
+    ) -> dict:
+        properties: dict[str, str] = {"$feature_flag": self.feature_flag.key, **(extra or {})}
         # A failed evaluation carries no variant, unless the caller asks for both.
         variant = variant or (None if error else "control")
         if variant is not None:
@@ -1919,6 +1925,47 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(coverage.evaluated_entities, 1)
         self.assertEqual(coverage.errored_entities, 100)
         self.assertEqual(len(coverage.error_reasons), 100)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_coverage_applies_the_exposure_property_filters(self):
+        # A config can name the default event and still narrow the population. Callers the
+        # filter leaves out are not part of the gap, so their errors must not be counted.
+        self.experiment.end_date = None
+        self.experiment.exposure_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "$feature_flag_called",
+                "properties": [{"key": "$os", "value": ["Mac"], "operator": "exact", "type": "event"}],
+            }
+        }
+        self.experiment.save()
+
+        journeys: dict = {}
+        for index in range(95):
+            journeys.update(self._flag_call_journey(f"user_ok_{index}", None, extra={"$os": "Mac"}))
+        for index in range(5):
+            journeys.update(self._flag_call_journey(f"user_timeout_{index}", "timeout", extra={"$os": "Mac"}))
+        for index in range(20):
+            journeys.update(
+                self._flag_call_journey(f"user_excluded_{index}", "connection_error", extra={"$os": "Windows"})
+            )
+        journeys_for(journeys, self.team)
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+        result = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        coverage = result.exposure_coverage
+        assert coverage is not None
+        self.assertEqual(coverage.evaluated_entities, 95)
+        self.assertEqual(coverage.error_reasons, {"timeout": 5})
 
     @freeze_time("2024-01-07T12:00:00Z")
     def test_exposure_coverage_skipped_when_experiment_has_ended(self):

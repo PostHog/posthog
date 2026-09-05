@@ -280,6 +280,18 @@ class ExposureQueryBuilder:
             return ast.Constant(value=True)
         return ast.Call(name="notEmpty", args=[ast.Field(chain=[self.context.entity_key])])
 
+    def build_exposure_properties_filter(self) -> ast.Expr:
+        """
+        The property filters of the exposure config, without the event match that
+        `event_or_action_to_filter` pairs them with. A config that names the default
+        exposure event keeps its filters, so the exposures come from the filtered
+        population and the flag-call outcomes must be counted over the same one.
+        """
+        config = self.context.exposure_config
+        if isinstance(config, ExperimentEventExposureConfig) and config.properties:
+            return ast.And(exprs=[property_to_expr(property, self.context.team) for property in config.properties])
+        return ast.Constant(value=True)
+
     def flag_call_outcomes_query(self) -> ast.SelectQuery:
         """
         Returns entity counts per flag-evaluation outcome, over `$feature_flag_called`
@@ -324,6 +336,7 @@ class ExposureQueryBuilder:
                     AND {flag_property} = {feature_flag_key}
                     AND {test_accounts_filter}
                     AND {entity_key_filter}
+                    AND {exposure_properties_filter}
                 GROUP BY entity_id
             )
             GROUP BY reason
@@ -340,6 +353,7 @@ class ExposureQueryBuilder:
                 "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
                 "test_accounts_filter": self.build_test_accounts_filter(),
                 "entity_key_filter": self.build_entity_key_filter(),
+                "exposure_properties_filter": self.build_exposure_properties_filter(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
