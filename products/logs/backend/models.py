@@ -77,6 +77,28 @@ def default_logs_pattern_message_keys() -> list[str]:
     return list(DEFAULT_LOGS_PATTERN_MESSAGE_KEYS)
 
 
+# Built-in session-id attribute key conventions. Mirror of the frontend SESSION_ID_KEYS in
+# products/logs/frontend/utils.tsx, so keep the two in sync. The logs UI renders a value under any
+# of these keys as the log's session (isSessionIdKey), so a session-scoped viewer matches them too
+# (on top of a team's configured keys), otherwise a log the UI shows as belonging to a session
+# would not appear when scoped to it. Literal keys only: the frontend additionally matches
+# dot-suffixed variants (e.g. `span.session_id`), which an exact attribute filter can't express.
+# `posthogSessionId` is emitted by some pipelines even though no SDK sends it; removing it
+# breaks them.
+SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "session.id",
+    "session_id",
+    "sessionId",
+    "sessionID",
+    "$session_id",
+    "posthogSessionId",
+    "posthogSessionID",
+    "posthog_session_id",
+    "posthog.session.id",
+    "posthog.session_id",
+]
+
+
 class TeamLogsConfig(models.Model):
     # Plain `models.Model` (not `TeamScopedRootMixin`) — log emission and ingestion
     # are per-environment, and so is this config. Inheriting the root-mixin would

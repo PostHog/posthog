@@ -17,6 +17,11 @@ interface EvaluationResultDisplay {
     sortValue: number
 }
 
+export interface EvaluationResultDisplayOptions {
+    /** When true, the evaluation looks for a problem, so a true result is the undesirable one. */
+    trueIsFailure?: boolean
+}
+
 const SENTIMENT_DISPLAY: Record<string, Pick<EvaluationResultDisplay, 'type' | 'icon' | 'sortValue'>> = {
     positive: { type: 'success', icon: <IconCheck />, sortValue: 3 },
     neutral: { type: 'none', icon: <IconMinus />, sortValue: 2 },
@@ -27,7 +32,10 @@ export function isSentimentRun(run: EvaluationResultLike): boolean {
     return run.result_type === 'sentiment' || run.evaluation_type === 'sentiment' || !!run.sentiment_label
 }
 
-export function getEvaluationResultDisplay(run: EvaluationResultLike): EvaluationResultDisplay {
+export function getEvaluationResultDisplay(
+    run: EvaluationResultLike,
+    options: EvaluationResultDisplayOptions = {}
+): EvaluationResultDisplay {
     if (run.status === 'failed') {
         return { type: 'danger', icon: <IconWarning />, label: 'Error', sortValue: -2 }
     }
@@ -54,24 +62,31 @@ export function getEvaluationResultDisplay(run: EvaluationResultLike): Evaluatio
     if (run.result === null) {
         return { type: 'muted', icon: <IconMinus />, label: 'N/A', sortValue: 0.5 }
     }
-    if (run.result) {
-        return { type: 'success', icon: <IconCheck />, label: 'True', sortValue: 1 }
-    }
-    return { type: 'danger', icon: <IconX />, label: 'False', sortValue: 0 }
+    // The label states the raw result either way; only the verdict it carries depends on polarity.
+    const isDesirable = run.result !== Boolean(options.trueIsFailure)
+    const label = run.result ? 'True' : 'False'
+    return isDesirable
+        ? { type: 'success', icon: <IconCheck />, label, sortValue: 1 }
+        : { type: 'danger', icon: <IconX />, label, sortValue: 0 }
 }
 
-export function getEvaluationResultSortValue(run: EvaluationResultLike): number {
-    return getEvaluationResultDisplay(run).sortValue
+export function getEvaluationResultSortValue(
+    run: EvaluationResultLike,
+    options: EvaluationResultDisplayOptions = {}
+): number {
+    return getEvaluationResultDisplay(run, options).sortValue
 }
 
 export function EvaluationResultTag({
     run,
+    trueIsFailure,
     size,
 }: {
     run: EvaluationResultLike
+    trueIsFailure?: boolean
     size?: LemonTagProps['size']
 }): JSX.Element {
-    const { type, icon, label } = getEvaluationResultDisplay(run)
+    const { type, icon, label } = getEvaluationResultDisplay(run, { trueIsFailure })
     return (
         <LemonTag type={type} icon={icon} size={size}>
             {label}
