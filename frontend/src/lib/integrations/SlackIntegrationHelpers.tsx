@@ -85,6 +85,34 @@ const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): Lemo
         : null
 }
 
+// A private channel the connecting user cannot see has no readable name, so keep it out of the list
+// unless it is the current selection or the exact id being searched for.
+const withoutInaccessiblePrivateChannels = (
+    options: LemonInputSelectOption[] | null,
+    isPrivateChannelWithoutAccess: (channelId: string) => boolean,
+    visibleIds: (string | null | undefined)[]
+): LemonInputSelectOption[] => {
+    return (options ?? []).filter((option) => {
+        const channelId = slackChannelId(option.key)
+        return !isPrivateChannelWithoutAccess(channelId) || visibleIds.includes(channelId)
+    })
+}
+
+// A saved channel beyond the loaded page has no option of its own, so add one labelled by name.
+// Without it the picker renders the raw composite value.
+const withSavedChannelOption = (
+    options: LemonInputSelectOption[],
+    savedValue: string | null | undefined
+): LemonInputSelectOption[] => {
+    if (!savedValue || options.some((option) => option.key === savedValue)) {
+        return options
+    }
+    return [
+        ...options,
+        { key: savedValue, label: savedValue.includes('|') ? savedValue.split('|')[1] : 'Slack channel' },
+    ]
+}
+
 const getSlackUserOptions = (slackUsers: SlackUserApi[]): LemonInputSelectOption[] => {
     return slackUsers.map((user) => {
         // Display names are not unique in a workspace, so surface the unique handle alongside
@@ -277,162 +305,37 @@ export function SlackUserPicker({
     )
 }
 
-export type SlackChannelPickerProps = {
+// Everything the picker reports about the current selection and the loaded list. Reads the same
+// keyed logic as the picker rather than taking eight props for values it can select itself.
+function SlackChannelPickerNotices({
+    integration,
+    value,
+    showUnselectedSearchError,
+}: {
     integration: IntegrationType
     value?: string
-    onChange?: (value: string | null) => void
-    disabled?: boolean
-}
-
-export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
+    showUnselectedSearchError: boolean
+}): JSX.Element {
     const logic = slackIntegrationLogic({ id: integration.id })
     const {
-        slackChannels,
-        slackChannelsForPicker,
         allSlackChannels,
         allSlackChannelsLoading,
-        slackChannelByIdLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
         slackIntegrationInactiveMessage,
     } = useValues(logic)
-    const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
-    const [localValue, setLocalValue] = useState<string | null>(null)
-    // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
-    // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
-    const hasActiveSearchRef = useRef(false)
+    const { loadAllSlackChannels } = useActions(logic)
 
-    const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
-    // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
-    usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 60_000)
-
-    // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const rawSlackChannelOptions = useMemo(
-        () => getSlackChannelOptions(slackChannelsForPicker),
-        [slackChannelsForPicker]
-    )
-
-    const slackChannelOptions = (): LemonInputSelectOption[] | null => {
-        return rawSlackChannelOptions
-            ? rawSlackChannelOptions.filter((x) => {
-                  const id = slackChannelId(x.key)
-                  // Only show a private channel if searching for the exact channelId or it's currently selected
-                  return !isPrivateChannelWithoutAccess(id) || id === value || id === localValue
-              })
-            : []
-    }
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
-
-    const modifiedValue = useMemo(() => {
-        if (value?.split('|').length === 1) {
-            const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
-
-            if (channel) {
-                return `${channel.id}|#${channel.name}`
-            }
-        }
-
-        return value
-    }, [value, slackChannels])
-
-    useEffect(() => {
-        // Multiple pickers can mount for the same workspace (e.g. team + per-user channel), so skip
-        // the fetch when the shared logic already has channels or a load in flight. Read live logic
-        // values rather than the render closure: sibling pickers mount within the same commit, before
-        // the first one's dispatch is reflected in a re-render.
-        if (!disabled && !logic.values.slackChannels.length && !logic.values.allSlackChannelsLoading) {
-            loadAllSlackChannels()
-        }
-    }, [logic, loadAllSlackChannels, disabled])
-
-    // Read-only pickers still need a direct lookup because the saved channel may not be on the first page.
-    useEffect(() => {
-        if (value) {
-            const channelId = value.split('|')[0]
-            if (channelId) {
-                loadSlackChannelById(channelId)
-            }
-        }
-    }, [loadSlackChannelById, value])
-
-    const fallbackOption = modifiedValue
-        ? {
-              key: modifiedValue,
-              label: modifiedValue.includes('|') ? modifiedValue.split('|')[1] : 'Slack channel',
-          }
-        : null
-    const availableOptions = slackChannelOptions() ?? []
-    const options =
-        fallbackOption && !availableOptions.some((option) => option.key === fallbackOption.key)
-            ? [...availableOptions, fallbackOption]
-            : availableOptions
 
     return (
         <>
-            <LemonInputSelect
-                onChange={(val) => {
-                    const key = val[0] ?? null
-                    if (key) {
-                        // Pin into the by-id slot so the post-select bulk reload can't drop the
-                        // channel from slackChannels and unresolve the label.
-                        const [channelId] = key.split('|')
-                        const channel = slackChannels.find((c: SlackChannelType) => c.id === channelId)
-                        if (channel) {
-                            loadSlackChannelByIdSuccess(channel)
-                        }
-                    }
-                    onChange?.(key)
-                }}
-                onInputChange={(val) => {
-                    if (val) {
-                        // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
-                        // resolve via direct lookup. ID-shape input fires only the direct lookup;
-                        // anything else fires only the search, skipping the otherwise-redundant
-                        // by-id call for a free-text channel name.
-                        const idCandidate = val.trim().toUpperCase()
-                        if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
-                            loadSlackChannelById(idCandidate)
-                        } else if (val !== modifiedValue) {
-                            // LemonInputSelect auto-fills the input with the selected option's key on
-                            // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
-                            // search — the composite "id|#name" matches no channel server-side and
-                            // would overwrite the cached list with [], so the bare ID could no longer
-                            // resolve to a name after blur.
-                            loadAllSlackChannels(false, val)
-                            hasActiveSearchRef.current = true
-                        }
-                        setLocalValue(val)
-                    } else if (hasActiveSearchRef.current) {
-                        loadAllSlackChannels()
-                        hasActiveSearchRef.current = false
-                    }
-                }}
-                value={modifiedValue ? [modifiedValue] : []}
-                onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
-                disabled={disabled}
-                mode="single"
-                data-attr="select-slack-channel"
-                placeholder="Select a channel..."
-                action={{
-                    children: <span className="Link">Refresh channels</span>,
-                    onClick: () => loadAllSlackChannels(true),
-                    disabledReason: channelRefreshButtonDisabledReason,
-                }}
-                emptyStateComponent={
-                    // The popover is portaled outside the modal and matchWidth only sets min-width,
-                    // not max-width — without a cap the popover can grow to fit a long single line
-                    // and spill past the modal edge.
-                    <p className="text-secondary italic p-1 max-w-sm">
-                        No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
-                        <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
-                            See the docs for more information.
-                        </Link>
-                    </p>
-                }
-                options={options}
-                loading={allSlackChannelsLoading || slackChannelByIdLoading}
-            />
+            {showUnselectedSearchError ? (
+                <p className="mt-1 mb-0 text-xs text-danger" role="alert">
+                    No channel selected. Pick one from the list.
+                </p>
+            ) : null}
 
             {slackIntegrationInactiveMessage ? (
                 <SlackIntegrationInactiveBanner message={slackIntegrationInactiveMessage} />
@@ -471,6 +374,207 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     account to configure private channels.
                 </LemonBanner>
             ) : null}
+        </>
+    )
+}
+
+export type SlackChannelPickerProps = {
+    integration: IntegrationType
+    value?: string
+    onChange?: (value: string | null) => void
+    disabled?: boolean
+}
+
+export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
+    const logic = slackIntegrationLogic({ id: integration.id })
+    const {
+        slackChannels,
+        slackChannelsForPicker,
+        allSlackChannelsLoading,
+        slackChannelByIdLoading,
+        isPrivateChannelWithoutAccess,
+        getChannelRefreshButtonDisabledReason,
+    } = useValues(logic)
+    const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
+    const [localValue, setLocalValue] = useState<string | null>(null)
+    // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
+    // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
+    const hasActiveSearchRef = useRef(false)
+    // LemonInputSelect throws typed text away on blur, so someone who types a channel name and
+    // clicks away is left with an empty input and no idea why. Track that case to show it back.
+    const hasUnselectedSearchRef = useRef(false)
+    const [blurredWithoutSelection, setBlurredWithoutSelection] = useState(false)
+    // The marker and the state it feeds always clear together: a search that ended in a selection
+    // was never dropped.
+    const clearDroppedSearch = (): void => {
+        hasUnselectedSearchRef.current = false
+        setBlurredWithoutSelection(false)
+    }
+    // A pasted channel id is already an unambiguous choice, so hold it until the lookup resolves and
+    // then pick it. Nobody should have to recognize their channel by id in the list.
+    const [pastedChannelId, setPastedChannelId] = useState<string | null>(null)
+
+    const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
+    // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
+    usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 60_000)
+
+    // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
+    const rawSlackChannelOptions = useMemo(
+        () => getSlackChannelOptions(slackChannelsForPicker),
+        [slackChannelsForPicker]
+    )
+
+    // A pasted id that is still resolving is a pending selection, not a dropped search, so hold
+    // the message until the lookup settles.
+    const showUnselectedSearchError = blurredWithoutSelection && !value && !pastedChannelId
+
+    const modifiedValue = useMemo(() => {
+        if (value?.split('|').length === 1) {
+            const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
+
+            if (channel) {
+                return `${channel.id}|#${channel.name}`
+            }
+        }
+
+        return value
+    }, [value, slackChannels])
+
+    useEffect(() => {
+        // Multiple pickers can mount for the same workspace (e.g. team + per-user channel), so skip
+        // the fetch when the shared logic already has channels or a load in flight. Read live logic
+        // values rather than the render closure: sibling pickers mount within the same commit, before
+        // the first one's dispatch is reflected in a re-render.
+        if (!disabled && !logic.values.slackChannels.length && !logic.values.allSlackChannelsLoading) {
+            loadAllSlackChannels()
+        }
+    }, [logic, loadAllSlackChannels, disabled])
+
+    useEffect(() => {
+        // A caller can swap the integration (switching Slack workspace) without unmounting this
+        // picker, so state from the old workspace's search must not leak into the new one.
+        hasActiveSearchRef.current = false
+        clearDroppedSearch()
+        setLocalValue(null)
+        setPastedChannelId(null)
+    }, [integration.id])
+
+    useEffect(() => {
+        if (!pastedChannelId) {
+            return
+        }
+        const channel = slackChannels.find((x: SlackChannelType) => x.id === pastedChannelId)
+        if (!channel) {
+            // Stop waiting once the lookup settles with nothing. A paste that resolves to no channel
+            // has to fall back to the dropped-search message rather than stay silent.
+            if (!slackChannelByIdLoading) {
+                setPastedChannelId(null)
+            }
+            return
+        }
+        setPastedChannelId(null)
+        clearDroppedSearch()
+        if (slackChannelId(value ?? '') !== channel.id) {
+            onChange?.(`${channel.id}|#${channel.name}`)
+        }
+    }, [pastedChannelId, slackChannels, slackChannelByIdLoading, value, onChange])
+
+    // Read-only pickers still need a direct lookup because the saved channel may not be on the first page.
+    useEffect(() => {
+        if (value) {
+            const channelId = value.split('|')[0]
+            if (channelId) {
+                loadSlackChannelById(channelId)
+            }
+        }
+    }, [loadSlackChannelById, value])
+
+    const options = withSavedChannelOption(
+        withoutInaccessiblePrivateChannels(rawSlackChannelOptions, isPrivateChannelWithoutAccess, [value, localValue]),
+        modifiedValue
+    )
+
+    return (
+        <>
+            <LemonInputSelect
+                onChange={(val) => {
+                    const key = val[0] ?? null
+                    // LemonInputSelect blurs the input before it reports a selection, so onBlur has
+                    // already flagged the search as dropped by the time this runs. Both happen on
+                    // one synchronous call stack, so this reset wins and no error renders.
+                    clearDroppedSearch()
+                    if (key) {
+                        // Pin into the by-id slot so the post-select bulk reload can't drop the
+                        // channel from slackChannels and unresolve the label.
+                        const [channelId] = key.split('|')
+                        const channel = slackChannels.find((c: SlackChannelType) => c.id === channelId)
+                        if (channel) {
+                            loadSlackChannelByIdSuccess(channel)
+                        }
+                    }
+                    onChange?.(key)
+                }}
+                onInputChange={(val) => {
+                    if (val) {
+                        // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
+                        // resolve via direct lookup. ID-shape input fires only the direct lookup;
+                        // anything else fires only the search, skipping the otherwise-redundant
+                        // by-id call for a free-text channel name.
+                        const idCandidate = val.trim().toUpperCase()
+                        if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
+                            loadSlackChannelById(idCandidate)
+                            setPastedChannelId(idCandidate)
+                        } else if (val !== modifiedValue) {
+                            setPastedChannelId(null)
+                            // LemonInputSelect auto-fills the input with the selected option's key on
+                            // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
+                            // search — the composite "id|#name" matches no channel server-side and
+                            // would overwrite the cached list with [], so the bare ID could no longer
+                            // resolve to a name after blur.
+                            loadAllSlackChannels(false, val)
+                            hasActiveSearchRef.current = true
+                        }
+                        hasUnselectedSearchRef.current = true
+                        setBlurredWithoutSelection(false)
+                        setLocalValue(val)
+                    } else if (hasActiveSearchRef.current) {
+                        loadAllSlackChannels()
+                        hasActiveSearchRef.current = false
+                    }
+                }}
+                value={modifiedValue ? [modifiedValue] : []}
+                onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
+                onBlur={() => setBlurredWithoutSelection(hasUnselectedSearchRef.current)}
+                status={showUnselectedSearchError ? 'danger' : 'default'}
+                disabled={disabled}
+                mode="single"
+                data-attr="select-slack-channel"
+                placeholder="Select a channel..."
+                action={{
+                    children: <span className="Link">Refresh channels</span>,
+                    onClick: () => loadAllSlackChannels(true),
+                    disabledReason: channelRefreshButtonDisabledReason,
+                }}
+                emptyStateComponent={
+                    // The popover is portaled outside the modal and matchWidth only sets min-width,
+                    // not max-width — without a cap the popover can grow to fit a long single line
+                    // and spill past the modal edge.
+                    <p className="text-secondary italic p-1 max-w-sm">
+                        No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
+                        <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
+                            See the docs for more information.
+                        </Link>
+                    </p>
+                }
+                options={options}
+                loading={allSlackChannelsLoading || slackChannelByIdLoading}
+            />
+
+            <SlackChannelPickerNotices
+                integration={integration}
+                value={value}
+                showUnselectedSearchError={showUnselectedSearchError}
+            />
         </>
     )
 }

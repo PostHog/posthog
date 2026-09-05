@@ -39,6 +39,7 @@ import {
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
+import { ScoutWriteScopesPicker } from './ScoutWriteScopesPicker'
 
 export interface ScoutCreateModalProps {
     isOpen: boolean
@@ -257,6 +258,19 @@ export function ScoutCreateModal({
                             />
                         )}
                     </LemonField>
+
+                    <div className="flex flex-col gap-3 border-t border-primary pt-4">
+                        <span className="font-medium text-sm">Write access</span>
+                        <LemonField name="config.write_scopes">
+                            {({ value, onChange }) => (
+                                <ScoutWriteScopesPicker
+                                    selectedScopes={value ?? []}
+                                    onChange={onChange}
+                                    disabledReason={isScoutCreateFormSubmitting ? 'Creating the scout' : undefined}
+                                />
+                            )}
+                        </LemonField>
+                    </div>
 
                     <div className="flex flex-col gap-3 border-t border-primary pt-4">
                         <span className="font-medium text-sm">Run settings</span>

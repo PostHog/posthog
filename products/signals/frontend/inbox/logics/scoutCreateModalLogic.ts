@@ -42,7 +42,13 @@ import { scoutMcpServersLogic } from './scoutMcpServersLogic'
 type ScoutCreateConfigFormValues = Required<
     Pick<
         SignalScoutConfigOptionsApi,
-        'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule' | 'tags' | 'mcp_gateway_server_ids'
+        | 'enabled'
+        | 'emit'
+        | 'run_interval_minutes'
+        | 'run_cron_schedule'
+        | 'tags'
+        | 'mcp_gateway_server_ids'
+        | 'write_scopes'
     >
 > &
     Pick<SignalScoutConfigOptionsApi, 'output_destinations'>
@@ -93,6 +99,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
         run_cron_schedule: null,
         tags: [],
         mcp_gateway_server_ids: [],
+        write_scopes: [],
     },
 }
 
