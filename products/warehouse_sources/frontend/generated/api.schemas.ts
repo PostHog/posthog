@@ -4711,7 +4711,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin */
+     * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource */
     source_type: ExternalDataSourceTypeEnumApi
@@ -6281,7 +6281,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin */
+     * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource */
     readonly source_type: ExternalDataSourceTypeEnumApi
@@ -7647,7 +7647,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin */
+     * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource */
     source_type: ExternalDataSourceTypeEnumApi
@@ -8988,7 +8988,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin */
+     * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource */
     readonly source_type: ExternalDataSourceTypeEnumApi
@@ -10414,7 +10414,7 @@ export interface SourcePreviewRequestApi {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin */
+     * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource */
     source_type: ExternalDataSourceTypeEnumApi
@@ -11790,7 +11790,7 @@ export interface SourceSetupApi {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin */
+     * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource */
     source_type: ExternalDataSourceTypeEnumApi
@@ -13173,7 +13173,7 @@ export interface SourceCredentialCreateApi {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
-     * * `Tenjin` - Tenjin */
+     * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource */
     source_type: ExternalDataSourceTypeEnumApi

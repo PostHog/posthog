@@ -27417,7 +27417,7 @@ export namespace Schemas {
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin */
+       * * `Tenjin` - Tenjin
        * * `Folk` - Folk
        * * `Cybersource` - Cybersource */
       source_type: ExternalDataSourceTypeEnum;
@@ -29451,7 +29451,7 @@ export namespace Schemas {
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin */
+       * * `Tenjin` - Tenjin
        * * `Folk` - Folk
        * * `Cybersource` - Cybersource */
       readonly source_type: ExternalDataSourceTypeEnum;
@@ -38212,7 +38212,7 @@ export namespace Schemas {
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin */
+       * * `Tenjin` - Tenjin
        * * `Folk` - Folk
        * * `Cybersource` - Cybersource */
       readonly source_type: ExternalDataSourceTypeEnum;
@@ -39583,7 +39583,7 @@ export namespace Schemas {
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin */
+       * * `Tenjin` - Tenjin
        * * `Folk` - Folk
        * * `Cybersource` - Cybersource */
       source_type: ExternalDataSourceTypeEnum;
@@ -80793,7 +80793,7 @@ export namespace Schemas {
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin */
+       * * `Tenjin` - Tenjin
        * * `Folk` - Folk
        * * `Cybersource` - Cybersource */
       source_type: ExternalDataSourceTypeEnum;
@@ -82180,7 +82180,7 @@ export namespace Schemas {
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin */
+       * * `Tenjin` - Tenjin
        * * `Folk` - Folk
        * * `Cybersource` - Cybersource */
       source_type: ExternalDataSourceTypeEnum;
@@ -83549,7 +83549,7 @@ export namespace Schemas {
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI
-       * * `Tenjin` - Tenjin */
+       * * `Tenjin` - Tenjin
        * * `Folk` - Folk
        * * `Cybersource` - Cybersource */
       source_type: ExternalDataSourceTypeEnum;
