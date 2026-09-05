@@ -354,6 +354,44 @@ describe('webAnalyticsLogic compare filter', () => {
     })
 })
 
+describe('webAnalyticsLogic graphs tabs', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    const graphsTabIds = (): string[] => {
+        const tile = logic.values.tiles.find((tile) => tile.tileId === TileId.GRAPHS)
+        if (tile?.kind !== 'tabs') {
+            throw new Error('graphs tile is not a tabs tile')
+        }
+        return tile.tabs.map((tab) => tab.id)
+    }
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // No feature flag is set here, so these assertions also lock the session charts to every team.
+    it('offers the session duration and bounce rate tabs', () => {
+        expect(graphsTabIds()).toEqual(expect.arrayContaining([GraphsTab.SESSION_DURATION, GraphsTab.BOUNCE_RATE]))
+    })
+
+    it('drops the session tabs for a conversion goal', () => {
+        logic.actions.setConversionGoal({ actionId: 42 })
+        expect(graphsTabIds()).toEqual(expect.not.arrayContaining([GraphsTab.SESSION_DURATION, GraphsTab.BOUNCE_RATE]))
+    })
+})
+
 describe('webAnalyticsLogic URL restoration', () => {
     let logic: ReturnType<typeof webAnalyticsLogic.build>
 
