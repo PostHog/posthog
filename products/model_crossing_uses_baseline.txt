@@ -807,7 +807,7 @@ warehouse_sources.ExternalDataSource products.data_warehouse.backend.management.
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.management.commands.repair_qualified_schema_duplicates instance-many(filter) 1
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.models.revenue_analytics_config other(keyword) 1
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.models.revenue_analytics_config passed-as-class(OneToOneField) 1
-warehouse_sources.ExternalDataSource products.data_warehouse.backend.presentation.views.data_warehouse instance-many(filter) 2
+warehouse_sources.ExternalDataSource products.data_warehouse.backend.presentation.views.data_warehouse instance-many(filter) 1
 warehouse_sources.ExternalDataSource products.engineering_analytics.backend.logic.job_logs.coordinator instance-many(select_related) 1
 warehouse_sources.ExternalDataSource products.engineering_analytics.backend.logic.sources instance-many(order_by) 1
 warehouse_sources.ExternalDataSource products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1

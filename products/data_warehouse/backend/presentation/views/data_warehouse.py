@@ -3,7 +3,7 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 from django.db import connection
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Q, QuerySet, Sum
 from django.db.models.functions import TruncDate, TruncHour
 
 import structlog
@@ -28,6 +28,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.permissions import is_service_auth
 from posthog.utils import convert_property_value, flatten
 
 from products.batch_exports.backend.facade.models import BatchExportRun
@@ -139,6 +140,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     requires_resource_level_access = False
     serializer_class = _FallbackSerializer
 
+    def _readable(self, queryset: QuerySet) -> QuerySet:
+        # Collection actions never call get_object(), so per-object denies only apply here.
+        if is_service_auth(self.request):
+            return queryset
+        return self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+
+    def _readable_sources(self) -> QuerySet:
+        return self._readable(ExternalDataSource.objects.filter(team_id=self.team_id))
+
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
         if not request.user.is_authenticated:
             return Response(
@@ -246,7 +256,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         rows_synced = 0
         billing_available = False
         breakdown_of_rows_by_source = {}
-        sources = ExternalDataSource.objects.filter(team_id=self.team_id, deleted=False)
+        sources = self._readable_sources().filter(deleted=False)
 
         try:
             billing_manager = BillingManager(get_cached_instance_license())
@@ -337,6 +347,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        source_ids = list(self._readable_sources().values_list("id", flat=True))
+        saved_query_ids = list(
+            self._readable(DataWarehouseSavedQuery.objects.filter(team_id=self.team_id)).values_list("id", flat=True)
+        )
+
         try:
             cutoff_time = datetime.now(ZoneInfo("UTC")) - timedelta(days=cutoff_days)
 
@@ -352,6 +367,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
                         WHERE edj.team_id = %s AND edj.status = 'Running' AND edj.created_at >= %s
+                          AND (edsrc.id IS NULL OR edsrc.id = ANY(%s::uuid[]))
                     ),
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
@@ -361,6 +377,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = 'Running' AND dmj.created_at >= %s
+                          AND (dwsq.id IS NULL OR dwsq.id = ANY(%s::uuid[]))
                     )
                     SELECT * FROM external_jobs
                     UNION ALL
@@ -368,7 +385,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """,
-                    [self.team_id, cutoff_time, self.team_id, cutoff_time, limit + 1, offset],
+                    [
+                        self.team_id,
+                        cutoff_time,
+                        source_ids,
+                        self.team_id,
+                        cutoff_time,
+                        saved_query_ids,
+                        limit + 1,
+                        offset,
+                    ],
                 )
 
                 columns = [col[0] for col in cursor.description]
@@ -415,6 +441,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        source_ids = list(self._readable_sources().values_list("id", flat=True))
+        saved_query_ids = list(
+            self._readable(DataWarehouseSavedQuery.objects.filter(team_id=self.team_id)).values_list("id", flat=True)
+        )
+
         try:
             cutoff_time = datetime.now(ZoneInfo("UTC")) - timedelta(days=cutoff_days)
 
@@ -430,6 +461,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
                         WHERE edj.team_id = %s AND edj.status = 'Completed' AND edj.created_at >= %s
+                          AND (edsrc.id IS NULL OR edsrc.id = ANY(%s::uuid[]))
                     ),
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
@@ -439,6 +471,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = 'Completed' AND dmj.created_at >= %s
+                          AND (dwsq.id IS NULL OR dwsq.id = ANY(%s::uuid[]))
                     )
                     SELECT * FROM external_jobs
                     UNION ALL
@@ -446,7 +479,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """,
-                    [self.team_id, cutoff_time, self.team_id, cutoff_time, limit + 1, offset],
+                    [
+                        self.team_id,
+                        cutoff_time,
+                        source_ids,
+                        self.team_id,
+                        cutoff_time,
+                        saved_query_ids,
+                        limit + 1,
+                        offset,
+                    ],
                 )
 
                 columns = [col[0] for col in cursor.description]
@@ -661,11 +703,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             # Get failed materializations from DataWarehouseSavedQuery
             # Only show views that are actively materialized but failing
-            failed_materializations = DataWarehouseSavedQuery.objects.filter(
-                team_id=self.team_id,
-                deleted=False,
-                is_materialized=True,
-                status=DataWarehouseSavedQuery.Status.FAILED,
+            failed_materializations = self._readable(
+                DataWarehouseSavedQuery.objects.filter(
+                    team_id=self.team_id,
+                    deleted=False,
+                    is_materialized=True,
+                    status=DataWarehouseSavedQuery.Status.FAILED,
+                )
             )
 
             for query in failed_materializations:
@@ -683,11 +727,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             # Get failed syncs from ExternalDataSchema
             # Only show syncs that are actively enabled but failing
+            readable_sources = self._readable_sources()
+            # A schema has no access rules of its own; it is visible when its source is.
             problem_syncs = (
                 ExternalDataSchema.objects.filter(
                     team_id=self.team_id,
                     deleted=False,
                     should_sync=True,
+                    source__in=readable_sources,
                 )
                 .filter(
                     Q(status=ExternalDataSchemaStatus.FAILED) | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
@@ -714,11 +761,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
 
             # Get sources with Error status
-            error_sources = ExternalDataSource.objects.filter(
-                team_id=self.team_id,
-                deleted=False,
-                status=ExternalDataSourceStatus.ERROR,
-            )
+            error_sources = readable_sources.filter(deleted=False, status=ExternalDataSourceStatus.ERROR)
 
             for source in error_sources:
                 results.append(
