@@ -302,14 +302,22 @@ def _normalize_options_and_properties(
 # --------------------------------------------------------------------------- #
 
 
-def _validate_batch_inputs(events: list[dict[str, Any]], *, token: str, event_source: str) -> None:
+def _lane_fn_name(ai_lane: bool) -> str:
+    """Name the entry point the caller actually used, so an error points at their code."""
+    return "capture_ai_internal" if ai_lane else "capture_internal"
+
+
+def _validate_batch_inputs(
+    events: list[dict[str, Any]], *, token: str, event_source: str, ai_lane: bool = False
+) -> None:
     """Validate required batch-level inputs. Raises CaptureInternalError on failure."""
+    fn = _lane_fn_name(ai_lane)
     if not event_source:
-        raise CaptureInternalError("capture_internal: event_source is required (identifies the submitting call site)")
+        raise CaptureInternalError(f"{fn}: event_source is required (identifies the submitting call site)")
     if not token:
-        raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
+        raise CaptureInternalError(f"{fn} ({event_source}): API token is required")
     if not events:
-        raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
+        raise CaptureInternalError(f"{fn} ({event_source}): at least one event is required")
 
 
 def prepare_capture_internal_batch(
@@ -332,7 +340,8 @@ def prepare_capture_internal_batch(
     wrong one earns a per-event ``misrouted_event`` drop.  Catching it here
     turns that into an immediate, actionable error at the call site instead.
     """
-    _validate_batch_inputs(events, token=token, event_source=event_source)
+    _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
+    fn = _lane_fn_name(ai_lane)
 
     batch: list[dict[str, Any]] = []
     uuids: list[str] = []
@@ -340,11 +349,11 @@ def prepare_capture_internal_batch(
     for ev in events:
         event_name: str = ev.get("event", "")
         if not event_name:
-            raise CaptureInternalError(f"capture_internal ({event_source}): event name is required")
+            raise CaptureInternalError(f"{fn} ({event_source}): event name is required")
 
         if event_name in SESSION_RECORDING_EVENT_NAMES:
             raise CaptureInternalError(
-                f"capture_internal ({event_source}): '{event_name}' is a replay event; use the replay capture path"
+                f"{fn} ({event_source}): '{event_name}' is a replay event; use the replay capture path"
             )
 
         # Lane check. Deliberately the `$ai_` prefix, not capture's narrower
@@ -842,6 +851,9 @@ def capture_internal(
         historical_migration: if True, routes to the historical ingestion path in
             capture-rs (separate Kafka topic/consumer group).
         timeout: HTTP request timeout in seconds (default: 2)
+        ai_lane: internal.  Prefer ``capture_ai_internal``, which sets this.  When True the
+            event goes to the AI lane and must carry an ``$ai_`` prefixed name; when False
+            an ``$ai_`` name is rejected.  See capture_ai_internal.
 
     Returns:
         CaptureInternalResult with per-event outcome.  Call ``.raise_for_status()`` to raise
