@@ -2085,6 +2085,11 @@ export interface SignalScoutCreateApi {
     files?: LLMSkillFileInputApi[]
     /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
     config?: SignalScoutConfigOptionsApi
+    /**
+     * Optional id of the suggestion this scout was created from. The suggestion then stops being offered on this project. An id this project's batch does not hold is ignored.
+     * @maxLength 64
+     */
+    suggestion_id?: string
 }
 
 export interface SignalScoutSkillSummaryApi {
@@ -2322,6 +2327,11 @@ export interface ScoutChatTaskCreateApi {
      * * `fleet_overview` - fleet_overview
      * * `recent_signals` - recent_signals */
     chat_type: ChatTypeEnumApi
+    /**
+     * Optional id of a suggestion from this project's scout suggestion batch. The chat then opens on that draft instead of scanning from scratch. `author_scout` only.
+     * @maxLength 64
+     */
+    suggestion_id?: string
 }
 
 export interface ScoutChatTaskApi {
