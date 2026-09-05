@@ -274,9 +274,31 @@ def clear_channel_repositories_on_github_integration_delete(
     if instance.kind != Integration.IntegrationKind.GITHUB:
         return
 
+    affected = list(
+        Channel.objects.for_team(instance.team_id)
+        .filter(github_integration_id=instance.id)
+        .values_list("id", "repositories")
+    )
     Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
         github_integration=None,
         repositories=[],
+    )
+    if not affected:
+        return
+    # One aggregate row, not one per Space: this path can touch every Space bound to the
+    # integration, and the question it answers is "repos went to zero here", not which.
+    from products.tasks.backend.repository_config_analytics import capture_repository_config_changed
+
+    capture_repository_config_changed(
+        team=instance.team,
+        user_id=None,
+        subject="space",
+        trigger="github_integration_disconnected",
+        previous_repositories=[repo for _, repositories in affected for repo in (repositories or [])],
+        repositories=[],
+        previous_integration_id=instance.id,
+        integration_id=None,
+        affected_space_count=len(affected),
     )
 
 

@@ -354,6 +354,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self._user_id(),
                 content=serializer.validated_data["content"],
                 base_version=serializer.validated_data.get("base_version"),
+                # The facade never sees the request, so the loop-vs-person split is set here.
+                source="agent" if sandbox_task_id is not None else "user",
             )
         except tasks_facade.ChannelInstructionsVersionConflictError as err:
             return Response(

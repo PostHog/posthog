@@ -12,6 +12,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.exceptions import ComputeBillingLimitError
@@ -1337,3 +1338,140 @@ class ChannelFeedMessageAPITestCase(TestCase):
         # Same org, wrong team in the URL — the channel must not resolve.
         response = self.client.get(f"/api/projects/{other_team.id}/task_channels/{channel_id}/feed/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class RepositoryConfigAnalyticsTestCase(TestCase):
+    """Repository and CONTEXT.md changes are the only durable record of who reconfigured a
+    Space, so these assert the event fires exactly once per real change and never on a no-op."""
+
+    CAPTURE = "products.tasks.backend.repository_config_analytics.posthoganalytics.capture"
+
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Growth Team")
+        self.user = User.objects.create_user(email="author@example.com", first_name="Ann", password="password")
+        self.organization.members.add(self.user)
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+
+    def _channels_url(self) -> str:
+        return f"/api/projects/{self.team.id}/task_channels/"
+
+    def _tasks_url(self) -> str:
+        return f"/api/projects/{self.team.id}/tasks/"
+
+    @staticmethod
+    def _rows(capture, event: str) -> list[dict]:
+        return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs.get("event") == event]
+
+    def _channel_with_repos(self, repositories: list[str], name: str = "growth") -> Channel:
+        return Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name=name,
+            github_integration=self.integration,
+            repositories=repositories,
+        )
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
+    def test_space_repository_patch_emits_one_row(self, list_repositories):
+        list_repositories.return_value = [{"full_name": "posthog/posthog"}]
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+
+        with patch(self.CAPTURE) as capture:
+            response = self.client.patch(
+                f"{self._channels_url()}{channel_id}/",
+                {"github_integration": self.integration.id, "repositories": ["posthog/posthog"]},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        rows = self._rows(capture, "repository_config_changed")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["subject"], "space")
+        self.assertEqual(rows[0]["trigger"], "space_settings_edit")
+        self.assertEqual(rows[0]["previous_repository_count"], 0)
+        self.assertEqual(rows[0]["repository_count"], 1)
+        self.assertEqual(rows[0]["added_repositories"], ["posthog/posthog"])
+        self.assertTrue(rows[0]["is_first_configuration"])
+        self.assertTrue(rows[0]["github_integration_changed"])
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
+    def test_resubmitting_the_same_repositories_emits_nothing(self, list_repositories):
+        list_repositories.return_value = [{"full_name": "posthog/posthog"}]
+        channel = self._channel_with_repos(["posthog/posthog"])
+
+        with patch(self.CAPTURE) as capture:
+            response = self.client.patch(
+                f"{self._channels_url()}{channel.id}/",
+                {"github_integration": self.integration.id, "repositories": ["posthog/posthog"]},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(self._rows(capture, "repository_config_changed"), [])
+
+    def test_task_inheriting_the_space_list_emits_nothing_but_an_override_emits_one_row(self):
+        channel = self._channel_with_repos(["posthog/posthog"])
+
+        with patch(self.CAPTURE) as capture:
+            tasks_facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={"title": "Inherit", "description": "d", "channel": channel},
+            )
+        self.assertEqual(self._rows(capture, "repository_config_changed"), [])
+
+        with patch(self.CAPTURE) as capture:
+            tasks_facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Override",
+                    "description": "d",
+                    "channel": channel,
+                    "repositories": ["posthog/posthog.com"],
+                },
+            )
+        rows = self._rows(capture, "repository_config_changed")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["trigger"], "task_created")
+        self.assertEqual(rows[0]["subject"], "task")
+        self.assertTrue(rows[0]["diverged_from_space"])
+        self.assertEqual(rows[0]["space_repository_count"], 1)
+
+    def test_deleting_the_github_integration_emits_one_aggregate_row(self):
+        self._channel_with_repos(["posthog/posthog"], name="growth")
+        self._channel_with_repos(["posthog/posthog.com", "posthog/marketing"], name="editorial")
+
+        with patch(self.CAPTURE) as capture:
+            Integration.objects.filter(id=self.integration.id).delete()
+
+        rows = self._rows(capture, "repository_config_changed")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["trigger"], "github_integration_disconnected")
+        self.assertEqual(rows[0]["affected_space_count"], 2)
+        self.assertEqual(rows[0]["previous_repository_count"], 3)
+        self.assertTrue(rows[0]["is_cleared"])
+
+    def test_context_publish_records_whether_a_person_or_a_loop_wrote_it(self):
+        channel = self._channel_with_repos([])
+
+        # The view sets the scope from the request; a direct facade call must set it itself.
+        with patch(self.CAPTURE) as capture, team_scope(self.team.id):
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="# Context", source="user"
+            )
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="# Context, revised", source="agent"
+            )
+
+        rows = self._rows(capture, "space_context_changed")
+        self.assertEqual([row["source"] for row in rows], ["user", "agent"])
+        self.assertEqual([row["new_version"] for row in rows], [1, 2])
+        self.assertTrue(rows[0]["is_first_version"])
+        self.assertFalse(rows[1]["is_first_version"])
+        self.assertEqual(rows[1]["previous_content_bytes"], len(b"# Context"))
+        self.assertNotIn("content", rows[0])
