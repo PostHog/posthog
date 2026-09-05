@@ -5,7 +5,7 @@ import requests
 import structlog
 from dateutil import parser
 from requests.exceptions import ChunkedEncodingError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.settings import (
@@ -87,13 +87,25 @@ def _chunk_date_range(start_date: str, end_date: str) -> list[tuple[str, str]]:
     return chunks
 
 
-@retry(
+def _is_retryable_request_error(exception: BaseException) -> bool:
     # ChunkedEncodingError is a transient mid-stream connection drop while reading the response
     # body ("Connection broken: InvalidChunkLength"). It subclasses RequestException directly, not
     # ConnectionError, so it must be listed explicitly to be retried rather than failing the whole
     # import on a single dropped connection. The tracked session only retries on status codes during
     # the initial request, not on a broken body stream.
-    retry=retry_if_exception_type((requests.ReadTimeout, requests.ConnectionError, ChunkedEncodingError)),
+    if isinstance(exception, requests.ReadTimeout | requests.ConnectionError | ChunkedEncodingError):
+        return True
+    # A 5xx is often transient. The tracked session retries it three times with no backoff; a few
+    # more attempts with exponential backoff give Pinterest time to recover before the caller has
+    # to skip the chunk.
+    if isinstance(exception, requests.HTTPError):
+        response = exception.response
+        return response is not None and response.status_code >= 500
+    return False
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_request_error),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=60),
     reraise=True,

@@ -632,6 +632,158 @@ class TestIterAnalyticsRowsFresh:
         # No save_state happens at all: the first chunk failed (skipped), and the second is the final chunk.
         manager.save_state.assert_not_called()
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
+    )
+    def test_http_error_skips_chunk_without_aborting(self, mock_request, mock_entity_ids, mock_currency):
+        # A persistent 5xx on one chunk must not abort the whole fan-out: the failed chunk is skipped
+        # and the loop moves on, so the remaining batches and date chunks still import.
+        mock_entity_ids.return_value = ["1", "2"]
+        mock_currency.return_value = None
+        error_response = mock.MagicMock()
+        error_response.status_code = 500
+        mock_request.side_effect = [
+            requests.HTTPError("500 Server Error", response=error_response),
+            [{"CAMPAIGN_ID": "2", "DATE": "2024-01-01"}],
+        ]
+        manager = _make_resume_manager()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"], ["2"]],
+            ),
+        ):
+            yielded = list(
+                _iter_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        # The second chunk still ran and yielded rows despite the first chunk's 500.
+        assert len(yielded) == 1
+        assert yielded[0][0]["campaign_id"] == "2"
+        # The failed chunk did not advance the cursor, so it is retried on resume.
+        manager.save_state.assert_not_called()
+
+    @pytest.mark.parametrize("status_code", [400, 401, 403, 404, 429])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
+    )
+    def test_client_error_aborts_instead_of_being_skipped(
+        self, mock_request, mock_entity_ids, mock_currency, status_code
+    ):
+        # A 4xx is a real failure (bad request, auth, forbidden, not found, rate limit) that must
+        # reach the source framework, not be silently skipped like a 5xx. The HTTPError propagates
+        # so get_non_retryable_errors can surface a user-facing message and the job fails.
+        mock_entity_ids.return_value = ["1", "2"]
+        mock_currency.return_value = None
+        error_response = mock.MagicMock()
+        error_response.status_code = status_code
+        mock_request.side_effect = requests.HTTPError(f"{status_code} Client Error", response=error_response)
+        manager = _make_resume_manager()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"], ["2"]],
+            ),
+            pytest.raises(requests.HTTPError),
+        ):
+            list(
+                _iter_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        # The fan-out stopped on the first chunk: no later chunk ran, no cursor was saved.
+        assert mock_request.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
+    )
+    def test_later_success_does_not_advance_cursor_past_a_skipped_chunk(
+        self, mock_request, mock_entity_ids, mock_currency
+    ):
+        # A chunk that is skipped must stay retryable: a later chunk's success must not save a cursor
+        # past it, or resume would silently skip the failed chunk and lose its data.
+        mock_entity_ids.return_value = ["1"]
+        mock_currency.return_value = None
+        error_response = mock.MagicMock()
+        error_response.status_code = 500
+        mock_request.side_effect = [
+            requests.HTTPError("500 Server Error", response=error_response),
+            [{"CAMPAIGN_ID": "1", "DATE": "2024-02-01"}],
+            [{"CAMPAIGN_ID": "1", "DATE": "2024-03-01"}],
+        ]
+        manager = _make_resume_manager()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31"), ("2024-02-01", "2024-02-29"), ("2024-03-01", "2024-03-31")],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"]],
+            ),
+        ):
+            yielded = list(
+                _iter_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        # The two later chunks still yielded despite the first chunk's 500.
+        assert len(yielded) == 2
+        # The cursor is frozen at the first skip, so resume restarts and retries the failed chunk.
+        manager.save_state.assert_not_called()
+
 
 class TestIterAnalyticsRowsResume:
     @mock.patch(
@@ -913,6 +1065,50 @@ class TestIterTargetingAnalyticsRows:
 
         # Only one batch exists, so a cursor pointing past it leaves nothing to request.
         assert mock_request.call_count == 0
+
+    def test_saves_cursor_under_its_own_kind_so_resume_reads_it_back(self):
+        # The save must tag the cursor with TARGETING_ANALYTICS_RESUME_KIND. Saving the totals kind
+        # instead would make _load_resume_config reject it on resume (kind mismatch), restarting the
+        # fan-out at batch 0 and repeating every API call already made.
+        manager = _make_resume_manager()
+        mock_request = mock.MagicMock(return_value={"data": []})
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids",
+                return_value=["1", "2"],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency",
+                return_value=None,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"], ["2"]],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request",
+                mock_request,
+            ),
+        ):
+            list(
+                _iter_targeting_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_targeting_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        assert manager.save_state.call_count >= 1
+        assert manager.save_state.call_args_list[0].args[0].kind == TARGETING_ANALYTICS_RESUME_KIND
 
 
 class TestIterEntityRowsWithoutPagination:

@@ -318,6 +318,11 @@ def _iter_fanned_out_analytics(
     date_chunks = _chunk_date_range(start_date, end_date)
     id_batches = _chunk_list(entity_ids, ANALYTICS_MAX_IDS)
 
+    # The resume cursor is a single position, so once a chunk is skipped it must stop advancing:
+    # otherwise a later chunk's success saves a cursor past the skipped chunk and it is never
+    # retried on resume. Freeze the cursor at the first skip and let dedupe absorb the re-fetch.
+    chunk_skipped = False
+
     for batch_idx in range(start_batch_idx, len(id_batches)):
         batch = id_batches[batch_idx]
         chunk_start_idx = start_chunk_idx if batch_idx == start_batch_idx else 0
@@ -331,7 +336,29 @@ def _iter_fanned_out_analytics(
                 **extra_params,
             }
 
-            data = _make_request(session, url, params)
+            try:
+                data = _make_request(session, url, params)
+            except requests.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else None
+                # Only a 5xx is a chunk Pinterest transiently won't serve. A 4xx (bad request,
+                # auth, forbidden, not found, rate limit) is a real failure the source framework
+                # must see: get_non_retryable_errors maps it to a user-facing message, and letting
+                # it escape fails the job instead of finishing "completed" with an empty or partial
+                # table. Re-raise anything we can't confirm is a 5xx.
+                if status_code is None or status_code < 500:
+                    raise
+                source_logger.exception(
+                    "pinterest_ads_analytics_http_error",
+                    endpoint=endpoint,
+                    url=url,
+                    start_date=chunk_start,
+                    end_date=chunk_end,
+                    status_code=status_code,
+                )
+                # A single chunk Pinterest won't serve must not abort the whole fan-out. Skip it
+                # and freeze the cursor so it is retried on resume, same as a bad payload.
+                chunk_skipped = True
+                continue
 
             rows = parse_rows(data)
             if rows is None:
@@ -341,6 +368,7 @@ def _iter_fanned_out_analytics(
                     response_type=type(data).__name__,
                 )
                 # Only advance the cursor on a successful response — a failed chunk must be retried on resume.
+                chunk_skipped = True
                 continue
 
             if currency:
@@ -349,13 +377,16 @@ def _iter_fanned_out_analytics(
             if rows:
                 yield rows
 
+            if chunk_skipped:
+                continue
+
             next_batch_idx, next_chunk_idx = _advance_analytics_cursor(
                 batch_idx, chunk_idx, len(id_batches), len(date_chunks)
             )
             if next_batch_idx is not None and next_chunk_idx is not None:
                 resumable_source_manager.save_state(
                     PinterestAdsResumeConfig(
-                        kind=ANALYTICS_RESUME_KIND,
+                        kind=resume_kind,
                         batch_index=next_batch_idx,
                         date_chunk_index=next_chunk_idx,
                     )
