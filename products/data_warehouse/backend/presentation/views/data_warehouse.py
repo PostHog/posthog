@@ -690,13 +690,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
                 )
 
-            # Get failed syncs from ExternalDataSchema
-            # Only show syncs that are actively enabled but failing
+            # Get failed syncs from ExternalDataSchema, including schemas PostHog auto-disabled after
+            # a non-retryable error (should_sync=False): those are the most persistent failures, so
+            # filtering them out empties the health view exactly when the problem became permanent.
+            # Schemas the user turned off while healthy have status Completed and stay hidden.
             problem_syncs = (
                 ExternalDataSchema.objects.filter(
                     team_id=self.team_id,
                     deleted=False,
-                    should_sync=True,
                 )
                 .filter(
                     Q(status=ExternalDataSchemaStatus.FAILED) | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
@@ -708,6 +709,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 sync_status = "failed"
                 if schema.status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED:
                     sync_status = "billing_limit"
+                elif not schema.should_sync:
+                    # PostHog gave up on this sync; report it as disabled rather than failed.
+                    sync_status = "disabled"
 
                 results.append(
                     {
