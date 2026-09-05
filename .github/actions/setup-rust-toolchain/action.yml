@@ -1,0 +1,52 @@
+name: Setup Rust toolchain
+description: |
+    Installs a pinned Rust toolchain with the rustup that is already present on the
+    GitHub-hosted runner images. This keeps toolchain setup off codeload.github.com,
+    so a rate limit (HTTP 429) on that CDN can no longer fail the job during "Set up job".
+    The rustup fetch is retried, so one dropped connection does not sink the job.
+
+inputs:
+    toolchain:
+        description: 'Rust toolchain to install (e.g. 1.91.1 or stable)'
+        required: true
+    components:
+        description: 'Comma-separated components to add (e.g. clippy,rustfmt)'
+        required: false
+        default: ''
+
+runs:
+    using: composite
+    steps:
+        - name: Install Rust toolchain
+          shell: bash
+          env:
+              RUST_TOOLCHAIN: ${{ inputs.toolchain }}
+              RUST_COMPONENTS: ${{ inputs.components }}
+          run: |
+              set -euo pipefail
+
+              component_args=()
+              if [ -n "$RUST_COMPONENTS" ]; then
+                  IFS=',' read -ra parts <<< "$RUST_COMPONENTS"
+                  for c in "${parts[@]}"; do
+                      c="$(echo "$c" | xargs)"
+                      [ -n "$c" ] && component_args+=(--component "$c")
+                  done
+              fi
+
+              for attempt in 1 2 3; do
+                  if rustup toolchain install "$RUST_TOOLCHAIN" \
+                      --profile minimal --no-self-update "${component_args[@]}"; then
+                      break
+                  fi
+                  if [ "$attempt" -eq 3 ]; then
+                      echo "rustup toolchain install failed after $attempt attempts" >&2
+                      exit 1
+                  fi
+                  delay=$((attempt * 15))
+                  echo "rustup toolchain install attempt $attempt failed; retrying in ${delay}s..." >&2
+                  sleep "$delay"
+              done
+
+              rustup default "$RUST_TOOLCHAIN"
+              rustc --version
