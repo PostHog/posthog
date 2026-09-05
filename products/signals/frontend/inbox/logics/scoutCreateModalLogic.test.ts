@@ -233,6 +233,7 @@ describe('scoutCreateModalLogic', () => {
             run_cron_schedule: null,
             mcp_gateway_server_ids: [],
             tags: [],
+            write_scopes: [],
         })
         expect(onEnabled).toHaveBeenCalledTimes(1)
         expect(onCreated).not.toHaveBeenCalled()
