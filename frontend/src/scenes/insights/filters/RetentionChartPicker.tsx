@@ -6,7 +6,7 @@ import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, RetentionDashboardDisplayType } from '~/types'
 
 function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
     return (
@@ -47,7 +47,13 @@ const OPTIONS: LemonSelectOptions<ChartDisplayType> = [
     },
 ]
 
-export function RetentionChartPicker(): JSX.Element {
+export function RetentionChartPicker({
+    fullWidth = false,
+    showGraphOnDashboard = false,
+}: {
+    fullWidth?: boolean
+    showGraphOnDashboard?: boolean
+}): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -57,7 +63,14 @@ export function RetentionChartPicker(): JSX.Element {
             key="2"
             value={retentionFilter?.display || ChartDisplayType.ActionsLineGraph}
             onChange={(value) => {
-                updateInsightFilter({ display: value })
+                updateInsightFilter({
+                    display: value,
+                    ...(showGraphOnDashboard &&
+                    (!retentionFilter?.dashboardDisplay ||
+                        retentionFilter.dashboardDisplay === RetentionDashboardDisplayType.TableOnly)
+                        ? { dashboardDisplay: RetentionDashboardDisplayType.GraphOnly }
+                        : {}),
+                })
             }}
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"
@@ -65,6 +78,7 @@ export function RetentionChartPicker(): JSX.Element {
             data-attr="chart-filter"
             options={OPTIONS}
             size="small"
+            fullWidth={fullWidth}
             disabledReason={editingDisabledReason}
         />
     )

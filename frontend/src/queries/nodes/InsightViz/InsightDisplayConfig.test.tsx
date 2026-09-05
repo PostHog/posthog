@@ -117,9 +117,7 @@ describe('InsightDisplayConfig', () => {
     }
 
     describe('Options menu sections per insight/chart type', () => {
-        // For each type: the section headers in the Options menu, and the toggles inside the "Display"
-        // section. Empty `displayItems` means the Display header renders with no options under it.
-        const cases: [string, InsightQueryNode, { sections: string[]; displayItems: string[] }][] = [
+        const cases: [string, InsightQueryNode, { sections: string[]; displayItems: string[] | null }][] = [
             [
                 'trends line graph',
                 makeTrendsQuery(ChartDisplayType.ActionsLineGraph),
@@ -184,11 +182,7 @@ describe('InsightDisplayConfig', () => {
                     ],
                 },
             ],
-            [
-                'trends number',
-                makeTrendsQuery(ChartDisplayType.BoldNumber),
-                { sections: ['Display', 'Unit'], displayItems: [] },
-            ],
+            ['trends number', makeTrendsQuery(ChartDisplayType.BoldNumber), { sections: ['Unit'], displayItems: null }],
             [
                 'trends pie',
                 makeTrendsQuery(ChartDisplayType.ActionsPie),
@@ -221,7 +215,7 @@ describe('InsightDisplayConfig', () => {
             [
                 'trends table',
                 makeTrendsQuery(ChartDisplayType.ActionsTable),
-                { sections: ['Display', 'Unit'], displayItems: [] },
+                { sections: ['Unit'], displayItems: null },
             ],
             [
                 'trends bar value (horizontal)',
@@ -231,7 +225,7 @@ describe('InsightDisplayConfig', () => {
             [
                 'trends world map',
                 makeTrendsQuery(ChartDisplayType.WorldMap),
-                { sections: ['Display', 'Unit'], displayItems: [] },
+                { sections: ['Unit'], displayItems: null },
             ],
             [
                 'box plot',
@@ -260,6 +254,11 @@ describe('InsightDisplayConfig', () => {
                 },
             ],
             [
+                'stickiness table',
+                makeStickinessQuery(ChartDisplayType.ActionsTable),
+                { sections: [], displayItems: null },
+            ],
+            [
                 'lifecycle',
                 makeLifecycleQuery(),
                 {
@@ -276,10 +275,20 @@ describe('InsightDisplayConfig', () => {
 
         it.each(cases)('%s shows the expected sections and display options', async (_name, query, expected) => {
             setupAndRender(query)
+
+            if (expected.sections.length === 0) {
+                expect(screen.queryByLabelText('Options')).not.toBeInTheDocument()
+                return
+            }
+
             await openOptionsMenu()
 
             expect(getSectionTitles()).toEqual(expected.sections)
-            expect(getDisplaySectionItems()).toEqual(expected.displayItems)
+            if (expected.displayItems === null) {
+                expect(screen.queryByTestId('options-display-section')).not.toBeInTheDocument()
+            } else {
+                expect(getDisplaySectionItems()).toEqual(expected.displayItems)
+            }
         })
     })
 
