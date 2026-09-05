@@ -1349,10 +1349,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setCommonFilters: () => {
             actions.loadAllEnabled()
         },
-        setSamplingFactor: () => {
-            actions.maybeLoadClickmap()
-        },
-
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
                 actions.maybeLoadClickmap()
