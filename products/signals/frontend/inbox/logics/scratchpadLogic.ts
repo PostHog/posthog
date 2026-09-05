@@ -472,10 +472,11 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 return
             }
             // A shared link is authoritative. `setSearchText` also runs the search, so the hydrated
-            // view lists the same hits the sender saw. Guarded so plain navigation onto the panel does
-            // not re-dispatch an unchanged search.
+            // view lists the same hits the sender saw. Compare against the trimmed search, which is
+            // what the writer puts in the URL: plain navigation onto the panel must not re-dispatch
+            // an unchanged search, and a half-typed ` short ` must keep the space still being typed.
             const parsed = readTextParam(searchParams[SCRATCHPAD_SEARCH_URL_KEY])
-            if (parsed !== values.searchText) {
+            if (parsed !== values.searchText.trim()) {
                 actions.setSearchText(parsed)
             }
         },

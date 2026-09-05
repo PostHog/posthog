@@ -186,6 +186,20 @@ describe('scratchpadLogic', () => {
         expect(router.values.searchParams.scratchpad_search).toBeUndefined()
     })
 
+    // The URL only ever carries a trimmed search, so hydrating it back over a half-typed ` short `
+    // would strip the trailing space the person is still using, join their next word onto the last
+    // one, and run the same ILIKE twice.
+    it('leaves a half-typed search alone when the URL already carries its trimmed form', async () => {
+        router.actions.push(urls.inboxScratchpad())
+
+        logic.actions.setSearchText(' short ')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.scratchpad_search).toEqual('short')
+        expect(searchRequests.map((params) => params.get('text'))).toEqual(['short'])
+        expect(logic.values.searchText).toEqual(' short ')
+    })
+
     it('restores the search from a shared URL and runs it', async () => {
         router.actions.push(urls.inboxScratchpad(), { scratchpad_search: 'short' })
         await expectLogic(logic).toFinishAllListeners()

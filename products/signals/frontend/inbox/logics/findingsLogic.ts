@@ -1008,9 +1008,11 @@ export const findingsLogic = kea<findingsLogicType>([
             }
             // A shared link is authoritative: apply what it carries and reset the rest to defaults.
             // Guarded so plain navigation onto the panel does not re-dispatch an unchanged state.
+            // The search compares against the trimmed state, which is what the writer puts in the
+            // URL, so a half-typed `error ` keeps the space still being typed.
             const parsed = parseFindingsFilterSearchParams(searchParams)
             if (
-                parsed.searchText === values.searchText &&
+                parsed.searchText === values.searchText.trim() &&
                 parsed.scoutFilter === values.scoutFilter &&
                 parsed.severityFilter === values.severityFilter &&
                 parsed.sortKey === values.sortKey

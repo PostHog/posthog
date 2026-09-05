@@ -98,6 +98,16 @@ describe('findingsLogic', () => {
         expect(logic.values.searchText).toEqual('123')
     })
 
+    // The URL only ever carries a trimmed search, so hydrating it back over a half-typed `error `
+    // would strip the trailing space the person is still using and join their next word onto it.
+    it('leaves a half-typed search alone when the URL already carries its trimmed form', async () => {
+        logic.actions.setSearchText('error ')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.finding_search).toEqual('error')
+        expect(logic.values.searchText).toEqual('error ')
+    })
+
     it('reflects the filters it already holds onto a bare findings URL', async () => {
         logic.actions.setSeverityFilter('P0')
         await expectLogic(logic).toFinishAllListeners()
