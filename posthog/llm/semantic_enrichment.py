@@ -14,18 +14,40 @@ takes the annotation model class and its owner fields as arguments so one code p
 
 import re
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from math import ceil
 from typing import Any
 
 from django.utils import timezone
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import Product, get_llm_client
+from posthog.llm.gateway_client import (
+    Product,
+    build_anthropic_client,
+    get_llm_client,
+    resolve_ai_gateway_config,
+    team_distinct_id,
+)
 from posthog.models import Team
 
 DEFAULT_ENRICHMENT_MODEL = "claude-haiku-4-5"
+# Messages requires max_tokens. The reply echoes every column name back as a JSON key before its
+# sentence, so what a table needs scales with its own name lengths rather than its column count: at
+# the 400-char annotation key limit, MAX_COLUMNS_PER_TABLE names alone outrun this ceiling. It is the
+# most we ask for; `bound_prompt_over_columns` drops tail columns until the projected reply fits.
+MAX_OUTPUT_TOKENS = 16384
+# Floor for the sized ceiling, so a narrow table still has room to answer.
+MIN_OUTPUT_TOKENS = 1024
+# What one `"name": "sentence"` pair costs beyond the name itself: the quotes, colon, comma and
+# newline, then a sentence of description.
+_JSON_PAIR_OVERHEAD_CHARS = 8
+_DESCRIPTION_BUDGET_CHARS = 240
+# Deliberately below the ~3.5 chars/token English average: under-reserving truncates the reply, while
+# over-reserving only leaves headroom unused.
+_CHARS_PER_OUTPUT_TOKEN = 3.0
 # Keep the prompt and response bounded — wide tables shouldn't blow up the context or the cost.
 MAX_COLUMNS_PER_TABLE = 200
 # The team's core memory is free-form and unbounded; a large dump alone can push the prompt past the
@@ -55,10 +77,10 @@ def collapse_untrusted(text: str) -> str:
 def extract_json_object(content: str) -> dict[str, Any] | None:
     """Parse the model's JSON reply, tolerating markdown fences or surrounding prose.
 
-    `response_format={"type": "json_object"}` isn't reliably honoured through the gateway's Anthropic
-    route, so the reply can arrive fenced (```json … ```) or with leading text — a bare `json.loads`
-    then dies on the first non-`{` character. Try the whole string, then a fenced block, then the
-    outermost `{…}` span. Returns the dict, or None if nothing parses to a JSON object.
+    Callers that cannot set a response-format parameter, the Messages leg among them, ask for JSON in
+    the prompt, so the reply can arrive fenced (```json … ```) or with leading text and a bare
+    `json.loads` dies on the first non-`{` character. Try the whole string, then a fenced block, then
+    the outermost `{…}` span. Returns the dict, or None if nothing parses to a JSON object.
     """
     text = content.strip()
     candidates = [text]
@@ -123,6 +145,120 @@ def get_team_business_context(team: Team) -> str:
     return (core_memory.text or "").strip() if core_memory else ""
 
 
+class TruncatedCompletionError(ValueError):
+    """The model hit its output ceiling, so the reply is cut off rather than malformed.
+
+    A `ValueError` so the callers' existing `except Exception` handlers keep reporting "partial",
+    but a distinct type and message so a too-small ceiling is separable from a bad reply.
+    """
+
+
+@frozen
+class _Completion:
+    """One model reply, normalised across the two request shapes."""
+
+    text: str
+    usage: dict[str, Any]
+    truncated: bool
+    # The ceiling this leg sent, for the truncation message. None when the provider applied its own.
+    max_output_tokens: int | None = None
+
+
+class _MessagesClient:
+    """Anthropic Messages, the only shape the Go ai-gateway plans Claude models under."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def complete(
+        self, *, model: str, prompt: str, temperature: float, team_id: int, max_output_tokens: int = MAX_OUTPUT_TOKENS
+    ) -> _Completion:
+        response = self._client.messages.create(
+            model=model,
+            max_tokens=max_output_tokens,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            metadata={"user_id": team_distinct_id(team_id)},
+        )
+        usage_obj = getattr(response, "usage", None)
+        prompt_tokens = getattr(usage_obj, "input_tokens", None)
+        completion_tokens = getattr(usage_obj, "output_tokens", None)
+        return _Completion(
+            text=_messages_text(response),
+            usage=_usage(model, prompt_tokens, completion_tokens),
+            truncated=getattr(response, "stop_reason", None) == "max_tokens",
+            max_output_tokens=max_output_tokens,
+        )
+
+
+class _ChatClient:
+    """OpenAI Chat Completions, the shape the Python gateway has always served this product."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def complete(
+        self, *, model: str, prompt: str, temperature: float, team_id: int, max_output_tokens: int = MAX_OUTPUT_TOKENS
+    ) -> _Completion:
+        # No max_tokens: the Python gateway has always let the provider apply its own ceiling, and the
+        # bounded ask list already keeps the reply within one response. Accepted so both clients share
+        # one call signature.
+        response = self._client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            response_format={"type": "json_object"},
+            user=team_distinct_id(team_id),
+        )
+        choice = response.choices[0]
+        usage_obj = getattr(response, "usage", None)
+        return _Completion(
+            text=choice.message.content or "",
+            usage=_usage(
+                model,
+                getattr(usage_obj, "prompt_tokens", None),
+                getattr(usage_obj, "completion_tokens", None),
+            ),
+            truncated=getattr(choice, "finish_reason", None) == "length",
+        )
+
+
+def _usage(model: str, prompt_tokens: int | None, completion_tokens: int | None) -> dict[str, Any]:
+    """Token counts under the OpenAI key names the enrichment analytics events already carry."""
+    return {
+        "model": model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": None
+        if prompt_tokens is None or completion_tokens is None
+        else prompt_tokens + completion_tokens,
+    }
+
+
+def _messages_text(response: Any) -> str:
+    """Concatenate the text blocks of a Messages reply; other block types are ignored."""
+    blocks = getattr(response, "content", None) or []
+    return "".join(getattr(block, "text", None) or "" for block in blocks if getattr(block, "type", None) == "text")
+
+
+def build_enrichment_client(product: Product, team_id: int) -> _MessagesClient | _ChatClient:
+    """Client for one enrichment call, on whichever shape the resolved gateway serves.
+
+    The Go ai-gateway plans Claude models only under Anthropic's native Messages shape, so the cutover
+    sends Messages there. The Python gateway keeps receiving Chat Completions, which is what this
+    product has always sent it, so clearing `AI_GATEWAY_URL` restores the previous wire behaviour rather
+    than falling back onto a route the product has never exercised.
+    """
+    if resolve_ai_gateway_config():
+        # distinct_id, not just the Messages `metadata.user_id`: that goes upstream to the provider,
+        # while aig reads the capture identity from the X-PostHog-Distinct-Id header this sets. Without
+        # it these generations land under the shared credential rather than the team.
+        return _MessagesClient(
+            build_anthropic_client(product, ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
+        )
+    return _ChatClient(get_llm_client(product=product, team_id=team_id))
+
+
 def generate_json_completion(
     *,
     product: Product,
@@ -130,35 +266,42 @@ def generate_json_completion(
     prompt: str,
     model: str = DEFAULT_ENRICHMENT_MODEL,
     temperature: float = 0.2,
-    client: Any = None,
+    client: "_MessagesClient | _ChatClient | None" = None,
+    max_output_tokens: int = MAX_OUTPUT_TOKENS,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM for a JSON reply. Returns `(parsed_payload, usage)` — usage carries model + tokens.
 
-    `client` lets a caller inject an already-resolved gateway client (the warehouse path does this so
-    its existing test seam keeps working); when omitted we resolve one for `product`/`team_id`.
+    `client` lets a caller inject an already-resolved enrichment client (the warehouse path does this
+    so its existing test seam keeps working); when omitted we resolve one for `product`/`team_id`.
+    Raises `TruncatedCompletionError` when the reply was cut off by the output ceiling.
     """
     if client is None:
-        client = get_llm_client(product=product, team_id=team_id)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-        response_format={"type": "json_object"},
-        user=f"team-{team_id}",
+        client = build_enrichment_client(product, team_id)
+    completion = client.complete(
+        model=model, prompt=prompt, temperature=temperature, team_id=team_id, max_output_tokens=max_output_tokens
     )
-    usage_obj = getattr(response, "usage", None)
-    usage: dict[str, Any] = {
-        "model": model,
-        "prompt_tokens": getattr(usage_obj, "prompt_tokens", None),
-        "completion_tokens": getattr(usage_obj, "completion_tokens", None),
-        "total_tokens": getattr(usage_obj, "total_tokens", None),
-    }
-    parsed = extract_json_object(response.choices[0].message.content or "")
+    if completion.truncated:
+        # Terminal even when the fragment parses: the view consumer stores its enrichment hash on
+        # any non-exception return, so a partial column set latches and no later run retries.
+        ceiling = f"{completion.max_output_tokens}-token" if completion.max_output_tokens else "provider-default"
+        raise TruncatedCompletionError(f"model response hit the {ceiling} output ceiling")
+    parsed = extract_json_object(completion.text)
     if parsed is None:
         # Surface as an LLM failure (caught by the caller → "partial") rather than silently
         # persisting nothing, so the error stays visible in analytics.
         raise ValueError("model response was not valid JSON")
-    return parsed, usage
+    return parsed, completion.usage
+
+
+def projected_output_tokens(column_names: Iterable[str]) -> int:
+    """Tokens the JSON reply needs to answer for `column_names`.
+
+    Every column echoes its own name back as a key before its sentence, so a table of long names needs
+    a far larger ceiling than a table of short ones with the same column count.
+    """
+    chars = sum(len(name) + _JSON_PAIR_OVERHEAD_CHARS + _DESCRIPTION_BUDGET_CHARS for name in column_names)
+    # The enclosing braces, then the floor so a narrow table still has room to answer.
+    return max(MIN_OUTPUT_TOKENS, ceil((chars + 2) / _CHARS_PER_OUTPUT_TOKEN))
 
 
 def bound_prompt_over_columns(
@@ -166,22 +309,28 @@ def bound_prompt_over_columns(
     columns: list[dict[str, Any]],
     columns_needing_description: list[str],
     max_prompt_chars: int = MAX_PROMPT_CHARS,
-) -> str:
-    """Build a prompt via `builder`, dropping tail columns until it fits the context window.
+    max_output_tokens: int = MAX_OUTPUT_TOKENS,
+) -> tuple[str, int]:
+    """Build a prompt via `builder`, dropping tail columns until both the prompt and its reply fit.
+
+    Returns `(prompt, output_ceiling)`; the ceiling is sized to the columns the prompt ends up asking
+    about, for the caller to send as the request's output limit.
 
     `builder(shown_columns, columns_needing_description)` assembles the surface-specific prompt from a
     subset of columns; anything else it depends on (foreign keys, business context, …) is closed over
     by the caller and re-derived from `shown_columns` on each call so the prompt never references a
-    column it no longer lists. If the assembled prompt is still too long — a pathologically wide table,
-    say — columns are dropped from the tail until it fits. Skipped columns keep their place in the
-    idempotency snapshot, so a later pass enriches them.
+    column it no longer lists. Two bounds drop tail columns: an assembled prompt too long for the
+    context window, and an ask list whose reply could not fit under `max_output_tokens`. The second
+    bound otherwise truncates the reply on every attempt, so the table never gets past a partial result.
+    Skipped columns keep their place in the idempotency snapshot, so a later pass enriches them.
     """
     shown_columns = columns
     needing = columns_needing_description
     while True:
         prompt = builder(shown_columns, needing)
-        if len(prompt) <= max_prompt_chars or len(shown_columns) <= 1:
-            return prompt
+        needed_tokens = projected_output_tokens(needing)
+        if (len(prompt) <= max_prompt_chars and needed_tokens <= max_output_tokens) or len(shown_columns) <= 1:
+            return prompt, min(needed_tokens, max_output_tokens)
         # Drop ~10% of the tail columns and re-measure. Prune the ask list to the surviving columns too.
         cut = max(1, len(shown_columns) // 10)
         shown_columns = shown_columns[:-cut]

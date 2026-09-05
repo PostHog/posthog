@@ -27,13 +27,13 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import get_llm_client
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_COLUMNS_PER_TABLE,
     MAX_PROMPT_CHARS,
     bound_prompt_over_columns,
+    build_enrichment_client,
     capture_enrichment_event,
     collapse_untrusted,
     enrichment_enabled as _shared_enrichment_enabled,
@@ -182,7 +182,7 @@ def build_bounded_enrichment_prompt(
     known_descriptions: dict[str, str],
     columns_needing_description: list[str],
     business_context: str,
-) -> str:
+) -> tuple[str, int]:
     """Build the prompt, trimming inputs so it can't exceed the model's context window.
 
     The business context (the team's core memory) is unbounded free text and is the usual culprit
@@ -230,7 +230,7 @@ def _generate_descriptions(
     business_context: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM. Returns `(parsed_payload, usage)` — usage carries the model and token counts."""
-    prompt = build_bounded_enrichment_prompt(
+    prompt, max_output_tokens = build_bounded_enrichment_prompt(
         source_name=source_name,
         table_name=table_name,
         endpoint_name=endpoint_name,
@@ -241,15 +241,15 @@ def _generate_descriptions(
         columns_needing_description=columns_needing_description,
         business_context=business_context,
     )
-    # Resolve the client through this module's get_llm_client so the existing test seam keeps working,
-    # then hand it to the shared JSON completion.
-    client = get_llm_client(product="warehouse_semantic_enrichment", team_id=team_id)
+    # Resolved here so this module exposes a seam the activity tests can patch.
+    client = build_enrichment_client("warehouse_semantic_enrichment", team_id)
     return generate_json_completion(
         product="warehouse_semantic_enrichment",
         team_id=team_id,
         prompt=prompt,
         model=ENRICHMENT_MODEL,
         client=client,
+        max_output_tokens=max_output_tokens,
     )
 
 
