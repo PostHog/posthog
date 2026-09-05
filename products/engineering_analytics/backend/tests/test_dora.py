@@ -352,6 +352,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             "future-sha",
             "backport-sha",
             "inflight-sha",
+            "reland-sha",
             "missing-sha",
         ]
         started_at = "2026-01-12 08:01:00"
@@ -373,22 +374,27 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     0,
                     "2026-01-11 08:00:00",
                     merged_at=merged_at,
+                    merge_commit_sha=merge_commit_sha,
                     base_ref=base_ref,
                     default_branch="main",
                 )
-                for number, merged_at, base_ref in [
-                    (1, "2026-01-12 08:00:00", "main"),
-                    (2, "2026-01-12 08:00:00", "main"),
-                    (3, None, "main"),
-                    (4, "2026-01-19 08:00:00", "main"),
+                for number, merged_at, base_ref, merge_commit_sha in [
+                    (1, "2026-01-12 08:00:00", "main", None),
+                    (2, "2026-01-12 08:00:00", "main", None),
+                    (3, None, "main", None),
+                    (4, "2026-01-19 08:00:00", "main", None),
                     # Merged into a release branch, then cherry-picked onto main: the forward-ported
                     # commit keeps the (#5) subject, so only the base ref separates it from a real
                     # default-branch merge.
-                    (5, "2026-01-12 08:00:00", "release-1.2"),
+                    (5, "2026-01-12 08:00:00", "release-1.2", None),
                     # Merged while the deployment was already running: every deployment here was
                     # created 09:00 and succeeded 10:00, so this SHA was fixed before the merge and
                     # the artifact cannot carry it.
-                    (6, "2026-01-12 09:30:00", "main"),
+                    (6, "2026-01-12 09:30:00", "main", None),
+                    # Landed its own merge commit, so the (#7) subject on a DIFFERENT default-branch
+                    # commit cannot be its merge: the snapshot already says where PR 7 landed, and
+                    # it is not the deployed SHA.
+                    (7, "2026-01-12 08:00:00", "main", "pr-7-merge-sha"),
                 ]
             ],
             run_rows=[
@@ -414,6 +420,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                         ("future-sha", 4, "main", "PostHog/posthog"),
                         ("backport-sha", 5, "main", "PostHog/posthog"),
                         ("inflight-sha", 6, "main", "PostHog/posthog"),
+                        ("reland-sha", 7, "main", "PostHog/posthog"),
                     ],
                     start=1,
                 )

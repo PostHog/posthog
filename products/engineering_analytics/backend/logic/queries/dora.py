@@ -162,7 +162,9 @@ _FREQUENCY_SERIES_SELECT = """
 # merge_commit_sha exception (SPEC §6): gated on merged_at (an open PR carries a throwaway
 # test-merge SHA) and collapsed to one row per deployment (min breaks a shared-SHA tie).
 # Missing merge SHAs can resolve through the shared workflow-run attribution, restricted to the
-# same repo's default branch. Direct merge-SHA evidence wins over inferred commit-message evidence.
+# same repo's default branch. Direct merge-SHA evidence wins over inferred commit-message evidence,
+# so the candidate PR must carry no merge commit at all: one that names a commit other than the
+# deployed SHA is evidence the suffix is lying, not evidence the deploy carries that PR.
 # The candidate PR must also merge INTO that branch: a cherry-pick keeps the original subject line,
 # so a release-branch PR's (#N) suffix can ride a default-branch commit and hand the deploy an
 # earlier head merge than the one it really contains.
@@ -195,6 +197,7 @@ _DEPLOY_HEADS_CTE = """
         WHERE d.first_success_at IS NOT NULL
             AND d.sha != ''
             AND d.id NOT IN (SELECT id FROM merge_heads)
+            AND hp.merge_commit_sha = ''
             AND r.run_started_at >= {merge_scan_floor}
             AND NOT r.is_merge_queue
             AND hp.default_branch != ''
