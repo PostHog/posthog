@@ -195,6 +195,36 @@ def _assert_explicit_target(writer: bool) -> None:
     )
 
 
+def _assert_session_is_stable(conn: psycopg.Connection[Any], timeout_ms: int) -> None:
+    """Abort when the connection does not behave like one backend session.
+
+    A pooler in transaction mode sends consecutive statements to different backends, so the
+    statement timeout set once at startup applies to none of them. The sweep would then run
+    unbounded against a primary, which is the opposite of what --statement-timeout-ms promises,
+    and nothing would report it. persons_dedup refuses the same endpoint for the same reason.
+    pg_settings reports the value in milliseconds, unlike SHOW, which normalizes the unit.
+    """
+    pids: set[int] = set()
+    with conn.cursor() as cur:
+        for _ in range(3):
+            cur.execute("SELECT pg_backend_pid()")
+            row = cur.fetchone()
+            assert row is not None
+            pids.add(row[0])
+        cur.execute("SELECT setting::int FROM pg_settings WHERE name = 'statement_timeout'")
+        row = cur.fetchone()
+        assert row is not None
+        applied = int(row[0])
+    if len(pids) == 1 and applied == timeout_ms:
+        return
+    raise CommandError(
+        f"connection is not session-stable (pooled/multiplexed): saw backend pids {sorted(pids)}, "
+        f"and statement_timeout reads {applied}ms where {timeout_ms}ms was set. Session settings "
+        "do not survive between statements there, so --statement-timeout-ms would not bound the "
+        "sweep. Use a direct writer endpoint, not a transaction-pooled one."
+    )
+
+
 class Command(BaseCommand):
     help = "Remove surplus posthog_cohortpeople rows for (cohort_id, person_id) pairs held more than once"
 
@@ -237,6 +267,10 @@ class Command(BaseCommand):
         with persons_db_connection(writer=repair, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute(sql.SQL("SET statement_timeout = {}").format(sql.Literal(options["statement_timeout_ms"])))
+            # Only the delete path, matching persons_dedup: a pooled reader costs the gate its
+            # bound, but a pooled writer costs the sweep its bound while it deletes.
+            if repair:
+                _assert_session_is_stable(conn, options["statement_timeout_ms"])
 
             cohort_ids = options["cohort_ids"] or _cohort_ids(conn)
             affected = 0

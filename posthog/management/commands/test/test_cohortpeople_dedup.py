@@ -10,6 +10,7 @@ from django.core.management.base import CommandError
 import psycopg
 from structlog.testing import capture_logs
 
+from posthog.management.commands.cohortpeople_dedup import _assert_session_is_stable
 from posthog.persons_db import persons_db_connection
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -124,3 +125,10 @@ def test_the_command_logs_the_database_it_targets(persons_conn):
     assert target[0]["dbname"]
     # A raw URL is how the credentials would reach the log, so the entry must name the parts.
     assert "://" not in str(target[0])
+
+
+def test_a_session_that_lost_the_statement_timeout_is_refused(persons_conn):
+    # A transaction pool answers from a backend that never ran the SET, so the session reports
+    # a timeout the command did not ask for. Passing a value nothing set reproduces that read.
+    with pytest.raises(CommandError, match="not session-stable"):
+        _assert_session_is_stable(persons_conn, timeout_ms=1234)
