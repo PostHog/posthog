@@ -23,6 +23,8 @@ export interface FlagAudience {
   stability: string;
   /** Person property checked before the rules for early access flags; null when off. */
   enrollmentKey: string | null;
+  /** Experiment holdout checked before the rules; null when the flag has none. */
+  holdout: { id: string; exclusionPercentage: number } | null;
 }
 
 export interface FlagRule {
@@ -428,6 +430,22 @@ export function shapeFlagAudience(
     return { kind: "true" };
   };
 
+  const holdoutRecord = isRecord(filters.holdout) ? filters.holdout : null;
+  const holdout: FlagAudience["holdout"] = holdoutRecord
+    ? {
+        id: asString(holdoutRecord.id) ?? "",
+        exclusionPercentage: Math.min(
+          Math.max(
+            typeof holdoutRecord.exclusion_percentage === "number"
+              ? holdoutRecord.exclusion_percentage
+              : 0,
+            0,
+          ),
+          100,
+        ),
+      }
+    : null;
+
   // Early access flags check the enrollment person property before any rule:
   // a true value returns true immediately, any other present value returns
   // false, and an absent value falls through to the rules below.
@@ -477,6 +495,7 @@ export function shapeFlagAudience(
       bucketing,
       stability,
       enrollmentKey,
+      holdout,
     };
   }
 
@@ -497,6 +516,7 @@ export function shapeFlagAudience(
       bucketing,
       stability,
       enrollmentKey,
+      holdout,
     };
   }
 
@@ -514,6 +534,7 @@ export function shapeFlagAudience(
       bucketing,
       stability,
       enrollmentKey,
+      holdout,
     };
   }
 
@@ -545,12 +566,21 @@ export function shapeFlagAudience(
   const fallbackReachable = !rules.some((rule) =>
     catchAllRule(rule, deviceBucketed),
   );
+  // The evaluator resolves enrollment and the holdout before the rules, so
+  // those sentences come first.
+  const overrideSentences: string[] = [];
   if (enrollmentKey) {
-    sentences.push(
+    overrideSentences.push(
       `${enrollmentKey} overrides these rules: a true value always gets true, and any other value gets false.`,
     );
-  } else if (fallbackReachable) {
-    sentences.push(
+  } else if (holdout) {
+    overrideSentences.push(
+      `${holdout.exclusionPercentage}% of people are held out for experiment ${holdout.id} and get holdout-${holdout.id}.`,
+    );
+  }
+  const allSentences = [...overrideSentences, ...sentences];
+  if (fallbackReachable && !enrollmentKey) {
+    allSentences.push(
       deviceBucketed || rules.some((rule) => rule.isGroup)
         ? "A check without its bucketing key still gets false."
         : "Everyone else gets false.",
@@ -559,7 +589,7 @@ export function shapeFlagAudience(
 
   return {
     headline,
-    summary: sentences.join(" "),
+    summary: allSentences.join(" "),
     disabled,
     rules,
     fallback,
@@ -568,6 +598,7 @@ export function shapeFlagAudience(
     bucketing,
     stability,
     enrollmentKey,
+    holdout,
   };
 }
 

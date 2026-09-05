@@ -216,9 +216,11 @@ function RuleRow({
 function VariantsList({
   variants,
   stability,
+  holdout,
 }: {
   variants: FlagVariant[];
   stability: FlagAudience["stability"];
+  holdout: FlagAudience["holdout"];
 }) {
   return (
     <div className="mt-4">
@@ -246,6 +248,13 @@ function VariantsList({
           />
         ))}
       </div>
+      {holdout && (
+        <Text variant="muted" className="mt-1 block text-xs">
+          {holdout.exclusionPercentage}% of people receive{" "}
+          <span className="font-mono">holdout-{holdout.id}</span> instead of a
+          variant.
+        </Text>
+      )}
       {variants.map((variant) => (
         <div
           key={variant.key}
@@ -323,6 +332,16 @@ export function FlagAudienceCard({ audience }: { audience: FlagAudience }) {
               true; any other value gets false.
             </div>
           )}
+          {audience.holdout && (
+            <div className="border-border border-b bg-(--amber-2) px-3 py-2 text-[12px] text-muted-foreground">
+              Holdout: {audience.holdout.exclusionPercentage}% of people are
+              held out for experiment {audience.holdout.id} and get{" "}
+              <span className="font-mono text-foreground">
+                holdout-{audience.holdout.id}
+              </span>{" "}
+              before these rules.
+            </div>
+          )}
           {audience.rules.map((rule, index) => (
             <RuleRow
               key={ruleKey(rule, index)}
@@ -348,6 +367,7 @@ export function FlagAudienceCard({ audience }: { audience: FlagAudience }) {
           <VariantsList
             variants={audience.variants}
             stability={audience.stability}
+            holdout={audience.holdout}
           />
         )}
       </CardContent>

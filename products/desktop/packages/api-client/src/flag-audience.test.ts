@@ -105,6 +105,20 @@ describe("flag audience shaping", () => {
     );
   });
 
+  it("states the holdout result before the rules", () => {
+    const audience = shapeFlagAudience(
+      flagWith({
+        holdout: { id: 3, exclusion_percentage: 20 },
+        groups: [{ rollout_percentage: 100 }],
+      }),
+    );
+
+    expect(audience.holdout).toEqual({ id: "3", exclusionPercentage: 20 });
+    expect(audience.summary).toMatch(
+      /^20% of people are held out for experiment 3 and get holdout-3\./,
+    );
+  });
+
   it("renders a readable label for operators that only reach flags through the API", () => {
     const audience = shapeFlagAudience(
       flagWith({
