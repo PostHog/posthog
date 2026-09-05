@@ -6,8 +6,12 @@ warehouse_view:write (write actions). Verifies viewer/editor/none rejection and
 acceptance for the endpoints that actually get traffic.
 """
 
+from datetime import timedelta
+
 import pytest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -17,12 +21,13 @@ from posthog.models.organization import OrganizationMembership
 
 from products.data_modeling.backend.facade.models import (
     DAG,
+    DataModelingJob,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     Node,
     NodeType,
 )
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
@@ -94,6 +99,94 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
 
         response = self.client.get(self._path("total_rows_stats/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(["data_health_issues", "running_activity", "completed_activity", "total_rows_stats"])
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.BillingManager")
+    def test_collection_actions_hide_objects_denied_per_object(self, action_path: str, mock_billing_manager):
+        # total_rows_stats only breaks rows down per source once billing returns a period.
+        mock_billing_manager.return_value.get_billing.return_value = {
+            "billing_period": {
+                "current_period_start": (timezone.now() - timedelta(days=1)).isoformat(),
+                "current_period_end": (timezone.now() + timedelta(days=1)).isoformat(),
+                "interval": "month",
+            },
+            "usage_summary": {"rows_synced": {"usage": 0}},
+        }
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.viewer_user, resource="external_data_source", access_level="viewer")
+
+        saved_queries = {}
+        sources = {}
+        for label in ("allowed", "blocked"):
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"{label}_view",
+                query={"kind": "HogQLQuery", "query": "select 1"},
+                is_materialized=True,
+                status=DataWarehouseSavedQuery.Status.FAILED,
+                latest_error=f"{label}_view_error",
+            )
+            for job_status in ("Running", "Completed"):
+                DataModelingJob.objects.create(
+                    team=self.team, saved_query=saved_query, status=job_status, error=f"{label}_job_error"
+                )
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id=label,
+                connection_id=f"{label}-connection",
+                source_type="Stripe",
+                status="Error",
+            )
+            schema = ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                name=f"{label}_schema",
+                status="Failed",
+                latest_error=f"{label}_schema_error",
+            )
+            for job_status in ("Running", "Completed"):
+                ExternalDataJob.objects.create(
+                    team=self.team, pipeline=source, schema=schema, status=job_status, rows_synced=10
+                )
+                ExternalDataJob.objects.create(
+                    team=self.team,
+                    pipeline=source,
+                    schema=None,
+                    status=job_status,
+                    rows_synced=10,
+                    workflow_run_id=f"{label}_schemaless_run",
+                )
+            saved_queries[label] = saved_query
+            sources[label] = source
+
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(saved_queries["blocked"].id),
+            access_level="none",
+        )
+        self._create_access_control(
+            self.viewer_user,
+            resource="external_data_source",
+            resource_id=str(sources["blocked"].id),
+            access_level="none",
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(self._path(f"{action_path}/"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.content.decode()
+        if action_path == "total_rows_stats":
+            allowed_tokens = [str(sources["allowed"].id)]
+            blocked_tokens = [str(sources["blocked"].id)]
+        else:
+            allowed_tokens = ["allowed_view", "allowed_schema"]
+            blocked_tokens = ["blocked_", str(saved_queries["blocked"].id), str(sources["blocked"].id)]
+        for token in allowed_tokens:
+            self.assertIn(token, body)
+        for token in blocked_tokens:
+            self.assertNotIn(token, body)
 
     def test_managed_warehouse_status_excludes_blocked_and_direct_sources(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
