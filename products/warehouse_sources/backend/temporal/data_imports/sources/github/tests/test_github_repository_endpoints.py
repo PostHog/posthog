@@ -500,6 +500,23 @@ class TestMergeCommitSha:
         assert re.findall(r"pr(\d+): pullRequest", payload["query"]) == ["7"]
         assert payload["variables"] == {"owner": "acme", "name": "widgets"}
 
+    def test_an_alias_error_costs_only_its_own_pull_request(self) -> None:
+        # GraphQL nulls the alias whose resolver failed and still answers for the rest of the batch,
+        # so the good rows must survive a body that carries `errors` beside its data.
+        graphql = mock.Mock()
+        graphql.status_code = 200
+        graphql.headers = {}
+        graphql.json.return_value = {
+            "data": {"repository": {"pr7": {"mergeCommit": {"oid": "sha-seven"}}, "pr8": None}},
+            "errors": [{"message": "Something went wrong", "path": ["repository", "pr8"]}],
+        }
+        page = _response([self._pull_request(7, merged=True), self._pull_request(8, merged=True)])
+
+        with mock.patch.object(github, "github_request", return_value=graphql):
+            rows, _calls = _run("pull_requests", {"api.github.com": page})
+
+        assert [row["merge_commit_sha"] for row in rows] == ["sha-seven", None]
+
     @parameterized.expand([("advertised reset", 900, 900), ("no reset header", None, 60)])
     def test_graphql_rate_limit_carries_a_wait_that_outlasts_the_window(
         self, _name: str, reset_in: int | None, expected_retry_after: int

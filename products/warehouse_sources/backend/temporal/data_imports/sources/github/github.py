@@ -1357,6 +1357,18 @@ def _fetch_merge_commit_shas(
         # have given a status code. Retry rather than read the empty body as "none of these pull
         # requests has a merge commit".
         raise GithubRetryableError(f"Github GraphQL returned no repository data: errors={body.get('errors')}")
+
+    errors = body.get("errors")
+    if errors:
+        # A resolver that fails for one alias nulls that alias and lets the rest of the batch answer.
+        # The null then looks exactly like a pull request that has no merge commit, so record the
+        # errors here. Without them an operator cannot tell the two apart, and the row keeps an empty
+        # merge_commit_sha with no record of why.
+        logger.warning(
+            "Github: GraphQL errored on part of the merge commit batch, so those pull requests keep "
+            f"an empty merge_commit_sha: repository={repository}, errors={errors}"
+        )
+
     return {
         number: pull_requests[f"pr{number}"]["mergeCommit"]["oid"]
         for number in numbers
