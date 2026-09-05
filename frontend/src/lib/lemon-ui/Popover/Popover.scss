@@ -4,8 +4,6 @@
     flex-direction: row;
     isolation: isolate;
     transform: translateZ(0);
-    perspective: 80rem;
-    perspective-origin: top;
 
     h5 {
         margin: 0.25rem 0.5rem;
@@ -13,10 +11,6 @@
 
     p:last-child {
         margin-bottom: 0;
-    }
-
-    &[data-floating-placement^='top'] {
-        perspective-origin: bottom;
     }
 
     &.Popover--top-centered {
@@ -46,7 +40,7 @@
 
     .Popover[data-placement^='bottom'] & {
         margin-top: 0.25rem;
-        transform: rotateX(-6deg);
+        transform: scale(0.95);
         transform-origin: top;
     }
 
@@ -56,7 +50,7 @@
 
     .Popover[data-placement^='top'] & {
         margin-bottom: 0.25rem;
-        transform: rotateX(6deg);
+        transform: scale(0.95);
         transform-origin: bottom;
     }
 
@@ -66,7 +60,7 @@
 
     .Popover[data-placement^='left'] & {
         margin-right: 0.25rem;
-        transform: rotateY(-6deg);
+        transform: scale(0.95);
         transform-origin: right;
     }
 
@@ -76,7 +70,7 @@
 
     .Popover[data-placement^='right'] & {
         margin-left: 0.25rem;
-        transform: rotateY(6deg);
+        transform: scale(0.95);
         transform-origin: left;
     }
 
