@@ -43,7 +43,7 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
         docs: 'https://posthog.com/docs/libraries/java',
     },
     'posthog-server': {
-        releases: 'https://github.com/PostHog/posthog-android/releases?q=server-v',
+        releases: 'https://github.com/PostHog/posthog-android/releases',
         docs: 'https://posthog.com/docs/libraries/java',
     },
     'posthog-node': {
@@ -76,7 +76,7 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     },
     'posthog-kmp': {
         releases: 'https://github.com/PostHog/posthog-kmp/releases',
-        docs: 'https://github.com/PostHog/posthog-kmp',
+        docs: 'https://posthog.com/docs/libraries/kmp',
     },
     'posthog-dotnet': {
         releases: 'https://github.com/PostHog/posthog-dotnet/releases',
@@ -92,11 +92,11 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     },
     'posthog-node-mcp': {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/mcp/CHANGELOG.md',
-        docs: 'https://github.com/PostHog/posthog-js/tree/main/packages/mcp',
+        docs: 'https://posthog.com/docs/mcp-analytics',
     },
     'posthog-python-mcp': {
-        releases: 'https://github.com/PostHog/posthog-python/releases?q=posthog-v',
-        docs: 'https://github.com/PostHog/posthog-python/tree/main/posthog/mcp',
+        releases: 'https://github.com/PostHog/posthog-python/releases',
+        docs: 'https://posthog.com/docs/mcp-analytics',
     },
     'posthog-edge': {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/node/CHANGELOG.md',
@@ -107,11 +107,11 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
         docs: 'https://posthog.com/docs/libraries/convex',
     },
     'posthog-rails': {
-        releases: 'https://github.com/PostHog/posthog-ruby/releases?q=posthog-rails-v',
+        releases: 'https://github.com/PostHog/posthog-ruby/releases',
         docs: 'https://posthog.com/docs/libraries/ruby-on-rails',
     },
     'posthog-aspnetcore': {
-        releases: 'https://github.com/PostHog/posthog-dotnet/releases?q=PostHog.AspNetCore-v',
+        releases: 'https://github.com/PostHog/posthog-dotnet/releases',
         docs: 'https://posthog.com/docs/libraries/dotnet',
     },
 }
