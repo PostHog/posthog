@@ -10154,7 +10154,6 @@ class AssistantStickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
     compareFilter: CompareFilter | None = Field(
         default=None,
         description=("Compare to date range. When enabled, shows the current and previous period side by side."),
@@ -10176,7 +10175,7 @@ class AssistantStickinessQuery(BaseModel):
             " performed the event on exactly that many days."
         ),
     )
-    intervalCount: int | None = Field(
+    intervalCount: conint(ge=1) | None = Field(
         default=None,
         description=(
             "How many base intervals comprise one stickiness period. Defaults to 1. For"
