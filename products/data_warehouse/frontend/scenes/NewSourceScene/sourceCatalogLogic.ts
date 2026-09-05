@@ -1315,6 +1315,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Tempo'
                       | 'TemporalIO'
                       | 'TenableVulnerabilityManagement'
+                      | 'Tenjin'
                       | 'TeraBox'
                       | 'Ternary'
                       | 'TerraApi'
