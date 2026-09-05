@@ -43,6 +43,7 @@ import type {
     PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
     SchemaDestinationsApi,
+    SourceConfigMapResponseApi,
     SourceConnectLinkApi,
     SourceCredentialApi,
     SourceCredentialCreateApi,
@@ -1380,8 +1381,8 @@ export const externalDataSourcesWizardRetrieve = async (
     projectId: string,
     params?: ExternalDataSourcesWizardRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
+): Promise<SourceConfigMapResponseApi> => {
+    return apiMutator<SourceConfigMapResponseApi>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

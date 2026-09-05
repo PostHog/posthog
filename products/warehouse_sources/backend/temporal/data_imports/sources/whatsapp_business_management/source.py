@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whatsappbusinessmanagement import (
@@ -23,7 +18,7 @@ class WhatsappBusinessManagementSource(SimpleSource[WhatsappBusinessManagementSo
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WHATSAPP_BUSINESS_MANAGEMENT,
+            name=ExternalDataSourceType.WHATSAPPBUSINESSMANAGEMENT,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Meta Platforms - WhatsApp Business Management API (Graph API)",
             iconPath="/static/services/whatsapp_business_management.png",

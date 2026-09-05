@@ -2,9 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
-import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+
+import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
@@ -16,18 +17,29 @@ import {
     sourceWizardLogic,
 } from '../sourceWizardLogic'
 
+function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
+    // Fills the fields the wizard endpoint always sends but no case here exercises, so each
+    // fixture states only what it is about.
+    return {
+        name: 'Postgres',
+        iconPath: '',
+        caption: null,
+        fields: [],
+        supportsColumnSelection: false,
+        versions: [],
+        defaultVersion: '',
+        deprecatedVersions: [],
+        ...overrides,
+    }
+}
+
 describe('sourceWizardLogic', () => {
     beforeEach(() => {
         initKeaTests()
     })
 
     it('shares a single wizard instance across references with the same props', () => {
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
         const availableSources = { Postgres: postgresSource }
         const firstReference = sourceWizardLogic({ availableSources })
         const secondReference = sourceWizardLogic({ availableSources })
@@ -50,12 +62,7 @@ describe('sourceWizardLogic', () => {
         // Regression test: onSubmit used to read `values.currentStep` again after onNext()
         // advanced it, so a single click on step 4 (webhook) fell through into the step-5
         // completion branch in the same call, skipping the progress step entirely.
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
         const onComplete = jest.fn()
         const logic = sourceWizardLogic({ availableSources: { Postgres: postgresSource }, onComplete })
         const unmount = logic.mount()
@@ -75,12 +82,7 @@ describe('sourceWizardLogic', () => {
     })
 
     it('does not hydrate the same source URL again after the wizard has started', () => {
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
 
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
@@ -149,10 +151,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for text fields', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -163,7 +163,7 @@ describe('sourceWizardLogic', () => {
                             secret: false,
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { test_field: '' } })
@@ -172,10 +172,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for pure select field', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -186,7 +184,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'value1',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { test_field: 'value1' } })
@@ -195,10 +193,8 @@ describe('sourceWizardLogic', () => {
         it('returns an array default for a multiple select field', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'GoogleSearchConsole',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'search_types',
@@ -213,7 +209,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'web',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { search_types: ['web'] } })
@@ -222,10 +218,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for select field with fields', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -251,7 +245,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'value1',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -264,10 +258,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for switch group field - default disabled', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -286,7 +278,7 @@ describe('sourceWizardLogic', () => {
                             ],
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -299,10 +291,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for switch group field - default enabled', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -321,7 +311,7 @@ describe('sourceWizardLogic', () => {
                             ],
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -767,12 +757,7 @@ describe('sourceWizardLogic', () => {
 
     // Reducer guards for permission_error rows (Stripe scope gating).
     describe('permission_error sync gating', () => {
-        const stripeSource = {
-            name: 'Stripe',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
 
         const buildSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
             ({
@@ -956,12 +941,7 @@ describe('sourceWizardLogic', () => {
     // Onboarding one-click setup: autoConfigureTables opts every syncable table in so the user
     // can sync the whole source without touching the schema step.
     describe('autoConfigureTables', () => {
-        const stripeSource = {
-            name: 'Stripe',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
 
         const apiSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
             ({
@@ -1047,12 +1027,7 @@ describe('sourceWizardLogic', () => {
 
     // Signals setup passes requiredTables to skip the schema step and sync just those tables.
     describe('requiredTables', () => {
-        const githubSource = {
-            name: 'Github',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const githubSource = buildSourceConfig({ name: 'Github' })
 
         const apiSchema = (
             table: string,
@@ -1224,8 +1199,8 @@ describe('sourceWizardLogic', () => {
     // columns as default cursors; anything else falls back to full refresh instead of a cursor
     // that never advances (see resolveUpdateTrackedIncrementalField).
     describe('Supabase incremental defaults', () => {
-        const supabaseSource = { name: 'Supabase', iconPath: '', caption: null, fields: [] } as SourceConfig
-        const postgresSource = { name: 'Postgres', iconPath: '', caption: null, fields: [] } as SourceConfig
+        const supabaseSource = buildSourceConfig({ name: 'Supabase' })
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
 
         const apiSchema = (
             table: string,
@@ -1259,7 +1234,7 @@ describe('sourceWizardLogic', () => {
         ]
 
         const mountAndLoadSchemas = async (
-            source: SourceConfig
+            source: SourceConfigResponseApi
         ): Promise<{ logic: ReturnType<typeof sourceWizardLogic>; unmount: () => void }> => {
             const logic = sourceWizardLogic({ availableSources: { [source.name]: source } })
             const unmount = logic.mount()

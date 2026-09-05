@@ -23,19 +23,6 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
-    SourceFieldFileUploadConfig,
-    SourceFieldFileUploadJsonFormatConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
-)
-
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.project import Project
@@ -71,6 +58,18 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
     has_preserved_credentials,
     restore_declared_field_names,
     strip_sensitive_from_dict,
+)
+from products.warehouse_sources.backend.source_config import (
+    SourceFieldFileUploadConfig,
+    SourceFieldFileUploadJsonFormatConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
@@ -9052,7 +9051,6 @@ class TestCreateWebhook(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
-        from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 

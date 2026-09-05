@@ -3,8 +3,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source import CalComSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calcom import CalComSourceConfig
 

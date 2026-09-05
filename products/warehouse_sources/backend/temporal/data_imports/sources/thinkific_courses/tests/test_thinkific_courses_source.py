@@ -4,8 +4,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkificcourses import (
     ThinkificCoursesSourceConfig,
 )

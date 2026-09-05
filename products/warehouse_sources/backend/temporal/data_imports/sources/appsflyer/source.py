@@ -2,15 +2,13 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
     AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
@@ -67,7 +65,7 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPS_FLYER,
+            name=ExternalDataSourceType.APPSFLYER,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="AppsFlyer",
             caption="""Enter your AppsFlyer credentials to pull aggregate performance reports into the PostHog Data warehouse.

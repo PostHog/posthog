@@ -3,9 +3,8 @@ from typing import Optional, cast
 import requests
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -13,7 +12,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     ENDPOINTS,
     CheckoutComResumeConfig,
@@ -161,7 +159,7 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CHECKOUT_COM,
+            name=ExternalDataSourceType.CHECKOUTCOM,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Checkout.com",
             caption="""Enter your Checkout.com API access keys to pull your payments data into the PostHog Data warehouse.

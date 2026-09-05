@@ -6,15 +6,13 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive import api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.constants import (
@@ -93,7 +91,7 @@ class AttentiveSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ATTENTIVE,
+            name=ExternalDataSourceType.ATTENTIVE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Attentive",
             caption=(

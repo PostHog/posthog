@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand
 
 from structlog import get_logger
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -18,7 +18,6 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 

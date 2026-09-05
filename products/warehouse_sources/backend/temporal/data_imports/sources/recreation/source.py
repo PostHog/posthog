@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -97,7 +95,7 @@ class RecreationSource(ResumableSource[RecreationSourceConfig, RecreationResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RECREATION,
+            name=ExternalDataSourceType.RECREATION,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Recreation.gov",
             caption="""Import public US federal recreation data from the Recreation Information Database (RIDB) behind Recreation.gov: recreation areas, facilities, campsites, tours, permit entrances, and more.

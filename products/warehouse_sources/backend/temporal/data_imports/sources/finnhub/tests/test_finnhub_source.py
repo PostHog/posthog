@@ -5,8 +5,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
     FinnhubSourceConfig,

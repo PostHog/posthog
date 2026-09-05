@@ -5,15 +5,13 @@ from django.conf import settings
 import gspread
 from google.auth import exceptions as google_auth_exceptions
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -216,7 +214,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
+            name=ExternalDataSourceType.GOOGLESHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             keywords=["gsheet", "gsheets", "spreadsheet", "google sheet"],
             label="Google Sheets",

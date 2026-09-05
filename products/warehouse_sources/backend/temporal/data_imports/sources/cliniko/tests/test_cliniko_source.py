@@ -1,8 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.source import ClinikoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cliniko import (

@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.bettermode import (
     BettermodeResumeConfig,
     bettermode_source,
@@ -52,7 +50,7 @@ class BettermodeSource(ResumableSource[BettermodeSourceConfig, BettermodeResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BETTERMODE,
+            name=ExternalDataSourceType.BETTERMODE,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Bettermode",
             keywords=["tribe", "community"],

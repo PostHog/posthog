@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management import (
     AzureCostManagementResumeConfig,
     azure_cost_management_source,
@@ -58,7 +56,7 @@ class AzureCostManagementSource(ResumableSource[AzureCostManagementSourceConfig,
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AZURE_COST_MANAGEMENT,
+            name=ExternalDataSourceType.AZURECOSTMANAGEMENT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Microsoft Azure Cost Management",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import (
     BloomerangResumeConfig,
     bloomerang_source,
@@ -122,7 +120,7 @@ class BloomerangSource(ResumableSource[BloomerangSourceConfig, BloomerangResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BLOOMERANG,
+            name=ExternalDataSourceType.BLOOMERANG,
             category=DataWarehouseSourceCategory.CRM,
             keywords=["donor", "nonprofit", "fundraising"],
             releaseStatus=ReleaseStatus.ALPHA,

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -104,7 +102,7 @@ class CourierSource(ResumableSource[CourierSourceConfig, CourierResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COURIER,
+            name=ExternalDataSourceType.COURIER,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Courier",
             caption="Use an API key from the Courier dashboard under **Settings → API Keys**. Either the Live or Test key works; the key determines which environment's data is synced.",

@@ -5,15 +5,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -74,7 +72,7 @@ class WorkOSSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WORK_OS,
+            name=ExternalDataSourceType.WORKOS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="WorkOS",
             releaseStatus=ReleaseStatus.BETA,

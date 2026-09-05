@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,7 +36,7 @@ class Env0Source(ResumableSource[Env0SourceConfig, Env0ResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ENV0,
+            name=ExternalDataSourceType.ENV0,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="env0",
             caption="""Enter your env0 API key credentials to pull your env0 data into the PostHog Data warehouse.

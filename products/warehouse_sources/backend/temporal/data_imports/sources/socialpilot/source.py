@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.socialpilot import (
@@ -23,7 +18,7 @@ class SocialPilotSource(SimpleSource[SocialPilotSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SOCIAL_PILOT,
+            name=ExternalDataSourceType.SOCIALPILOT,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="SocialPilot",
             keywords=["socialpilot.co"],

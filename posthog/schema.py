@@ -82,7 +82,6 @@ from posthog.schema_enums import (
     DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
-    DataWarehouseSourceCategory as DataWarehouseSourceCategory,
     DaysOfWeekEnum as DaysOfWeekEnum,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
@@ -114,7 +113,6 @@ from posthog.schema_enums import (
     ExperimentSignificanceCode as ExperimentSignificanceCode,
     ExperimentStatsMethod as ExperimentStatsMethod,
     ExperimentStatsValidationFailure as ExperimentStatsValidationFailure,
-    ExternalDataSourceType as ExternalDataSourceType,
     ExternalQueryErrorCode as ExternalQueryErrorCode,
     ExternalQueryStatus as ExternalQueryStatus,
     FileSystemIconType as FileSystemIconType,
@@ -238,7 +236,6 @@ from posthog.schema_enums import (
     RecordingOrderDirection as RecordingOrderDirection,
     RedditAdsDefaultSources as RedditAdsDefaultSources,
     RefreshType as RefreshType,
-    ReleaseStatus as ReleaseStatus,
     ResultCustomizationBy as ResultCustomizationBy,
     RetentionDashboardDisplayType as RetentionDashboardDisplayType,
     RetentionEntityKind as RetentionEntityKind,
@@ -257,8 +254,6 @@ from posthog.schema_enums import (
     SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources as SnapchatAdsDefaultSources,
     SnapshotSource as SnapshotSource,
-    SourceFieldInputConfigType as SourceFieldInputConfigType,
-    SourceFieldSelectConfigConverter as SourceFieldSelectConfigConverter,
     SpanPropertyFilterType as SpanPropertyFilterType,
     StartHandling as StartHandling,
     Status as Status,
@@ -2839,67 +2834,6 @@ class SimilarIssue(BaseModel):
     status: str
 
 
-class SourceFieldFileUploadJsonFormatConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    format: Literal[".json"] = ".json"
-    keys: str | list[str]
-
-
-class SourceFieldOauthAccountSelectConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    caption: str | None = None
-    hidden: bool | None = Field(
-        default=None,
-        description=(
-            "Keep the field in the config tree (so its value parses and survives"
-            " job_inputs redaction) without rendering it in the source form. Used for"
-            " legacy fields that a newer field supersedes."
-        ),
-    )
-    integrationField: str = Field(
-        ...,
-        description=("Name of the OAuth integration id field this account selector reads from."),
-    )
-    integrationKind: str = Field(
-        ...,
-        description="Integration kind to validate and route the account fetch through.",
-    )
-    label: str
-    multiple: bool | None = Field(
-        default=None,
-        description=("Allow selecting multiple values; the field's payload value becomes string[]."),
-    )
-    name: str
-    placeholder: str | None = None
-    required: bool | None = None
-    type: Literal["oauth-account-select"] = "oauth-account-select"
-
-
-class SourceFieldOauthConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: str
-    label: str
-    name: str
-    required: bool
-    requiredScopes: str | None = None
-    type: Literal["oauth"] = "oauth"
-
-
-class SourceFieldSSHTunnelConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    label: str
-    name: str
-    type: Literal["ssh-tunnel"] = "ssh-tunnel"
-
-
 class SourceMap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2959,14 +2893,6 @@ class SuggestedQuestionsQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
-
-
-class SuggestedTable(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    table: str
-    tooltip: str | None = None
 
 
 class SurveyAnalysisResponseItem(BaseModel):
@@ -7319,38 +7245,6 @@ class SidebarSectionsConfiguration(BaseModel):
         default=None,
         description='The "Recents" section, listing recently viewed items.',
     )
-
-
-class SourceFieldFileUploadConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    fileFormat: SourceFieldFileUploadJsonFormatConfig
-    label: str
-    name: str
-    required: bool
-    type: Literal["file-upload"] = "file-upload"
-
-
-class SourceFieldInputConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    caption: str | None = None
-    label: str
-    name: str
-    placeholder: str
-    required: bool
-    secret: bool = Field(
-        ...,
-        description=(
-            "Marks this field as containing sensitive data. The value is stripped from"
-            " API responses regardless of the rendering `type` (so a multi-line PEM"
-            " blob can use `textarea` and still be redacted). Required: source authors"
-            " must explicitly classify every field."
-        ),
-    )
-    type: SourceFieldInputConfigType
 
 
 class SourceSymbol(BaseModel):
@@ -32399,147 +32293,6 @@ class RootAssistantMessage(
     )
 
 
-class SourceConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    caption: str | Any | None = None
-    category: DataWarehouseSourceCategory | None = Field(
-        default=None,
-        description=(
-            "Catalog bucket this source is grouped under in the new-source wizard."
-            " Optional at the type level so partial/in-progress sources don't break,"
-            " but every registered source must set one (enforced by a test). See"
-            " `dataWarehouseSourceCategories`."
-        ),
-    )
-    disabledReason: str | None = None
-    docsUrl: str | None = None
-    existingSource: bool | None = None
-    featureFlag: str | None = None
-    featured: bool | None = Field(
-        default=False,
-        description=("Whether this source should be prominently displayed in onboarding flows"),
-    )
-    fields: list[
-        SourceFieldInputConfig
-        | SourceFieldSwitchGroupConfig
-        | SourceFieldSelectConfig
-        | SourceFieldOauthConfig
-        | SourceFieldOauthAccountSelectConfig
-        | SourceFieldFileUploadConfig
-        | SourceFieldSSHTunnelConfig
-    ]
-    iconClassName: str | None = None
-    iconPath: str
-    keywords: list[str] | None = Field(
-        default=None,
-        description=(
-            "Extra search terms (alternate spellings, acronyms) for the catalog search,"
-            ' e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside'
-            " name/label/category."
-        ),
-    )
-    label: str | None = None
-    name: ExternalDataSourceType
-    permissionsCaption: str | None = None
-    releaseStatus: ReleaseStatus | None = None
-    suggestedTables: list[SuggestedTable] | None = Field(
-        default=[],
-        description="Tables to suggest enabling, with optional tooltip explaining why",
-    )
-    supportsColumnSelection: bool | None = Field(
-        default=False,
-        description=(
-            "Whether the source-creation wizard should expose the per-column projection"
-            " picker. Mirrors `SQLSource.supports_column_selection` so the wizard"
-            " doesn't show a picker for drivers that ignore `enabled_columns` at sync"
-            " time."
-        ),
-    )
-    unreleasedSource: bool | None = None
-    webhookFields: (
-        list[
-            SourceFieldInputConfig
-            | SourceFieldSwitchGroupConfig
-            | SourceFieldSelectConfig
-            | SourceFieldOauthConfig
-            | SourceFieldOauthAccountSelectConfig
-            | SourceFieldFileUploadConfig
-            | SourceFieldSSHTunnelConfig
-        ]
-        | None
-    ) = None
-    webhookManualOnly: bool | None = Field(
-        default=None,
-        description=(
-            "If true, the source does not support automatic webhook registration via"
-            " API (e.g. Slack — the user must paste the URL into the source's app"
-            " settings). Adjusts the setup UI copy to avoid promising automatic"
-            " registration."
-        ),
-    )
-    webhookSetupCaption: str | None = None
-
-
-class SourceFieldSelectConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    caption: str | None = None
-    converter: SourceFieldSelectConfigConverter | None = None
-    defaultValue: str
-    label: str
-    multiple: bool | None = Field(
-        default=None,
-        description=("Allow selecting multiple values; the field's payload value becomes string[]."),
-    )
-    name: str
-    options: list[SourceFieldSelectConfigOption]
-    required: bool
-    type: Literal["select"] = "select"
-
-
-class SourceFieldSelectConfigOption(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    fields: (
-        list[
-            SourceFieldInputConfig
-            | SourceFieldSwitchGroupConfig
-            | SourceFieldSelectConfig
-            | SourceFieldOauthConfig
-            | SourceFieldOauthAccountSelectConfig
-            | SourceFieldFileUploadConfig
-            | SourceFieldSSHTunnelConfig
-        ]
-        | None
-    ) = None
-    label: str
-    value: str
-
-
-class SourceFieldSwitchGroupConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    caption: str | None = None
-    default: str | float | bool
-    fields: list[
-        SourceFieldInputConfig
-        | SourceFieldSwitchGroupConfig
-        | SourceFieldSelectConfig
-        | SourceFieldOauthConfig
-        | SourceFieldOauthAccountSelectConfig
-        | SourceFieldFileUploadConfig
-        | SourceFieldSSHTunnelConfig
-    ]
-    label: str
-    name: str
-    type: Literal["switch-group"] = "switch-group"
-
-
 class VisualizationArtifactContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32670,5 +32423,3 @@ HumanMessage.model_rebuild()
 MaxDashboardContext.model_rebuild()
 MaxInsightContext.model_rebuild()
 QueryRequest.model_rebuild()
-SourceConfig.model_rebuild()
-SourceFieldSelectConfig.model_rebuild()

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.breezometer import (
     breezometer_source,
     validate_credentials as validate_breezometer_credentials,
@@ -45,7 +43,7 @@ class BreezometerSource(SimpleSource[BreezometerSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BREEZOMETER,
+            name=ExternalDataSourceType.BREEZOMETER,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="BreezoMeter",
             releaseStatus=ReleaseStatus.ALPHA,

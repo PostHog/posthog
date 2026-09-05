@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rakutenadvertising import (
@@ -23,7 +18,7 @@ class RakutenAdvertisingSource(SimpleSource[RakutenAdvertisingSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RAKUTEN_ADVERTISING,
+            name=ExternalDataSourceType.RAKUTENADVERTISING,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Rakuten Advertising",
             iconPath="/static/services/rakuten_advertising.png",

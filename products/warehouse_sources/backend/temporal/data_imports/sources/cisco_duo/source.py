@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.cisco_duo import (
     HOST_NOT_ALLOWED_ERROR,
     CiscoDuoResumeConfig,
@@ -50,7 +48,7 @@ class CiscoDuoSource(ResumableSource[CiscoDuoSourceConfig, CiscoDuoResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CISCO_DUO,
+            name=ExternalDataSourceType.CISCODUO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cisco Duo",
             releaseStatus=ReleaseStatus.ALPHA,

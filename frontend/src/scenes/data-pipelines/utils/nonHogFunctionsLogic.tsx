@@ -12,8 +12,8 @@ import { HogFunctionType, PluginConfigTypeNew, PluginType } from '~/types'
 
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 
+import type { SourceConfigResponseApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { SourceConfig } from '../../../queries/schema/schema-general'
 import type { UserType } from '../../../types'
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 import { humanizeBatchExportDescription } from '../batch-exports/utils'
@@ -22,7 +22,7 @@ import { humanizeBatchExportDescription } from '../batch-exports/utils'
 export interface nonHogFunctionsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentOrganizationId: string // organizationLogic
-    connectors: SourceConfig[] // sourceWizardLogic
+    connectors: SourceConfigResponseApi[] // sourceWizardLogic
     currentProjectId: number | string // teamLogic
     user: UserType | null // userLogic
     hogFunctionBatchExports: HogFunctionType[] | null

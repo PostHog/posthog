@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -62,7 +60,7 @@ class LoopReturnsSource(ResumableSource[LoopReturnsSourceConfig, LoopReturnsResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LOOP_RETURNS,
+            name=ExternalDataSourceType.LOOPRETURNS,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Loop Returns",
             releaseStatus=ReleaseStatus.ALPHA,

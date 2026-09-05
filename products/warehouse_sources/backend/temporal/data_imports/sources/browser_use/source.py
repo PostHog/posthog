@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.browser_use import (
     BrowserUseResumeConfig,
     browser_use_source,
@@ -53,7 +51,7 @@ class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BROWSER_USE,
+            name=ExternalDataSourceType.BROWSERUSE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Browser Use",
             releaseStatus=ReleaseStatus.ALPHA,

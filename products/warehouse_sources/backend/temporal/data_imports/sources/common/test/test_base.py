@@ -1,7 +1,6 @@
 from parameterized import parameterized
 
-from posthog.schema import SourceConfig
-
+from products.warehouse_sources.backend.source_config import SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     _BaseSource,
     error_message_matches,

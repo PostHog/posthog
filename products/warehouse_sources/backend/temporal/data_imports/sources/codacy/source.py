@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.codacy import (
     codacy_source,
     validate_credentials as validate_codacy_credentials,
@@ -47,7 +45,7 @@ class CodacySource(SimpleSource[CodacySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODACY,
+            name=ExternalDataSourceType.CODACY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codacy",
             releaseStatus=ReleaseStatus.ALPHA,

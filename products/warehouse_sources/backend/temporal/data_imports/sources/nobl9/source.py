@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nobl9 import Nobl9SourceConfig
@@ -21,7 +16,7 @@ class Nobl9Source(SimpleSource[Nobl9SourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NOBL9,
+            name=ExternalDataSourceType.NOBL9,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Nobl9",
             iconPath="/static/services/nobl9.png",

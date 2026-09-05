@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.bigmailer import (
     AUTH_ERROR_MESSAGE,
     BigMailerResumeConfig,
@@ -50,7 +48,7 @@ class BigMailerSource(ResumableSource[BigMailerSourceConfig, BigMailerResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIG_MAILER,
+            name=ExternalDataSourceType.BIGMAILER,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="BigMailer",
             releaseStatus=ReleaseStatus.ALPHA,

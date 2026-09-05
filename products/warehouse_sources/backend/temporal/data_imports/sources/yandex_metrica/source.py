@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yandexmetrica import (
@@ -23,7 +18,7 @@ class YandexMetricaSource(SimpleSource[YandexMetricaSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.YANDEX_METRICA,
+            name=ExternalDataSourceType.YANDEXMETRICA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Yandex Metrica",
             iconPath="/static/services/yandex_metrica.png",

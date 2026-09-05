@@ -13,7 +13,7 @@ import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/Lemon
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import type { SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 
 import { InputSuggestion, InputWithSuggestionsDropdown } from './InputWithSuggestionsDropdown'
 

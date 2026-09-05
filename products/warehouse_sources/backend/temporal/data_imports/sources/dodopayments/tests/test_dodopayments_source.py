@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus, SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )

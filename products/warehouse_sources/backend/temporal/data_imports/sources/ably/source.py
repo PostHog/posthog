@@ -1,9 +1,8 @@
 from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -11,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably import (
     ABLY_VERSION_2,
     AblyResumeConfig,
@@ -126,7 +124,7 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ABLY,
+            name=ExternalDataSourceType.ABLY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["realtime", "pubsub", "messaging"],
             label="Ably",

@@ -5,13 +5,12 @@ from unittest.mock import patch
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lambdalabs import (
     LambdaLabsSourceConfig,
 )

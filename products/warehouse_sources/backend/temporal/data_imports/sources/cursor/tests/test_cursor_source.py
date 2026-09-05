@@ -2,13 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceFieldInputConfig,
-)
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCursorSource:
@@ -20,7 +17,7 @@ class TestCursorSource:
     def test_get_source_config(self):
         config = self.source.get_source_config
 
-        assert config.name == SchemaExternalDataSourceType.CURSOR
+        assert config.name == ExternalDataSourceType.CURSOR
         assert config.label == "Cursor"
         field = config.fields[0]
         assert isinstance(field, SourceFieldInputConfig)

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -56,7 +54,7 @@ class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MOLLIE,
+            name=ExternalDataSourceType.MOLLIE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Mollie",
             caption="""Enter your Mollie API key to pull your Mollie payments data into the PostHog Data warehouse.

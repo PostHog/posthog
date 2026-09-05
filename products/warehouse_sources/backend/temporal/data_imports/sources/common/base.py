@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -23,7 +23,6 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )

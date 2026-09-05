@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.holded import HoldedSourceConfig
@@ -21,7 +16,7 @@ class HoldedSource(SimpleSource[HoldedSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HOLDED,
+            name=ExternalDataSourceType.HOLDED,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Holded (Visma)",
             iconPath="/static/services/holded.png",

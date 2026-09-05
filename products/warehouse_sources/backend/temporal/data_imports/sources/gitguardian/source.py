@@ -1,15 +1,13 @@
 from typing import Optional, cast
 from urllib.parse import urlsplit
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -55,7 +53,7 @@ class GitguardianSource(ResumableSource[GitguardianSourceConfig, GitGuardianResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GITGUARDIAN,
+            name=ExternalDataSourceType.GITGUARDIAN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitGuardian",
             releaseStatus=ReleaseStatus.ALPHA,

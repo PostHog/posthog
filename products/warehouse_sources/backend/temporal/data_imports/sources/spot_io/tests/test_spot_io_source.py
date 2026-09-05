@@ -2,8 +2,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spotio import SpotIoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.spot_io.source import SpotIoSource
 

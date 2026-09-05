@@ -3,8 +3,11 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loopreturns import (

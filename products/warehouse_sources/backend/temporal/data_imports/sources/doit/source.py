@@ -1,13 +1,11 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -87,7 +85,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DO_IT,
+            name=ExternalDataSourceType.DOIT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="DoIt",
             iconPath="/static/services/doit.svg",

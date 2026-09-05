@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.airwallex import (
     AirwallexResumeConfig,
     airwallex_source,
@@ -53,7 +51,7 @@ class AirwallexSource(ResumableSource[AirwallexSourceConfig, AirwallexResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AIRWALLEX,
+            name=ExternalDataSourceType.AIRWALLEX,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Airwallex",
             releaseStatus=ReleaseStatus.ALPHA,

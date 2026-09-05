@@ -2,15 +2,13 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -225,7 +223,7 @@ class WebflowSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WEBFLOW,
+            name=ExternalDataSourceType.WEBFLOW,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Webflow",
             caption="""Enter your Webflow v2 API token and Site ID to pull your Webflow site data into the PostHog Data warehouse.

@@ -8,10 +8,9 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
-from posthog.schema import SourceConfig
-
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.source_config import SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (

@@ -2,15 +2,13 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adjust import (
     AdjustCredentialsError,
     AdjustResumeConfig,
@@ -71,7 +69,7 @@ class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ADJUST,
+            name=ExternalDataSourceType.ADJUST,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Adjust",
             caption="""Enter your Adjust API token to pull aggregated attribution and performance reports into the PostHog Data warehouse.

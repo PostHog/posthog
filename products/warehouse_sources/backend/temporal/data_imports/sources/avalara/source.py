@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara import (
     AvalaraResumeConfig,
     avalara_source,
@@ -64,7 +62,7 @@ class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AVALARA,
+            name=ExternalDataSourceType.AVALARA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Avalara AvaTax",
             caption="""Connect your Avalara AvaTax account to pull tax transactions, companies, nexus, customers and exemption certificates into the PostHog Data warehouse.
