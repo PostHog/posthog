@@ -140,25 +140,15 @@ class TestEffectiveBillingGrants(APIBaseTest):
         self.assertEqual(grants.entitlements, [])
         self.assertEqual(grants.roles, ["owner"])
 
-    def test_member_below_full_access_is_clipped_to_visible_teams(self):
+    def test_what_a_member_can_see_is_not_in_the_token(self):
+        # Visibility is a per-request filter on the series reads; the token carries only what a
+        # credential is scoped to, so a member who sees one project of two still gets no list.
         self._set_level(MEMBER)
         self.member_read.return_value = True
-        with patch("ee.billing.grants.visible_team_ids", return_value=[self.other_team.id]):
+        with patch("ee.billing.grants.visible_team_ids", return_value=[self.other_team.id]) as visible:
             grants = self._grants()
-        self.assertEqual(grants.entitlements, [BillingEntitlement.USAGE_READ.value])
-        self.assertEqual(grants.projects, [self.other_team.id])
-
-    def test_member_who_sees_every_team_is_whole_organization(self):
-        self._set_level(MEMBER)
-        with patch("ee.billing.grants.visible_team_ids", return_value=[self.team.id, self.other_team.id]):
-            grants = self._grants()
-        self.assertIsNone(grants.projects)
-
-    def test_member_who_sees_no_team_gets_nothing(self):
-        self._set_level(MEMBER)
-        with patch("ee.billing.grants.visible_team_ids", return_value=[]):
-            grants = self._grants()
-        self.assertEqual(grants.entitlements, [])
+        self.assertEqual((grants.entitlements, grants.projects), ([BillingEntitlement.USAGE_READ.value], None))
+        visible.assert_not_called()
 
     def test_project_secret_key_is_its_own_principal(self):
         grants = effective_billing_grants(

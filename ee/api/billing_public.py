@@ -37,7 +37,7 @@ from posthog.utils import get_trusted_client_ip
 
 from ee.api.billing import BillingTimeSeriesPointSerializer, BillingUsageRequestSerializer
 from ee.billing.billing_manager import BillingManager
-from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, effective_billing_grants
+from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, effective_billing_grants, visible_team_ids
 
 BILLING_ACCESS_DENIED = "You do not have access to Billing for this organization."
 
@@ -440,13 +440,17 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return str(request.query_params.get("include_plans", "")).lower() in {"1", "true", "yes", "on"}
 
     @staticmethod
-    def _require(
-        grants: EffectiveBillingGrants, level: BillingEntitlement, *, whole_organization: bool = False
-    ) -> None:
-        """Refuse here what billing would refuse, so a caller below the level never costs a call."""
+    def _covers(grants: EffectiveBillingGrants, level: BillingEntitlement) -> bool:
         rank = {BillingEntitlement.MEMBER: 1, BillingEntitlement.USAGE_READ: 2, BillingEntitlement.FULL_ACCESS: 3}
         highest = max((rank[BillingEntitlement(e)] for e in grants.entitlements), default=0)
-        if highest < rank[level]:
+        return highest >= rank[level]
+
+    @classmethod
+    def _require(
+        cls, grants: EffectiveBillingGrants, level: BillingEntitlement, *, whole_organization: bool = False
+    ) -> None:
+        """Refuse here what billing would refuse, so a caller below the level never costs a call."""
+        if not cls._covers(grants, level):
             raise PermissionDenied(BILLING_ACCESS_DENIED)
         if whole_organization and grants.projects is not None:
             raise PermissionDenied("This resource is an organization total and needs a whole-organization credential.")
@@ -463,10 +467,20 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if requested is not None and not set(requested) <= organization_team_ids:
             raise ValidationError({"team_ids": "All team IDs must belong to this organization."})
         allowed = organization_team_ids if grants.projects is None else set(grants.projects)
+        # Below full access a user's series cover the projects they can see, filtered here per
+        # request as the usage and spend reads do today. The filter always names the projects, so
+        # a project deleted since its usage was reported is never in it.
+        user = request.user if isinstance(request.user, User) else None
+        filtered_by_visibility = False
+        if user is not None and not self._covers(grants, BillingEntitlement.FULL_ACCESS):
+            filtered_by_visibility = True
+            allowed = allowed & set(visible_team_ids(user, organization))
+            if not allowed:
+                raise PermissionDenied(BILLING_ACCESS_DENIED)
         scoped = sorted(allowed if requested is None else allowed.intersection(requested))
         if requested is not None and not scoped:
             raise PermissionDenied("The credential does not cover the requested projects.")
-        if grants.projects is not None or requested is not None:
+        if grants.projects is not None or requested is not None or filtered_by_visibility:
             params["team_ids"] = json.dumps(scoped)
         params["teams_map"] = {
             str(team_id): name for team_id, name in Team.objects.filter(id__in=scoped).values_list("id", "name")

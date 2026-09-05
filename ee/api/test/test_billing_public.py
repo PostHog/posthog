@@ -273,15 +273,18 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.member_read.return_value = True
-        with patch("ee.billing.grants.visible_team_ids", return_value=[self.team.id]):
+        with patch("ee.api.billing_public.visible_team_ids", return_value=[self.team.id]):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         sent = mock_get.call_args.kwargs["params"]
         token = mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
         claims = jwt.decode(token, options={"verify_signature": False})
-        # One visible team out of one is the whole organization; the token says so and no clip is sent.
-        self.assertIsNone(claims["projects"])
-        self.assertNotIn("team_ids", sent)
+        # The filter names the projects even when the member sees every one, so a project deleted
+        # since its usage was reported is never read; the token itself carries no list.
+        self.assertEqual((claims["projects"], sent["team_ids"]), (None, json.dumps([self.team.id])))
+        with patch("ee.api.billing_public.visible_team_ids", return_value=[]):
+            response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_team_outside_the_organization_is_rejected(self):
         response = self.client.get(

@@ -160,35 +160,22 @@ def visible_team_ids(user: User, organization: Organization) -> list[int]:
     )
 
 
-def _projects_for_user(
-    user: User,
-    organization: Organization,
-    authenticator: Any,
-    entitlement: BillingEntitlement,
-) -> tuple[Optional[list[int]], bool]:
-    """The projects the caller may see, and whether that is anything at all.
+def _projects_for_credential(organization: Organization, authenticator: Any) -> tuple[Optional[list[int]], bool]:
+    """The projects the credential is scoped to, and whether that is anything at all.
 
     A credential scoped to teams is clipped to the ones in this organization, whatever the role.
-    Below full access, the list is further clipped to the teams the user can see, as the usage
-    and spend reads do today. None means the whole organization."""
-    organization_team_ids = set(Team.objects.filter(organization=organization).values_list("id", flat=True))
+    None means the credential is not scoped. What the user can see is a separate question that
+    the series reads answer per request, so a member's visibility never widens or shrinks a
+    token, and an organization with thousands of projects never lists them in one.
+    """
     scoped = get_authenticator_scoped_team_ids(authenticator)
-    projects: Optional[set[int]] = None
-    if scoped is not None:
-        projects = set(scoped) & organization_team_ids
-        if not projects:
-            return None, False
-    if entitlement != BillingEntitlement.FULL_ACCESS:
-        visible = set(visible_team_ids(user, organization))
-        if projects is None:
-            projects = organization_team_ids & visible
-        else:
-            projects = projects & visible
-        if not projects:
-            return None, False
-        if projects == organization_team_ids:
-            projects = None
-    return (sorted(projects) if projects is not None else None), True
+    if scoped is None:
+        return None, True
+    organization_team_ids = set(Team.objects.filter(organization=organization).values_list("id", flat=True))
+    projects = set(scoped) & organization_team_ids
+    if not projects:
+        return None, False
+    return sorted(projects), True
 
 
 def _credential_may_act_for(authenticator: Any, organization: Organization) -> bool:
@@ -241,7 +228,7 @@ def effective_billing_grants(
     if BILLING_READ_SCOPE not in scope:
         return EffectiveBillingGrants(sub=sub, roles=roles)
     entitlement = _entitlement_for_role(user, organization, membership.level)
-    projects, anything = _projects_for_user(user, organization, authenticator, entitlement)
+    projects, anything = _projects_for_credential(organization, authenticator)
     if not anything:
         return EffectiveBillingGrants(sub=sub, roles=roles, scope=scope)
     return EffectiveBillingGrants(
