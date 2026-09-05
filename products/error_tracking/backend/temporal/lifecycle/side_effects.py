@@ -14,6 +14,7 @@ from posthog.helpers.tiktoken_encoding import (
 )
 from posthog.models import Team
 
+from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
     EventPropertiesIssueSnapshot,
     fetch_event_properties,
@@ -129,6 +130,31 @@ def produce_issue_lifecycle_internal_event(
         )
         flush_internal_events_producer(KAFKA_DELIVERY_TIMEOUT_SECONDS)
         result.get(timeout=0)
+
+    extra = {
+        key: str(value)
+        for key, value in (extra_properties or {}).items()
+        if key in ("computed_baseline", "current_bucket_value") and value is not None
+    }
+    status_property = properties.get("status")
+    # Dispatched before the Kafka publish so a persistent publication failure (which
+    # re-raises and fails the activity) does not also drop the alert. Redelivered
+    # starts on activity retry are idempotent on the notification id.
+    start_alert_delivery_workflow(
+        team_id=inputs.team_id,
+        event=event,
+        issue_id=inputs.issue_id,
+        notification_id=inputs.notification_id,
+        issue_name=inputs.issue.name,
+        issue_description=inputs.issue.description,
+        status=status_property if isinstance(status_property, str) else None,
+        assignee=inputs.assignee,
+        event_uuid=inputs.event_uuid,
+        # Paired with event_uuid, so it must be the exception's own time: spiking
+        # passes the detection time as exception_timestamp, which can differ.
+        event_timestamp=inputs.event_timestamp,
+        extra=extra or None,
+    )
 
     try:
         produce(properties)
