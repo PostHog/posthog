@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from django.conf import settings
+from django.db import models
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, serializers, status, viewsets
@@ -31,6 +32,15 @@ from ee.billing.billing_manager import BillingManager
 from ee.billing.grants import EffectiveBillingGrants, effective_billing_grants
 
 BILLING_ACCESS_DENIED = "You do not have access to Billing for this organization."
+
+
+class CatalogKind(models.TextChoices):
+    """Discriminates products from add-ons wherever the two can appear together."""
+
+    PRODUCT = "product"
+    ADDON = "addon"
+
+
 PUBLIC_BILLING_PROVIDER = {"posthog": "stripe", "vercel": "vercel"}
 
 
@@ -148,16 +158,14 @@ class ProductPlanSerializer(serializers.Serializer):
 
 
 class CatalogEntrySerializer(serializers.Serializer):
-    kind = serializers.ChoiceField(choices=["product", "addon"])
+    kind = serializers.ChoiceField(choices=CatalogKind.choices)
     key = serializers.CharField()
     usage_key = serializers.CharField(allow_null=True)
     name = serializers.CharField()
-    headline = serializers.CharField(allow_null=True)
     description = serializers.CharField(allow_blank=True)
     price_description = serializers.CharField(allow_null=True)
     icon_key = serializers.CharField(allow_null=True)
     image_url = serializers.CharField(allow_null=True)
-    screenshot_url = serializers.CharField(allow_null=True)
     docs_url = serializers.CharField(allow_null=True)
     subscribed = serializers.BooleanField(allow_null=True)
     inclusion_only = serializers.BooleanField()
@@ -184,6 +192,8 @@ class BillingAddonSerializer(CatalogEntrySerializer):
 
 
 class BillingProductSerializer(CatalogEntrySerializer):
+    headline = serializers.CharField(allow_null=True)
+    screenshot_url = serializers.CharField(allow_null=True)
     addons = BillingAddonSerializer(many=True)
 
 
@@ -206,7 +216,7 @@ class TierUsageSerializer(serializers.Serializer):
 
 
 class UsageItemSerializer(serializers.Serializer):
-    kind = serializers.ChoiceField(choices=["product", "addon"])
+    kind = serializers.ChoiceField(choices=CatalogKind.choices)
     key = serializers.CharField()
     usage_key = serializers.CharField(allow_null=True)
     current_usage = serializers.IntegerField()
