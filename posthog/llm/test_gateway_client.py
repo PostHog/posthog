@@ -374,16 +374,32 @@ class TestBuildAsyncAnthropicClient:
         }
         assert headers["X-PostHog-Product"] == "signals_grouping"
         assert headers["X-PostHog-Trace-Id"] == TEAM_42_TRACE_ID
+        # Without this header the gateway attributes the generation to the API key owner, so every
+        # team's generations collapse onto one actor.
+        assert headers["X-PostHog-Distinct-Id"] == "team-42"
         assert result is mock_anthropic.return_value
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
     @patch("posthog.llm.gateway_client.AsyncAnthropic")
-    def test_gateway_mode_omits_trace_header_when_team_id_unset(self, mock_anthropic, mock_httpx):
+    def test_gateway_mode_caller_trace_id_replaces_the_team_default(self, mock_anthropic, mock_httpx):
+        # A caller that knows its run passes a run-scoped trace; the team default groups every run
+        # a team ever had into one trace.
+        build_async_anthropic_client("signals", team_id=42, trace_id="run-1")
+
+        _, kwargs = mock_anthropic.call_args
+        assert kwargs["default_headers"]["X-PostHog-Trace-Id"] == "run-1"
+        assert kwargs["default_headers"]["X-PostHog-Distinct-Id"] == "team-42"
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncAnthropic")
+    def test_gateway_mode_omits_trace_and_distinct_headers_when_team_id_unset(self, mock_anthropic, mock_httpx):
         build_async_anthropic_client("signals", ai_product="signals_grouping", ai_stage="match")
 
         _, kwargs = mock_anthropic.call_args
         assert "X-PostHog-Trace-Id" not in kwargs["default_headers"]
+        assert "X-PostHog-Distinct-Id" not in kwargs["default_headers"]
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
@@ -397,6 +413,7 @@ class TestBuildAsyncAnthropicClient:
         assert kwargs["default_headers"] == {
             "X-PostHog-Properties": json.dumps({"team_id": "42"}),
             "X-PostHog-Trace-Id": TEAM_42_TRACE_ID,
+            "X-PostHog-Distinct-Id": "team-42",
         }
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)

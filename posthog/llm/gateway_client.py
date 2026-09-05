@@ -410,6 +410,8 @@ def build_async_anthropic_client(
     ai_product: str | None = None,
     ai_stage: str | None = None,
     team_id: int | None = None,
+    trace_id: str | None = None,
+    distinct_id: str | None = None,
     use_bedrock_fallback: bool = False,
 ) -> AsyncAnthropic:
     """Return a raw Anthropic client routed through the internal Go ai-gateway when configured,
@@ -428,8 +430,12 @@ def build_async_anthropic_client(
     over to Bedrock on its own via the host breaker and reads no opt-in header. trust_env=False
     keeps the in-cluster call off the egress proxy.
 
-    An attributed call also carries ``X-PostHog-Trace-Id`` (see :func:`team_trace_id`); the
-    Python-gateway fallback derives the same id internally and needs no header.
+    An attributed call also carries ``X-PostHog-Trace-Id`` and ``X-PostHog-Distinct-Id``. Both
+    default to the team-derived values (see :func:`team_trace_id` and :func:`team_distinct_id`),
+    so the generation lands on the team that caused it instead of on the owner of the gateway API
+    key. Pass ``trace_id`` to group the calls of one run into one trace, which the per-team default
+    cannot do. Pass ``distinct_id`` when a more precise actor than the team is known. The
+    Python-gateway fallback derives its own attribution and needs neither header.
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
@@ -446,8 +452,9 @@ def build_async_anthropic_client(
             base_url=_anthropic_gateway_base_url(gateway.url),
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
-                trace_id=team_trace_id(team_id),
+                trace_id=trace_id or team_trace_id(team_id),
                 properties=properties,
+                distinct_id=distinct_id or (team_distinct_id(team_id) if team_id is not None else None),
             ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
