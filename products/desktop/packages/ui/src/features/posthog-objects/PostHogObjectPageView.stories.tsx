@@ -37,7 +37,6 @@ const rule = (overrides: Partial<FlagRule>): FlagRule => ({
 
 const audience = (overrides: Partial<FlagAudience>): FlagAudience => ({
   headline: "On for everyone.",
-  summary: "Everyone gets true.",
   disabled: false,
   rules: [],
   fallbackReachable: true,
@@ -50,8 +49,6 @@ const audience = (overrides: Partial<FlagAudience>): FlagAudience => ({
 
 const multivariateAudience = audience({
   headline: "Split into 3 variants for Alex Rivera and Pro plan users.",
-  summary:
-    "Alex Rivera gets test. 25% of people whose plan is pro get a variant, decided by the rollout hash. Everyone else gets false.",
   rules: [
     rule({
       conditions: [{ subject: "Person", operator: "is", values: [alex] }],
@@ -81,32 +78,6 @@ const multivariateAudience = audience({
     { key: "test", percentage: 33, payload: '{"prompt":"soft"}' },
     { key: "aggressive", percentage: 33, payload: '{"prompt":"hard"}' },
   ],
-});
-
-const booleanAudience = audience({
-  headline: "On for Alex Rivera.",
-  summary:
-    "Alex Rivera is targeted, and the 25% rollout hash decides. Everyone else gets false.",
-  rules: [
-    rule({
-      conditions: [{ subject: "Person", operator: "is", values: [alex] }],
-      share: 25,
-    }),
-  ],
-});
-
-const shadowedAudience = audience({
-  rules: [
-    rule({}),
-    rule({
-      conditions: [
-        { subject: "Cohort", operator: "in cohort", values: [betaTesters] },
-      ],
-      share: 50,
-      reachable: false,
-    }),
-  ],
-  fallbackReachable: false,
 });
 
 const configuration = {
@@ -278,59 +249,6 @@ export const FeatureFlag: Story = {
     state: "ready",
     preview: flagPreview,
   },
-};
-
-export const BooleanFlagForOnePerson: Story = {
-  args: {
-    ...FeatureFlag.args,
-    preview: {
-      ...flagPreview,
-      title: "new-onboarding",
-      detail: "Guided onboarding flow",
-      flagAudience: booleanAudience,
-      sections: [{ ...configuration, fields: configuration.fields.slice(1) }],
-    },
-  },
-};
-
-export const ShadowedRule: Story = {
-  args: {
-    ...FeatureFlag.args,
-    preview: {
-      ...flagPreview,
-      title: "dark-mode",
-      detail: "Dark theme for the app shell",
-      flagAudience: shadowedAudience,
-    },
-  },
-};
-
-export const DisabledFlag: Story = {
-  args: {
-    ...FeatureFlag.args,
-    preview: {
-      ...flagPreview,
-      status: { label: "Disabled", tone: "neutral" },
-      flagAudience: {
-        ...multivariateAudience,
-        headline: "Off for everyone.",
-        summary: "The flag is disabled, so every check returns false.",
-        disabled: true,
-      },
-    },
-  },
-};
-
-/** The nav sidebar and an open side panel leave a 1280px window about 520px. */
-export const NarrowPanel: Story = {
-  args: FeatureFlag.args,
-  decorators: [
-    (Story) => (
-      <div style={{ width: 520, borderRight: "1px solid var(--border)" }}>
-        <Story />
-      </div>
-    ),
-  ],
 };
 
 export const Experiment: Story = {

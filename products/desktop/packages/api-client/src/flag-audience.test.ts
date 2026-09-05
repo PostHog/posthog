@@ -43,9 +43,6 @@ describe("flag audience shaping", () => {
 
     expect(audience.rules).toEqual([]);
     expect(audience.headline).toBe("On for nobody.");
-    expect(audience.summary).toBe(
-      "The flag has no release conditions, so every check returns false.",
-    );
   });
 
   it("marks rules after a 100% catch-all as unreachable", () => {
@@ -64,17 +61,9 @@ describe("flag audience shaping", () => {
     );
 
     expect(audience.rules.map((rule) => rule.reachable)).toEqual([true, false]);
-    // The shadowed rule must not promise its variant in the summary.
-    expect(audience.summary).not.toContain("b");
-  });
-
-  it("keeps the summary consistent with the hidden fallback row on a catch-all", () => {
-    const audience = shapeFlagAudience(
-      flagWith({ groups: [{ rollout_percentage: 100 }] }),
-    );
-
     expect(audience.fallbackReachable).toBe(false);
-    expect(audience.summary).not.toContain("Everyone else gets false.");
+    // The shadowed rule must not appear in the headline.
+    expect(audience.headline).toBe("Split into 2 variants for everyone.");
   });
 
   it("keeps group-scope rules out of the guaranteed catch-all", () => {
@@ -104,7 +93,7 @@ describe("flag audience shaping", () => {
     expect(audience.bucketing).toBe("device");
   });
 
-  it("states the enrollment override for early access flags", () => {
+  it("surfaces the enrollment key for early access flags", () => {
     const audience = shapeFlagAudience(
       flagWith({
         feature_enrollment: true,
@@ -113,12 +102,9 @@ describe("flag audience shaping", () => {
     );
 
     expect(audience.enrollmentKey).toBe("$feature_enrollment/test-flag");
-    expect(audience.summary).toContain(
-      "$feature_enrollment/test-flag overrides these rules",
-    );
   });
 
-  it("states the holdout result before the rules", () => {
+  it("surfaces the experiment holdout", () => {
     const audience = shapeFlagAudience(
       flagWith({
         holdout: { id: 3, exclusion_percentage: 20 },
@@ -127,9 +113,6 @@ describe("flag audience shaping", () => {
     );
 
     expect(audience.holdout).toEqual({ id: "3", exclusionPercentage: 20 });
-    expect(audience.summary).toMatch(
-      /^20% of people are held out for experiment 3 and get holdout-3\./,
-    );
   });
 
   it("does not describe a fraction of a named person at partial rollout", () => {
@@ -156,9 +139,6 @@ describe("flag audience shaping", () => {
     );
 
     expect(audience.headline).toBe("On for Alex.");
-    expect(audience.summary).toBe(
-      "Alex is targeted, and the 25% rollout hash decides. Everyone else gets false.",
-    );
   });
 
   it("does not label excluded distinct IDs as targeted", () => {

@@ -293,8 +293,8 @@ function RuleStep({
 
 /**
  * Answers "who gets this flag, and what do they get?" before showing any
- * structure: a headline, one outcome sentence, then the rules as a
- * first-match-wins flow where every step ends in its result.
+ * structure: a headline, then the rules as a first-match-wins flow where
+ * every step ends in its result.
  */
 export function FlagAudienceCard({
   audience,
@@ -320,9 +320,6 @@ export function FlagAudienceCard({
                 {audience.headline}
               </h2>
             </div>
-            <Text className="mt-1.5 block max-w-prose text-[13px] text-muted-foreground leading-relaxed">
-              {audience.summary}
-            </Text>
           </div>
           {action && <div className="shrink-0">{action}</div>}
         </div>

@@ -2,14 +2,12 @@ import type { Schemas } from "./generated";
 
 /**
  * Who a feature flag reaches, shaped for reading rather than editing: a
- * headline sentence, the rules as a first-match-wins list where every row
- * ends in its result, and the variant split when the flag has one.
+ * headline, the rules as a first-match-wins list where every row ends in
+ * its result, and the variant split when the flag has one.
  */
 export interface FlagAudience {
   /** "On for one person." */
   headline: string;
-  /** "Alex gets true. Everyone else gets false." */
-  summary: string;
   disabled: boolean;
   rules: FlagRule[];
   /** False when a reachable rule already matches everyone, so the "Everyone else" row is hidden. */
@@ -257,110 +255,63 @@ function shapeCondition(
   return key ? { subject: key, operator, values } : null;
 }
 
-interface Audience {
-  /** "one person", "25% of Power users" */
-  label: string;
-  plural: boolean;
-  /** Replaces the default "<label> gets <result>." sentence when the label alone misreads. */
-  sentence?: string;
-}
-
 function describeAudience(
   rule: FlagRule,
   group: ConditionGroup,
   people: People,
   bucketing: FlagAudience["bucketing"],
-): Audience {
+): string {
   const share = rule.share < 100 ? `${rule.share}% of ` : "";
   const noun = group.isGroup ? "groups" : "people";
   if (rule.conditions.length === 0) {
-    if (share) return { label: `${share}${noun}`, plural: true };
+    if (share) return `${share}${noun}`;
     // A group rule still needs a group key, and a device-bucketed rule still
     // needs a device ID, so "everyone" would overstate who matches.
-    if (group.isGroup) return { label: "every group", plural: true };
-    if (bucketing === "device") return { label: "every device", plural: true };
-    return { label: "everyone", plural: false };
+    if (group.isGroup) return "every group";
+    return bucketing === "device" ? "every device" : "everyone";
   }
   const [condition] = rule.conditions;
   const [property] = group.properties;
   if (rule.conditions.length === 1 && group.properties.length === 1) {
     if (isDistinctIdFilter(property) && condition.operator === "is") {
       const count = condition.values.length;
-      if (count > 1) return { label: `${share}${count} people`, plural: true };
-      const who =
-        people.get(condition.values[0]?.raw ?? "")?.name ?? "one person";
+      if (count > 1) return `${share}${count} people`;
       // The rollout hashes the identifier: a named person is either in or
       // out, never a fraction, so the share stays on the rule row.
-      return {
-        label: who,
-        plural: false,
-        sentence: share
-          ? `${who} is targeted, and the ${rule.share}% rollout hash decides.`
-          : undefined,
-      };
+      return people.get(condition.values[0]?.raw ?? "")?.name ?? "one person";
     }
     if (property.type === "cohort" && condition.operator === "in cohort") {
-      return {
-        label: `${share}${condition.values[0]?.label ?? "a cohort"}`,
-        plural: true,
-      };
+      return `${share}${condition.values[0]?.label ?? "a cohort"}`;
     }
   }
   const count =
     rule.conditions.length === 1
       ? "one condition"
       : `${rule.conditions.length} conditions`;
-  return { label: `${share}${noun} matching ${count}`, plural: true };
-}
-
-const RESULT_WORDS = {
-  true: "true",
-  false: "false",
-  split: "a variant",
-  payload: "the payload",
-};
-
-function describeResult(result: FlagResult): string {
-  return result.kind === "variant" ? result.key : RESULT_WORDS[result.kind];
+  return `${share}${noun} matching ${count}`;
 }
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-type Shape = Omit<FlagAudience, "headline" | "summary">;
+type Shape = Omit<FlagAudience, "headline">;
 
-function describeFlag(
+function headlineFor(
   shape: Shape,
   groups: ConditionGroup[],
   people: People,
   remoteConfig: boolean,
-): Pick<FlagAudience, "headline" | "summary"> {
-  if (shape.disabled) {
-    return {
-      headline: "Off for everyone.",
-      summary: "The flag is disabled, so every check returns false.",
-    };
-  }
+): string {
+  if (shape.disabled) return "Off for everyone.";
   // The evaluator skips the condition loop on empty groups and returns false,
   // so clearing targeting turns the flag off for everybody.
   if (shape.rules.length === 0) {
-    return {
-      headline: remoteConfig ? "Sends a payload to nobody." : "On for nobody.",
-      summary:
-        "The flag has no release conditions, so every check returns false.",
-    };
+    return remoteConfig ? "Sends a payload to nobody." : "On for nobody.";
   }
   const live = shape.rules.filter((rule) => rule.share > 0 && rule.reachable);
-  if (live.length === 0) {
-    return {
-      headline: "On for nobody yet.",
-      summary:
-        "Rules are defined, but rollout is 0%, so every check returns false.",
-    };
-  }
-
-  const audiences = live.map((rule) =>
+  if (live.length === 0) return "On for nobody yet.";
+  const labels = live.map((rule) =>
     describeAudience(
       rule,
       groups[shape.rules.indexOf(rule)],
@@ -368,52 +319,17 @@ function describeFlag(
       shape.bucketing,
     ),
   );
-  const labels = audiences.map((audience) => audience.label);
   const who =
     labels.length === 1
       ? labels[0]
       : labels.length === 2
         ? `${labels[0]} and ${labels[1]}`
         : `${labels.length} audiences`;
-  const headline = remoteConfig
-    ? `Sends a payload to ${who}.`
-    : shape.variants.length > 0
-      ? `Split into ${shape.variants.length} variants for ${who}.`
-      : `On for ${who}.`;
-
-  // The evaluator resolves enrollment and the holdout before the rules, so
-  // those sentences come first.
-  const sentences: string[] = [];
-  if (shape.enrollmentKey) {
-    sentences.push(
-      `${shape.enrollmentKey} overrides these rules: a true value always gets true, and any other value gets false.`,
-    );
-  } else if (shape.holdout) {
-    sentences.push(
-      `${shape.holdout.exclusionPercentage}% of people are held out for experiment ${shape.holdout.id} and get holdout-${shape.holdout.id}.`,
-    );
+  if (remoteConfig) return `Sends a payload to ${who}.`;
+  if (shape.variants.length > 0) {
+    return `Split into ${shape.variants.length} variants for ${who}.`;
   }
-  live.slice(0, 2).forEach((rule, index) => {
-    const { label, plural, sentence } = audiences[index];
-    sentences.push(
-      sentence ??
-        `${capitalize(label)} ${plural ? "get" : "gets"} ${describeResult(rule.result)}.`,
-    );
-  });
-  if (live.length > 2) {
-    const more = live.length - 2;
-    sentences.push(
-      `${more} more ${more === 1 ? "rule applies" : "rules apply"}.`,
-    );
-  }
-  if (shape.fallbackReachable && !shape.enrollmentKey) {
-    sentences.push(
-      shape.bucketing === "person"
-        ? "Everyone else gets false."
-        : "A check without its bucketing key still gets false.",
-    );
-  }
-  return { headline, summary: sentences.join(" ") };
+  return `On for ${who}.`;
 }
 
 export function shapeFlagAudience(
@@ -509,7 +425,10 @@ export function shapeFlagAudience(
         }
       : null,
   };
-  return { ...shape, ...describeFlag(shape, groups, people, remoteConfig) };
+  return {
+    ...shape,
+    headline: headlineFor(shape, groups, people, remoteConfig),
+  };
 }
 
 /** Short "Reach" label for the stat strip: "1 person", "25% of a cohort", "Everyone". */
