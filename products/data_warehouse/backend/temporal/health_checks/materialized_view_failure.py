@@ -81,7 +81,7 @@ class MaterializedViewFailureCheck(HealthCheck):
             DataWarehouseSavedQuery.objects
             # `deleted` is nullable and NULL on views that were never deleted, which `deleted=False` drops.
             .exclude(deleted=True)
-            .filter(team_id__in=team_ids)
+            .filter(team_id__in=team_ids, is_materialized=True)
             .annotate(
                 latest_job_status=Subquery(latest_job.values("status")[:1]),
                 latest_job_error=Subquery(latest_job.values("error")[:1]),

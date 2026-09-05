@@ -516,10 +516,12 @@ tools:
             a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the
             linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and
             audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite
-            them. Optional `charts` is the full set of queries the inbox renders on the report — it replaces the
-            report's charts rather than adding to them (omit it to leave them alone), so read the report first when you
-            mean to add one. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to
-            scouts that list `edit_report` in their skill's `allowed_tools`.
+            them. Optional `append_evidence` adds observations to the report's evidence rail, each becoming a bound
+            signal that moves the report's signal count and weight — use it for a new observation a reader should be
+            able to check, and `append_note` for commentary. Optional `charts` is the full set of queries the inbox
+            renders on the report — it replaces the report's charts rather than adding to them (omit it to leave them
+            alone), so read the report first when you mean to add one. NOT idempotent — a retried `append_note` appends
+            a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true
@@ -882,8 +884,9 @@ tools:
             creator, so the last writer can differ. Pass `text` for a case-insensitive substring match on the entry's
             `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on
             `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior
-            page to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`.
-            Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or
+            page to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`,
+            and a daily janitor hard-deletes them once their expiry is more than two weeks in the past. Pass
+            `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or
             `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from
             returning every entry's full prose. Results capped at 1000.
     self-driving-inbox-get:
@@ -952,6 +955,9 @@ tools:
         enabled: false
     signals-reports-feedback-create:
         operation: signals_reports_feedback_create
+        enabled: false
+    signals-reports-pr-ci-statuses:
+        operation: signals_reports_pr_ci_statuses
         enabled: false
     signals-reports-refund-create:
         operation: signals_reports_refund_create

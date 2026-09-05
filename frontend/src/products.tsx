@@ -109,6 +109,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
     '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
     '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+    '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
     '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
     '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
@@ -557,6 +558,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Business knowledge',
         projectBased: true,
         activityScope: 'KnowledgeSource',
+        iconType: 'conversations',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
@@ -594,7 +596,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'cohort',
         docsHref: 'https://posthog.com/docs/customer-analytics',
     },
-    CustomerAnalyticsAccount: { projectBased: true, name: 'Account details', iconType: 'cohort' },
+    CustomerAnalyticsAccount: {
+        projectBased: true,
+        name: 'Account details',
+        iconType: 'cohort',
+        layout: 'app-full-scene-height',
+    },
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
@@ -1115,6 +1122,7 @@ export const productUrls = {
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+    customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
     customerAnalyticsFeatureRequests: (requestId?: string): string =>
         `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',

@@ -1894,6 +1894,44 @@ export interface SignalReportBulkStateResponseApi {
     not_found_count: number
 }
 
+/**
+ * * `passing` - Passing
+ * * `failing` - Failing
+ * * `pending` - Pending
+ * * `none` - No checks
+ */
+export type PullRequestCiStatusEnumApi = (typeof PullRequestCiStatusEnumApi)[keyof typeof PullRequestCiStatusEnumApi]
+
+export const PullRequestCiStatusEnumApi = {
+    Passing: 'passing',
+    Failing: 'failing',
+    Pending: 'pending',
+    None: 'none',
+} as const
+
+/**
+ * The CI rollup of one report's implementation pull request.
+ */
+export interface PullRequestCiStatusApi {
+    /** Report whose implementation pull request this status describes. */
+    readonly report_id: string
+    /** Rollup of the pull request's checks on its head commit: 'passing' (nothing failed), 'failing', 'pending' (checks are still running), or 'none' (the head commit has no checks).
+     *
+     * * `passing` - Passing
+     * * `failing` - Failing
+     * * `pending` - Pending
+     * * `none` - No checks */
+    readonly ci_status: PullRequestCiStatusEnumApi
+}
+
+/**
+ * Response for the batch PR CI status endpoint, for painting CI state onto a list of reports.
+ */
+export interface PullRequestCiStatusesResponseApi {
+    /** One entry per requested report whose CI state resolved. Reports without an open implementation pull request, and reports GitHub could not answer for, are left out. */
+    readonly statuses: readonly PullRequestCiStatusApi[]
+}
+
 export interface SignalReportRefundSummaryResponseApi {
     /** Number of credited-path refunds across the whole organization whose refunded PR run falls in the current billing period. Excluded-path refunds never reach billing usage, so they are deliberately absent. */
     credited_refund_count: number
@@ -3418,6 +3456,19 @@ export interface SignalScoutRunDetailApi {
 }
 
 /**
+ * One observation backing an authored report — becomes a bound signal row on the report.
+ */
+export interface ReportEvidenceApi {
+    /**
+     * Prose for this observation. Embedded and rendered to the safety/research surfaces.
+     * @maxLength 4000
+     */
+    description: string
+    /** Stable id for this observation within the report (lets a later edit address it). */
+    source_id: string
+}
+
+/**
  * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
  *
  * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
@@ -3466,6 +3517,12 @@ export interface EditReportRequestApi {
      */
     append_note?: string | null
     /**
+     * Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report.
+     * @maxItems 50
+     * @nullable
+     */
+    append_evidence?: ReportEvidenceApi[] | null
+    /**
      * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
      * @maxItems 10
      */
@@ -3492,6 +3549,8 @@ export interface EditReportResponseApi {
     updated_fields: string[]
     /** Whether a note artefact was appended. */
     note_appended: boolean
+    /** How many observations this edit added to the report's evidence rail; 0 if none. */
+    evidence_appended: number
     /** Whether the report's suggested reviewers were replaced. */
     reviewers_set: boolean
     /**
@@ -3595,21 +3654,6 @@ export interface ScoutEmissionReportLinkApi {
     source_id: string
     /** The inbox report this finding linked to, or null if none could be resolved. */
     report: LinkedSignalReportApi | null
-}
-
-/**
- * One observation backing an authored report — becomes a bound signal row on the report.
- */
-export interface ReportEvidenceApi {
-    /** Prose for this observation. Embedded and rendered to the safety/research surfaces. */
-    description: string
-    /** Stable id for this observation within the report (lets a later edit address it). */
-    source_id: string
-    /**
-     * Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.
-     * @minimum 0
-     */
-    weight?: number
 }
 
 /**
@@ -4448,6 +4492,13 @@ export type SignalsReportArtefactsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type SignalsReportsPrCiStatusesParams = {
+    /**
+     * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
+     */
+    report_ids: string
 }
 
 export type SignalsScoutConfigListParams = {

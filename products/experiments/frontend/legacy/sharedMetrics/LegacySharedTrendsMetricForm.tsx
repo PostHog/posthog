@@ -8,7 +8,7 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
