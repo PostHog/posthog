@@ -12,6 +12,11 @@ import { TreeDataItem } from './LemonTree'
 
 export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
 
+// One definition of "is this a folder?" shared by the render, click, and keyboard paths.
+// They must agree, or a row can look like a folder but act like a leaf (or the reverse).
+export const isTreeItemFolder = (item?: TreeDataItem): boolean =>
+    Boolean((item?.children && item.children.length > 0) || item?.record?.type === 'folder')
+
 type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
     style?: CSSProperties
@@ -89,7 +94,7 @@ export const TreeNodeDisplayIcon = ({
     size = 'default',
 }: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
-    const isFolder = item.record?.type === 'folder' || (item.children && item.children.length > 0)
+    const isFolder = isTreeItemFolder(item)
     const isEmptyFolder = item.type === 'empty-folder'
     const isFile = item.record?.type === 'file'
     let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
