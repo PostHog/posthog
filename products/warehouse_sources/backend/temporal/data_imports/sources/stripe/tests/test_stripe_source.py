@@ -1458,17 +1458,27 @@ class TestSchemaWebhookCapability:
 class TestCreateWebhookPermissionErrorCopy:
     # Regression test: a permission-denied webhook creation used to always tell the user to add
     # the "Write" permission to their API key, even when the source was connected via OAuth and
-    # has no API key to edit.
+    # has no API key to edit. Stripe's connected-account refusal also reads as a permission
+    # error, but neither a wider scope nor a reconnect can lift it.
     @parameterized.expand(
         [
-            ("api_key", "add the 'Write' permission for 'Webhook endpoints' to your API key"),
-            ("oauth", "reconnect your Stripe integration"),
+            (
+                "api_key",
+                "forbidden",
+                "add the 'Write' permission for 'Webhook endpoints' to your API key",
+            ),
+            ("oauth", "forbidden", "reconnect your Stripe integration"),
+            (
+                "oauth",
+                "You do not have permission to configure webhook endpoints on connected accounts.",
+                "on your platform account in Stripe",
+            ),
         ]
     )
-    def test_permission_error_message_matches_auth_method(self, auth_method, expected_phrase):
+    def test_permission_error_message_matches_auth_method(self, auth_method, stripe_message, expected_phrase):
         with patch.object(stripe_module, "StripeClient") as mock_client_cls:
             mock_client = mock_client_cls.return_value
-            mock_client.webhook_endpoints.create.side_effect = stripe_lib.PermissionError("forbidden")
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.PermissionError(stripe_message)
 
             result = create_webhook(
                 api_key="sk_test_123",
