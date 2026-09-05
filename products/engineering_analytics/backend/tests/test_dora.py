@@ -353,6 +353,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             "backport-sha",
             "inflight-sha",
             "reland-sha",
+            "workflow-before-merge-sha",
             "missing-sha",
         ]
         started_at = "2026-01-12 08:01:00"
@@ -395,6 +396,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     # commit cannot be its merge: the snapshot already says where PR 7 landed, and
                     # it is not the deployed SHA.
                     (7, "2026-01-12 08:00:00", "main", "pr-7-merge-sha"),
+                    (8, "2026-01-12 08:30:00", "main", None),
                 ]
             ],
             run_rows=[
@@ -424,6 +426,19 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                     ],
                     start=1,
                 )
+            ]
+            + [
+                _run_row(
+                    10,
+                    "build",
+                    "workflow-before-merge-sha",
+                    "completed",
+                    "success",
+                    "2026-01-12 09:45:00",
+                    "2026-01-12 09:45:00",
+                    commit_message="Update component (#8)",
+                )
+                | {"created_at": "2026-01-12 08:01:00"}
             ],
         )
 

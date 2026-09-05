@@ -206,6 +206,7 @@ _DEPLOY_HEADS_CTE = """
             AND r.repo_owner = hp.repo_owner AND r.repo_name = hp.repo_name
             AND hp.merged_at IS NOT NULL
             AND hp.merged_at >= {merge_scan_floor}
+            AND hp.merged_at <= r.created_at
             AND hp.merged_at <= d.created_at
         GROUP BY d.id
         HAVING uniqExact(r.commit_pr_number) = 1
