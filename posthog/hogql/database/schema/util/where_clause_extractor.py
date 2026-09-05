@@ -24,7 +24,10 @@ from posthog.uuidt import UUIDT
 
 SESSION_BUFFER_DAYS = 3
 DEFAULT_SESSION_LOOKBACK_DAYS = 30
-DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS = 60
+# Ingestion floors last_seen_at to the hour, and the bound it feeds is a days-scale
+# lookback window, so a long TTL loses no precision. The uncached read is expensive:
+# last_seen_at is unindexed, so Postgres sorts the team's whole definition set.
+DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS = 3600
 # beyond this, duplicating the id list into the join subquery risks query-size limits;
 # covers the largest observed production batch (~1.2k ids) at ~13% of max_query_size
 SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS = 2000
