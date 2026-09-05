@@ -1112,6 +1112,7 @@ export interface PatchedDataWarehouseExpressionApi {
  * * `Completed` - Completed
  * * `Failed` - Failed
  * * `Running` - Running
+ * * `Skipped` - Skipped
  */
 export type DataWarehouseSavedQueryStatusEnumApi =
     (typeof DataWarehouseSavedQueryStatusEnumApi)[keyof typeof DataWarehouseSavedQueryStatusEnumApi]
@@ -1122,6 +1123,7 @@ export const DataWarehouseSavedQueryStatusEnumApi = {
     Completed: 'Completed',
     Failed: 'Failed',
     Running: 'Running',
+    Skipped: 'Skipped',
 } as const
 
 /**
@@ -1157,13 +1159,6 @@ export interface DataWarehouseSavedQueryMinimalApi {
     /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag: boolean
     readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
-    /** The status of when this SavedQuery last ran.
-     *
-     * * `Cancelled` - Cancelled
-     * * `Modified` - Modified
-     * * `Completed` - Completed
-     * * `Failed` - Failed
-     * * `Running` - Running */
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -1478,13 +1473,6 @@ export interface DataWarehouseSavedQueryApi {
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
-    /** The status of when this SavedQuery last ran.
-     *
-     * * `Cancelled` - Cancelled
-     * * `Modified` - Modified
-     * * `Completed` - Completed
-     * * `Failed` - Failed
-     * * `Running` - Running */
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -1609,13 +1597,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
-    /** The status of when this SavedQuery last ran.
-     *
-     * * `Cancelled` - Cancelled
-     * * `Modified` - Modified
-     * * `Completed` - Completed
-     * * `Failed` - Failed
-     * * `Running` - Running */
     readonly status?: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -1781,6 +1762,14 @@ export interface IncrementalEligibilityApi {
     blockers: string[]
     /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */
     warnings: string[]
+}
+
+/**
+ * Body of the `resume_schedules` action.
+ */
+export interface SavedQueryResumeSchedulesRequestApi {
+    /** Ids of the saved queries to resume. An id is ignored when it is not in this project, has been deleted, or you cannot edit it. */
+    view_ids: string[]
 }
 
 export interface DataWarehouseSavedQueryDraftApi {

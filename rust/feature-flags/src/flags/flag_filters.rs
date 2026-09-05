@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
+use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_models::FlagFilters;
+use crate::properties::property_models::PropertyFilter;
 
 impl FlagFilters {
     /// Returns the person property key used for early access feature enrollment.
@@ -20,6 +22,7 @@ impl FlagFilters {
         &self,
         overrides: &HashMap<String, Value>,
         flag_key: &str,
+        group_filter_needs_db: &dyn Fn(&PropertyFilter, Option<GroupTypeIndex>) -> bool,
     ) -> bool {
         self.aggregation_group_type_index.is_some()
             || (self.feature_enrollment == Some(true) && {
@@ -29,10 +32,15 @@ impl FlagFilters {
                 .groups
                 .iter()
                 .any(|group| matches!(group.aggregation_group_type_index, Some(Some(_))))
-            || self
-                .groups
-                .iter()
-                .any(|group| group.requires_db_properties(overrides))
+            || self.groups.iter().any(|group| {
+                // Group filters resolve their index against the condition's aggregation,
+                // so the caller-supplied decision gets the same aggregation matching uses.
+                let effective_aggregation =
+                    group.effective_aggregation(self.aggregation_group_type_index);
+                group.requires_db_properties(overrides, &|prop| {
+                    group_filter_needs_db(prop, effective_aggregation)
+                })
+            })
     }
 
     pub fn requires_cohort_filters(&self) -> bool {
@@ -100,7 +108,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(f.requires_db_properties(&overrides, "test-flag"));
+            assert!(f.requires_db_properties(&overrides, "test-flag", &|_, _| true));
         }
 
         {
@@ -117,7 +125,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(!f.requires_db_properties(&overrides, "test-flag"));
+            assert!(!f.requires_db_properties(&overrides, "test-flag", &|_, _| true));
         }
     }
 
@@ -150,7 +158,7 @@ mod tests {
 
         // Even though there are no properties, we still need to evaluate the DB properties
         // because the group type index is set.
-        assert!(f.requires_db_properties(&HashMap::new(), "test-flag"));
+        assert!(f.requires_db_properties(&HashMap::new(), "test-flag", &|_, _| true));
     }
 
     #[test]
@@ -158,7 +166,7 @@ mod tests {
         let mut f = mock!(FlagFilters, groups: vec![]);
         f.feature_enrollment = Some(true);
 
-        assert!(f.requires_db_properties(&HashMap::new(), "my-flag"));
+        assert!(f.requires_db_properties(&HashMap::new(), "my-flag", &|_, _| true));
     }
 
     #[test]
@@ -170,7 +178,7 @@ mod tests {
             FlagFilters::enrollment_key("my-flag"),
             Value::String("true".to_string()),
         )]);
-        assert!(!f.requires_db_properties(&overrides, "my-flag"));
+        assert!(!f.requires_db_properties(&overrides, "my-flag", &|_, _| true));
     }
 
     #[test]
@@ -180,7 +188,7 @@ mod tests {
         f.holdout = Some(mock!(Holdout));
 
         // Holdouts don't require DB properties.
-        assert!(!f.requires_db_properties(&HashMap::new(), "test-flag"));
+        assert!(!f.requires_db_properties(&HashMap::new(), "test-flag", &|_, _| true));
     }
 
     #[test]
@@ -197,7 +205,7 @@ mod tests {
         {
             let overrides =
                 HashMap::from([("some_key".to_string(), Value::String("value".to_string()))]);
-            assert!(f.requires_db_properties(&overrides, "test-flag"));
+            assert!(f.requires_db_properties(&overrides, "test-flag", &|_, _| true));
         }
 
         {
@@ -212,7 +220,7 @@ mod tests {
                     Value::String("value".to_string()),
                 ),
             ]);
-            assert!(!f.requires_db_properties(&overrides, "test-flag"));
+            assert!(!f.requires_db_properties(&overrides, "test-flag", &|_, _| true));
         }
     }
 
@@ -242,7 +250,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(f.requires_db_properties(&overrides, "test-flag"));
+            assert!(f.requires_db_properties(&overrides, "test-flag", &|_, _| true));
         }
 
         {
@@ -259,7 +267,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(!f.requires_db_properties(&overrides, "test-flag"));
+            assert!(!f.requires_db_properties(&overrides, "test-flag", &|_, _| true));
         }
     }
 }

@@ -304,6 +304,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Notebooks are a way to organize your work and share it with others.',
         activityScope: ActivityScope.NOTEBOOK,
         docsHref: 'https://posthog.com/docs/notebooks',
+        iconType: 'notebook',
     },
     [Scene.OAuthAuthorize]: {
         name: 'Authorize',
@@ -645,6 +646,9 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // Billing lives at /organization/billing. A bare /billing has no scene, so send it there.
+    // /billing/authorization_status keeps its own scene route, so it must not be caught here.
+    '/billing': urls.organizationBilling(),
     // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
     // ?review= / ?reviews_scope= deep links that PR status comments bake in
     '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
