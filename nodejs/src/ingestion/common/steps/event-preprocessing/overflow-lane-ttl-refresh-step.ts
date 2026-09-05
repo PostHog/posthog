@@ -1,19 +1,30 @@
+import { Message } from 'node-rdkafka'
+
 import {
     OverflowEventGroup,
     OverflowRedirectService,
 } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
-import { EventHeaders, PipelineEvent } from '~/types'
+import { EventHeaders } from '~/types'
+
+import { deriveOverflowKey } from './rate-limit-to-overflow-step'
 
 export interface OverflowLaneTTLRefreshStepInput {
+    message: Pick<Message, 'key'>
     headers: EventHeaders
-    event: PipelineEvent
 }
 
 /**
  * Creates a step that refreshes TTL for overflow lane events.
  * Used in the overflow lane to keep Redis flags alive while events are being processed.
  * Once events stop coming, the flags expire and future events return to the main lane.
+ *
+ * Uses the Kafka message key when the redirect preserved it, matching the key the
+ * main lane flagged. A redirect without partition locality nulls the key; then the
+ * refresh falls back to `token:headers.distinct_id`, which matches the flag for
+ * regular events. Cookieless flags are keyed on the client IP, which the fallback
+ * cannot reconstruct — those flags expire after the Redis TTL, and the main lane's
+ * still-drained bucket re-flags the key on the next event burst.
  *
  * If no service is provided, this step is a no-op (passthrough).
  */
@@ -31,17 +42,19 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
             { token: string; distinctId: string; headersPerEvent: EventHeaders[]; firstTimestamp: number }
         >()
 
-        for (const { headers, event } of inputs) {
-            const token = headers.token ?? ''
-            const distinctId = event.distinct_id ?? ''
-            const eventKey = `${token}:${distinctId}`
+        for (const { message, headers } of inputs) {
+            const derived = deriveOverflowKey(message, headers) ?? {
+                token: headers.token ?? '',
+                distinctId: headers.distinct_id ?? '',
+            }
+            const eventKey = `${derived.token}:${derived.distinctId}`
             const timestamp = headers.now?.getTime() ?? Date.now()
 
             const existing = keyStats.get(eventKey)
             if (existing) {
                 existing.headersPerEvent.push(headers)
             } else {
-                keyStats.set(eventKey, { token, distinctId, headersPerEvent: [headers], firstTimestamp: timestamp })
+                keyStats.set(eventKey, { ...derived, headersPerEvent: [headers], firstTimestamp: timestamp })
             }
         }
 

@@ -1,156 +1,110 @@
+import { Message } from 'node-rdkafka'
+
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
-import { COOKIELESS_SENTINEL_VALUE } from '~/ingestion/common/cookieless/cookieless-manager'
 import {
     OverflowEventGroup,
     OverflowRedirectService,
 } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PipelineResult, ok, redirect } from '~/ingestion/framework/results'
-import { EventHeaders, PipelineEvent } from '~/types'
+import { EventHeaders } from '~/types'
 
-// `headers.distinct_id` is set by capture from Kafka headers and is never mutated by the
-// pipeline. For cookieless events it stays equal to COOKIELESS_SENTINEL_VALUE even after the
-// cookieless step has rewritten `event.distinct_id` to a hashed value — so it's the reliable
-// indicator of "this is a cookieless event" at any point in the pipeline.
-
-interface KeyDerivation {
-    token: string
-    distinctId: string
-}
-
-async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
-    inputs: T[],
-    overflowRedirectService: OverflowRedirectService | undefined,
-    preservePartitionLocality: boolean,
-    deriveKey: (input: T) => KeyDerivation | null
-): Promise<PipelineResult<T, OverflowOutput>[]> {
-    if (!overflowRedirectService) {
-        return inputs.map((input) => ok(input))
-    }
-
-    const perInputKeys: (string | null)[] = []
-    const keyStats = new Map<
-        string,
-        { token: string; distinctId: string; headersPerEvent: EventHeaders[]; firstTimestamp: number }
-    >()
-
-    for (const input of inputs) {
-        const derived = deriveKey(input)
-        if (!derived) {
-            perInputKeys.push(null)
-            continue
-        }
-
-        const eventKey = `${derived.token}:${derived.distinctId}`
-        perInputKeys.push(eventKey)
-
-        const timestamp = input.headers.now?.getTime() ?? Date.now()
-        const existing = keyStats.get(eventKey)
-        if (existing) {
-            existing.headersPerEvent.push(input.headers)
-        } else {
-            keyStats.set(eventKey, { ...derived, headersPerEvent: [input.headers], firstTimestamp: timestamp })
-        }
-    }
-
-    if (keyStats.size === 0) {
-        return inputs.map((input) => ok(input))
-    }
-
-    const groups: OverflowEventGroup[] = Array.from(keyStats.values()).map(
-        ({ token, distinctId, headersPerEvent, firstTimestamp }) => ({
-            key: { token, distinctId },
-            headersPerEvent,
-            firstTimestamp,
-        })
-    )
-    const keysToRedirect = await overflowRedirectService.handleEventBatch(groups)
-
-    return inputs.map((input, index) => {
-        const eventKey = perInputKeys[index]
-        if (eventKey !== null && keysToRedirect.has(eventKey)) {
-            return redirect('rate_limit_exceeded', OVERFLOW_OUTPUT, preservePartitionLocality)
-        }
-        return ok(input)
-    })
+export interface RateLimitToOverflowStepInput {
+    message: Pick<Message, 'key'>
+    headers: EventHeaders
 }
 
 /**
- * Rate-limits every input regardless of cookieless mode. Keys on `event.distinct_id`.
- * Use when there is no cookieless step in the pipeline (e.g. error tracking).
+ * Splits the Kafka message key into the (token, distinctId) shape the overflow
+ * redirect service flags in Redis. Capture builds the key as `<token>:<suffix>`,
+ * where the suffix is the distinct_id for regular events and the client IP for
+ * cookieless events.
  */
-export interface RateLimitToOverflowStepInput {
+export function deriveOverflowKey(
+    message: Pick<Message, 'key'>,
     headers: EventHeaders
-    event: PipelineEvent
+): { token: string; distinctId: string } | null {
+    const rawKey = message.key
+    if (rawKey === null || rawKey === undefined) {
+        return null
+    }
+    const kafkaKey = typeof rawKey === 'string' ? rawKey : rawKey.toString('utf8')
+    if (kafkaKey.length === 0) {
+        return null
+    }
+
+    const token = headers.token ?? ''
+    const prefix = `${token}:`
+    if (kafkaKey.startsWith(prefix)) {
+        return { token, distinctId: kafkaKey.slice(prefix.length) }
+    }
+    return { token, distinctId: kafkaKey }
 }
 
+/**
+ * Rate-limits events to overflow, keyed on the Kafka message key — the partition
+ * key capture computed. Runs before the body is parsed.
+ *
+ * The message key is the only correct unit for this limit: it is what
+ * concentrates traffic on a partition. For regular events it is
+ * `token:distinct_id`; for cookieless events it is `token:client_ip`, so one
+ * IP's cookieless stream is budgeted as a single key even though every event
+ * gets a fresh hashed distinct_id later in the pipeline. Events without a
+ * message key are spread round-robin by capture, cannot concentrate on a
+ * partition, and pass through unlimited.
+ */
 export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepInput>(
     preservePartitionLocality: boolean,
     overflowRedirectService?: OverflowRedirectService
 ) {
     return async function rateLimitToOverflowStep(inputs: T[]): Promise<PipelineResult<T, OverflowOutput>[]> {
-        return applyOverflowRedirect(inputs, overflowRedirectService, preservePartitionLocality, (input) => ({
-            token: input.headers.token ?? '',
-            distinctId: input.event.distinct_id ?? '',
-        }))
-    }
-}
+        if (!overflowRedirectService || inputs.length === 0) {
+            return inputs.map((input) => ok(input))
+        }
 
-/**
- * Rate-limits only non-cookieless events using `headers.distinct_id`. Designed to run
- * before the body is parsed — it does not require `event`. Cookieless events
- * (`headers.distinct_id === COOKIELESS_SENTINEL_VALUE`) pass through untouched, to be
- * handled by `createOnlyCookielessRateLimitToOverflowStep` after the cookieless step
- * has assigned them a real hashed distinct_id.
- */
-export interface SkipCookielessRateLimitToOverflowStepInput {
-    headers: EventHeaders
-}
+        const perInputKeys: (string | null)[] = []
+        const keyStats = new Map<
+            string,
+            { token: string; distinctId: string; headersPerEvent: EventHeaders[]; firstTimestamp: number }
+        >()
 
-export function createSkipCookielessRateLimitToOverflowStep<T extends SkipCookielessRateLimitToOverflowStepInput>(
-    preservePartitionLocality: boolean,
-    overflowRedirectService?: OverflowRedirectService
-) {
-    return async function skipCookielessRateLimitToOverflowStep(
-        inputs: T[]
-    ): Promise<PipelineResult<T, OverflowOutput>[]> {
-        return applyOverflowRedirect(inputs, overflowRedirectService, preservePartitionLocality, (input) => {
-            if (input.headers.distinct_id === COOKIELESS_SENTINEL_VALUE) {
-                return null
+        for (const input of inputs) {
+            const derived = deriveOverflowKey(input.message, input.headers)
+            if (!derived) {
+                perInputKeys.push(null)
+                continue
             }
-            return {
-                token: input.headers.token ?? '',
-                distinctId: input.headers.distinct_id ?? '',
-            }
-        })
-    }
-}
 
-/**
- * Rate-limits only cookieless events using `event.distinct_id` (the hashed value
- * assigned by the cookieless step). Must run after `createApplyCookielessProcessingStep`,
- * not before. Pairs with `createSkipCookielessRateLimitToOverflowStep` to cover the full
- * traffic without parsing the body for non-cookieless events that are about to be redirected.
- */
-export interface OnlyCookielessRateLimitToOverflowStepInput {
-    headers: EventHeaders
-    event: PipelineEvent
-}
+            const eventKey = `${derived.token}:${derived.distinctId}`
+            perInputKeys.push(eventKey)
 
-export function createOnlyCookielessRateLimitToOverflowStep<T extends OnlyCookielessRateLimitToOverflowStepInput>(
-    preservePartitionLocality: boolean,
-    overflowRedirectService?: OverflowRedirectService
-) {
-    return async function onlyCookielessRateLimitToOverflowStep(
-        inputs: T[]
-    ): Promise<PipelineResult<T, OverflowOutput>[]> {
-        return applyOverflowRedirect(inputs, overflowRedirectService, preservePartitionLocality, (input) => {
-            if (input.headers.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
-                return null
+            const timestamp = input.headers.now?.getTime() ?? Date.now()
+            const existing = keyStats.get(eventKey)
+            if (existing) {
+                existing.headersPerEvent.push(input.headers)
+            } else {
+                keyStats.set(eventKey, { ...derived, headersPerEvent: [input.headers], firstTimestamp: timestamp })
             }
-            return {
-                token: input.headers.token ?? '',
-                distinctId: input.event.distinct_id ?? '',
+        }
+
+        if (keyStats.size === 0) {
+            return inputs.map((input) => ok(input))
+        }
+
+        const groups: OverflowEventGroup[] = Array.from(keyStats.values()).map(
+            ({ token, distinctId, headersPerEvent, firstTimestamp }) => ({
+                key: { token, distinctId },
+                headersPerEvent,
+                firstTimestamp,
+            })
+        )
+        const keysToRedirect = await overflowRedirectService.handleEventBatch(groups)
+
+        return inputs.map((input, index) => {
+            const eventKey = perInputKeys[index]
+            if (eventKey !== null && keysToRedirect.has(eventKey)) {
+                return redirect('rate_limit_exceeded', OVERFLOW_OUTPUT, preservePartitionLocality)
             }
+            return ok(input)
         })
     }
 }
