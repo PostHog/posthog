@@ -539,6 +539,84 @@ services:
             RUST_LOG: 'info'
             METRICS_PORT: '9101'
 
+    personhog-router-leader:
+        # The same router binary in leader mode: person writes and strong
+        # reads go to leader pods via etcd partition routing; the rest goes
+        # to the replica.
+        image: ghcr.io/posthog/posthog/personhog-router:master
+        build:
+            context: rust/
+            args:
+                BIN: personhog-router
+        restart: on-failure
+        environment:
+            GRPC_ADDRESS: '0.0.0.0:50054'
+            REPLICA_URL: 'http://personhog-replica:50051'
+            ROUTER_MODE: 'leader'
+            ETCD_ENDPOINTS: 'http://etcd:2379'
+            ETCD_PREFIX: '/personhog/'
+            BACKEND_TIMEOUT_MS: '5000'
+            RUST_LOG: 'info'
+            METRICS_PORT: '9104'
+
+    personhog-leader:
+        image: ghcr.io/posthog/posthog/personhog-leader:master
+        build:
+            context: rust/
+            args:
+                BIN: personhog-leader
+        restart: on-failure
+        # The leader binds the wildcard, so it must advertise the container's
+        # own IP in etcd for routers to dial; compose cannot inject it as
+        # K8s's downward API does, so the entrypoint resolves it at start.
+        entrypoint: ['/bin/sh', '-c', 'POD_IP=$$(hostname -i) exec /usr/local/bin/personhog-leader']
+        environment:
+            GRPC_ADDRESS: '0.0.0.0:50053'
+            CACHE_MEMORY_CAPACITY: '100000'
+            ETCD_ENDPOINTS: 'http://etcd:2379'
+            ETCD_PREFIX: '/personhog/'
+            POD_NAME: 'personhog-leader'
+            KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_PERSON_STATE_TOPIC: 'personhog_updates'
+            FALLBACK_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
+            # Must name the same table the identity service and the writer
+            # target (their defaults), or leader misses read the wrong table.
+            FALLBACK_TABLE: 'personhog_person_tmp'
+            RUST_LOG: 'info'
+            METRICS_PORT: '9102'
+
+    personhog-writer:
+        image: ghcr.io/posthog/posthog/personhog-writer:master
+        build:
+            context: rust/
+            args:
+                BIN: personhog-writer
+        restart: on-failure
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
+            KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_TOPIC: 'personhog_updates'
+            KAFKA_CONSUMER_GROUP: 'personhog-writer'
+            FLUSH_INTERVAL_MS: '5000'
+            FLUSH_BUFFER_SIZE: '1000'
+            BUFFER_CAPACITY: '50000'
+            RUST_LOG: 'info'
+            METRICS_PORT: '9103'
+
+    personhog-identity:
+        image: ghcr.io/posthog/posthog/personhog-identity:master
+        build:
+            context: rust/
+            args:
+                BIN: personhog-identity
+        restart: on-failure
+        environment:
+            GRPC_ADDRESS: '0.0.0.0:50055'
+            PRIMARY_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
+            ROUTER_URL: 'http://personhog-router-leader:50054'
+            RUST_LOG: 'info'
+            METRICS_PORT: '9108'
+
     hypercache-server:
         image: ghcr.io/posthog/posthog/hypercache-server:master
         build:

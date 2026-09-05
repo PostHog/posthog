@@ -149,7 +149,12 @@ export class IngestionApiServer implements NodeServer {
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
-    private personhogStore?: PersonhogPersonsStore
+    /**
+     * The store the pipeline was handed. Shutdown goes through this so the
+     * routing store's own lifecycle rules run: in shadow, a personhog
+     * fault must not fail process cleanup.
+     */
+    private pipelinePersonsStore?: PersonsStore
     private personhogClientClosers: Array<() => void> = []
     private groupStore?: BatchWritingGroupStore
     // Held so shutdown cleanup can produce ClickHouse messages returned by a
@@ -364,24 +369,30 @@ export class IngestionApiServer implements NodeServer {
                 writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
                 clientName: 'ingestion-persons-store',
             })
-            const identityClients = createIdentityClients({
-                addr: this.config.PERSONHOG_IDENTITY_ADDR,
-                useTls: this.config.PERSONHOG_TLS,
-                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
-                clientName: 'ingestion-persons-store',
-            })
+            const identityClients = createIdentityClients(
+                {
+                    addr: this.config.PERSONHOG_IDENTITY_ADDR,
+                    useTls: this.config.PERSONHOG_TLS,
+                    timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                    clientName: 'ingestion-persons-store',
+                },
+                { mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS }
+            )
             this.personhogClientClosers = [() => routerClient.close(), identityClients.close]
             const writeRepository = new PersonHogPersonWriteRepository(
                 routerClient,
                 identityClients.identity,
                 'ingestion-persons-store'
             )
-            this.personhogStore = new PersonhogPersonsStore(writeRepository, {
+            const personhogStore = new PersonhogPersonsStore(writeRepository, {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
                 updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+                syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
+                requestTimeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
             })
-            personsStore = new RoutingPersonsStore(this.personsStore, this.personhogStore, personsStoreMode)
+            personsStore = new RoutingPersonsStore(this.personsStore, personhogStore, personsStoreMode)
         }
+        this.pipelinePersonsStore = personsStore
 
         this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
@@ -526,10 +537,11 @@ export class IngestionApiServer implements NodeServer {
                 // shutdown so shutdown() can assert a clean cache.
                 if (this.personsStore) {
                     await this.personsStore.flushAndProduceMessages()
-                    await this.personsStore.shutdown()
                 }
-                if (this.personhogStore) {
-                    await this.personhogStore.shutdown()
+                if (this.pipelinePersonsStore) {
+                    await this.pipelinePersonsStore.shutdown()
+                } else if (this.personsStore) {
+                    await this.personsStore.shutdown()
                 }
                 this.personhogClientClosers.forEach((close) => close())
                 if (this.groupStore) {

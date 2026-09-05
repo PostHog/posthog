@@ -684,6 +684,80 @@ services:
         profiles:
             - ingestion
 
+    personhog-router-leader:
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-router-leader
+        ports:
+            - '50054:50054'
+        depends_on:
+            etcd:
+                condition: service_healthy
+            personhog-replica:
+                condition: service_started
+        profiles:
+            - ingestion
+
+    personhog-leader:
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-leader
+        environment:
+            FALLBACK_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+        depends_on:
+            etcd:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+            personhog-etcd-init:
+                condition: service_completed_successfully
+        profiles:
+            - ingestion
+
+    personhog-writer:
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-writer
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+        profiles:
+            - ingestion
+
+    personhog-identity:
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-identity
+        environment:
+            PRIMARY_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+        ports:
+            - '50055:50055'
+        depends_on:
+            db:
+                condition: service_healthy
+            personhog-router-leader:
+                condition: service_started
+        profiles:
+            - ingestion
+
+    # Seeds the partition count the leaders and routers coordinate under;
+    # idempotent, and the same key bin/mprocs.yaml writes for hogli runs.
+    personhog-etcd-init:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: 'no'
+        entrypoint: ['etcdctl', '--endpoints=http://etcd:2379', 'put', '/personhog/config/total_partitions', '4']
+        depends_on:
+            etcd:
+                condition: service_healthy
+        profiles:
+            - ingestion
+
     feature-flags:
         extends:
             file: docker-compose.base.yml

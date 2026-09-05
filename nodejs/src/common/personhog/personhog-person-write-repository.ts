@@ -2,7 +2,13 @@ import { InternalPerson } from '~/types'
 
 import { PersonHogClient } from './client'
 import { withRetry } from './grpc-retry'
-import { DistinctIdKey, GetOrCreatePersonEntry, PersonhogIdentityOperations } from './identity'
+import {
+    DistinctIdKey,
+    GetOrCreatePersonEntry,
+    MergeSagaRequest,
+    MergeSagaResult,
+    PersonhogIdentityOperations,
+} from './identity'
 import { timedGrpc } from './metrics'
 import { FoldedPersonUpdate } from './persons'
 
@@ -109,5 +115,15 @@ export class PersonHogPersonWriteRepository {
             this.clientLabel,
             method
         )
+    }
+
+    /**
+     * Runs the identity service's merge saga to completion; the op id
+     * dedupes, so a retried call returns the recorded outcome. No
+     * transport retries: the merge service owns the single bounded retry
+     * layer, and layering both multiplies a wedged saga's deadline.
+     */
+    mergePersons(request: MergeSagaRequest, callerTag?: string): Promise<MergeSagaResult> {
+        return timedGrpc(this.clientLabel, 'mergePersons', () => this.identity.mergePersons(request, callerTag))
     }
 }
