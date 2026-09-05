@@ -96,6 +96,7 @@ def resume_syncs_paused_by_auth_failure(*, integration_id: int, team_id: int) ->
     turned off, or one that failed for another reason, keeps its state.
     """
     resumed = 0
+    failures: list[Exception] = []
     for source in ExternalDataSource.objects.filter(team_id=team_id).exclude(deleted=True):
         if integration_id not in get_source_integration_ids(source):
             continue
@@ -109,6 +110,15 @@ def resume_syncs_paused_by_auth_failure(*, integration_id: int, team_id: int) ->
             latest_error = (schema.latest_error or "").lower()
             if not any(marker.lower() in latest_error for marker in markers):
                 continue
-            update_should_sync(schema_id=str(schema.id), team_id=team_id, should_sync=True)
+            try:
+                update_should_sync(schema_id=str(schema.id), team_id=team_id, should_sync=True)
+            except Exception as error:
+                # Restarting a table reaches Temporal, so one unreachable schedule must not strand
+                # every table after it. Carry on, then raise so the caller retries what failed. A
+                # table that did start is skipped next time, because this reads only stopped ones.
+                failures.append(error)
+                continue
             resumed += 1
+    if failures:
+        raise failures[0]
     return resumed

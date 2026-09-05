@@ -145,6 +145,33 @@ def test_reconnect_resumes_from_the_background_task(team: Any) -> None:
     assert mock_update_should_sync.call_args.kwargs["schema_id"] == str(auth_stopped.id)
 
 
+def test_a_failed_resume_does_not_strand_the_tables_after_it(team: Any) -> None:
+    # Restarting a table reaches Temporal. One unreachable schedule used to abort the loop, so
+    # every table after it stayed off until someone reconnected again. The failure still has to
+    # surface, because the caller retries it.
+    integration = _integration(team)
+    source = _source(team, integration)
+    schemas = [
+        _schema(team, source, name=name, error=META_AUTH_ERROR_MESSAGE, status=ExternalDataSchemaStatus.FAILED)
+        for name in ("campaigns", "adsets", "ads")
+    ]
+    unreachable_schedule = str(schemas[0].id)
+
+    def _fail_one(*, schema_id: str, **kwargs: Any) -> None:
+        if schema_id == unreachable_schedule:
+            raise Exception("Temporal is unavailable")
+
+    with patch(
+        "products.warehouse_sources.backend.source_integrations.update_should_sync", side_effect=_fail_one
+    ) as mock_update_should_sync:
+        with pytest.raises(Exception, match="Temporal is unavailable"):
+            resume_syncs_paused_by_auth_failure(integration_id=integration.id, team_id=team.id)
+
+    assert {call.kwargs["schema_id"] for call in mock_update_should_sync.call_args_list} == {
+        str(schema.id) for schema in schemas
+    }
+
+
 def test_reconnect_leaves_another_integrations_sources_alone(team: Any) -> None:
     integration = _integration(team)
     source = _source(team, integration)
