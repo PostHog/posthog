@@ -28,6 +28,16 @@ describe("flag audience shaping", () => {
     expect(audience.rules[0].conditions[0].subject).toBe("Person");
   });
 
+  it("reports nobody for a flag with no release conditions", () => {
+    const audience = shapeFlagAudience(flagWith({ groups: [] }));
+
+    expect(audience.rules).toEqual([]);
+    expect(audience.headline).toBe("On for nobody.");
+    expect(audience.summary).toBe(
+      "The flag has no release conditions, so every check returns false.",
+    );
+  });
+
   it("renders a readable label for operators that only reach flags through the API", () => {
     const audience = shapeFlagAudience(
       flagWith({

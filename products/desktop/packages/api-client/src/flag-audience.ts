@@ -398,20 +398,14 @@ export function shapeFlagAudience(
   }
 
   if (rules.length === 0) {
-    // No condition sets means every check matches; show that as one rule so
-    // the table still reads top to bottom.
-    rules.push({ conditions: [], share: 100, result: matchResult(null) });
+    // The evaluator skips the condition loop on empty groups and returns
+    // false, so clearing targeting turns the flag off for everybody.
     return {
       headline: isRemoteConfig
-        ? "Sends a payload to everyone."
-        : variants.length > 0
-          ? `Split into ${variants.length} variants for everyone.`
-          : "On for everyone.",
-      summary: isRemoteConfig
-        ? "Every check returns the configured payload."
-        : variants.length > 0
-          ? "Every check returns a variant, picked by a stable hash of the distinct ID."
-          : "Every check returns true.",
+        ? "Sends a payload to nobody."
+        : "On for nobody.",
+      summary:
+        "The flag has no release conditions, so every check returns false.",
       disabled,
       rules,
       fallback,
