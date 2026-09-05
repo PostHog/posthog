@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
@@ -102,6 +103,30 @@ class TestRateLimit(BaseTest):
         labeled_products = {call.kwargs.get("product") for call in mock_counter.labels.call_args_list}
         self.assertIn("unknown", labeled_products)
         self.assertNotIn("totally-made-up-product", labeled_products)
+
+    def test_use_fails_open_when_redis_errors(self):
+        # A Redis outage is not a concurrency decision: use() must fail open so the query still runs
+        # rather than raising. It returns a releasable slot (not None) because Redis may have added
+        # the member before the client timed out — release() then clears that member instead of
+        # leaving it to fill the limit until its TTL. The slot must carry exactly the added member.
+        with patch.object(self.limit, "redis_client") as mock_client:
+            mock_client.eval.side_effect = RedisError("connection lost")
+            with patch("posthog.clickhouse.client.limit.CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER") as mock_counter:
+                slot = self.limit.use(is_api=True, team_id=7, task_id=17)
+
+        self.assertEqual(slot, ConcurrencySlot(running_tasks_key="limit:rate-limit-test-task:7", task_id="17"))
+        mock_counter.labels.assert_called_once_with(limit_name="api_per_team", operation="acquire")
+
+    def test_release_swallows_redis_error(self):
+        slot = self.limit.use(is_api=True, team_id=7, task_id=17)
+        assert slot is not None
+
+        with patch.object(self.limit, "redis_client") as mock_client:
+            mock_client.zrem.side_effect = RedisError("connection lost")
+            with patch("posthog.clickhouse.client.limit.CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER") as mock_counter:
+                self.limit.release(slot)  # must not raise — the slot expires via its TTL
+
+        mock_counter.labels.assert_called_once_with(limit_name="api_per_team", operation="release")
 
     def test_rate_limits_no_inference(self):
         """
