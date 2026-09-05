@@ -377,6 +377,10 @@ class TestHogQLQueryRecordBatchModel:
         that hits the time or read limit could return a truncated result as a success. The spill
         thresholds are half the memory cap, and the `max_bytes_ratio_before_external_*` settings are
         0 so that those thresholds are what ClickHouse actually spills on.
+
+        `enable_materialized_cte` is 0 so that a user query writing `AS MATERIALIZED` does not hit
+        the ClickHouse planner bug over Distributed tables. Other HogQL queries get this from
+        `HogQLGlobalSettings`, which this path does not inherit.
         """
         model = HogQLQueryRecordBatchModel(team_id=1, hogql_query="SELECT event AS event FROM events")
 
@@ -391,6 +395,7 @@ class TestHogQLQueryRecordBatchModel:
             "max_bytes_to_read": "200000000000",
             "read_overflow_mode": "throw",
             "timeout_overflow_mode": "throw",
+            "enable_materialized_cte": "0",
         }
 
     @pytest.mark.parametrize(
