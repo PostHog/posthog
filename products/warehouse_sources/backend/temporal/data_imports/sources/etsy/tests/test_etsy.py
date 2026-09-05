@@ -62,6 +62,7 @@ class _FakeSession:
     def __init__(self, get_responses: list[Response], post_responses: Optional[list[Response]] = None) -> None:
         self.get_calls: list[tuple[str, dict[str, Any], dict[str, str]]] = []
         self.post_bodies: list[dict[str, Any]] = []
+        self.post_json_bodies: list[dict[str, Any]] = []
         self._get_responses = list(get_responses)
         self._post_responses = list(post_responses) if post_responses is not None else [_token()]
 
@@ -77,8 +78,16 @@ class _FakeSession:
             raise AssertionError(f"unexpected extra GET: {url} {params}")
         return self._get_responses.pop(0)
 
-    def post(self, url: str, json: Optional[dict[str, Any]] = None, timeout: Optional[float] = None) -> Response:  # noqa: A002 — matches requests' keyword name
-        self.post_bodies.append(dict(json or {}))
+    def post(
+        self,
+        url: str,
+        json: Optional[dict[str, Any]] = None,  # noqa: A002 — matches requests' keyword name
+        data: Optional[dict[str, Any]] = None,
+        timeout: Optional[float] = None,
+    ) -> Response:
+        # Etsy rejects a JSON token request, so record which encoding was used.
+        self.post_json_bodies.append(dict(json)) if json is not None else None
+        self.post_bodies.append(dict(data if data is not None else json or {}))
         if not self._post_responses:
             raise AssertionError("unexpected extra token request")
         return self._post_responses.pop(0)
@@ -138,6 +147,9 @@ class TestEtsyTransport:
         assert session.post_bodies == [
             {"grant_type": "refresh_token", "client_id": _API_KEY, "refresh_token": _REFRESH_TOKEN}
         ]
+        # Etsy's token endpoint requires application/x-www-form-urlencoded; a JSON
+        # body is rejected and the source cannot be connected at all.
+        assert session.post_json_bodies == []
         assert session.get_calls[0][2]["Authorization"] == "Bearer token-1"
 
     def test_secrets_are_redacted_and_api_key_header_is_set(self) -> None:
