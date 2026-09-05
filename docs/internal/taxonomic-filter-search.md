@@ -15,3 +15,13 @@ The legacy implementation separates these requests in `infiniteListLogic.ts`; th
 The event definitions API counts matching rows separately and applies `LIMIT` and `OFFSET` in PostgreSQL. The count describes all matches, including matches outside the requested page. Explicit ordering uses the project-unique event name as a final tie-breaker so equal timestamps do not cause skipped or repeated results between pages.
 
 Tag-filtered requests retain ORM pagination after resolving matching event IDs. Both paths preserve the same response fields and project scope, including legacy definitions whose `project_id` is null.
+
+## Project-first event search trial
+
+The `event-definition-project-first-search` flag selects a project-first SQL plan for nonempty event searches. Its distinct ID is the project ID as a string. Evaluation is local and sends no flag events; an unavailable or disabled flag keeps the default plan. Empty searches retain the default plan without evaluating the flag.
+
+The trial puts the project restriction inside an `OFFSET 0` subquery. This prevents PostgreSQL from pushing substring matching into the global trigram index. It streams the project's base rows once, then joins enterprise metadata for matching rows. The count and page use the same source and filters. No migration is required.
+
+This is a workload-dependent tradeoff: globally common terms can require expensive trigram posting-list reads, while globally rare terms can be much faster through that index than through a large project scan. Keep the flag disabled by default and compare a small project cohort with a control before expanding it.
+
+Validate both count and ordered pages for case-insensitive and multi-term searches, empty results, legacy project scope, hidden/stale/verified filters, tags, and pagination boundaries. Compare `EXPLAIN (ANALYZE, BUFFERS)` for count plus page with alternating baseline and trial runs across small and large projects, selective and common terms, and warm and cold cache conditions. Record PostgreSQL version and cache limitations. In the canary, compare endpoint p50/p95, error rates, database time and read blocks by project size and search type; roll back the flag if latency or database load regresses.

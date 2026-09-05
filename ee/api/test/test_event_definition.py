@@ -130,6 +130,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(enterprise_event.team.id, event.team.id)  # type: ignore
 
     def test_search_event_definition(self):
+        self.enterContext(patch("posthog.api.event_definition.posthoganalytics.feature_enabled", return_value=True))
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -175,6 +176,14 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
 
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/",
+            data={"search": "event", "tags": '["deprecated"]', "limit": 1, "offset": 1, "ordering": "name"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
+        assert [row["name"] for row in response.json()["results"]] == ["regular event"]
+
     @parameterized.expand(
         [
             # $pageview is a core PostHog event, so it's treated as verified
@@ -186,6 +195,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     def test_filter_event_definitions_by_verified(
         self, _name: str, verified_param: Optional[str], expected_names: list[str]
     ):
+        self.enterContext(patch("posthog.api.event_definition.posthoganalytics.feature_enabled", return_value=True))
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -195,14 +205,15 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
                 verified=event_definition["verified"] or False
             )
 
-        url = "/api/projects/@current/event_definitions/"
-        if verified_param is not None:
-            url += f"?verified={verified_param}"
-
-        response = self.client.get(url)
-
-        assert response.status_code == status.HTTP_200_OK
-        assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
+        for search in ("", "e"):
+            with self.subTest(search=search):
+                params = {"search": search}
+                if verified_param is not None:
+                    params["verified"] = verified_param
+                response = self.client.get("/api/projects/@current/event_definitions/", data=params)
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["count"] == len(expected_names)
+                assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -600,6 +611,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
     def test_exclude_hidden_events(self):
+        self.enterContext(patch("posthog.api.event_definition.posthoganalytics.feature_enabled", return_value=True))
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -620,6 +632,14 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert "visible_event" in event_names
         assert "hidden_event1" not in event_names
         assert "hidden_event2" not in event_names
+
+        response = self.client.get(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/",
+            data={"exclude_hidden": "true", "search": "event"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert [row["name"] for row in response.json()["results"]] == ["visible_event"]
 
         # Test with exclude_hidden=false (should be same as not setting it)
         response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=false")
