@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+import pydantic.v1  # noqa: F401
 import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
@@ -23,6 +24,7 @@ from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
 
 
+# Pydantic v1 must define its date subclasses before freeze_time replaces datetime.date.
 @freeze_time("2020-01-02")
 class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
@@ -178,7 +180,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get(
             "/api/projects/@current/event_definitions/",
-            data={"search": "event", "tags": '["deprecated"]', "limit": 1, "offset": 1, "ordering": "name"},
+            data={"search": "event", "tags": '["deprecated"]', "limit": "1", "offset": "1", "ordering": "name"},
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 2
