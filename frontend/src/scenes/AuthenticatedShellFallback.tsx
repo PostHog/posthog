@@ -29,11 +29,7 @@ export function AuthenticatedShellFallback({ showSpinner }: { showSpinner: boole
         const retryTimer = window.setTimeout(() => {
             const autoReload = !reloadedForChunkFailureRecently()
             // sendBeacon survives the page unloading under the reload below.
-            posthog.capture(
-                'app shell load stalled',
-                { auto_reloaded: autoReload },
-                { transport: 'sendBeacon' }
-            )
+            posthog.capture('app shell load stalled', { auto_reloaded: autoReload }, { transport: 'sendBeacon' })
             if (autoReload) {
                 markChunkFailureReload()
                 window.location.reload()
