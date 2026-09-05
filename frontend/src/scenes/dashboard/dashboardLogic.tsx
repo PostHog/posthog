@@ -1557,7 +1557,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         const persistedFilters = currentDashboard.persisted_filters || {}
                         const persistedVariables = currentDashboard.persisted_variables || {}
-                        const persistedBreakdownColors = currentDashboard.breakdown_colors || []
+                        const persistedBreakdownColors = Array.isArray(currentDashboard.breakdown_colors)
+                            ? currentDashboard.breakdown_colors
+                            : []
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
 
                         const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
@@ -3202,9 +3204,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 autoBreakdownColorsEnabled: boolean,
                 dataColorTheme: DataColorTheme | null
             ): BreakdownColorConfig[] => {
+                // The API accepts JSON objects in breakdown_colors (a schema violation), which
+                // would cause mergeBreakdownColorConfigs to throw "r is not iterable". Normalize
+                // to an array so the dashboard loads gracefully instead of crashing.
+                const breakdownColorsArray = Array.isArray(dashboard?.breakdown_colors)
+                    ? dashboard.breakdown_colors
+                    : []
                 const merged = mergeBreakdownColorConfigs(
                     temporaryBreakdownColors,
-                    dashboard?.breakdown_colors ?? []
+                    breakdownColorsArray
                 ).filter((config) => !!config.colorToken)
 
                 if (!autoBreakdownColorsEnabled) {
@@ -3234,7 +3242,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 temporaryDataColorThemeId: { themeId: number | null } | null,
                 dashboard: DashboardType<QueryBasedInsightModel> | null
             ): boolean => {
-                const persisted = dashboard?.breakdown_colors ?? []
+                const persisted = Array.isArray(dashboard?.breakdown_colors)
+                    ? dashboard.breakdown_colors
+                    : []
                 const colorsChanged = temporaryBreakdownColors.some((config) => {
                     const persistedConfig = findBreakdownColorConfig(
                         persisted,
