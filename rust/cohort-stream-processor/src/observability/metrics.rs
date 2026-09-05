@@ -240,9 +240,12 @@ pub const PARTITION_CHANNEL_FULL_TOTAL: &str = "partition_channel_full_total";
 /// by `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags
 /// a stuck worker.
 pub const PARTITION_INTAKE_EVENTS: &str = "partition_intake_events";
-/// Seeds waiting in a partition worker's seed lane, plus the turn it is applying, labelled by
-/// `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_SEEDS` means the worker is
-/// serving live traffic and the seed lane is backing up behind it.
+/// Seeds resident in a partition worker's seed lane, queued plus the quantum being applied,
+/// labelled by `partition` (gauge). The router adds what it lands, the worker releases a quantum
+/// once its last run has applied, and a revoke zeroes the series. A value pinned near
+/// `PARTITION_INTAKE_MAX_SEEDS` means the worker is serving live traffic and the seed lane is
+/// backing up behind it: a partition whose live lane never empties makes no seed progress by
+/// design, and shows under [`SEED_PAUSED_PARTITIONS`] with cause `channel_full`.
 pub const PARTITION_SEED_CHANNEL_DEPTH: &str = "partition_seed_channel_depth";
 /// Seeds held back because a partition worker's seed lane was full, labelled by `partition`
 /// (counter). Backpressure, not loss, and re-counted on every retry of a still-full holdover, like

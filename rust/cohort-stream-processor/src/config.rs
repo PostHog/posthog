@@ -835,11 +835,16 @@ impl Config {
             self.cohort_seed_apply_batch_max_rows > 0,
             "COHORT_SEED_APPLY_BATCH_MAX_ROWS must be greater than zero.",
         );
-        // A zero-capacity mpsc channel panics on construction, so the first worker spawn would
-        // take the pod down.
+        // A zero-capacity mpsc channel panics on construction, and so does one above tokio's
+        // permit bound, so either would take the pod down at the first worker spawn.
         ensure!(
             self.partition_intake_max_seeds > 0,
             "PARTITION_INTAKE_MAX_SEEDS must be greater than zero (it is the seed lane's capacity in seeds).",
+        );
+        ensure!(
+            self.partition_intake_max_seeds <= tokio::sync::Semaphore::MAX_PERMITS,
+            "PARTITION_INTAKE_MAX_SEEDS must not exceed {} (tokio's channel capacity bound).",
+            tokio::sync::Semaphore::MAX_PERMITS,
         );
 
         let pacing = self.seed_pacing_config()?;
@@ -1345,14 +1350,17 @@ mod tests {
             .to_string()
             .contains("COHORT_SEED_APPLY_BATCH_MAX_ROWS"),);
 
-        // A zero-capacity seed lane would panic the first worker spawn, so it must be refused too.
+        // A zero-capacity seed lane would panic the first worker spawn, and so would one above
+        // tokio's channel bound, so both must be refused too.
         config.cohort_seed_apply_batch_max_rows = 1;
-        config.partition_intake_max_seeds = 0;
-        assert!(config
-            .validate_startup()
-            .unwrap_err()
-            .to_string()
-            .contains("PARTITION_INTAKE_MAX_SEEDS"),);
+        for cap in [0, usize::MAX] {
+            config.partition_intake_max_seeds = cap;
+            assert!(config
+                .validate_startup()
+                .unwrap_err()
+                .to_string()
+                .contains("PARTITION_INTAKE_MAX_SEEDS"),);
+        }
 
         // `1` is the documented hatch back to the per-seed apply, so it must start.
         config.partition_intake_max_seeds = 1;

@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use dashmap::mapref::entry::Entry;
@@ -100,13 +100,74 @@ pub enum SeedRefusal {
     ChannelClosed,
 }
 
-/// The seed lane's sender and its cached metric label. One `Arc<str>` per partition; the gauge is
-/// set once per routed sub-batch, never per seed.
+/// The seed lane's sender and the resident-seed meter it shares with the worker's
+/// [`SeedReceiver`].
 #[derive(Clone)]
 struct SeedLane {
-    /// One item per seed: the channel's capacity is the seed intake cap, so there is no counter.
+    /// One item per seed: the channel's capacity is the seed intake cap. The meter admits and
+    /// refuses nothing.
     sender: mpsc::Sender<ConsumedSeed>,
+    meter: Arc<SeedLaneMeter>,
+}
+
+/// Seeds resident in one partition's seed lane, for [`PARTITION_SEED_CHANNEL_DEPTH`] only: the
+/// channel's capacity is the cap, so this count gates nothing. The router adds what it lands, the
+/// worker releases a quantum once its last run has applied, and dropping the [`SeedReceiver`]
+/// zeroes the series. A gauge read off the sender's free capacity instead would miss the quantum
+/// in hand (`recv_many` frees the slots it takes) and pin its last value after a drain or a
+/// revoke.
+pub(crate) struct SeedLaneMeter {
+    resident: AtomicUsize,
     label: Arc<str>,
+}
+
+impl SeedLaneMeter {
+    fn new(partition: i32) -> Self {
+        Self {
+            resident: AtomicUsize::new(0),
+            label: Arc::from(partition.to_string()),
+        }
+    }
+
+    fn add(&self, count: usize) {
+        self.resident.fetch_add(count, Ordering::AcqRel);
+        // Sample fresh: a concurrent release may have lowered the count below the sum.
+        self.set_gauge(self.resident.load(Ordering::Acquire));
+    }
+
+    /// Saturating, so an accounting slip can never wrap the gauge.
+    fn release(&self, count: usize) {
+        let mut current = self.resident.load(Ordering::Acquire);
+        loop {
+            let next = current.saturating_sub(count);
+            match self.resident.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    self.set_gauge(next);
+                    return;
+                }
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    fn zero(&self) {
+        self.resident.store(0, Ordering::Release);
+        self.set_gauge(0);
+    }
+
+    #[cfg(test)]
+    fn resident(&self) -> usize {
+        self.resident.load(Ordering::Acquire)
+    }
+
+    fn set_gauge(&self, value: usize) {
+        gauge!(PARTITION_SEED_CHANNEL_DEPTH, "partition" => self.label.clone()).set(value as f64);
+    }
 }
 
 /// A registered worker's two lanes: the live sender with the event-intake budget its
@@ -120,20 +181,17 @@ struct PartitionChannel {
 }
 
 /// What [`add_partition`](PartitionRouter::add_partition) hands a worker: the live lane behind its
-/// intake meter, and the seed lane.
+/// intake meter, and the seed lane behind its depth meter.
 pub struct WorkerInbox {
     pub live: MeteredReceiver,
-    pub seeds: mpsc::Receiver<ConsumedSeed>,
+    pub seeds: SeedReceiver,
 }
 
 impl WorkerInbox {
     /// Uncapped live lane and an already-closed seed lane, for tests that route no seeds.
     pub fn live_only(live: mpsc::Receiver<Vec<ShuffleMessage>>) -> Self {
         let (_, seeds) = mpsc::channel(1);
-        Self {
-            live: MeteredReceiver::unmetered(live),
-            seeds,
-        }
+        Self::unmetered(live, seeds)
     }
 
     /// Uncapped live lane paired with a caller-owned seed lane, for tests that drive both.
@@ -143,8 +201,64 @@ impl WorkerInbox {
     ) -> Self {
         Self {
             live: MeteredReceiver::unmetered(live),
-            seeds,
+            seeds: SeedReceiver::unmetered(seeds),
         }
+    }
+}
+
+/// Worker-side end of the seed lane. Seeds taken by [`recv_many`](Self::recv_many) stay counted on
+/// the meter until [`finish_turn`](Self::finish_turn), so the depth gauge covers the quantum being
+/// applied; dropping it zeroes the gauge, so a revoked partition's series does not pin.
+pub struct SeedReceiver {
+    receiver: mpsc::Receiver<ConsumedSeed>,
+    meter: Arc<SeedLaneMeter>,
+    /// Seeds taken since the last `finish_turn`.
+    in_hand: usize,
+}
+
+impl SeedReceiver {
+    fn new(receiver: mpsc::Receiver<ConsumedSeed>, meter: Arc<SeedLaneMeter>) -> Self {
+        Self {
+            receiver,
+            meter,
+            in_hand: 0,
+        }
+    }
+
+    /// A lane whose sends bypass the meter, for tests that own the sender.
+    pub fn unmetered(receiver: mpsc::Receiver<ConsumedSeed>) -> Self {
+        Self::new(receiver, Arc::new(SeedLaneMeter::new(0)))
+    }
+
+    /// Take up to `limit` seeds, waiting for the first; `0` means the lane closed. Cancel-safe, so
+    /// the worker can poll it as a `select!` branch: the count moves only on completion.
+    pub async fn recv_many(&mut self, buffer: &mut Vec<ConsumedSeed>, limit: usize) -> usize {
+        let taken = self.receiver.recv_many(buffer, limit).await;
+        self.in_hand += taken;
+        taken
+    }
+
+    /// Release everything taken since the last call. The worker calls it once every run of the
+    /// quantum has applied.
+    pub fn finish_turn(&mut self) {
+        let taken = std::mem::take(&mut self.in_hand);
+        if taken > 0 {
+            self.meter.release(taken);
+        }
+    }
+
+    /// Non-awaiting single take for tests; counts on the meter like [`recv_many`](Self::recv_many).
+    #[cfg(test)]
+    pub fn try_recv(&mut self) -> Result<ConsumedSeed, mpsc::error::TryRecvError> {
+        let seed = self.receiver.try_recv()?;
+        self.in_hand += 1;
+        Ok(seed)
+    }
+}
+
+impl Drop for SeedReceiver {
+    fn drop(&mut self) {
+        self.meter.zero();
     }
 }
 
@@ -235,20 +349,21 @@ impl PartitionRouter {
         let (live_tx, live_rx) = mpsc::channel(self.channel_buffer);
         let (seed_tx, seed_rx) = mpsc::channel(self.seed_cap.get());
         let intake = Arc::new(PartitionIntake::new(partition, self.intake_cap));
+        let meter = Arc::new(SeedLaneMeter::new(partition));
         let live = MeteredReceiver::new(live_rx, intake.clone());
         let channel = PartitionChannel {
             live: live_tx,
             intake,
             seeds: SeedLane {
                 sender: seed_tx,
-                label: Arc::from(partition.to_string()),
+                meter: meter.clone(),
             },
         };
         (
             channel,
             WorkerInbox {
                 live,
-                seeds: seed_rx,
+                seeds: SeedReceiver::new(seed_rx, meter),
             },
         )
     }
@@ -406,12 +521,16 @@ impl PartitionRouter {
         let lane = &channel.seeds;
 
         let mut landed_max: Option<i64> = None;
+        let mut landed = 0usize;
         let mut remaining = seeds.into_iter();
         let mut refused = None;
         for seed in remaining.by_ref() {
             let offset = seed.offset;
             match lane.sender.try_send(seed) {
-                Ok(()) => landed_max = Some(landed_max.map_or(offset, |max| max.max(offset))),
+                Ok(()) => {
+                    landed += 1;
+                    landed_max = Some(landed_max.map_or(offset, |max| max.max(offset)));
+                }
                 Err(TrySendError::Full(seed)) => {
                     refused = Some((SeedRefusal::Full, seed));
                     break;
@@ -422,12 +541,8 @@ impl PartitionRouter {
                 }
             }
         }
-
-        let depth = lane
-            .sender
-            .max_capacity()
-            .saturating_sub(lane.sender.capacity());
-        gauge!(PARTITION_SEED_CHANNEL_DEPTH, "partition" => lane.label.clone()).set(depth as f64);
+        // Once per sub-batch, never per seed: one gauge write covers everything that landed.
+        lane.meter.add(landed);
 
         let Some((reason, seed)) = refused else {
             return SeedSendOutcome::Sent {
@@ -438,7 +553,7 @@ impl PartitionRouter {
         // past a hole and per-partition FIFO holds.
         let rest: Vec<ConsumedSeed> = std::iter::once(seed).chain(remaining).collect();
         if reason == SeedRefusal::Full {
-            counter!(PARTITION_SEED_CHANNEL_FULL_TOTAL, "partition" => lane.label.clone())
+            counter!(PARTITION_SEED_CHANNEL_FULL_TOTAL, "partition" => lane.meter.label.clone())
                 .increment(rest.len() as u64);
         }
         SeedSendOutcome::Refused {
@@ -476,8 +591,8 @@ impl PartitionRouter {
         counter!(PARTITION_ROUTE_DROPPED_TOTAL, "reason" => reason).increment(dropped as u64);
     }
 
-    /// The live lane's depth. The seed lane's is emitted inside
-    /// [`try_send_seeds`](Self::try_send_seeds), once per routed sub-batch.
+    /// The live lane's depth. The seed lane's is kept by its [`SeedLaneMeter`], which both ends
+    /// update.
     fn emit_channel_depth(&self, partition: i32, sender: &mpsc::Sender<Vec<ShuffleMessage>>) {
         let depth = sender.max_capacity().saturating_sub(sender.capacity());
         gauge!(PARTITION_CHANNEL_DEPTH, "partition" => partition.to_string()).set(depth as f64);
@@ -915,7 +1030,7 @@ mod tests {
         seeds.iter().map(|seed| seed.offset).collect()
     }
 
-    fn drain_seeds(receiver: &mut mpsc::Receiver<ConsumedSeed>) -> Vec<i64> {
+    fn drain_seeds(receiver: &mut SeedReceiver) -> Vec<i64> {
         let mut taken = Vec::new();
         while let Ok(seed) = receiver.try_recv() {
             taken.push(seed.offset);
@@ -1080,6 +1195,58 @@ mod tests {
     async fn try_route_seeds_is_empty_for_an_empty_batch() {
         let router = PartitionRouter::new(16);
         assert!(router.try_route_seeds(vec![]).is_empty());
+    }
+
+    /// The depth gauge must cover the queued seeds and the quantum in hand, and must not pin after
+    /// the lane drains or the partition is revoked.
+    #[tokio::test]
+    async fn the_seed_lane_meter_counts_the_quantum_in_hand_and_zeroes_on_drop() {
+        let router = PartitionRouter::with_intake_cap(16, usize::MAX, cap(2));
+        let mut inbox = router.add_partition(5).unwrap();
+        let meter = router
+            .channels
+            .get(&5)
+            .expect("partition 5 is registered")
+            .seeds
+            .meter
+            .clone();
+
+        // Three seeds onto a two-slot lane: only what landed counts, never the refused suffix.
+        assert!(matches!(
+            router
+                .try_route_seeds(vec![
+                    consumed_seed(5, 1),
+                    consumed_seed(5, 2),
+                    consumed_seed(5, 3)
+                ])
+                .remove(&5),
+            Some(SeedSendOutcome::Refused {
+                landed_max: Some(2),
+                ..
+            }),
+        ));
+        assert_eq!(meter.resident(), 2);
+
+        // Taking the quantum frees the lane's slots but not the meter: the seeds are in hand.
+        let mut quantum = Vec::new();
+        assert_eq!(
+            futures::FutureExt::now_or_never(inbox.seeds.recv_many(&mut quantum, 8)),
+            Some(2)
+        );
+        assert_eq!(meter.resident(), 2, "the quantum in hand still counts");
+        assert!(matches!(
+            router.try_route_seeds(vec![consumed_seed(5, 3)]).remove(&5),
+            Some(SeedSendOutcome::Sent { max_offset: 3 }),
+        ));
+        assert_eq!(meter.resident(), 3, "queued plus in hand");
+
+        inbox.seeds.finish_turn();
+        assert_eq!(meter.resident(), 1, "only the queued seed stays counted");
+
+        // A revoke drops the worker's end with whatever it still held, and the series clears.
+        router.remove_partition(5);
+        drop(inbox);
+        assert_eq!(meter.resident(), 0);
     }
 
     #[tokio::test]
