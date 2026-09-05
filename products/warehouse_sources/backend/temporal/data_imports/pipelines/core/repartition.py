@@ -205,10 +205,10 @@ class RepartitionAttemptsExhausted(Exception):
     """Every one of `MAX_REPARTITION_ATTEMPTS` rewrites was charged but none survived to record an
     outcome, so the controller gives up and backs the table off to the daily cooldown.
 
-    Each attempt is charged before the rewrite runs and refunded on a clean stand-down (supersession,
-    cancellation, transient infra), so reaching the cap this way means every attempt was hard-killed
-    mid-run — worker OOM, activity timeout, or an eviction that didn't surface as a cancellation —
-    before it could fail cleanly or checkpoint progress. Terminal, and unlike a caught failure it
+    One attempt is charged per sync run before the rewrite runs, and refunded on a clean stand-down
+    (supersession, cancellation, transient infra), so reaching the cap this way means the rewrite was
+    hard-killed in every one of those runs — worker OOM, activity timeout, or an eviction that didn't
+    surface as a cancellation — before it could fail cleanly or checkpoint progress. Terminal, and unlike a caught failure it
     carries no underlying exception, so the give-up path constructs and captures this to keep the most
     severe repartition outcome visible in error tracking rather than silently abandoned.
     """
