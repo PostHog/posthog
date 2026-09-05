@@ -16,9 +16,11 @@
 -- CONCURRENTLY cannot be used here. On the large production posthog_cohortpeople,
 -- do both steps out-of-band FIRST: delete the duplicates in bounded batches, then
 -- CREATE UNIQUE INDEX CONCURRENTLY. The guard below then makes this migration a
--- no-op there, and skips the table scan the DELETE would otherwise cost. On fresh
--- or small databases (dev, CI, hobby) both steps are cheap inline. Idempotent and
--- safe to re-run.
+-- no-op there, and skips the table scan the DELETE would otherwise cost. A
+-- concurrent build that fails leaves an invalid index that must be dropped with
+-- DROP INDEX CONCURRENTLY, because the guard below refuses it. On fresh or small
+-- databases (dev, CI, hobby) both steps are cheap inline. Idempotent and safe to
+-- re-run.
 --
 -- ORDER: the out-of-band build needs the new merge statements in place first. An
 -- older merge writer repoints a source membership blind, so the index turns a
@@ -31,9 +33,31 @@
 -- soon as the index exists.
 
 DO $$
+DECLARE
+    existing oid := to_regclass('posthog_cohortpeople_cohort_id_person_id_uniq');
+    enforced boolean;
 BEGIN
-    IF to_regclass('posthog_cohortpeople_cohort_id_person_id_uniq') IS NOT NULL THEN
-        RETURN;
+    -- A failed CREATE UNIQUE INDEX CONCURRENTLY leaves an index behind that
+    -- to_regclass finds but that enforces nothing, because Postgres marks it
+    -- invalid and not ready. Read the catalog instead of trusting the name, so
+    -- that state stops the migration rather than passing as done.
+    IF existing IS NOT NULL THEN
+        SELECT i.indisunique AND i.indisvalid AND i.indisready AND i.indpred IS NULL
+               AND (SELECT array_agg(a.attname::text ORDER BY k.ord)
+                    FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord)
+                    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum)
+                   = ARRAY['cohort_id', 'person_id']
+        INTO enforced
+        FROM pg_index i
+        WHERE i.indexrelid = existing
+          AND i.indrelid = 'posthog_cohortpeople'::regclass;
+
+        IF enforced THEN
+            RETURN;
+        END IF;
+
+        RAISE EXCEPTION 'posthog_cohortpeople_cohort_id_person_id_uniq exists but does not enforce one row per (cohort_id, person_id)'
+            USING HINT = 'A failed CREATE UNIQUE INDEX CONCURRENTLY leaves an index in this state. Remove it with DROP INDEX CONCURRENTLY, delete the duplicate rows, then build the index again.';
     END IF;
 
     DELETE FROM posthog_cohortpeople cp
