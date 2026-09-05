@@ -256,12 +256,17 @@ export const doraLogic = kea<doraLogicType>([
                         ? 'all persistent environments'
                         : dora.environment_scope,
         ],
-        // With environments selected, environment_scope echoes the picks, so the resolved default
-        // can only be offered while the selection is empty; picked names stay selectable options.
+        // selected_environments carries the resolved default scope while the selection is empty. Its
+        // names can fall outside the capped environments list, so they must be offered explicitly.
+        // Picked names stay selectable options.
         environmentOptions: [
             (s) => [s.dora, s.environments],
             (dora: DoraOverviewApi | null, environments: string[]): { key: string; label: string }[] => {
-                const names = new Set([...(dora?.environments ?? []), ...environments])
+                const names = new Set([
+                    ...(dora?.environments ?? []),
+                    ...(dora?.selected_environments ?? []),
+                    ...environments,
+                ])
                 return [...names].map((name) => ({ key: name, label: name }))
             },
         ],

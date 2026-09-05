@@ -502,7 +502,7 @@ def get_dora_overview(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    environments: list[str] | None = None,
+    validated_environments: list[str] | None = None,
     github_team: str | None = None,
     granularity: str | None = None,
     source_id: str | None = None,
@@ -513,9 +513,27 @@ def get_dora_overview(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
-        environments=environments,
+        validated_environments=validated_environments,
         github_team=github_team,
         granularity=granularity,
+    )
+
+
+def get_dora_environment_choices(
+    environments: list[str],
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[str]:
+    return logic.get_dora_environment_choices(
+        environments=environments,
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
