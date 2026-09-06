@@ -617,6 +617,19 @@ export interface AiConsentGateShownProperties {
   surface: "onboarding_step" | "standalone_gate";
 }
 
+export interface DesktopAccessBlockedProperties {
+  reason: "startup_plan" | "prepaid_credits" | "unknown";
+  /** False means the person cannot switch their way out of the block. */
+  has_other_organizations: boolean;
+}
+
+/** Sent when a recheck comes back with the same answer. */
+export interface DesktopAccessRecheckedProperties
+  extends DesktopAccessBlockedProperties {
+  /** Rechecks that changed nothing, this one included. */
+  attempt: number;
+}
+
 export interface ConsentAdminLinkCopiedProperties {
   consent_type: "ai" | "desktop_beta_terms";
   success: boolean;
@@ -1608,6 +1621,8 @@ export const ANALYTICS_EVENTS = {
   CONSENT_ADMIN_LINK_COPIED: "Consent admin link copied",
   DESKTOP_BETA_TERMS_ACCEPTED: "Desktop beta terms accepted",
   DESKTOP_BETA_TERMS_ACCEPTED_INAPP: "Desktop beta terms accepted in-app",
+  DESKTOP_ACCESS_BLOCKED: "Desktop access blocked",
+  DESKTOP_ACCESS_RECHECKED: "Desktop access rechecked",
 
   // Setup / onboarding events
   SETUP_DISCOVERY_STARTED: "Setup discovery started",
@@ -1815,6 +1830,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CONSENT_ADMIN_LINK_COPIED]: ConsentAdminLinkCopiedProperties;
   [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED]: never;
   [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP]: never;
+  [ANALYTICS_EVENTS.DESKTOP_ACCESS_BLOCKED]: DesktopAccessBlockedProperties;
+  [ANALYTICS_EVENTS.DESKTOP_ACCESS_RECHECKED]: DesktopAccessRecheckedProperties;
 
   // Setup / onboarding events
   [ANALYTICS_EVENTS.SETUP_DISCOVERY_STARTED]: SetupDiscoveryStartedProperties;

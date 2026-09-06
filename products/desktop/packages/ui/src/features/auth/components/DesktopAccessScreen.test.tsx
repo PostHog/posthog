@@ -1,9 +1,13 @@
+import type { DesktopAccess } from "@posthog/core/auth/schemas";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+
 import { DesktopAccessScreen } from "./DesktopAccessScreen";
 
-const orgProjectsMap = {
+const twoOrganizations = {
   "org-1": {
     orgName: "First organization",
     projects: [
@@ -17,65 +21,71 @@ const orgProjectsMap = {
   },
 };
 
+const oneOrganization = {
+  "org-1": {
+    orgName: "Only organization",
+    projects: [{ id: 1, name: "Website" }],
+  },
+};
+
 function renderScreen(
-  access:
-    | {
-        projectId: number;
-        status: "blocked";
-        reason: "startup_plan" | "prepaid_credits" | null;
-      }
-    | { projectId: number; status: "error"; reason: null },
+  access: DesktopAccess,
+  orgProjectsMap:
+    | typeof twoOrganizations
+    | typeof oneOrganization = twoOrganizations,
 ) {
-  const onSelectOrganization = vi.fn();
-  const onSelectProject = vi.fn();
-  const onRetry = vi.fn();
-  const onLogout = vi.fn();
-  const onOpenSupport = vi.fn();
-  const result = render(
-    <DesktopAccessScreen
-      access={access}
-      orgProjectsMap={orgProjectsMap}
-      currentOrgId="org-1"
-      currentProjectId={1}
-      isSwitching={false}
-      isRetrying={false}
-      isLoggingOut={false}
-      switchError={null}
-      onSelectOrganization={onSelectOrganization}
-      onSelectProject={onSelectProject}
-      onRetry={onRetry}
-      onLogout={onLogout}
-      onOpenSupport={onOpenSupport}
-    />,
-  );
+  const handlers = {
+    onSelectOrganization: vi.fn(),
+    onSelectProject: vi.fn(),
+    onRetry: vi.fn(),
+    onLogout: vi.fn(),
+    onOpenSupport: vi.fn(),
+  };
+  const props = {
+    access,
+    orgProjectsMap,
+    currentOrgId: "org-1",
+    currentProjectId: 1,
+    isSwitching: false,
+    isRetrying: false,
+    isLoggingOut: false,
+    switchError: null,
+    ...handlers,
+  };
+  const result = render(<DesktopAccessScreen {...props} />);
   return {
     ...result,
-    onSelectOrganization,
-    onSelectProject,
-    onRetry,
-    onLogout,
-    onOpenSupport,
+    ...handlers,
+    rerenderWith: (next: Partial<typeof props>) =>
+      result.rerender(<DesktopAccessScreen {...props} {...next} />),
   };
 }
+
+const blocked = (
+  reason: "startup_plan" | "prepaid_credits",
+): DesktopAccess => ({ projectId: 1, status: "blocked", reason });
 
 describe("DesktopAccessScreen", () => {
   it.each([
     ["startup_plan", "Organizations in the Startup or YC program"],
     ["prepaid_credits", "sales@posthog.com"],
   ] as const)("renders the %s reason", (reason, expectedCopy) => {
-    renderScreen({ projectId: 1, status: "blocked", reason });
+    const { container } = renderScreen(blocked(reason));
 
     expect(screen.getByText(new RegExp(expectedCopy))).toBeInTheDocument();
     expect(screen.getByText("First organization")).toBeInTheDocument();
-    expect(screen.getByText("Website")).toBeInTheDocument();
+    // The decision covers the organization, so a project switch cannot lift it.
+    expect(
+      container.querySelector('[data-attr="desktop-access-project-switcher"]'),
+    ).toBeNull();
   });
 
   it.each([
-    [{ projectId: 1, status: "error", reason: null }, "Try again"],
     [
-      { projectId: 1, status: "blocked", reason: "startup_plan" },
-      "Check again",
+      { projectId: 1, status: "error", reason: null } as DesktopAccess,
+      "Try again",
     ],
+    [blocked("startup_plan"), "Check again"],
   ] as const)("rechecks access for %s", async (access, buttonLabel) => {
     const user = userEvent.setup();
     const { onRetry } = renderScreen(access);
@@ -85,12 +95,12 @@ describe("DesktopAccessScreen", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it("lets the user select another project", async () => {
+  it("lets the user select another project after a failed check", async () => {
     const user = userEvent.setup();
     const { container, onSelectProject } = renderScreen({
       projectId: 1,
-      status: "blocked",
-      reason: "startup_plan",
+      status: "error",
+      reason: null,
     });
     const trigger = container.querySelector(
       '[data-attr="desktop-access-project-switcher"]',
@@ -105,12 +115,9 @@ describe("DesktopAccessScreen", () => {
 
   it("lets the user select another organization and log out", async () => {
     const user = userEvent.setup();
-    const { container, onSelectOrganization, onLogout, onOpenSupport } =
-      renderScreen({
-        projectId: 1,
-        status: "blocked",
-        reason: "prepaid_credits",
-      });
+    const { container, onSelectOrganization, onLogout } = renderScreen(
+      blocked("prepaid_credits"),
+    );
     const trigger = container.querySelector(
       '[data-attr="desktop-access-organization-switcher"]',
     );
@@ -118,11 +125,43 @@ describe("DesktopAccessScreen", () => {
 
     await user.click(trigger as HTMLElement);
     await user.click(await screen.findByText("Second organization"));
-    await user.click(screen.getByText("Get support"));
     await user.click(screen.getByText("Log out"));
 
     expect(onSelectOrganization).toHaveBeenCalledWith("org-2");
-    expect(onOpenSupport).toHaveBeenCalledOnce();
     expect(onLogout).toHaveBeenCalledOnce();
+  });
+
+  it("offers support instead of a switcher when the account has one organization", async () => {
+    const user = userEvent.setup();
+    const { container, onOpenSupport } = renderScreen(
+      blocked("startup_plan"),
+      oneOrganization,
+    );
+
+    expect(
+      screen.getByText(/only organization on your account/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Select another organization to continue."),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        '[data-attr="desktop-access-organization-switcher"]',
+      ),
+    ).toBeNull();
+
+    await user.click(screen.getByText("Get in touch"));
+
+    expect(onOpenSupport).toHaveBeenCalledOnce();
+  });
+
+  it("reports a recheck that returned the same answer", async () => {
+    const { rerenderWith } = renderScreen(blocked("startup_plan"));
+    expect(screen.queryByText(/nothing changed/)).toBeNull();
+
+    rerenderWith({ isRetrying: true });
+    rerenderWith({ isRetrying: false });
+
+    expect(await screen.findByText(/nothing changed/)).toBeInTheDocument();
   });
 });
