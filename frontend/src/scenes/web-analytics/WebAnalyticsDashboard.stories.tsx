@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -78,21 +77,6 @@ export function WebAnalyticsDashboard(): JSX.Element {
         setSourceTab(SourceTab.REFERRING_DOMAIN)
 
         // Set the device tab to browsers
-        setDeviceTab(DeviceTab.BROWSER)
-    }, [setDeviceTab, setSourceTab])
-
-    return <App />
-}
-
-WebAnalyticsDashboardMetricCards.parameters = {
-    ...meta.parameters,
-    featureFlags: [...((meta.parameters?.featureFlags as string[]) ?? []), FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS],
-}
-export function WebAnalyticsDashboardMetricCards(): JSX.Element {
-    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
-
-    useEffect(() => {
-        setSourceTab(SourceTab.REFERRING_DOMAIN)
         setDeviceTab(DeviceTab.BROWSER)
     }, [setDeviceTab, setSourceTab])
 
