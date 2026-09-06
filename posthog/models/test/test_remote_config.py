@@ -194,6 +194,8 @@ class TestRemoteConfig(_RemoteConfigBase):
             == "Please provide your details so we can help you better."
         )
         assert self.remote_config.config["conversations"]["placeholderText"] == "Type your message..."
+        assert self.remote_config.config["conversations"]["ticketRecoveryText"] == "Don't see your previous tickets?"
+        assert self.remote_config.config["conversations"]["ticketRecoveryLinkText"] == "Recover them here"
 
     def test_conversations_enabled_with_custom_config(self):
         self.team.conversations_enabled = True
@@ -209,6 +211,8 @@ class TestRemoteConfig(_RemoteConfigBase):
             "widget_identification_form_title": "Let's get started",
             "widget_identification_form_description": "Tell us about yourself",
             "widget_placeholder_text": "Ask away...",
+            "widget_ticket_recovery_text": "Missing your tickets?",
+            "widget_ticket_recovery_link_text": "Restore access",
         }
         self.team.save()
         self.sync_remote_config()
@@ -223,6 +227,8 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["conversations"]["identificationFormTitle"] == "Let's get started"
         assert self.remote_config.config["conversations"]["identificationFormDescription"] == "Tell us about yourself"
         assert self.remote_config.config["conversations"]["placeholderText"] == "Ask away..."
+        assert self.remote_config.config["conversations"]["ticketRecoveryText"] == "Missing your tickets?"
+        assert self.remote_config.config["conversations"]["ticketRecoveryLinkText"] == "Restore access"
 
     def test_conversations_disabled_returns_false(self):
         self.team.conversations_enabled = False
