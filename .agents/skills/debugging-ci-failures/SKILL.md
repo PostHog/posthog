@@ -156,6 +156,11 @@ practice that is most of the queue. So:
 - The branch names one PR but carries many. A failure on it is not evidence
   against that PR until you find the change that caused it; the branch's other
   merge commits are the first suspects.
+- A `…-bisection` branch is the exception to "the other merge commits are the
+  first suspects": Trunk creates it after a batch fails, and it carries only
+  master plus the one PR. The test PR's body names the master SHA it is based
+  on; if master's run at that SHA passed the same test, the failure is an
+  environment-dependent race (`fixing-flaky-tests` step 1), not this PR's.
 - In the digest this is the `blocking_merge_queue` state.
 
 Inspect read-only:

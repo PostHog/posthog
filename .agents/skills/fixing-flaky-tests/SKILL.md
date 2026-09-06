@@ -52,6 +52,7 @@ Read the timeline before you classify:
 
 - **Interleaved pass/fail on adjacent commits** — the same unchanged test verified passing in some runs, failing in others → genuinely **flaky**; continue here.
 - **A long unbroken failure streak** (say 30+ consecutive) is statistically incompatible with a flake — at any per-run rate below ~95%, `p^30 ≈ 0`. That is a **deterministic regression**: go to `debugging-ci-failures` and find the introducing commit (step 4).
+- **Every rerun fails on one runner, yet `master` passes the same code** → an **environment-dependent race**, not a regression: kernel clock granularity, filesystem, runner speed. Retrying on the same runner cannot help, so "failed 3/3 attempts" says nothing about whether the PR caused it. A merge-queue failure hands you the control for free: the `trunk-merge/**` test PR's body names the master SHA it is based on, so read master's run at that SHA (`gh api repos/PostHog/posthog/commits/<sha>/check-runs`) and confirm the same test ran and passed there.
 - **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line verdict, is what tells you what tipped it. `products/engineering_analytics/skills/investigating-ci-failures/` has the boundary query if the failure reached master.
 
 If a failure is reported as (or you suspect it is) **consistent**, don't serialize — measure the rate and attempt a repro **in parallel**.
@@ -143,7 +144,9 @@ Two cost notes for the loop:
   Inside a loop, build once, then iterate with `pnpm --filter=@posthog/frontend exec jest ...`, which skips the rebuild.
 
 **If nothing reproduces after the full ladder**, the flake is CI-environment-specific.
-Proceed with a fix grounded in the CI evidence and root-cause analysis, and say so explicitly in the report — the validation in step 7 is then analytical, not empirical.
+Before settling for that, ask what the runner has that your machine lacks: Linux mtimes from a coarse clock where macOS gives nanoseconds, a case-sensitive filesystem, a different timezone, `/tmp` on a different filesystem.
+Often you can force the CI condition instead of waiting for it — `os.utime` the files into the ordering the coarse clock produced, run under `TZ=UTC` — and then validate empirically after all.
+Otherwise proceed with a fix grounded in the CI evidence and root-cause analysis, and say so explicitly in the report — the validation in step 7 is then analytical, not empirical.
 
 ## 4. Root-cause the flake
 
@@ -157,6 +160,7 @@ Match the symptom to a cause class; never patch the symptom.
 | Assertion on list order or generated IDs               | Nondeterministic ordering/IDs asserted as deterministic      |
 | Query can't see just-written data                      | Eventual consistency (ClickHouse), missing flush/commit      |
 | Only fails under `--maxWorkers=2` / contention         | Race condition surfaced by scheduling, too-tight timeout     |
+| Every attempt fails on one runner, passes on another   | Clock-granularity race: cutoff read from an earlier write    |
 
 ### When the cause isn't obvious, bisect
 
@@ -193,6 +197,7 @@ PostHog-specific patterns:
 
 - **DB state leakage**: shared rows across tests without isolation — check fixture scope and whether the test needs `@pytest.mark.django_db(transaction=True)`.
 - **Real time**: use `freeze_time`; never assert on `now()`-derived values.
+- **Timestamp-derived cutoffs**: pinning or filtering "as of" the previous write's recorded time — stamp the times explicitly instead (`/writing-tests`, "Two writes in a row are not ordered in time").
 - **ClickHouse eventual consistency**: a query may not see just-inserted data — flush explicitly in the test setup rather than sleeping.
 
 ## 5. Decide the outcome — fixing is one of three
