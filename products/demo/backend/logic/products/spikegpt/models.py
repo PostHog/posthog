@@ -13,6 +13,44 @@ from .taxonomy import URL_HOME
 if TYPE_CHECKING:
     from .matrix import SpikeGPTCluster
 
+# SpikeGPT fakes a multi-provider LLM router: each request pipeline is routed
+# to one provider, weighted so all providers accumulate data quickly.
+AI_PROVIDER_WEIGHTS = {"openai": 0.45, "anthropic": 0.35, "google": 0.2}
+AI_PROVIDERS: dict[str, dict[str, str]] = {
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "heavy_model": "gpt-4o",
+        "light_model": "gpt-4o-mini",
+    },
+    "anthropic": {
+        "base_url": "https://api.anthropic.com/v1",
+        "heavy_model": "claude-sonnet-4",
+        "light_model": "claude-3-5-haiku",
+    },
+    "google": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta",
+        "heavy_model": "gemini-2.0-flash",
+        "light_model": "gemini-2.0-flash",
+    },
+}
+# Output characters generated per second, by (provider, task). This is what makes the
+# "latency by provider and task" heatmap interesting: google is fast across the board,
+# while anthropic is deliberately terrible at summarization.
+AI_CHARS_PER_SECOND: dict[tuple[str, str], float] = {
+    ("openai", "chat"): 25,
+    ("openai", "memorize"): 37,
+    ("openai", "moderate"): 90,
+    ("openai", "summarize"): 30,
+    ("anthropic", "chat"): 22,
+    ("anthropic", "memorize"): 33,
+    ("anthropic", "moderate"): 80,
+    ("anthropic", "summarize"): 4,
+    ("google", "chat"): 45,
+    ("google", "memorize"): 60,
+    ("google", "moderate"): 120,
+    ("google", "summarize"): 50,
+}
+
 
 class SpikeGPTSessionIntent(SimSessionIntent):
     """What the user has in mind for the current session."""
@@ -153,33 +191,80 @@ class SpikeGPTPerson(SimPerson):
 
     # Individual actions
 
+    def _pick_ai_provider(self) -> str:
+        return self.cluster.random.choices(list(AI_PROVIDER_WEIGHTS), weights=list(AI_PROVIDER_WEIGHTS.values()))[0]
+
+    def _ai_generation_latency(self, provider: str, task: str, output_content: str) -> float:
+        # Latency correlates with output length, scaled per provider and task, with noise
+        base = 0.35 + len(output_content) / AI_CHARS_PER_SECOND[(provider, task)]
+        return round(base * self.cluster.random.uniform(0.8, 1.3), 3)
+
+    def _capture_ai_generation(
+        self,
+        *,
+        provider: str,
+        task: str,
+        input: list[dict],
+        output_content: str,
+        trace_id: Optional[str] = None,
+        heavy: bool = False,
+    ) -> None:
+        provider_config = AI_PROVIDERS[provider]
+        latency = self._ai_generation_latency(provider, task, output_content)
+        self.advance_timer(0.2 + latency)  # Network and orchestration overhead on top of model latency
+        self.cluster.matrix.server_client.capture_ai_generation(
+            distinct_id=self.active_client.active_distinct_id,
+            input=input,
+            output_content=output_content,
+            latency=latency,
+            base_url=provider_config["base_url"],
+            provider=provider,
+            model=provider_config["heavy_model"] if heavy else provider_config["light_model"],
+            span_name=task,
+            trace_id=trace_id,
+        )
+
     def start_chat(self):
         random_chat = self.cluster.random.choice(FAKE_CHATS)
         conversation_so_far: list[dict] = []
         for message in random_chat:
             # Human messages must naturally take longer to type, while AI ones are quick
-            if message["role"] == "human":
+            if message["role"] != "assistant":
                 self.advance_timer(2 + len(message["content"]) / 10)
                 self.active_client.capture("sent chat message", {"content": message["content"]})
             else:
+                # Each assistant reply is one routed request pipeline, handled by a single provider
+                provider = self._pick_ai_provider()
                 with self.cluster.matrix.server_client.trace_ai(
                     distinct_id=self.active_client.active_distinct_id, input_state={"messages": conversation_so_far}
                 ) as (trace_id, set_trace_output):
-                    # Chat generation
-                    generation_time = len(message["content"]) / 25
-                    self.advance_timer(1 + generation_time)
-                    self.cluster.matrix.server_client.capture_ai_generation(
-                        distinct_id=self.active_client.active_distinct_id,
-                        input=conversation_so_far,
-                        output_content=message["content"],
-                        latency=generation_time,
+                    # Moderation of the user message that triggered this reply
+                    self._capture_ai_generation(
+                        provider=provider,
+                        task="moderate",
+                        input=[
+                            {
+                                "role": "system",
+                                "content": "Flag unsafe content in the user's latest message. Reply with JSON.",
+                            },
+                            *conversation_so_far[-1:],
+                        ],
+                        output_content='{"flagged": false, "categories": []}',
                         trace_id=trace_id,
                     )
+                    # The chat reply itself
+                    self._capture_ai_generation(
+                        provider=provider,
+                        task="chat",
+                        input=conversation_so_far,
+                        output_content=message["content"],
+                        trace_id=trace_id,
+                        heavy=True,
+                    )
                     # Memorizer, which determines what memories to save using tool calling
-                    generation_time = len(message["content"]) / 37
-                    self.advance_timer(1 + generation_time)
-                    self.cluster.matrix.server_client.capture_ai_generation(
-                        distinct_id=self.active_client.active_distinct_id,
+                    self._capture_ai_generation(
+                        provider=provider,
+                        task="memorize",
                         input=[
                             {
                                 "role": "system",
@@ -195,12 +280,20 @@ Output only the concise information to memorize, prefixed with "REMEMBER: "'''.s
                             },
                         ],
                         output_content="REMEMBER: Blah blah blah.",
-                        latency=generation_time,
-                        model="gpt-4o-mini",
                         trace_id=trace_id,
                     )
                     set_trace_output({"messages": [*conversation_so_far, message], "memories": ["Blah blah blah."]})
             conversation_so_far = [*conversation_so_far, message]  # Copying here so that every event's list is distinct
+        # Conversation title generation, routed independently of the reply pipelines
+        self._capture_ai_generation(
+            provider=self._pick_ai_provider(),
+            task="summarize",
+            input=[
+                {"role": "system", "content": "Summarize this conversation in one short title."},
+                *conversation_so_far,
+            ],
+            output_content=f"Chat: {random_chat[0]['content'][:48]}",
+        )
 
 
 def add_params_to_url(url, query_params):
