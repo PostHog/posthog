@@ -168,6 +168,26 @@ class TestBuildResultsSummaryEmpty:
                 "median trend=up",
             ],
         ),
+        # A dict-row query kind over positional rows used to raise and drop the
+        # whole delivery's summary.
+        (
+            "trends_kind_with_list_rows",
+            "TrendsQuery",
+            [["2026-04-20", 12345], ["2026-04-21", 67890]],
+            ["Row 1: col0=2026-04-20, col1=12345", "Row 2: col0=2026-04-21"],
+        ),
+        (
+            "funnels_kind_with_list_rows",
+            "FunnelsQuery",
+            [["Signed up", 100], ["Activated", 40]],
+            ["Row 1: col0=Signed up, col1=100", "Row 2: col0=Activated"],
+        ),
+        (
+            "retention_kind_with_list_rows",
+            "RetentionQuery",
+            [["2026-04-20", 100, 40]],
+            ["Row 1: col0=2026-04-20, col1=100, col2=40"],
+        ),
     ],
 )
 class TestBuildResultsSummary:

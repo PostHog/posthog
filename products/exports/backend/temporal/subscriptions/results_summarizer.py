@@ -35,18 +35,22 @@ def build_results_summary(
     if not results:
         return "No results"
 
+    text: str | None = None
     if query_kind in _TREND_SUMMARY_KINDS:
         text = _summarize_trends(results, _sanitize_value_format(value_format))
     elif summarizer := _SUMMARIZERS.get(query_kind):
         text = summarizer(results)
-    else:
+    if text is None:
         text = _summarize_generic(results, columns)
     if len(text) > MAX_SUMMARY_LENGTH:
         text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
     return text
 
 
-def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any] | None) -> str:
+def _summarize_trends(results: list[Any], value_format: dict[str, Any] | None) -> str | None:
+    if not _all_dict_rows(results):
+        return None
+
     if _looks_like_boxplot_trend(results):
         return _summarize_boxplot_trend(results, value_format)
 
@@ -77,6 +81,16 @@ def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any
             lines.append(f"- {label}: (no data)")
 
     return "\n".join(lines) if lines else "No trend series"
+
+
+def _all_dict_rows(results: list[Any]) -> bool:
+    """The dict-row summarizers read keys off every row, so a list row raises.
+
+    The query kind comes from the insight as it is now, so it can name a summarizer that
+    the stored rows do not fit: HogQL and DataVisualization rows are positional, and an
+    old snapshot keeps the shape the insight had then. Such rows go to the generic path.
+    """
+    return bool(results) and all(isinstance(row, dict) for row in results)
 
 
 def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:
@@ -116,13 +130,14 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[s
     return "\n".join(lines) if lines else "No trend series"
 
 
-def _summarize_funnels(results: list[Any]) -> str:
-    lines: list[str] = []
-
+def _summarize_funnels(results: list[Any]) -> str | None:
     steps = results
     if results and isinstance(results[0], list):
         steps = results[0]
+    if not _all_dict_rows(steps):
+        return None
 
+    lines: list[str] = []
     for i, step in enumerate(steps):
         name = _safe_label(step.get("name") or step.get("custom_name"), f"Step {i + 1}")
         count = step.get("count", 0)
@@ -135,7 +150,10 @@ def _summarize_funnels(results: list[Any]) -> str:
     return "\n".join(lines) if lines else "No funnel steps"
 
 
-def _summarize_retention(results: list[dict[str, Any]]) -> str:
+def _summarize_retention(results: list[Any]) -> str | None:
+    if not _all_dict_rows(results):
+        return None
+
     lines: list[str] = []
     for i, cohort in enumerate(results[:10]):
         label = _safe_label(cohort.get("label") or cohort.get("date"), f"Cohort {i}")
