@@ -608,9 +608,10 @@ def send_code_based_verification(user_id: int, code: str) -> None:
     """Send the 6-digit login verification code."""
     user: User = User.objects.get(pk=user_id)
 
+    campaign_key = f"code_based_verification_{user.uuid}-{timezone.now().timestamp()}"
     message = EmailMessage(
         use_http=True,
-        campaign_key=f"code_based_verification_{user.uuid}-{timezone.now().timestamp()}",
+        campaign_key=campaign_key,
         subject="Your PostHog login code",
         template_name="code_based_verification",
         template_context={
@@ -622,9 +623,13 @@ def send_code_based_verification(user_id: int, code: str) -> None:
     )
     message.add_user_recipient(user)
     message.send(send_async=False)
+    # The campaign key and template name are the same ones the delivery event carries, so support
+    # can follow a bounce back to the login code that bounced. This send runs inside the login
+    # request, so it keeps the global client - a scoped client would block login on its flush.
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
+        properties={"campaign_key": campaign_key, "template_name": "code_based_verification"},
         groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
     )
 

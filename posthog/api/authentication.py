@@ -59,11 +59,11 @@ from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.sso import is_sso_reauth_begin, sso_failure_redirect_url
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
-    LOGIN_CODE_VERIFICATION_COUNTER,
     clear_two_factor_session_flags,
     code_based_verifier,
     has_passkeys,
     normalize_verification_code,
+    record_login_code_verification,
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
@@ -1020,13 +1020,14 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         # Reserve this attempt atomically before doing anything else, so concurrent guesses can't all
         # observe the same count and exceed the cap. `attempts` includes the current attempt.
         attempts = code_based_verifier.reserve_attempt(request)
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         if attempts > CODE_MAX_ATTEMPTS:
             mfa_logger.warning(
                 "Code-based verification locked out",
-                user_id=code_based_verifier.get_pending_code_based_verification_user_id(request),
+                user_id=user_id,
                 attempts=attempts,
             )
-            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="locked_out").inc()
+            record_login_code_verification("locked_out", User.objects.filter(pk=user_id).first(), attempts=attempts)
             code_based_verifier.clear_pending(request)
             raise serializers.ValidationError(
                 {"detail": "Too many incorrect attempts. Please log in again."},
@@ -1036,7 +1037,6 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         code = serializer.validated_data.get("code")
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
             user = User.objects.get(pk=user_id, is_active=True)
         except User.DoesNotExist:
@@ -1045,7 +1045,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
 
         if not code or not code_based_verifier.check_code(request, user, code):
             mfa_logger.warning("Code-based verification attempt failed", user_id=user.pk, attempt=attempts)
-            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="invalid").inc()
+            record_login_code_verification("invalid", user, attempts=attempts)
             raise invalid_error
 
         # Code valid - invalidate the pending state and complete login.
@@ -1054,7 +1054,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         set_two_factor_verified_in_session(request)
         report_user_logged_in(user, social_provider="")
         mfa_logger.info("Code-based verification successful", user_id=user.pk)
-        LOGIN_CODE_VERIFICATION_COUNTER.labels(result="success").inc()
+        record_login_code_verification("success", user, attempts=attempts)
 
         # Always set remember device cookie (30 days), same as TOTP 2FA
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
