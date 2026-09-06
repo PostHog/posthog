@@ -47,7 +47,7 @@ const generateProps = (props: Prop[], indent = 2): string => {
 export function getManualCaptureExample({ surveyId = 'your-survey-id', followUpEnabled }: CodeExampleParams): string {
     const thumbsProps: Prop[] = [
         { key: '$survey_id', value: `'${surveyId}'`, comment: 'ID for the survey you just created' },
-        { key: '$survey_response', value: '1', comment: '1 = thumbs up, 2 = thumbs down' },
+        { key: '$survey_response', value: 'rating' },
         { key: '$ai_trace_id', value: 'traceId', comment: 'your generated trace ID' },
         ...(followUpEnabled
             ? [
@@ -56,11 +56,7 @@ export function getManualCaptureExample({ surveyId = 'your-survey-id', followUpE
                       value: 'submissionId',
                       comment: 'unique ID to link thumbs + follow-up',
                   },
-                  {
-                      key: '$survey_completed',
-                      value: 'true',
-                      comment: 'or false if there is negative feedback followup',
-                  },
+                  { key: '$survey_completed', value: '!expectsFollowUp' },
               ]
             : []),
     ]
@@ -70,19 +66,27 @@ export function getManualCaptureExample({ surveyId = 'your-survey-id', followUpE
         { key: '$ai_trace_id', value: 'traceId' },
     ]
 
-    const submissionIdLine = followUpEnabled
+    const ratingLine = 'const rating = clickedThumbsUp ? 1 : 2 // 1 = thumbs up, 2 = thumbs down'
+
+    const preamble = followUpEnabled
         ? `// Generate a unique ID to link \`survey sent\` events into a single user feedback event
 const submissionId = crypto.randomUUID()
 
+${ratingLine}
+// Only a thumbs down opens the follow-up, so a thumbs up completes the submission here
+const expectsFollowUp = rating === 2
+
 `
-        : ''
+        : `${ratingLine}
+
+`
 
     const base = `// (Optional) Track when the survey is shown to the user
 posthog.capture('survey shown', {
 ${generateProps(surveyShownProps)}
 })
 
-${submissionIdLine}// When user clicks thumbs up/down, send a survey event
+${preamble}// When user clicks thumbs up/down, send a survey event
 posthog.capture('survey sent', {
 ${generateProps(thumbsProps)}
 })`
@@ -90,7 +94,8 @@ ${generateProps(thumbsProps)}
     if (followUpEnabled) {
         const followUpProps: Prop[] = [
             { key: '$survey_id', value: `'${surveyId}'` },
-            { key: '$survey_response_1', value: "'the AI hallucinated hedgehogs everywhere'" },
+            { key: '$survey_response', value: 'rating', comment: 're-send the thumbs response so it still shows' },
+            { key: '$survey_response_1', value: 'followUpText', comment: "'' if the user dismissed the follow-up" },
             { key: '$ai_trace_id', value: 'traceId' },
             {
                 key: '$survey_submission_id',
@@ -104,7 +109,8 @@ ${generateProps(thumbsProps)}
             base +
             `
 
-// If the user submitted follow-up text after thumbs down:
+// When the follow-up closes, send the answers so far.
+// Send it even on dismissal, or PostHog drops the submission and the thumbs rating with it.
 posthog.capture('survey sent', {
 ${generateProps(followUpProps)}
 })`
