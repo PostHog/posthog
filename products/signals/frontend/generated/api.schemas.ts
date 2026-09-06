@@ -957,6 +957,8 @@ export interface ConversationsTicketSignalExtraApi {
 
 export interface ErrorTrackingSignalExtraApi {
     fingerprint: string
+    host?: string | null
+    is_dev_host?: boolean
 }
 
 export interface PgAnalyzeIssueReferenceApi {

@@ -307,6 +307,7 @@ class TestTelemetryPropsFromExtra:
                 "references": [{"queryText": "SELECT * FROM customers"}],  # nested — dropped
                 "time_range": {"date_from": "a", "date_to": "b"},  # dict — dropped
                 "author_login": "octocat",  # identifies a person — dropped
+                "host": "app.example.com",  # customer-derived hostname — dropped by name
             }
         )
         assert props == {"scout_run_id": "run-1", "number": 42, "confidence": 0.9, "locked": False}
