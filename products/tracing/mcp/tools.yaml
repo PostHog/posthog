@@ -231,8 +231,8 @@ tools:
         system_prompt_hint: Individual trace spans. For latency shape, onset, or where time goes inside an operation use
             apm-spans-duration-histogram, apm-spans-latency-heatmap, apm-spans-tree
         agent_note:
-            These are individual spans, so they show the tail rather than the population. Answer a latency or volume
-            question in one call with an aggregate instead. Use apm-spans-duration-histogram for the shape of the
+            These are individual spans, so they show a bounded sample rather than the population. Answer a latency or
+            volume question in one call with an aggregate instead. Use apm-spans-duration-histogram for the shape of the
             distribution, apm-spans-latency-heatmap for when it changed, apm-spans-tree for where the time goes inside
             an operation, and apm-spans-aggregate for p95 per operation. Use this tool to pull the spans an aggregate
             has pointed you at.

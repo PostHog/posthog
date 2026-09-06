@@ -317,7 +317,7 @@ const queryApmSpans = (): ToolBase<ReturnType<typeof QueryApmSpansSchema>, unkno
             const filtered = pickResponseFields(result, ['results']) as typeof result
             return withAgentNote(
                 filtered,
-                'These are individual spans, so they show the tail rather than the population. Answer a latency or volume question in one call with an aggregate instead. Use apm-spans-duration-histogram for the shape of the distribution, apm-spans-latency-heatmap for when it changed, apm-spans-tree for where the time goes inside an operation, and apm-spans-aggregate for p95 per operation. Use this tool to pull the spans an aggregate has pointed you at.'
+                'These are individual spans, so they show a bounded sample rather than the population. Answer a latency or volume question in one call with an aggregate instead. Use apm-spans-duration-histogram for the shape of the distribution, apm-spans-latency-heatmap for when it changed, apm-spans-tree for where the time goes inside an operation, and apm-spans-aggregate for p95 per operation. Use this tool to pull the spans an aggregate has pointed you at.'
             )
         },
     })

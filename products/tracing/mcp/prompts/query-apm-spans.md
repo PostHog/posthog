@@ -4,7 +4,7 @@ Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available 
 
 # Answer aggregate questions with an aggregate tool
 
-A latency, volume, or "where does the time go" question is answered in one call by a sibling tool. Reading raw spans instead is slower, and a span list is capped and sorted, so it shows the tail rather than the population.
+A latency, volume, or "where does the time go" question is answered in one call by a sibling tool. Reading raw spans instead is slower, and a span list is capped and sorted, so it shows a bounded sample rather than the population.
 
 | Question                                                            | Tool                           |
 | ------------------------------------------------------------------- | ------------------------------ |
