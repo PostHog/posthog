@@ -89,6 +89,10 @@ import {
   type PiSessionFactory,
   type PiSessionProvider,
 } from "@posthog/core/pi-runtime/piSessionController";
+import type {
+  PLATFORM_STATUS_CLIENT,
+  PlatformStatusClient,
+} from "@posthog/core/platform-status/identifiers";
 import {
   type BundleLocalSkill,
   CLOUD_ARTIFACT_BUNDLE_LOCAL_SKILL,
@@ -298,6 +302,7 @@ export interface RendererBindings {
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
+  [PLATFORM_STATUS_CLIENT]: PlatformStatusClient;
   [BROWSER_TABS_CLIENT]: BrowserTabsClient;
   [DISCORD_PRESENCE_CLIENT]: DiscordPresenceClient;
   [QUICK_ASK_SETTINGS_CLIENT]: QuickAskSettingsClient;

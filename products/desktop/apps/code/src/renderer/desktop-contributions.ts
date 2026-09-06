@@ -4,6 +4,7 @@ import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
 import { localMcpCoreModule } from "@posthog/core/local-mcp/local-mcp.module";
 import { onboardingModule } from "@posthog/core/onboarding/onboarding.module";
+import { platformStatusCoreModule } from "@posthog/core/platform-status/platformStatus.module";
 import { setupCoreModule } from "@posthog/core/setup/setup.module";
 import { skillsCoreModule } from "@posthog/core/skills/skills.module";
 import { speechCoreModule } from "@posthog/core/speech/speech.module";
@@ -20,6 +21,7 @@ import { fileWatcherUiModule } from "@posthog/ui/features/file-watcher/file-watc
 import { focusUiModule } from "@posthog/ui/features/focus/focus.module";
 import { missionControlUiModule } from "@posthog/ui/features/mission-control/missionControl.module";
 import { notificationsUiModule } from "@posthog/ui/features/notifications/notifications.module";
+import { platformStatusUiModule } from "@posthog/ui/features/platform-status/platformStatus.module";
 import { provisioningUiModule } from "@posthog/ui/features/provisioning/provisioning.module";
 import { settingsUiModule } from "@posthog/ui/features/settings/settings.module";
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
@@ -49,6 +51,8 @@ export function registerDesktopContributions(): void {
     localMcpCoreModule,
     missionControlUiModule,
     notificationsUiModule,
+    platformStatusCoreModule,
+    platformStatusUiModule,
     onboardingModule,
     provisioningUiModule,
     settingsUiModule,

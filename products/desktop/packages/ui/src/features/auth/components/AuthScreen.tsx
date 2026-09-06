@@ -1,4 +1,5 @@
 import { SignInCard } from "@posthog/ui/features/auth/SignInCard";
+import { PlatformStatusBanner } from "@posthog/ui/features/platform-status/PlatformStatusBanner";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { useAuthStateValue } from "../store";
 import { AffirmationButton } from "./AffirmationButton";
@@ -24,6 +25,7 @@ export function AuthScreen({ onOpenSupport }: AuthScreenProps) {
                     then sign in to continue.
                   </div>
                 )}
+                <PlatformStatusBanner />
                 <SignInCard />
               </div>
             </div>

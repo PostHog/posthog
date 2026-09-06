@@ -1,14 +1,19 @@
 import { mapAuthErrorMessage } from "@posthog/core/auth/authErrors";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import type { CloudRegion } from "@posthog/shared";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuthUiStateStore } from "./authUiStateStore";
 import { useLoginMutation } from "./useAuthMutations";
 
 export function useOAuthFlow() {
   const hostClient = useHostTRPCClient();
   const staleRegion = useAuthUiStateStore((s) => s.staleRegion);
+  const setSelectedRegion = useAuthUiStateStore((s) => s.setSelectedRegion);
   const [region, setRegion] = useState<CloudRegion>(staleRegion ?? "us");
+
+  useEffect(() => {
+    setSelectedRegion(region);
+  }, [region, setSelectedRegion]);
   const loginMutation = useLoginMutation();
 
   const handleAuth = () => {

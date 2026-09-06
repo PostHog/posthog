@@ -1,6 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../../platform-status/PlatformStatusBanner", () => ({
+  PlatformStatusBanner: () => null,
+}));
+
 import { DesktopAccessScreen } from "./DesktopAccessScreen";
 
 const orgProjectsMap = {

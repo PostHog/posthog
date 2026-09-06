@@ -37,6 +37,8 @@ import { NOTIFICATION_SERVICE } from "@posthog/core/notification/identifiers";
 import type { NotificationService } from "@posthog/core/notification/notification";
 import { OAUTH_SERVICE } from "@posthog/core/oauth/identifiers";
 import type { OAuthService } from "@posthog/core/oauth/oauth";
+import { getPlatformStatus } from "@posthog/core/platform-status/getPlatformStatus";
+import { PLATFORM_STATUS_CLIENT } from "@posthog/core/platform-status/identifiers";
 import type { UpdatesService } from "@posthog/core/updates/updates";
 import { ENVIRONMENT_CLIENT } from "@posthog/host-router/ports/environment-client";
 import { FILE_WATCHER_CONTROL } from "@posthog/host-router/ports/file-watcher-control";
@@ -77,6 +79,7 @@ import {
   WORKSPACE_SERVICE,
 } from "./di/tokens";
 import { setupExternalLinkPermissionHandlers } from "./external-links";
+import { electronNetFetch } from "./platform-adapters/electron-net-fetch";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
 import { registerDiskCacheProtocol } from "./protocols/disk-cache";
 import { registerMcpSandboxProtocol } from "./protocols/mcp-sandbox";
@@ -392,6 +395,9 @@ async function boot(): Promise<void> {
   container.bind(WORKSPACE_CLIENT).toConstantValue(workspaceClient);
   container.bind(GIT_WORKSPACE_CLIENT).toConstantValue(workspaceClient);
   container.bind(ENVIRONMENT_CLIENT).toConstantValue(workspaceClient);
+  container.bind(PLATFORM_STATUS_CLIENT).toConstantValue({
+    getStatus: (region) => getPlatformStatus(region, electronNetFetch),
+  });
   const fileWatcherBridge = new FileWatcherBridge(workspaceClient);
   // Re-establish live watches after a workspace-server respawn — the old SSE
   // subscriptions keep retrying the dead port and never recover on their own.
