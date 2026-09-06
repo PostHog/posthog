@@ -10,6 +10,11 @@ export type AIObservabilityConfig = {
     TEMPORAL_SECRET_KEY: string | undefined
     TEMPORAL_FALLBACK_SECRET_KEYS: string
     LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING: boolean
+
+    // Evaluation scheduler consumer-progress monitoring
+    LLMA_EVAL_SCHEDULER_LAG_POLL_INTERVAL_MS: number
+    LLMA_EVAL_SCHEDULER_PARTITION_STALL_MS: number
+    LLMA_EVAL_SCHEDULER_PARTITION_STALL_MIN_LAG: number
 }
 
 export function getDefaultAIObservabilityConfig(): AIObservabilityConfig {
@@ -23,5 +28,8 @@ export function getDefaultAIObservabilityConfig(): AIObservabilityConfig {
         TEMPORAL_SECRET_KEY: process.env.TEMPORAL_SECRET_KEY ?? process.env.SECRET_KEY,
         TEMPORAL_FALLBACK_SECRET_KEYS: process.env.TEMPORAL_FALLBACK_SECRET_KEYS ?? '',
         LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING: false,
+        LLMA_EVAL_SCHEDULER_LAG_POLL_INTERVAL_MS: 30_000,
+        LLMA_EVAL_SCHEDULER_PARTITION_STALL_MS: 600_000,
+        LLMA_EVAL_SCHEDULER_PARTITION_STALL_MIN_LAG: 1_000,
     }
 }

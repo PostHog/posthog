@@ -33,8 +33,16 @@ import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { PluginServerService, RawKafkaEvent } from '~/types'
 
+import { PartitionProgressMonitor, evaluationSchedulerPartitionMessages } from './partition-progress-monitor'
+
 export type EvaluationSchedulerConfig = TemporalServiceConfig &
-    Pick<AIObservabilityConfig, 'LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING'>
+    Pick<
+        AIObservabilityConfig,
+        | 'LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING'
+        | 'LLMA_EVAL_SCHEDULER_LAG_POLL_INTERVAL_MS'
+        | 'LLMA_EVAL_SCHEDULER_PARTITION_STALL_MS'
+        | 'LLMA_EVAL_SCHEDULER_PARTITION_STALL_MIN_LAG'
+    >
 
 export interface EvaluationSchedulerDeps {
     postgres: PostgresRouter
@@ -110,6 +118,17 @@ export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
         })
         .filter((event): event is RawKafkaEvent => event !== null)
         .filter((event) => event.event === '$ai_generation')
+}
+
+/** Per-partition throughput, so one dead partition is visible against its working neighbours. */
+function countMessagesPerPartition(messages: Message[]): void {
+    const counts = new Map<number, number>()
+    for (const message of messages) {
+        counts.set(message.partition, (counts.get(message.partition) ?? 0) + 1)
+    }
+    for (const [partition, count] of counts) {
+        evaluationSchedulerPartitionMessages.labels({ partition: String(partition) }).inc(count)
+    }
 }
 
 export function groupEventsByTeam(events: RawKafkaEvent[]): Map<number, RawKafkaEvent[]> {
@@ -306,14 +325,29 @@ export const startEvaluationScheduler = async (
         })
     )
 
+    const progressMonitor = new PartitionProgressMonitor(kafkaConsumer, {
+        topic: kafkaTopic,
+        groupId,
+        pollIntervalMs: config.LLMA_EVAL_SCHEDULER_LAG_POLL_INTERVAL_MS,
+        stallThresholdMs: config.LLMA_EVAL_SCHEDULER_PARTITION_STALL_MS,
+        stallMinLag: config.LLMA_EVAL_SCHEDULER_PARTITION_STALL_MIN_LAG,
+    })
+    progressMonitor.start()
+
     const onShutdown = async (): Promise<void> => {
+        progressMonitor.stop()
         await temporalService.disconnect()
         await kafkaConsumer.disconnect()
     }
 
     return {
         id: 'evaluation-scheduler',
-        healthcheck: () => kafkaConsumer.isHealthy(),
+        // The consumer check covers the poll loop; the monitor covers a group that keeps polling
+        // while a subset of its partitions stops advancing.
+        healthcheck: () => {
+            const consumerHealth = kafkaConsumer.isHealthy()
+            return consumerHealth.isError() ? consumerHealth : progressMonitor.health()
+        },
         onShutdown,
     }
 }
@@ -348,6 +382,7 @@ export async function eachBatchEvaluationScheduler(
     logger.debug('Processing batch', { messageCount: messages.length })
 
     evaluationSchedulerMessagesReceived.inc(messages.length)
+    countMessagesPerPartition(messages)
 
     const aiGenerationEvents = filterAndParseMessages(messages)
 
