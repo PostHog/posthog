@@ -23,6 +23,8 @@ use crate::{
 
 /// Drops event-property rows that already exist. The unique index covers the
 /// probe (COALESCE project key, event, property), one index descent per row.
+/// The caller orders the batch by that key first, so the probe walks the index
+/// in order instead of jumping between random leaves.
 pub async fn filter_event_properties(
     pool: &PgPool,
     batch: &mut EventPropertiesBatch,
