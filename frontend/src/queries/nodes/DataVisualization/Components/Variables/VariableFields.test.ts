@@ -64,6 +64,9 @@ describe('VariableFields', () => {
         ['a fixed date', '2026-08-06', false, null, '2026-08-06'],
         ['a unit only the backend resolves', '-1q', false, null, '-1q'],
         ['a period boundary only the backend resolves', 'mStart', false, null, 'mStart'],
+        // JSONField(null=True) lets a Date variable reach the editor with no default.
+        ['a null default', null, false, null, ''],
+        ['a non-string default', 5, false, null, ''],
     ])('relative date helpers: %s', (_name, value, isRelative, parsed, formatted) => {
         expect(isRelativeDateValue(value)).toBe(isRelative)
         expect(parseRelativeDateValue(value)).toEqual(parsed)

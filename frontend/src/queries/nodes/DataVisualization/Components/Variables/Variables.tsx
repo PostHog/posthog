@@ -218,7 +218,7 @@ export const VariableInput = ({
                         // leaving dead space down the right-hand side.
                         className="grow"
                         variable={{ ...variable, default_value: String(localInputValue) } as DateVariable}
-                        updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value)}
+                        updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value ?? '')}
                         onApply={commit}
                         onSave={() => {}}
                     />

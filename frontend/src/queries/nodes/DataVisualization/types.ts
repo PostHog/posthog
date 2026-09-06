@@ -111,7 +111,8 @@ export interface ListVariable extends VariableBase {
 
 export interface DateVariable extends VariableBase {
     type: 'Date'
-    default_value: string
+    // JSONField(null=True) on the backend, so a Date variable saved without a default has no value.
+    default_value: string | null
     value?: string
 }
 
