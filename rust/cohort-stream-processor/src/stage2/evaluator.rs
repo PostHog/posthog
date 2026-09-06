@@ -86,8 +86,7 @@ pub fn evaluate_tree(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use cohort_core::hogvm::ConditionProgram;
     use serde_json::Value;
 
     use super::*;
@@ -105,10 +104,14 @@ mod tests {
     }
 
     fn person_leaf_neg(key: LeafStateKey, negated: bool) -> FilterNode {
+        // These fixtures exercise composition, never evaluation: a bare header is enough of a
+        // program to build the leaf around.
+        let program = ConditionProgram::from_stored(&[Value::from("_H"), Value::from(1)])
+            .expect("a bare bytecode header is a valid program");
         FilterNode::Leaf(CohortLeaf::PersonProperty(PersonLeafConfig {
             condition_hash: key.0,
             leaf_state_key: key,
-            bytecode: Arc::new(Vec::new()),
+            program,
             raw: Value::Null,
             negated,
         }))

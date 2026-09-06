@@ -26,6 +26,11 @@ pub const FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS: &str =
 /// Catalog refresh attempts, labelled by `result` (`success`|`error`) (counter). The `error` series
 /// gives the failure rate; the `success` series proves the loop is still ticking at all.
 pub const FILTER_CATALOG_REFRESH_TOTAL: &str = "filter_catalog_refresh_total";
+/// Wall time of one catalog build — parsing every cohort's filters JSON and loading every leaf's
+/// bytecode (histogram, seconds). The build runs synchronously on a tokio worker, so a build that
+/// grew into the seconds would stall whatever partition workers share that thread; this is the
+/// signal that says whether it has.
+pub const FILTER_CATALOG_BUILD_DURATION_SECONDS: &str = "filter_catalog_build_duration_seconds";
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
@@ -606,6 +611,10 @@ mod tests {
             "filter_catalog_last_success_timestamp_seconds",
         );
         assert_eq!(FILTER_CATALOG_REFRESH_TOTAL, "filter_catalog_refresh_total");
+        assert_eq!(
+            FILTER_CATALOG_BUILD_DURATION_SECONDS,
+            "filter_catalog_build_duration_seconds",
+        );
     }
 
     #[test]
