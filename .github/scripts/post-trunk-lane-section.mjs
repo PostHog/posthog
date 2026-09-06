@@ -17,7 +17,10 @@ export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
     }
 
     const runsBackendPythonTests = impactedTargets.some((target) => target.startsWith('py:'))
-    const summary = runsBackendPythonTests ? 'backend Python lane' : 'non-backend lane'
+    const laneName = runsBackendPythonTests ? 'backend Python lane' : 'non-backend lane'
+    // A single target names the exact lane; more than one collapses to the
+    // shared family name rather than listing them all.
+    const summary = impactedTargets.length === 1 ? `${laneName} (${impactedTargets[0]})` : laneName
 
     return {
         status: runsBackendPythonTests ? 'warn' : 'ok',
