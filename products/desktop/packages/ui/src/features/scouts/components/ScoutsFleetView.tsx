@@ -13,6 +13,7 @@ import {
   sortConfigsForDisplay,
 } from "@posthog/core/scouts/scoutPresentation";
 import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
+import { suggestionBrief } from "@posthog/core/scouts/scoutSuggestions";
 import { Button, Skeleton, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
@@ -25,8 +26,13 @@ import { useScoutConfigs } from "../hooks/useScoutConfigs";
 import { useScoutFleetSync } from "../hooks/useScoutFleetSync";
 import { isRunsWindowLoadingMore, useScoutRuns } from "../hooks/useScoutRuns";
 import { useScoutSkillCreators } from "../hooks/useScoutSkillCreators";
+import {
+  useDismissScoutSuggestion,
+  useScoutSuggestions,
+} from "../hooks/useScoutSuggestions";
 import { useTrackFleetViewed } from "../hooks/useTrackFleetViewed";
 import { ScoutAttentionStrip } from "./ScoutAttentionStrip";
+import { ScoutSuggestions } from "./ScoutSuggestions";
 import { ScoutsEmptyState } from "./ScoutsEmptyState";
 import { ScoutTable } from "./ScoutTable";
 
@@ -41,7 +47,11 @@ const ORIGIN_TABS: { value: OriginFilter; label: string }[] = [
 ];
 
 /** The fleet index: what needs a decision, then every agent in a table. */
-export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
+export function ScoutsFleetView({
+  onNewAgent,
+}: {
+  onNewAgent: (brief?: string) => void;
+}) {
   const { data: configs, isLoading, isError, refetch } = useScoutConfigs();
   // Opening this page is what materializes the fleet, so a project the
   // coordinator never reached still gets its scouts.
@@ -55,6 +65,8 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
   const { data: creators } = useScoutSkillCreators();
   const { data: currentUser } = useMeQuery();
   const { updateConfig } = useScoutConfigMutations();
+  const { data: suggestions } = useScoutSuggestions();
+  const dismissSuggestion = useDismissScoutSuggestion();
   useTrackFleetViewed(configs ?? EMPTY_CONFIGS, syncOutcome);
 
   const [originChoice, setOriginChoice] = useState<OriginFilter | null>(null);
@@ -156,8 +168,23 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
     );
   }
 
+  const suggestionCards = (
+    <ScoutSuggestions
+      items={suggestions?.items ?? []}
+      configs={allConfigs}
+      onTurnOn={updateConfig}
+      onDraft={(item) => onNewAgent(suggestionBrief(item))}
+      onDismiss={dismissSuggestion}
+    />
+  );
+
   if (!configs || configs.length === 0) {
-    return <ScoutsEmptyState onNewAgent={onNewAgent} />;
+    return (
+      <div className="flex flex-col gap-6">
+        {suggestionCards}
+        <ScoutsEmptyState onNewAgent={onNewAgent} />
+      </div>
+    );
   }
 
   return (
@@ -214,6 +241,7 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
         ) : null}
       </p>
 
+      {suggestionCards}
       {attention.length > 0 ? (
         <ScoutAttentionStrip items={attention} onUpdateConfig={updateConfig} />
       ) : null}

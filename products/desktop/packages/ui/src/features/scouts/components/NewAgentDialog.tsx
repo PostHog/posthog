@@ -27,11 +27,16 @@ const EXAMPLES = [
 export function NewAgentDialog({
   open,
   onOpenChange,
+  initialBrief = "",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** What the box starts with, so a suggestion opens with its own brief in it. */
+  initialBrief?: string;
 }) {
-  const [brief, setBrief] = useState("");
+  // Keyed on the brief by the caller, so a second suggestion refills the box
+  // rather than leaving the first one in it.
+  const [brief, setBrief] = useState(initialBrief);
   const prompt = useMemo(() => buildScoutAuthorPrompt(brief), [brief]);
   const { runTask, isRunning } = useScoutChatTask({
     prompt,

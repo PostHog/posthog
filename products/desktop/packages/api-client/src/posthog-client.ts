@@ -568,6 +568,44 @@ export interface ScoutConfig {
   created_at: string;
 }
 
+export interface ScoutSuggestionProposedConfig {
+  /** Five-field cron in the project timezone, or null for a rolling interval. */
+  run_cron_schedule: string | null;
+  /** Minutes between runs when no cron is given; null means the daily default. */
+  run_interval_minutes: number | null;
+  /** False means the suggested scout would run dry and file nothing. */
+  emit: boolean;
+}
+
+export interface ScoutSuggestionItem {
+  id: string;
+  /** `canonical` turns on a PostHog scout that is off; `custom` creates a drafted one. */
+  kind: "canonical" | "custom";
+  skill_name: string;
+  title: string;
+  /** Project-specific evidence for this suggestion, in prose. */
+  why_here: string;
+  /** Custom only: the one-line description the scout would be created with. */
+  description: string;
+  /** Custom only: the complete skill body the scout would be created with. */
+  draft_body: string;
+  proposed_config: ScoutSuggestionProposedConfig;
+  /** Nothing in the current fleet covers this. */
+  gap: boolean;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface ScoutSuggestionSet {
+  /** `fresh`, `stale` (the fleet moved on), `failed` (prior batch, if any), `empty`. */
+  status: "fresh" | "stale" | "failed" | "empty";
+  generated_at: string | null;
+  model: string;
+  /** Skill names that were enabled when the batch was generated. */
+  fleet_snapshot: string[];
+  /** Suggestions not yet dismissed or acted on, best first. Up to 5. */
+  items: ScoutSuggestionItem[];
+}
+
 export interface ScoutRun {
   run_id: string;
   skill_name: string;
@@ -2384,6 +2422,26 @@ export class PostHogAPIClient {
       { results: ScoutConfig[] } | ScoutConfig[]
     >(projectId, "configs/sync/", {}, { surface: "desktop" });
     return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * The pre-computed "Suggested for this project" batch: PostHog scouts worth
+   * turning on, and drafts worth creating, each with the evidence behind it.
+   * A coordinator refreshes it on a schedule, so this read never waits on one.
+   */
+  async listScoutSuggestions(projectId: number): Promise<ScoutSuggestionSet> {
+    return this.scoutGet<ScoutSuggestionSet>(projectId, "suggestions/");
+  }
+
+  async dismissScoutSuggestion(
+    projectId: number,
+    suggestionId: string,
+  ): Promise<void> {
+    await this.scoutPost<unknown>(
+      projectId,
+      `suggestions/${suggestionId}/dismiss/`,
+      {},
+    );
   }
 
   async updateScoutConfig(

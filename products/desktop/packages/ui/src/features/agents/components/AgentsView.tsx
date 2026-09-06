@@ -47,15 +47,15 @@ export function AgentsView() {
 }
 
 function FleetTab() {
-  const [newAgentOpen, setNewAgentOpen] = useState(false);
+  const [newAgent, setNewAgent] = useState<{ brief: string } | null>(null);
   const { data: configs } = useScoutConfigs();
 
-  const openNewAgent = () => {
+  const openNewAgent = (brief = "") => {
     track(ANALYTICS_EVENTS.SCOUT_ACTION, {
       action_type: "open_new_agent",
       surface: "fleet_list",
     });
-    setNewAgentOpen(true);
+    setNewAgent({ brief });
   };
 
   return (
@@ -70,7 +70,7 @@ function FleetTab() {
             type="button"
             variant="primary"
             size="sm"
-            onClick={openNewAgent}
+            onClick={() => openNewAgent()}
             data-attr="agents-new-agent"
           >
             <PlusIcon size={13} weight="bold" />
@@ -80,7 +80,14 @@ function FleetTab() {
       }
     >
       <ScoutsFleetView onNewAgent={openNewAgent} />
-      <NewAgentDialog open={newAgentOpen} onOpenChange={setNewAgentOpen} />
+      <NewAgentDialog
+        key={newAgent?.brief ?? ""}
+        open={newAgent !== null}
+        initialBrief={newAgent?.brief ?? ""}
+        onOpenChange={(open) => {
+          if (!open) setNewAgent(null);
+        }}
+      />
     </AgentsTabLayout>
   );
 }

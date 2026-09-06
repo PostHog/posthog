@@ -952,6 +952,9 @@ type ScoutActionType =
   | "sort_findings"
   | "run_now"
   | "open_new_agent"
+  | "accept_suggestion"
+  | "draft_suggestion"
+  | "dismiss_suggestion"
   | "filter_origin"
   | "search_agents"
   | "switch_detail_tab";
