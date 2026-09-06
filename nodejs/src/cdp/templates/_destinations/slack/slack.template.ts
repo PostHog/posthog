@@ -13,8 +13,6 @@ export const template: HogFunctionTemplate = {
     code: `
 let body := {
   'channel': inputs.channel,
-  'icon_emoji': inputs.icon_emoji,
-  'username': inputs.username,
   'blocks': inputs.blocks,
   'text': inputs.text
 };
@@ -22,6 +20,20 @@ let body := {
 // Slack rejects an empty thread_ts, so only send it when there is one to reply under.
 if (not empty(inputs.thread_ts)) {
   body['thread_ts'] := inputs.thread_ts;
+}
+
+// Slack refuses the whole message when these two are present without chat:write.customize, and both
+// carry a default, so drop them when the connection records a scope list that lacks it. An install
+// with no recorded scopes keeps its customization, matching what the config UI reports.
+let granted := replaceAll(inputs.slack_workspace.scope ?? '', ' ', '');
+let can_customize := empty(granted) or has(splitByString(',', granted), 'chat:write.customize');
+
+if (can_customize and not empty(inputs.icon_emoji)) {
+  body['icon_emoji'] := inputs.icon_emoji;
+}
+
+if (can_customize and not empty(inputs.username)) {
+  body['username'] := inputs.username;
 }
 
 let res := fetch('https://slack.com/api/chat.postMessage', {
@@ -43,7 +55,7 @@ if (res.status != 200 or res.body.ok == false) {
             type: 'integration',
             integration: 'slack',
             label: 'Slack workspace',
-            requiredScopes: 'channels:read groups:read chat:write chat:write.customize',
+            requiredScopes: 'chat:write',
             secret: false,
             hidden: false,
             required: true,
@@ -53,6 +65,7 @@ if (res.status != 200 or res.body.ok == false) {
             type: 'integration_field',
             integration_key: 'slack_workspace',
             integration_field: 'slack_channel',
+            requiredScopes: 'channels:read groups:read',
             label: 'Channel to post to',
             description:
                 'Select the channel to post to. Channel IDs (e.g. C0123ABC, returned by integrations-channels-retrieve) are preferred; #channel-name (e.g. #general) is also accepted. The PostHog app must be installed in the workspace. For private channels, the PostHog app must be a member of the channel.',
@@ -64,6 +77,8 @@ if (res.status != 200 or res.body.ok == false) {
             key: 'icon_emoji',
             type: 'string',
             label: 'Emoji icon',
+            integration_key: 'slack_workspace',
+            requiredScopes: 'chat:write.customize',
             default: ':hedgehog:',
             required: false,
             secret: false,
@@ -73,6 +88,8 @@ if (res.status != 200 or res.body.ok == false) {
             key: 'username',
             type: 'string',
             label: 'Bot name',
+            integration_key: 'slack_workspace',
+            requiredScopes: 'chat:write.customize',
             default: 'PostHog',
             required: false,
             secret: false,
