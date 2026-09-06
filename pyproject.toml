@@ -313,7 +313,7 @@ members = ["tools/hogli", "tools/owners"]
 [tool.uv.sources]
 hogli = { workspace = true }
 posthog-owners = { workspace = true }
-infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
+infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "89f358a48c4ca6cfeeb7e5a4c49da2f4b6cb82de" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
 # To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
