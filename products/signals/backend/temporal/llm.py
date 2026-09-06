@@ -6,6 +6,7 @@ from django.conf import settings
 
 import structlog
 from anthropic.types import Message, MessageParam, OutputConfigParam
+from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -13,6 +14,7 @@ from posthog.llm.gateway_client import (
     build_async_anthropic_client,
     get_async_anthropic_gateway_client,
     resolve_ai_gateway_config,
+    team_distinct_id,
 )
 
 from products.signals.backend.temporal import metrics
@@ -126,6 +128,17 @@ def _strip_markdown_json_fences(text: str) -> str:
     return text
 
 
+def _workflow_run_trace_id() -> str | None:
+    """The Temporal run id, so one trace holds the calls of one grouping run.
+
+    The gateway falls back to a per-team id, which puts every run a team ever had in one trace and
+    makes trace-level analysis meaningless. Returns None outside an activity, such as in an eval.
+    """
+    if not activity.in_activity():
+        return None
+    return activity.info().workflow_run_id
+
+
 T = TypeVar("T")
 
 
@@ -157,6 +170,7 @@ async def call_llm(
             ai_product=ai_product,
             ai_stage=stage,
             team_id=team_id,
+            trace_id=_workflow_run_trace_id(),
             use_bedrock_fallback=True,
         )
     else:
@@ -182,7 +196,7 @@ async def call_llm(
     if capabilities.temperature:
         create_kwargs["temperature"] = temperature
     if team_id is not None:
-        create_kwargs["metadata"] = {"user_id": f"team-{team_id}"}
+        create_kwargs["metadata"] = {"user_id": team_distinct_id(team_id)}
     # The per-key ai_stage header is what the Python gateway reads. Send it whenever the request
     # lands there: an un-opted call site, or an opted one before the gateway env is set. Skip it
     # only when an opted call site actually reaches the Go gateway, which reads ai_stage from the

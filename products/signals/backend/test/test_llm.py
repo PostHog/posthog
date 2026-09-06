@@ -67,6 +67,32 @@ async def test_fallback_mode_sends_legacy_stage_header():
 
 @pytest.mark.asyncio
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
+async def test_gateway_mode_traces_the_temporal_run():
+    client = _mock_anthropic_client()
+    # Replace the whole binding rather than its members: the module object is shared, so patching
+    # in_activity on it also fools the metric meter.
+    fake_activity = MagicMock(**{"in_activity.return_value": True})
+    fake_activity.info.return_value = MagicMock(workflow_run_id="run-1")
+    with (
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client) as gateway,
+        patch(f"{MODULE_PATH}.activity", fake_activity),
+    ):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            stage="match",
+            ai_product="signals_grouping",
+        )
+
+    # Every stage of one grouping run shares the run id, so a trace holds one run rather than the
+    # whole history of the team.
+    assert gateway.call_args.kwargs["trace_id"] == "run-1"
+
+
+@pytest.mark.asyncio
+@override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
 async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
     client = _mock_anthropic_client()
     with (
