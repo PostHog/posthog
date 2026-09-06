@@ -1,3 +1,5 @@
+import type { BeforeSendFn } from 'posthog-js'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
@@ -65,16 +67,46 @@ const MODULE_LOAD_FAILURE_MESSAGES: readonly string[] = [
 ]
 
 /**
- * A `fetch` the browser refused to complete, recognized by the message the engine produced. The
- * request never reached the server, so there is no status to react to and no code path of ours to
- * fix: the cause is an ad blocker, tracking protection, DNS, a captive portal, or a connection that
- * dropped mid-request.
+ * A transport failure `handleFetch` classified, recognized from a serialized exception rather than
+ * from a live object. posthog-js reports the class name and the message as the `type` and `value`
+ * of an exception list entry, and carries nothing else, so the pair is the whole signal.
+ */
+function isClassifiedNetworkFailure(name: unknown, message: unknown): boolean {
+    return name === 'NetworkError' && typeof message === 'string' && CLASSIFIED_NETWORK_MESSAGES.has(message)
+}
+
+/**
+ * Drop a classified transport failure on its way out of the browser. This is the backstop for the
+ * decision `shouldReportApiFailure` makes on a live error: an unhandled rejection never reaches
+ * that filter, and neither does an error thrown by another bundle. Both filters exist on purpose.
+ * Dropping only here would still let a loader spend a capture on a failure we discard, and dropping
+ * only there would leave the unhandled rejections in the issue.
+ */
+export const dropBrowserNetworkExceptions: BeforeSendFn = (event) => {
+    if (event?.event !== '$exception') {
+        return event
+    }
+    const exceptions = event.properties?.$exception_list
+    if (!Array.isArray(exceptions)) {
+        return event
+    }
+    return exceptions.some((exception) => isClassifiedNetworkFailure(exception?.type, exception?.value)) ? null : event
+}
+
+/**
+ * A `fetch` the browser refused to complete, either as the engine worded it or as `handleFetch`
+ * already classified it. The request never reached the server, so there is no status to react to
+ * and no code path of ours to fix: the cause is an ad blocker, tracking protection, DNS, a captive
+ * portal, or a connection that dropped mid-request.
  *
  * The match is on the message and not on the `TypeError` class on purpose. Application bugs raise
  * status-less `TypeError`s too, such as "x is not a function", and dropping those would hide real
  * crashes.
  */
 export function isBrowserNetworkFailure(error: unknown): boolean {
+    if (error instanceof NetworkError) {
+        return true
+    }
     if (error === null || typeof error !== 'object') {
         return false
     }
@@ -104,10 +136,11 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
  * Left unreported for a second reason, that there is nothing to fix:
- * - a `fetch` the browser never completed. No request reached us, so no code of ours failed, and
- *   the user is told by whatever the caller renders for an empty result. Reporting these is what
- *   floods the project: grouping is stack-based, so every loader that meets the same connectivity
- *   blip opens an issue of its own, and one bad minute on a user's network manufactures dozens.
+ * - a `fetch` the browser never completed, whatever `NetworkFailureReason` it was classified as.
+ *   No request reached us, so no code of ours failed, and the user is told by whatever the caller
+ *   renders for an empty result. Reporting these is what floods the project: grouping is
+ *   stack-based, so every loader that meets the same connectivity blip opens an issue of its own,
+ *   and one bad minute on a user's network manufactures dozens.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
@@ -214,9 +247,9 @@ export class ApiError extends Error {
 
 /**
  * Why a request never reached the server. `offline` and `navigating` describe the state of the
- * client rather than a fault in the request path, so they are dropped before they reach error
- * tracking (see `dropUnactionableNetworkExceptions`). `network` is the residue that is worth
- * looking at: an ad blocker, a misconfigured reverse proxy, DNS, a CDN, or our own edge.
+ * client. `network` is the residue: an ad blocker, a misconfigured reverse proxy, DNS, a CDN, or
+ * our own edge. No reason names a defect the app can fix, so `shouldReportApiFailure` keeps all
+ * three out of error tracking. The reason still travels with the `client_request_failure` event.
  */
 export type NetworkFailureReason = 'offline' | 'navigating' | 'network'
 
@@ -232,11 +265,8 @@ export const NETWORK_ERROR_MESSAGES = {
     network: 'Network request failed',
 } as const satisfies Record<NetworkFailureReason, string>
 
-/** The reasons that are never a defect, so filing them as error tracking issues only adds noise. */
-export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set([
-    NETWORK_ERROR_MESSAGES.offline,
-    NETWORK_ERROR_MESSAGES.navigating,
-])
+/** Every wording above, for the filters that see a serialized exception instead of the class. */
+const CLASSIFIED_NETWORK_MESSAGES: ReadonlySet<string> = new Set(Object.values(NETWORK_ERROR_MESSAGES))
 
 /**
  * A request the browser never completed, so there is no HTTP status to react to. `status` is left
@@ -251,7 +281,7 @@ export class NetworkError extends ApiError {
     ) {
         super(NETWORK_ERROR_MESSAGES[reason])
         // Sets the `type` posthog-js reports in `$exception_list`, which is what
-        // `dropUnactionableNetworkExceptions` and error tracking grouping rules match on.
+        // `dropBrowserNetworkExceptions` and error tracking grouping rules match on.
         this.name = 'NetworkError'
         this.cause = cause
     }

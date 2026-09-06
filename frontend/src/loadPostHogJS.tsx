@@ -1,6 +1,7 @@
 import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
+import { dropBrowserNetworkExceptions } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -56,7 +57,8 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // Prepended rather than replaced, so a caller's own filter still runs on what survives.
+            before_send: [dropBrowserNetworkExceptions].concat(options.beforeSend ?? []),
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

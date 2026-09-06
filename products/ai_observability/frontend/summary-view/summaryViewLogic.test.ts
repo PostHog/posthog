@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api, { type ApiMethodOptions } from 'lib/api'
-import { ApiError, NETWORK_ERROR_MESSAGES, NetworkError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import type { LLMTrace } from '~/queries/schema/schema-general'
@@ -141,20 +141,15 @@ describe('summaryViewLogic', () => {
         expect(logic.values.summaryError).toBe(expected)
     })
 
-    it('reports a dropped connection to error tracking as a NetworkError', async () => {
+    it('files no error tracking issue for a dropped connection', async () => {
         const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
         mockSummarization(Promise.reject(new NetworkError('offline')))
 
         await generateSummary()
 
-        // `dropUnactionableNetworkExceptions` matches the name and the message, so rewriting either
-        // one files an issue for a failure the platform already treats as unactionable.
-        // Mounting already asks for a cached summary, so that request fails here too. Assert the
-        // call happened rather than a count, so an empty spy fails on the expectation.
-        expect(captureSpy).toHaveBeenCalled()
-        const reported = captureSpy.mock.calls[0]?.[0] as Error
-        expect(reported.name).toBe('NetworkError')
-        expect(reported.message).toBe(NETWORK_ERROR_MESSAGES.offline)
+        // `shouldReportApiFailure` matches the name and the message, so rebuilding the rejected
+        // error as a plain `ApiError` files an issue for a failure the platform drops.
+        expect(captureSpy).not.toHaveBeenCalled()
     })
 
     it('keeps the panel loading when a newer summary replaces an in-flight one', async () => {

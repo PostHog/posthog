@@ -1,4 +1,21 @@
-import { ApiError, NetworkError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import type { CaptureResult } from 'posthog-js'
+
+import {
+    ApiError,
+    NETWORK_ERROR_MESSAGES,
+    NetworkError,
+    dropBrowserNetworkExceptions,
+    isTransientServerError,
+    shouldReportApiFailure,
+} from './api-error'
+
+function captureResult(event: string, properties: CaptureResult['properties']): CaptureResult {
+    return { uuid: 'test-uuid', event, properties }
+}
+
+function exceptionEvent(exceptions: { type: string; value: string }[]): CaptureResult {
+    return captureResult('$exception', { $exception_list: exceptions })
+}
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -82,6 +99,30 @@ describe('api-error', () => {
         })
     })
 
+    describe('dropBrowserNetworkExceptions', () => {
+        it.each([
+            ['a device that went offline', NETWORK_ERROR_MESSAGES.offline],
+            ['a page that was closing', NETWORK_ERROR_MESSAGES.navigating],
+            ['a connection that dropped', NETWORK_ERROR_MESSAGES.network],
+        ])('drops the autocaptured exception for %s', (_, value) => {
+            expect(dropBrowserNetworkExceptions(exceptionEvent([{ type: 'NetworkError', value }]))).toBeNull()
+        })
+
+        // An unhandled rejection reaches posthog-js with no properties beyond the exception list, so
+        // the type has to carry the decision. Matching the message alone would drop real crashes.
+        it.each([
+            [
+                'another type wording itself the same way',
+                exceptionEvent([{ type: 'TypeError', value: NETWORK_ERROR_MESSAGES.offline }]),
+            ],
+            ['an unrelated crash', exceptionEvent([{ type: 'Error', value: 'boom' }])],
+            ['an exception event with no list', captureResult('$exception', {})],
+            ['an event that is not an exception', captureResult('$pageview', {})],
+        ])('keeps %s', (_, event) => {
+            expect(dropBrowserNetworkExceptions(event)).toBe(event)
+        })
+    })
+
     describe('shouldReportApiFailure', () => {
         it.each([
             // Handled by something else, so reporting them only buries real crashes.
@@ -116,9 +157,13 @@ describe('api-error', () => {
             ['a module script that would not load', new TypeError('Importing a module script failed.'), true],
             // Narrowing on the class instead of the message here would bury real crashes.
             ['an application TypeError', new TypeError('u.filter is not a function'), true],
-            // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
-            // stays reportable rather than being folded into the suppression above.
-            ['a classified NetworkError', new NetworkError('network'), true],
+            // `handleFetch` rewrites the engine wording, so the classified failures need their own
+            // match. No reason names a defect the app can fix, so all three drop.
+            ['a NetworkError the device was offline for', new NetworkError('offline'), false],
+            ['a NetworkError the page was closing for', new NetworkError('navigating'), false],
+            ['a NetworkError with the residual reason', new NetworkError('network'), false],
+            // The match is on the class, so an unrelated error cannot borrow the name.
+            ['an error that only calls itself a NetworkError', { name: 'NetworkError', message: 'boom' }, true],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],
