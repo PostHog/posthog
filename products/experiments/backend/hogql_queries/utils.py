@@ -108,6 +108,16 @@ def _validate_numeric_range(value: Any, min_val: float, max_val: float, default:
         return default
 
 
+def get_bayesian_ci_level(stats_config: dict | None = None) -> float:
+    bayesian_config = stats_config.get("bayesian", {}) if stats_config else {}
+    return _validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95)
+
+
+def get_bayesian_interval_bounds(stats_config: dict | None = None) -> tuple[float, float]:
+    tail_probability = (1 - get_bayesian_ci_level(stats_config)) / 2
+    return tail_probability, 1 - tail_probability
+
+
 def sanitize_non_finite(value: Any) -> Any:
     """Replace non-finite floats (inf/-inf/nan) with None, recursively.
 
@@ -616,7 +626,7 @@ def get_bayesian_experiment_result(
     resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
 
     config = BayesianConfig(
-        ci_level=_validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95),
+        ci_level=get_bayesian_ci_level(stats_config),
         difference_type=_parse_enum_config(
             bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),

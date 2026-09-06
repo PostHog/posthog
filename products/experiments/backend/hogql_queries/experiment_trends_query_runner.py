@@ -49,6 +49,7 @@ from products.experiments.backend.hogql_queries.trends_statistics_v2_count impor
     calculate_probabilities_v2_count,
 )
 from products.experiments.backend.hogql_queries.types import ExperimentMetricType
+from products.experiments.backend.hogql_queries.utils import get_bayesian_interval_bounds
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -290,19 +291,24 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
+        lower_bound, upper_bound = get_bayesian_interval_bounds(self.experiment.stats_config)
         match self._get_metric_type():
             case ExperimentMetricType.CONTINUOUS:
                 probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
                 significance_code, p_value = are_results_significant_v2_continuous(
                     control_variant, test_variants, probabilities
                 )
-                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+                credible_intervals = calculate_credible_intervals_v2_continuous(
+                    [control_variant, *test_variants], lower_bound=lower_bound, upper_bound=upper_bound
+                )
             case ExperimentMetricType.COUNT:
                 probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
                 significance_code, p_value = are_results_significant_v2_count(
                     control_variant, test_variants, probabilities
                 )
-                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+                credible_intervals = calculate_credible_intervals_v2_count(
+                    [control_variant, *test_variants], lower_bound=lower_bound, upper_bound=upper_bound
+                )
             case _:
                 raise ValueError(f"Unsupported metric type: {self._get_metric_type()}")
 

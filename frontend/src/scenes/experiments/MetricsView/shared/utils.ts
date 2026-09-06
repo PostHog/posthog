@@ -21,7 +21,8 @@ import {
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal } from '~/types'
+import { ExperimentMetricGoal, ExperimentStatsMethod } from '~/types'
+import type { Experiment } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -210,6 +211,37 @@ export function getVariantInterval(result: ExperimentVariantResult): [number, nu
 
 export function getIntervalLabel(result: ExperimentVariantResult): string {
     return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
+}
+
+export function getExperimentIntervalLevel(
+    experiment: Pick<Experiment, 'stats_config'>,
+    statsMethod: ExperimentStatsMethod = experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
+): number {
+    if (statsMethod === ExperimentStatsMethod.Frequentist) {
+        return 1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)
+    }
+    return experiment.stats_config?.bayesian?.ci_level ?? 0.95
+}
+
+export function getExperimentIntervalLevelPercentage(
+    experiment: Pick<Experiment, 'stats_config'>,
+    statsMethod?: ExperimentStatsMethod
+): string {
+    return `${(getExperimentIntervalLevel(experiment, statsMethod) * 100).toFixed(0)}%`
+}
+
+export function getExperimentIntervalTitle(
+    result: ExperimentVariantResult | undefined,
+    experiment: Pick<Experiment, 'stats_config'>
+): string {
+    const statsMethod =
+        result?.method === ExperimentStatsMethod.Frequentist
+            ? ExperimentStatsMethod.Frequentist
+            : result?.method === ExperimentStatsMethod.Bayesian
+              ? ExperimentStatsMethod.Bayesian
+              : undefined
+    const intervalLevel = getExperimentIntervalLevelPercentage(experiment, statsMethod)
+    return result ? `${getIntervalLabel(result)} (${intervalLevel})` : `Confidence interval (${intervalLevel})`
 }
 
 export function getIntervalBounds(result: ExperimentVariantResult): [number, number] {

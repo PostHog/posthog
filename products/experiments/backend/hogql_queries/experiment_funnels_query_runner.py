@@ -31,6 +31,7 @@ from products.experiments.backend.hogql_queries.funnels_statistics_v2 import (
     calculate_credible_intervals_v2,
     calculate_probabilities_v2,
 )
+from products.experiments.backend.hogql_queries.utils import get_bayesian_interval_bounds
 from products.experiments.backend.models.experiment import Experiment
 from products.product_analytics.backend.facade.queries import FunnelsQueryRunner
 
@@ -81,7 +82,10 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
             probabilities = calculate_probabilities_v2(control_variant, test_variants)
             significance_code, loss = are_results_significant_v2(control_variant, test_variants, probabilities)
-            credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
+            lower_bound, upper_bound = get_bayesian_interval_bounds(self.experiment.stats_config)
+            credible_intervals = calculate_credible_intervals_v2(
+                [control_variant, *test_variants], lower_bound=lower_bound, upper_bound=upper_bound
+            )
         except Exception as e:
             raise ValueError(f"Error calculating experiment funnel results: {str(e)}") from e
 

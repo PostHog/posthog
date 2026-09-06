@@ -10,13 +10,21 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentStatsBase,
+    ExperimentVariantFunnelsBaseStats,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
+    ExperimentVariantTrendsBaseStats,
 )
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.funnels_statistics_v2 import calculate_credible_intervals_v2
+from products.experiments.backend.hogql_queries.trends_statistics_v2_continuous import (
+    calculate_credible_intervals_v2_continuous,
+)
+from products.experiments.backend.hogql_queries.trends_statistics_v2_count import calculate_credible_intervals_v2_count
 from products.experiments.backend.hogql_queries.utils import (
     get_bayesian_experiment_result,
+    get_bayesian_interval_bounds,
     get_frequentist_experiment_result,
     split_baseline_and_test_variants,
 )
@@ -180,6 +188,47 @@ class TestStatsConfig(APIBaseTest):
         width_99 = variant_99.credible_interval[1] - variant_99.credible_interval[0]
 
         self.assertGreater(width_99, width_90, "99% CI should be wider than 90% CI")
+
+    def test_legacy_funnel_ci_level_actually_affects_interval_width(self) -> None:
+        variants = [
+            ExperimentVariantFunnelsBaseStats(key="control", success_count=100, failure_count=900),
+            ExperimentVariantFunnelsBaseStats(key="test", success_count=150, failure_count=850),
+        ]
+        lower_90, upper_90 = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.90}})
+        lower_99, upper_99 = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.99}})
+
+        result_90 = calculate_credible_intervals_v2(variants, lower_bound=lower_90, upper_bound=upper_90)
+        result_99 = calculate_credible_intervals_v2(variants, lower_bound=lower_99, upper_bound=upper_99)
+
+        width_90 = result_90["test"][1] - result_90["test"][0]
+        width_99 = result_99["test"][1] - result_99["test"][0]
+
+        self.assertGreater(width_99, width_90, "99% CI should be wider than 90% CI")
+
+    def test_legacy_trends_ci_level_actually_affects_interval_width(self) -> None:
+        variants = [
+            ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1, absolute_exposure=1000),
+            ExperimentVariantTrendsBaseStats(key="test", count=150, exposure=1, absolute_exposure=1000),
+        ]
+        lower_90, upper_90 = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.90}})
+        lower_99, upper_99 = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.99}})
+
+        count_result_90 = calculate_credible_intervals_v2_count(variants, lower_bound=lower_90, upper_bound=upper_90)
+        count_result_99 = calculate_credible_intervals_v2_count(variants, lower_bound=lower_99, upper_bound=upper_99)
+        continuous_result_90 = calculate_credible_intervals_v2_continuous(
+            variants, lower_bound=lower_90, upper_bound=upper_90
+        )
+        continuous_result_99 = calculate_credible_intervals_v2_continuous(
+            variants, lower_bound=lower_99, upper_bound=upper_99
+        )
+
+        count_width_90 = count_result_90["test"][1] - count_result_90["test"][0]
+        count_width_99 = count_result_99["test"][1] - count_result_99["test"][0]
+        continuous_width_90 = continuous_result_90["test"][1] - continuous_result_90["test"][0]
+        continuous_width_99 = continuous_result_99["test"][1] - continuous_result_99["test"][0]
+
+        self.assertGreater(count_width_99, count_width_90, "99% count CI should be wider than 90% CI")
+        self.assertGreater(continuous_width_99, continuous_width_90, "99% continuous CI should be wider than 90% CI")
 
     def test_numeric_validation_alpha_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()

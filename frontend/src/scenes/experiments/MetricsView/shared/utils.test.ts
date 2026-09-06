@@ -1,6 +1,11 @@
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal, ExperimentMetricMathType, FunnelConversionWindowTimeUnit } from '~/types'
+import {
+    ExperimentMetricGoal,
+    ExperimentMetricMathType,
+    ExperimentStatsMethod,
+    FunnelConversionWindowTimeUnit,
+} from '~/types'
 
 import {
     type ExperimentVariantResult,
@@ -10,6 +15,8 @@ import {
     formatTickValue,
     getChanceToWin,
     getDefaultMetricTitle,
+    getExperimentIntervalLevelPercentage,
+    getExperimentIntervalTitle,
     getMetricColors,
     getMetricTag,
     isProportionMetric,
@@ -175,6 +182,39 @@ describe('getChanceToWin', () => {
         const result = createFrequentistResult()
         expect(getChanceToWin(result, ExperimentMetricGoal.Increase)).toBeUndefined()
         expect(getChanceToWin(result, ExperimentMetricGoal.Decrease)).toBeUndefined()
+    })
+})
+
+describe('getExperimentIntervalLevelPercentage', () => {
+    it.each([
+        [{ method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.9 } }, '90%'],
+        [{ method: ExperimentStatsMethod.Bayesian }, '95%'],
+        [{ method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.99 } }, '99%'],
+        [{ method: ExperimentStatsMethod.Frequentist, frequentist: { alpha: 0.1 } }, '90%'],
+        [{ method: ExperimentStatsMethod.Frequentist }, '95%'],
+    ])('formats the configured interval level for %p', (stats_config, expected) => {
+        expect(getExperimentIntervalLevelPercentage({ stats_config })).toBe(expected)
+    })
+})
+
+describe('getExperimentIntervalTitle', () => {
+    it('uses the configured Bayesian ci_level in the credible interval title', () => {
+        const result: ExperimentVariantResult = {
+            key: 'test',
+            sum: 100,
+            number_of_samples: 100,
+            sum_squares: 100,
+            significant: true,
+            method: 'bayesian',
+            credible_interval: [0.05, 0.15],
+            chance_to_win: 0.75,
+        }
+
+        expect(
+            getExperimentIntervalTitle(result, {
+                stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.9 } },
+            })
+        ).toBe('Credible interval (90%)')
     })
 })
 
