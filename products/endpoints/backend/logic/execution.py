@@ -1055,7 +1055,10 @@ class EndpointExecutionService(PydanticModelMixin):
         )
         self._tag_client_query_id(client_query_id)
         endpoint_feature = Feature.ENDPOINT_PLAYGROUND if self._is_interactive_session() else Feature.ENDPOINT_EXECUTION
-        tag_queries(product=Product.ENDPOINTS, feature=endpoint_feature)
+        # endpoint_execution_trusted is a server-set signal, not derived from any request field —
+        # see hogql_query_runner.py's OFFSET-guard exemption for why it must not be conflated with
+        # `product`, which callers can set themselves via tags.productKey.
+        tag_queries(product=Product.ENDPOINTS, feature=endpoint_feature, endpoint_execution_trusted=True)
 
         result = process_query_model(
             self.team,
