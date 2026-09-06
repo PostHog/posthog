@@ -177,6 +177,12 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     // e.g. a queued cloud run or a plan pick) or skipping it — reported separately so the funnel
     // can tell drop-off from opt-out.
     const completeStep = (): void => {
+        // On the last step the completion runs asynchronously; guard the funnel event with the live
+        // state the same way onboardingLogic guards the completion, so a repeat click before the
+        // button re-renders as pending cannot double-count the step.
+        if (onboardingLogic.values.isCompleting) {
+            return
+        }
         reportOnboardingStepCompleted(step.id, undefined, SELF_DRIVING_ONBOARDING_EVENT_PROPS)
         advance()
     }
@@ -204,6 +210,9 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                                 onClick={goBack}
                                 tooltip="Go back"
                                 aria-label="Go back"
+                                // Completion runs from the last step; leaving it would land on a step
+                                // whose controls look active but hit the completion guard and do nothing.
+                                disabledReason={isCompleting ? 'Setting things up…' : undefined}
                             />
                         )}
                     </div>

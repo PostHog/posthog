@@ -10,6 +10,7 @@ import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsag
 import { PlanCard } from 'scenes/onboarding/self-driving/components/PlanCard'
 import { SelfDrivingPricing } from 'scenes/onboarding/self-driving/components/SelfDrivingPricing'
 import { ToolFreeTiers } from 'scenes/onboarding/self-driving/components/ToolFreeTiers'
+import { onboardingLogic } from 'scenes/onboarding/self-driving/onboardingLogic'
 import { formatUsd } from 'scenes/onboarding/self-driving/utils'
 import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
 
@@ -48,6 +49,12 @@ export function PlanChoice({
         startPaymentEntryFlow(platformProduct, window.location.pathname + window.location.search)
     }
     const continueFree = (): void => {
+        // The pick finishes asynchronously. Read the live completion state rather than the
+        // render-captured `completing` prop, so a fast second click before the button re-renders as
+        // pending cannot re-fire the funnel event. onboardingLogic drops the repeat completion too.
+        if (onboardingLogic.values.isCompleting) {
+            return
+        }
         reportOnboardingPlanSelected('free')
         onContinue()
     }
@@ -67,9 +74,10 @@ export function PlanChoice({
                         center
                         onClick={continueFree}
                         loading={completing}
+                        disabledReason={subscribing ? 'Opening payment…' : undefined}
                         data-attr="self-driving-onboarding-free"
                     >
-                        Start free
+                        {completing ? 'Setting things up…' : 'Start free'}
                     </LemonButton>
                 }
             >
@@ -103,7 +111,9 @@ export function PlanChoice({
                         fullWidth
                         center
                         loading={subscribing}
-                        disabledReason={subscribing ? 'Opening payment…' : undefined}
+                        disabledReason={
+                            subscribing ? 'Opening payment…' : completing ? 'Setting things up…' : undefined
+                        }
                         disableClientSideRouting
                         onClick={subscribe}
                         data-attr="self-driving-onboarding-subscribe"
