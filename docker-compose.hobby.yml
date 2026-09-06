@@ -370,9 +370,12 @@ services:
         logging: *default-logging
         volumes:
             - objectstorage:/data
+        # web/worker/plugins reach MinIO as objectstorage:19000 over the compose network and
+        # the root credentials above are fixed, so keep the API and console off public
+        # interfaces — same as the seaweedfs ports below.
         ports:
-            - '19000:19000'
-            - '19001:19001'
+            - '127.0.0.1:19000:19000'
+            - '127.0.0.1:19001:19001'
 
     seaweedfs:
         extends:
