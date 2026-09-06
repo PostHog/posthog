@@ -212,7 +212,13 @@ interface SteeredTurn {
   taskRunId: string;
   promptId: number | null;
 }
-const SESSION_EVENT_EVICT_GRACE_MS = 20_000;
+/**
+ * How long a backgrounded transcript stays fully resident before it becomes a
+ * candidate for release. Reloading one costs a full log read and re-parse, so
+ * the grace is long enough that a user who switches to another task and back
+ * does not pay that cost.
+ */
+export const SESSION_EVENT_EVICT_GRACE_MS = 180_000;
 const MAX_RESIDENT_BACKGROUND_TRANSCRIPTS = 1;
 /**
  * On open, paint the last this-many bytes of the log immediately so a big
@@ -8169,6 +8175,12 @@ export class SessionService {
   ): void {
     if (session && session.eventCount > 0) return;
     if (!task.latest_run?.id || !task.latest_run?.log_url) return;
+
+    // Logs-only hydration grows the store like a connect does; bound the
+    // resident-session budget the same way (connectToTask and the cloud
+    // reconcile branch already do).
+    this.sessionLastUsedAt.set(task.id, Date.now());
+    void this.evictIdleSessions(task.id);
 
     this.loadLogsOnly({
       taskId: task.id,
