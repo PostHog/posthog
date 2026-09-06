@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, events, kea, listeners, path, reducers } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -26,6 +26,9 @@ export interface apiStatusLogicActions {
     setInternetConnectionIssue: (issue: boolean) => {
         issue: boolean
     }
+    probeInternetConnection: () => {
+        value: true
+    }
     setTimeSensitiveAuthenticationRequired: (required: boolean | [onSuccess: () => void, onFailure: () => void]) => {
         required: boolean | [onSuccess: () => void, onFailure: () => void]
     }
@@ -39,11 +42,17 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+// How often to re-probe the server while the connection-issue banner is up. Nothing else clears the
+// banner on an SSE-only page (there may be no further ordinary API calls), so the probe is the only
+// path back for those users.
+const INTERNET_REPROBE_INTERVAL_MS = 5000
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
         onApiResponse: (response?: Response, error?: any) => ({ response, error }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
+        probeInternetConnection: true,
         setTimeSensitiveAuthenticationRequired: (
             required: boolean | [onSuccess: () => void, onFailure: () => void]
         ) => ({
@@ -187,6 +196,55 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                         }
                     })
                 }
+            }
+        },
+        setInternetConnectionIssue: ({ issue }) => {
+            // The banner used to clear only on the next successful API response. On an SSE-driven page
+            // that call may never come, so drive recovery here instead: while the issue is up, re-probe
+            // the server on a timer and clear as soon as it answers.
+            if (issue) {
+                if (cache.reprobeInterval === undefined) {
+                    cache.reprobeInterval = window.setInterval(() => {
+                        actions.probeInternetConnection()
+                    }, INTERNET_REPROBE_INTERVAL_MS)
+                }
+            } else if (cache.reprobeInterval !== undefined) {
+                window.clearInterval(cache.reprobeInterval)
+                cache.reprobeInterval = undefined
+            }
+        },
+        probeInternetConnection: async () => {
+            if (!values.internetConnectionIssue) {
+                return
+            }
+            try {
+                await api.get('api/users/@me/')
+                // onApiResponse clears on an ok response; clear here too to cover a resolved response.
+                actions.setInternetConnectionIssue(false)
+            } catch (error: any) {
+                // A bare 'Failed to fetch' means still unreachable — keep the banner for the next tick.
+                // Any other error carries an HTTP status, so we reached the server: the connection is back.
+                if (error?.message !== 'Failed to fetch') {
+                    actions.setInternetConnectionIssue(false)
+                }
+            }
+        },
+    })),
+    events(({ actions, cache }) => ({
+        afterMount: () => {
+            // A browser 'online' event only fires for a true offline→online transition (not for a
+            // CORS/server 'Failed to fetch' while navigator stays online), so it complements the timer
+            // rather than replacing it. Probe rather than clear blindly — only reaching the server clears.
+            cache.onOnline = () => actions.probeInternetConnection()
+            window.addEventListener('online', cache.onOnline)
+        },
+        beforeUnmount: () => {
+            if (cache.onOnline) {
+                window.removeEventListener('online', cache.onOnline)
+            }
+            if (cache.reprobeInterval !== undefined) {
+                window.clearInterval(cache.reprobeInterval)
+                cache.reprobeInterval = undefined
             }
         },
     })),

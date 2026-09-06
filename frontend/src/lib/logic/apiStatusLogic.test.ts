@@ -80,6 +80,59 @@ describe('apiStatusLogic', () => {
         })
     })
 
+    describe('internet connection recovery', () => {
+        // Unmount so beforeUnmount clears the re-probe interval a set(true) starts.
+        afterEach(() => logic?.unmount())
+
+        it('sets the issue on a "Failed to fetch" error', async () => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(undefined, new Error('Failed to fetch'))
+            })
+                .toDispatchActions(['setInternetConnectionIssue'])
+                .toMatchValues({ internetConnectionIssue: true })
+        })
+
+        it('clears the issue when a re-probe reaches the server', async () => {
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, MOCK_DEFAULT_USER],
+                },
+            })
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+            logic.actions.setInternetConnectionIssue(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.probeInternetConnection()
+            })
+                .toDispatchActions([logic.actionCreators.setInternetConnectionIssue(false)])
+                .toMatchValues({ internetConnectionIssue: false })
+        })
+
+        it('re-probes on a browser online event', async () => {
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, MOCK_DEFAULT_USER],
+                },
+            })
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+            logic.actions.setInternetConnectionIssue(true)
+
+            await expectLogic(logic, () => {
+                window.dispatchEvent(new Event('online'))
+            })
+                .toDispatchActions(['probeInternetConnection'])
+                .toMatchValues({ internetConnectionIssue: false })
+        })
+    })
+
     describe('read-only impersonation 403 handling', () => {
         const READ_ONLY_DETAIL = 'This action is not allowed during read-only user impersonation.'
 

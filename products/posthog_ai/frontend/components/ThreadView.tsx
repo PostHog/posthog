@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
@@ -269,11 +269,17 @@ const ThreadFooter = memo(function ThreadFooter({
     // `runConnectionState` is self-subscribed here (like `currentProgress`) so the frequently-updating
     // reconnect attempt counter stays isolated to this leaf and never destabilizes `ThreadView`'s footer.
     const { currentProgress, runConnectionState } = useValues(runStreamLogic)
+    const { retryConnection } = useActions(runStreamLogic)
     // `gap-1.5` matches the thread's inter-row gap (`VirtualizedThread`'s `gap` default) so stacked footer
     // items keep the same vertical rhythm as the thread.
     return (
         <div className="flex flex-col gap-1.5">
-            {showConnectionStatus && runConnectionState && <RunAlertActivity {...runConnectionState} />}
+            {showConnectionStatus && runConnectionState && (
+                <RunAlertActivity
+                    {...runConnectionState}
+                    onRetry={runConnectionState.retryable ? retryConnection : undefined}
+                />
+            )}
             {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
             {showContextUsage && <ContextUsageBar />}

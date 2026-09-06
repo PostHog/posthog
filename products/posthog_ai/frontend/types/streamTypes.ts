@@ -39,6 +39,8 @@ export interface RunConnectionState {
     maxAttempts?: number
     /** The failed kinds: the error/crash detail to surface. */
     message?: string
+    /** `connection_failed`: the drop is recoverable, so the card offers an in-place retry. */
+    retryable?: boolean
 }
 
 /**
