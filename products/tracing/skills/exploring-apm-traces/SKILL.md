@@ -49,6 +49,8 @@ Latency and volume questions are answered in one aggregate call. Reach for `quer
 | "What's different about the slow or failing requests?"             | `apm-attribute-breakdown`               |
 | "Show me the slow requests" / "Find traces where …"                | `query-apm-spans`, then `apm-trace-get` |
 
+The two duration tools bucket **root-span** duration by default (`rootSpans: true`) — that is request latency. When X is a child operation (a DB query, a `Client` call), pass `rootSpans: false` alongside the service and `name` filters: under the default, an exact child-name filter matches no rows and you get an empty result instead of an answer.
+
 ## Workflow: debug a trace from a URL
 
 ### Step 1 — Fetch the trace
@@ -147,13 +149,13 @@ To rebuild the tree:
 
 ### "What does the latency distribution look like?"
 
-1. `apm-spans-duration-histogram` → trace counts per log-scale (1-2-5 series) duration bucket of the ROOT span.
+1. `apm-spans-duration-histogram` → trace counts per log-scale (1-2-5 series) duration bucket of the ROOT span. For a child operation, add `rootSpans: false` with the service and `name` filters.
 2. A second hump or a fat tail = a distinct slow population; note its `bucket_ns` range.
 3. Fetch the actual slow traces with `query-apm-spans` using a `duration` filter (nanoseconds) and `orderBy: "duration"`.
 
 ### "When did it get slow?"
 
-1. `apm-spans-latency-heatmap` → the same duration buckets, but per time bucket. Group rows by `bucket_ns` and read each one as a band over time.
+1. `apm-spans-latency-heatmap` → the same duration buckets, but per time bucket, and under the same `rootSpans` rule. Group rows by `bucket_ns` and read each one as a band over time.
 2. A band that starts at a specific `time` is the onset. The whole distribution stepping up one or two buckets is a uniform slowdown, not a new slow population.
 3. Narrow `dateRange` around the onset, then pull the traces with `query-apm-spans` plus a `duration` filter.
 
