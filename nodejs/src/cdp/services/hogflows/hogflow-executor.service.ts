@@ -769,7 +769,8 @@ export class HogFlowExecutorService {
     }
 
     /**
-     * If the action has on_error set to 'continue' then we continue to the next action instead of failing the flow
+     * Unless the action has on_error set to 'abort' we continue to the next action instead of failing the flow.
+     * An action without on_error gets the default, which is to continue.
      */
     private maybeContinueToNextActionOnError(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
@@ -783,9 +784,10 @@ export class HogFlowExecutorService {
             if (invocation.state.currentAction?.delayUntilUnresolved) {
                 return
             }
-            // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
+            // Unless the current action's on_error is set to 'abort', we move to the next action instead of
+            // failing the flow. 'continue' is the default, so an action that never had on_error set gets it too.
             const currentAction = ensureCurrentAction(invocation)
-            if (currentAction?.on_error === 'continue') {
+            if (currentAction?.on_error !== 'abort') {
                 const nextAction = findContinueAction(invocation)
                 if (nextAction) {
                     this.logAction(
