@@ -474,15 +474,34 @@ describe('API helper', () => {
             expect(error).toBeInstanceOf(NetworkError)
         })
 
-        it('leaves a throw that is not a fetch failure as an unclassified ApiError', async () => {
+        it('classifies a fetch failure that rejects with a bare string', async () => {
+            // A `fetch` replaced by a browser extension can reject with a string rather than an Error.
+            // Without matching the string it falls through to a nameless per-endpoint `ApiError` whose
+            // message is the stringified value, which is never dropped and re-fingerprints on deploys.
+            fakeFetch.mockRejectedValue('TypeError: Failed to fetch')
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
+        it.each([
+            // A same-realm Error.
+            ['an Error', new Error('the fetcher itself broke')],
+            // A cross-realm Error (an iframe, a worker, an extension-replaced `fetch`) fails
+            // `instanceof Error`, so its message must be read structurally or it is lost.
+            ['a cross-realm error object', { message: 'the fetcher itself broke' }],
+        ])('leaves %s that is not a fetch failure as an unclassified ApiError', async (_desc, rejection) => {
             // A real fault in the request path must not be relabelled as connectivity, or
             // `dropUnactionableNetworkExceptions` would filter it out of error tracking.
-            fakeFetch.mockRejectedValue(new Error('the fetcher itself broke'))
+            fakeFetch.mockRejectedValue(rejection)
 
             const error = await api.get('api/environments/2/insights').catch((e) => e)
 
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(NetworkError)
+            // The thrown value's own message reaches `ApiError`, not a stringified or generic form.
+            expect(error.message).toBe('the fetcher itself broke')
         })
     })
 
