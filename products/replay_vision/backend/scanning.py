@@ -15,8 +15,11 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 
+import structlog
+
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
@@ -34,6 +37,8 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     build_apply_scanner_workflow_id,
 )
+
+logger = structlog.get_logger(__name__)
 
 # One page of recordings. Above this the in-flight caps bind long before the batch does.
 MAX_SESSIONS_PER_SCAN = 200
@@ -112,6 +117,24 @@ def scan_headroom(*, team: Team, model: str, scanner: ReplayScanner | None) -> S
         team_rows=team_in_flight,
         scanner_rows=scanner_in_flight,
     )
+
+
+def session_has_replay_data(*, team: Team, session_id: str) -> bool:
+    """Whether ClickHouse still holds a replay for this session.
+
+    A scan on a session with no replay can only fail: `fetch_session_events` reads the metadata back
+    and raises `IneligibleSessionError` the moment it finds none. Answering it up front keeps the
+    session from taking a scan slot and a credit on its way to that failure, and keeps the product
+    from minting an observation whose recording the player can never load.
+
+    Fails soft: this is an optimization over a check the activity still makes, so a ClickHouse blip
+    costs a wasted credit rather than blocking every scan the project asks for.
+    """
+    try:
+        return SessionReplayEvents().exists(session_id, team)
+    except Exception:
+        logger.exception("replay_vision_eligibility_lookup_failed", team_id=team.id, session_id=session_id)
+        return True
 
 
 def finished_sessions(scanner: ReplayScanner, session_ids: list[str]) -> frozenset[str]:
