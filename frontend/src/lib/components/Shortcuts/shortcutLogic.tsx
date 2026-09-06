@@ -80,6 +80,18 @@ function triggerShortcut(shortcut: ShortcutType, triggeredKeybind: string[]): vo
     }
 }
 
+// A bare Escape must reach an open overlay, menu, dialog, or an active drag first — each dismisses
+// itself on Escape. The capture-phase handler runs before those, so it must step aside here,
+// or a stray Escape closes the wrong thing (e.g. cancels a dashboard edit mid-resize).
+// Covers LemonUI (.LemonModal__overlay, .Popover), Radix menus/popovers (.primitive-menu-content),
+// quill menus/popovers (data-slot markers), and react-grid-layout drag/resize.
+const ESCAPE_DEFER_SELECTOR =
+    '.LemonModal__overlay, .Popover, .react-draggable-dragging, .react-grid-item.resizing, .primitive-menu-content, [data-slot="menubar-content"], [data-slot="popover-content"]'
+
+function escapeShouldDeferToOverlay(key: string): boolean {
+    return key === 'escape' && document.querySelector(ESCAPE_DEFER_SELECTOR) !== null
+}
+
 function isEditableElement(event: KeyboardEvent): boolean {
     // Use composedPath to get the actual target element, even through shadow DOM boundaries
     // This is necessary because event.target gets retargeted to the shadow host when events
@@ -235,6 +247,14 @@ export const shortcutLogic = kea<shortcutLogicType>([
             )
 
             if (singleKeyMatch && !values.disabledShortcutNames.includes(singleKeyMatch.name)) {
+                if (escapeShouldDeferToOverlay(key)) {
+                    // Let the overlay, dialog, or drag handle Escape instead of the shortcut.
+                    // Still stop any in-progress sequence, as a non-deferred Escape would, so a
+                    // stale "g then p" cannot complete after the deferred Escape.
+                    cache.sequenceKeys = []
+                    cache.sequenceShortcut = null
+                    return
+                }
                 event.preventDefault()
                 event.stopPropagation()
                 cache.sequenceKeys = []
