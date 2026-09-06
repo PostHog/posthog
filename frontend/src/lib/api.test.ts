@@ -484,6 +484,23 @@ describe('API helper', () => {
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(NetworkError)
         })
+
+        it('classifies a snapshot body read that drops mid-download as a NetworkError', async () => {
+            // The connection returns headers but dies while streaming the body, so `getResponse`
+            // resolves and `arrayBuffer()` rejects with a bare TypeError. It must be classified like
+            // any other network failure, not escape as its own unactionable error tracking issue.
+            Object.defineProperty(window.navigator, 'onLine', { value: true, configurable: true })
+            fakeFetch.mockResolvedValue({
+                ok: true,
+                status: 200,
+                arrayBuffer: () => Promise.reject(new TypeError('Failed to fetch')),
+            })
+
+            const error = await api.recordings.getSnapshots('rec-id', { source: 'blob_v2' }).catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+            expect(error.reason).toBe('network')
+        })
     })
 
     describe('organizationFeatureFlags', () => {
