@@ -494,8 +494,20 @@ class Task(DeletedMetaFields, models.Model):
             # either boolean unconstrained while still needing the results in timestamp order.
             models.Index(
                 fields=["team", "internal", "archived", "-created_at", "-id"],
+                # The paginator counts the whole visible set on every list read. These columns
+                # make that count resolve index-only.
+                include=["channel", "created_by", "origin_product"],
                 condition=models.Q(deleted=False),
-                name="posthog_task_team_live_crt_idx",
+                name="posthog_task_live_crt_cov_idx",
+            ),
+            # The repository picker reads every live non-internal task for its distinct
+            # repositories. Rows that predate the `repositories` array keep the name in
+            # `repository`. This partial index answers that half index-only.
+            models.Index(
+                fields=["team", "internal", "repository"],
+                include=["channel", "created_by", "origin_product"],
+                condition=models.Q(deleted=False, repositories=[]),
+                name="posthog_task_repo_legacy_idx",
             ),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
