@@ -90,6 +90,7 @@
     "fuse.js": "^7.1.0",
     "fzf": "^0.5.2",
     "inversify": "catalog:",
+    "lru-cache": "^11.1.0",
     "lucide-react": "^1.7.0",
     "mermaid": "^11.17.0",
     "posthog-js": "^1.427.2",

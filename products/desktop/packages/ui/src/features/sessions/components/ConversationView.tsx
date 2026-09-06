@@ -31,7 +31,6 @@ import type {
   ThreadGrouping,
   ThreadRow,
 } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
-import { createIncrementalThreadGrouper } from "@posthog/ui/features/sessions/components/new-thread/incrementalThreadGrouping";
 import { ToolCallGroupChip } from "@posthog/ui/features/sessions/components/new-thread/ToolCallGroupChip";
 import { SessionFooter } from "@posthog/ui/features/sessions/components/SessionFooter";
 import {
@@ -46,6 +45,7 @@ import {
 } from "@posthog/ui/features/sessions/components/VirtualizedList";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
+import { usePersistentThreadGrouper } from "@posthog/ui/features/sessions/hooks/conversationDerivedCache";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import { useConversationSearch } from "@posthog/ui/features/sessions/hooks/useConversationSearch";
 import {
@@ -152,9 +152,12 @@ export function ConversationView({
     isBackgroundTurnActive,
     completedToolCallCount,
     lastActivityAt,
-  } = useConversationItems(events, isPromptPending, {
-    showDebugLogs,
-  });
+  } = useConversationItems(
+    events,
+    isPromptPending,
+    { showDebugLogs },
+    { scope: "conversation-view", taskId },
+  );
 
   const firstUserMessageIdRef = useRef<string | undefined>(undefined);
   if (firstUserMessageIdRef.current === undefined) {
@@ -195,11 +198,7 @@ export function ConversationView({
   // Fold each completed turn's tool-call work into a collapsible chip, and emit
   // the keepMounted indices (standalone MCP-app rows, whose iframes must survive
   // scrolling) + the item→row map in the same pass.
-  const threadGrouperRef = useRef<ReturnType<
-    typeof createIncrementalThreadGrouper
-  > | null>(null);
-  threadGrouperRef.current ??= createIncrementalThreadGrouper();
-  const threadGrouper = threadGrouperRef.current;
+  const threadGrouper = usePersistentThreadGrouper("conversation-view", taskId);
   const grouping = useMemo<ThreadGrouping>(
     () => threadGrouper.update(items, groupOverrides),
     [items, groupOverrides, threadGrouper],
