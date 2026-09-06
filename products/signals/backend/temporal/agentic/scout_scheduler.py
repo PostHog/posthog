@@ -21,7 +21,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_MANUAL,
     TRIGGERED_BY_SCHEDULE,
@@ -91,17 +91,21 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
-    # Skip the run when the team is over its Signals credits quota or its daily report limit,
+    # Skip the run when the team is over its self-driving credits quota or its daily report limit,
     # before any LLM work: a scout run exists to feed signals into the pipeline, and ingestion
-    # drops them while either limit binds.
+    # drops them while either limit binds. The quota side reads `self_driving_quota_gate` rather
+    # than the raw limiter so this stage honors the enforcement kill switch and appears in the
+    # `signal_report_quota_paused` stream alongside every other paused stage.
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    quota_limited = await database_sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
+    quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
     daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
-    # Captured whenever the daily gate binds — even when the quota skip below wins the
-    # single-status run counter — so the daily-limit event stream stays complete on co-bound days.
+    # Each gate captures whenever it binds — even when the other wins the single-status run
+    # counter — so neither event stream has holes on a co-bound day.
+    if quota_gate.limited:
+        capture_signal_report_quota_paused(team, report_id=None, stage="scout_run", enforced=quota_gate.enforced)
     if daily_gate.limited:
         capture_signal_report_daily_limit_paused(team, report_id=None, stage="scout_run", gate=daily_gate)
-    if quota_limited:
+    if quota_gate.enforced:
         logger.info(
             "signals_scout: skipping run, team over signals_credits quota",
             team_id=input.team_id,
