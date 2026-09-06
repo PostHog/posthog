@@ -118,9 +118,17 @@ export function CohortCriteriaRowBuilder({
                             </>
                         </KeaField>
                         <div className="CohortCriteriaRow__inline-divider" />
-                        <LemonButton icon={<IconCopy />} onClick={() => duplicateFilter(groupIndex, index)} />
+                        <LemonButton
+                            icon={<IconCopy />}
+                            tooltip="Duplicate this criterion"
+                            onClick={() => duplicateFilter(groupIndex, index)}
+                        />
                         {!hideDeleteIcon && (
-                            <LemonButton icon={<IconTrash />} onClick={() => removeFilter(groupIndex, index)} />
+                            <LemonButton
+                                icon={<IconTrash />}
+                                tooltip="Delete this criterion"
+                                onClick={() => removeFilter(groupIndex, index)}
+                            />
                         )}
                     </div>
                     {!rowShape && (
