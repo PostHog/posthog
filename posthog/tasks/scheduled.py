@@ -135,6 +135,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
+from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -409,6 +410,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         poll_ses_account_reputation.s(),
         name="poll SES account reputation",
         expires_seconds=10 * 60,
+    )
+
+    # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
+    # Hourly rather than a tight poll: the tier system's hourly send bucket bounds how much a
+    # breaching workflow can send between runs, and the detection windows are 1h and 24h anyway.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="35"),
+        sweep_workflow_email_deliverability.s(),
+        name="sweep workflow email deliverability",
+        expires_seconds=30 * 60,
     )
 
     # Flags cache sync - hourly
