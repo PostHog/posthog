@@ -440,9 +440,11 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     let elements = [] as HTMLElement[]
     try {
         elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
-    } catch (e) {
+    } catch {
+        // A person types a selector one keystroke at a time, so a fragment like `a[` reaches
+        // here as invalid CSS. The throw is expected input, not a fault, so log it but do not
+        // report it to error tracking.
         toolbarLogger.error('element_step_selector', 'Cannot use selector', { selector })
-        captureToolbarException(e, 'element_step_selector', { selector })
         return null
     }
 
