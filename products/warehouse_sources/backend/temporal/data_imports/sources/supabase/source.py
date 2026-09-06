@@ -179,6 +179,7 @@ class SupabaseSource(PostgresSource):
         team_id: int,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         bare_host = _strip_host_scheme(config.host or "")
         project_host = _SUPABASE_PROJECT_HOST_RE.match(bare_host)
@@ -200,7 +201,7 @@ class SupabaseSource(PostgresSource):
         # failures (bad password, missing database, SSL) already have clear messages, and
         # blaming them on IPv4 would misdirect the user.
         is_direct_host = bool(_SUPABASE_DIRECT_HOST_RE.match((config.host or "").strip()))
-        success, error = super().validate_credentials(config, team_id, schema_name=schema_name)
+        success, error = super().validate_credentials(config, team_id, schema_name=schema_name, require_ssl=require_ssl)
         if not success and is_direct_host and error == _HOST_UNREACHABLE_ERROR:
             return False, _SUPABASE_DIRECT_HOST_IPV4_HINT
         return success, error
