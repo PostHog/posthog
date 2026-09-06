@@ -194,15 +194,8 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     if (!isCodeUsageFreeTier(usage)) return;
     const userId = usage.user_id.toString();
     const product = usage.product;
-    this.maybeEmit(usage, "burst", usage.burst, userId, product, usage.is_pro);
-    this.maybeEmit(
-      usage,
-      "sustained",
-      usage.sustained,
-      userId,
-      product,
-      usage.is_pro,
-    );
+    this.maybeEmit(usage, "burst", usage.burst, userId, product);
+    this.maybeEmit(usage, "sustained", usage.sustained, userId, product);
   }
 
   private maybeEmit(
@@ -211,7 +204,6 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     status: UsageBucket,
     userId: string,
     product: string,
-    isPro: boolean,
   ): void {
     const anchor = this.anchorFor(bucket, status, usage);
     if (!anchor) return;
@@ -236,7 +228,6 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
       threshold,
       usedPercent: status.used_percent,
       resetAt: status.reset_at,
-      isPro,
       userIsActive: this.host.hasActiveSessions(),
     });
   }
