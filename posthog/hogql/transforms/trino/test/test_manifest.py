@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from unittest import mock
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
@@ -10,6 +11,8 @@ from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
     TrinoManifestTable,
+    build_trino_manifest_database,
+    prepare_trino_catalog,
     transpile_hogql_to_trino,
 )
 
@@ -70,6 +73,48 @@ def test_transpiles_manifest_table_without_django_queries(django_assert_num_quer
         'FROM "org_catalog"."imports"."stripe_orders" AS "stripe__orders" LIMIT 50000'
     )
     assert result.values == {}
+
+
+def test_prepared_catalog_reuses_metadata_and_isolates_query_state(django_assert_num_queries: Any) -> None:
+    manifest = _manifest(_events())
+
+    with (
+        django_assert_num_queries(0),
+        mock.patch(
+            "posthog.hogql.transforms.trino.manifest.build_trino_manifest_database",
+            wraps=build_trino_manifest_database,
+        ) as build_database,
+    ):
+        catalog = prepare_trino_catalog(manifest)
+        first = catalog.transpile("SELECT {value}", values={"value": "first"}, limit_top_select=False)
+        second = catalog.transpile("SELECT {value}", values={"value": "second"})
+        unnested = catalog.transpile("SELECT arrayJoin([1, 2])")
+
+    build_database.assert_called_once_with(manifest)
+    assert first.values == {"hogql_val_0": "first"}
+    assert second.values == {"hogql_val_0": "second"}
+    assert "LIMIT" not in first.sql
+    assert second.sql.endswith("LIMIT 50000")
+    assert "UNNEST" in unnested.sql
+
+    first.values["hogql_val_0"] = "changed"
+    assert second.values == {"hogql_val_0": "second"}
+
+
+def test_manifest_relation_can_share_the_internal_unnest_function_name() -> None:
+    relation = TrinoManifestTable(
+        logical_name="__trino_unnest",
+        locator=("org_catalog", "imports", "unnest_rows"),
+        columns=(TrinoManifestColumn(name="value", type=DatabaseSerializedFieldType.STRING),),
+    )
+
+    result = transpile_hogql_to_trino(
+        "SELECT value, arrayJoin([1, 2]) AS item FROM __trino_unnest",
+        manifest=_manifest(relation),
+    )
+
+    assert 'FROM "org_catalog"."imports"."unnest_rows" AS "__trino_unnest"' in result.sql
+    assert "CROSS JOIN UNNEST(transform(ARRAY[1, 2]" in result.sql
 
 
 @pytest.mark.parametrize(
