@@ -404,6 +404,11 @@ export interface TicketMessageApi {
     readonly is_private: boolean
     /** True when the complete inbound email body can be retrieved. */
     readonly has_full_email_content: boolean
+    /**
+     * Identifies the automation that left this internal note, e.g. `signals_report:<report id>` for a Self-driving report pointer. Null for every message a person wrote and for the AI reply pipeline's own suggested replies, so a client can tell an agent's note from an unsent draft.
+     * @nullable
+     */
+    readonly internal_note_key: string | null
     /** Edit count. 0 means never edited. */
     readonly version: number
     readonly created_at: string

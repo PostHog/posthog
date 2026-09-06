@@ -2268,9 +2268,54 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_email",
             "is_private",
             "has_full_email_content",
+            "internal_note_key",
             "created_at",
             "version",
         }
+
+    def test_messages_expose_internal_note_key_of_automation_notes(self, mock_on_commit):
+        base = timezone.now()
+        automation_note = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Report: https://us.posthog.com/project/1/inbox/report-id",
+            item_context={
+                "author_type": "AI",
+                "is_private": True,
+                "internal_note_key": "signals_report:report-id",
+            },
+        )
+        draft_note = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Suggested reply the pipeline did not send",
+            item_context={"author_type": "AI", "is_private": True},
+        )
+        forged_note = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Note a person wrote before the comments API reserved the key",
+            item_context={
+                "author_type": "AI",
+                "is_private": True,
+                "internal_note_key": "signals_report:forged",
+            },
+        )
+        # Stamp explicit, strictly-increasing created_at so ordering can't tie on fast DBs.
+        Comment.objects.filter(id=automation_note.id).update(created_at=base)
+        Comment.objects.filter(id=draft_note.id).update(created_at=base + timedelta(seconds=1))
+        Comment.objects.filter(id=forged_note.id).update(created_at=base + timedelta(seconds=2))
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        automation, draft, forged = response.json()["results"]
+        assert automation["internal_note_key"] == "signals_report:report-id"
+        assert draft["internal_note_key"] is None
+        assert forged["internal_note_key"] is None
 
     def test_messages_lookup_by_ticket_number(self, mock_on_commit):
         Comment.objects.create(

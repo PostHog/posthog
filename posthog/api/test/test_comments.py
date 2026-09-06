@@ -742,6 +742,28 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         else:
             assert "threadState" not in item_context
 
+    @parameterized.expand(
+        [
+            ("slack_author_name", "Someone else"),
+            ("internal_note_key", "signals_report:forged"),
+        ]
+    )
+    def test_reserved_item_context_keys_are_stripped_from_client_input(self, key: str, value: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Comment",
+                "scope": "Insight",
+                "item_id": "insight-1",
+                "item_context": {"anchor": {"kind": "document"}, key: value},
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        item_context = response.json()["item_context"]
+        assert key not in item_context
+        assert item_context["anchor"] == {"kind": "document"}
+
     @mock.patch("posthog.api.comments.send_mention_notifications")
     def test_personal_channel_comments_ignore_mentions(self, send_notifications: mock.Mock) -> None:
         task = self._task_artifact_target()
