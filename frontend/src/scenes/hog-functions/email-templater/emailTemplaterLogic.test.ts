@@ -9,6 +9,7 @@ import {
     EditorRef,
     EmailTemplate,
     EmailTemplaterLogicProps,
+    buildPersonPropertyMergeValue,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
 
@@ -620,5 +621,20 @@ describe('emailTemplaterLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.isModalOpen).toBe(true)
         })
+    })
+})
+
+describe('buildPersonPropertyMergeValue', () => {
+    // Never emit double quotes: they end an HTML attribute like a link href, and entity-encoded they
+    // render an empty value. A bare identifier uses dot access; everything else uses single-quoted
+    // brackets.
+    it.each([
+        ['first_name', '{{person.properties.first_name}}'],
+        ['$browser', "{{person.properties['$browser']}}"],
+        ['renews on', "{{person.properties['renews on']}}"],
+        ['a.b', "{{person.properties['a.b']}}"],
+        ["it's", "{{person.properties['it\\'s']}}"],
+    ])('builds %s as %s', (name, expected) => {
+        expect(buildPersonPropertyMergeValue(name)).toBe(expected)
     })
 })
