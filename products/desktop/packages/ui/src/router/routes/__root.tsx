@@ -46,6 +46,7 @@ import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepL
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
 import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import {
@@ -218,6 +219,7 @@ function RootLayout() {
 
   const toggleSidebar = useSidebarStore((s) => s.toggle);
   const sidebarPeek = useSidebarPeekStore((s) => s.peek);
+  const revealSidebarOnHover = useSettingsStore((s) => s.revealSidebarOnHover);
   // Toggling makes any hover-peek redundant (opening replaces the overlay;
   // closing must not leave it lingering under the pointer).
   const handleToggleSidebar = (): void => {
@@ -348,7 +350,7 @@ function RootLayout() {
                 aria-label="Toggle sidebar"
                 onClick={handleToggleSidebar}
                 onMouseEnter={() => {
-                  if (!sidebarOpen) beginSidebarPeek();
+                  if (revealSidebarOnHover && !sidebarOpen) beginSidebarPeek();
                 }}
               >
                 {sidebarOpen ? (
