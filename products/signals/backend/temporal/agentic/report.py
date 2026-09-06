@@ -44,7 +44,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_resolved,
     capture_suggested_reviewers_unresolved,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, resolve_team_github_integration
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -71,7 +71,7 @@ class RunAgenticReportInput:
     repo_selection_as_of: datetime | None = None
 
 
-@dataclass
+@frozen
 class RunAgenticReportOutput:
     title: str
     summary: str
@@ -85,6 +85,11 @@ class RunAgenticReportOutput:
     # matching title/summary, so charts and their prose land in one transaction. Defaults to `None`
     # (the safe skip value) so an older workflow history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # Which door into PENDING_INPUT this result represents, copied onto `ReportDecision.pending_reason`
+    # so telemetry can tell a lapsed repo-selection integration apart from the agent asking for human
+    # input. Defaults to `"agent_requested"` — the value the workflow used for every research result
+    # before this field, so an older history replays unchanged.
+    pending_reason: str = "agent_requested"
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -602,7 +607,28 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
 
         async with Heartbeater():
             # 1. Get context for the sandbox
-            user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(input.team_id)
+            github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(
+                input.team_id
+            )
+            if github is None:
+                logger.info(
+                    "signals report research skipped: GitHub integration no longer available",
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                )
+                return RunAgenticReportOutput(
+                    title="Repository selection required",
+                    summary="Research could not run because the team's GitHub integration is no longer available.",
+                    choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+                    priority=None,
+                    explanation="The team's GitHub integration is no longer available. Reconnect GitHub to run the report.",
+                    already_addressed=False,
+                    repository=repository,
+                    pending_reason="repo_selection_required",
+                )
+            user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(
+                input.team_id, github
+            )
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
             )

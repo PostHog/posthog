@@ -430,7 +430,7 @@ class SignalReportSummaryWorkflow:
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
-                    pending_reason="agent_requested",
+                    pending_reason=agentic_result.pending_reason,
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
                 log.info(
