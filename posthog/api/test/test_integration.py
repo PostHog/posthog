@@ -284,6 +284,7 @@ class TestSlackIntegration:
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_get_channel_by_id_public_with_access(self, mock_webclient_class):
+        """Public channels: authed_user membership is not checked."""
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
 
@@ -291,14 +292,37 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
-
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", True, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        # conversations_members is NOT called for public channels
+        mock_client.conversations_members.assert_not_called()
 
+        assert channel is not None
+        assert channel["id"] == "C123"
+        assert channel["name"] == "general"
+        assert not channel["is_private"]
+        assert not channel["is_private_without_access"]
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_public_without_access(self, mock_webclient_class):
+        """Public channels are reachable even when authed_user is not in the channel."""
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        mock_client.conversations_info.return_value = {
+            "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
+        }
+
+        slack = SlackIntegration(self.integration)
+        channel = slack.get_channel_by_id("C123", True, "some_other_user")
+
+        mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
+        # conversations_members is NOT called for public channels
+        mock_client.conversations_members.assert_not_called()
+
+        # Should succeed (public channel is always reachable)
         assert channel is not None
         assert channel["id"] == "C123"
         assert channel["name"] == "general"
