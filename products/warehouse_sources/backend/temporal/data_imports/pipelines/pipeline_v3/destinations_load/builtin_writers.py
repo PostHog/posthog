@@ -1,6 +1,6 @@
 """Registering the writers that ship with warehouse sources.
 
-Only Postgres ships here. The other destination types have writers built on batch exports'
+Postgres and Databricks ship here. The other destination types have writers built on batch exports'
 clients, parked on `tom/dwh-destination-writers-parked`, and each one lands in its own change
 once it has been run against that warehouse. Registering a type whose writer has never
 executed is how a customer discovers it does not work.
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.regis
 # claiming a type with no writer would lease the group and then fail every batch in it.
 SUPPORTED_DESTINATION_TYPES: list[str] = [
     str(ExternalDataDestination.Type.POSTGRES),
+    str(ExternalDataDestination.Type.DATABRICKS),
 ]
 
 
@@ -35,11 +36,15 @@ def ensure_builtin_destination_writers_registered() -> None:
 
 
 def register_builtin_destination_writers() -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.databricks import (  # noqa: PLC0415
+        DatabricksDestinationWriter,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.postgres import (  # noqa: PLC0415
         PostgresDestinationWriter,
     )
 
     register_destination_writer(ExternalDataDestination.Type.POSTGRES, PostgresDestinationWriter)
+    register_destination_writer(ExternalDataDestination.Type.DATABRICKS, DatabricksDestinationWriter)
 
 
 def builtin_destination_types() -> list[str]:
