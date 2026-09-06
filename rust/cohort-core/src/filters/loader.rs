@@ -10,8 +10,9 @@ use sqlx::PgPool;
 use tracing::warn;
 
 use crate::filters::catalog::FilterCatalog;
-use crate::filters::reverse_index::TeamFiltersBuilder;
+use crate::filters::reverse_index::{catalog_analysis_budget, TeamFiltersBuilder};
 use crate::filters::{CohortId, FilterError, TeamId};
+use crate::hogvm::analysis::AnalysisBudget;
 use crate::metrics::{
     FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_INVALID_SHAPE_HASH,
     FILTER_CATALOG_TZ_FALLBACK,
@@ -48,6 +49,17 @@ pub async fn load_realtime_cohorts(pool: &PgPool) -> Result<Vec<CohortRow>, Filt
 /// Group rows by team into a catalog. A cohort that fails to parse is counted, warned, and skipped
 /// rather than poisoning the rest of the catalog.
 pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> FilterCatalog {
+    build_catalog_within(rows, cascade_enabled, &mut catalog_analysis_budget())
+}
+
+/// [`build_catalog_from_rows`] analyzing every team's conditions against one `budget`. Teams
+/// freeze in id order, so the budget is spent the same way on every replica and the plans stay a
+/// pure function of the rows.
+fn build_catalog_within(
+    rows: Vec<CohortRow>,
+    cascade_enabled: bool,
+    budget: &mut AnalysisBudget,
+) -> FilterCatalog {
     let mut builders: HashMap<TeamId, (TeamFiltersBuilder, Tz)> = HashMap::new();
 
     for row in rows {
@@ -93,11 +105,20 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> F
         }
     }
 
-    FilterCatalog::from_teams(
-        builders
-            .into_iter()
-            .map(|(team, (builder, tz))| (team, builder.freeze_with(tz, cascade_enabled))),
-    )
+    let mut teams: Vec<(TeamId, (TeamFiltersBuilder, Tz))> = builders.into_iter().collect();
+    teams.sort_unstable_by_key(|(team, _)| *team);
+    let catalog =
+        FilterCatalog::from_teams(teams.into_iter().map(|(team, (builder, tz))| {
+            (team, builder.freeze_within(tz, cascade_enabled, budget))
+        }));
+    if budget.steps == 0 || budget.cells == 0 {
+        warn!(
+            steps_left = budget.steps,
+            cells_left = budget.cells,
+            "filter catalog analysis budget spent; the conditions it refused take every global root",
+        );
+    }
+    catalog
 }
 
 /// One persisted shape-hash column as a reconcile guard, or `None` when there is nothing to guard
@@ -276,6 +297,39 @@ mod tests {
         assert!(team.cohorts.contains_key(&CohortId(2)));
         assert!(!team.cohorts.contains_key(&CohortId(1)));
         assert_eq!(team.unique_condition_hashes.len(), 1);
+    }
+
+    #[test]
+    fn one_budget_spans_the_catalog_and_is_spent_in_team_order() {
+        use crate::hogvm::analysis::{GlobalRoot, GlobalsPlan};
+
+        // The higher team arrives first; the lower id is still the one that gets the budget.
+        let rows = vec![
+            row(1, 9, behavioral_cohort()),
+            row(2, 3, behavioral_cohort()),
+        ];
+        // STRING, STRING, GET_GLOBAL, EQ, RETURN: exactly what one condition spends.
+        let mut budget = AnalysisBudget {
+            steps: 5,
+            cells: usize::MAX,
+        };
+        let catalog = build_catalog_within(rows, false, &mut budget);
+
+        let plan = |team: i32| {
+            catalog
+                .team(TeamId(team))
+                .expect("team present")
+                .behavioral_plan
+        };
+        assert!(
+            plan(3).reads(GlobalRoot::Event) && !plan(3).reads(GlobalRoot::Pdi),
+            "team 3 freezes first and narrows",
+        );
+        assert_eq!(
+            plan(9),
+            GlobalsPlan::FULL,
+            "team 9 finds the budget spent, so its condition takes every root",
+        );
     }
 
     #[test]
