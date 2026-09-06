@@ -114,6 +114,8 @@
 #   test matrices are skipped on master (canonical runs them). Sampled source PRs and
 #   dispatches run the full graph — that is where the apples-to-apples comparison happens.
 #   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
+# - Fresh-master cache waiting is canonical-only: it waits on the GitHub Actions
+#   warmer, which cannot signal readiness for Depot's separate cache channel.
 
 # This workflow runs all of our backend django tests.
 #
@@ -159,7 +161,7 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
-    # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so the merge-base (PR)
+    # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so the PR-base
     # and HEAD (push) key computations below can't drift.
     # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
@@ -587,6 +589,8 @@ jobs:
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_base_sha: ${{ steps.schema-key.outputs.base_sha }}
+            schema_base_timestamp: ${{ steps.schema-key.outputs.base_timestamp }}
             schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
             django_shards: ${{ steps.discover.outputs.django_shards }}
             # Which Django tests this PR runs. Empty mode = this run does not select.
@@ -606,36 +610,39 @@ jobs:
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache key from PR base
               id: schema-key
               if: github.event_name == 'pull_request'
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
-                  # full ancestry needed to find the divergence point is available.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -z "$MERGE_BASE" ]; then
+                  # The event base is the exact master revision in the synthetic merge checkout.
+                  # Use it directly so cache compatibility does not depend on parent ordering.
+                  BASE_SHA="$PR_BASE_SHA"
+                  if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
-                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                      echo "base_sha=" >> $GITHUB_OUTPUT
+                      echo "base_timestamp=" >> $GITHUB_OUTPUT
+                      echo "::notice::PR event base is unavailable — schema cache will be skipped"
                       exit 0
                   fi
+                  echo "base_sha=$BASE_SHA" >> $GITHUB_OUTPUT
+                  echo "base_timestamp=$(git show -s --format=%ct "$BASE_SHA")" >> $GITHUB_OUTPUT
                   # Routing decides which app labels reach the dump, and the consumers replay them
                   # from the checked-out copy, so these inputs belong in the key below. A PR that
-                  # edits any of them matches no master dump, the merge-base one included: drop
+                  # edits any of them matches no master dump, the base one included: drop
                   # both keys and let migrations run from scratch.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$BASE_SHA" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
-                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                      echo "::notice::db routing config or router differs from the PR base, so the schema cache is skipped"
                       exit 0
                   fi
-                  # Exact branch-point key, kept as the fallback restore key below.
-                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Exact base-revision key, kept as the fallback restore key below.
+                  echo "key=posthog-schema-master-${BASE_SHA}" >> $GITHUB_OUTPUT
                   # Last-resort restore prefix: matches the newest saved dump of any
                   # migration set, for the window where both exact keys miss. Gated on
                   # checkout age (a day) because a re-run of an old run keeps its original
@@ -646,16 +653,16 @@ jobs:
                   if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
+                  # Shared key: hash base schema inputs, not PR head, so PR migrations still
                   # apply as the pytest delta. uv.lock covers third-party migration changes; the
                   # postgres image is folded in so a server-version bump invalidates the key.
                   # Non-Django migration frameworks are excluded from this Postgres schema dump.
                   # SCHEMA_CACHE_EPOCH (workflow env) prefixes the key as a manual cache-bust knob.
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$BASE_SHA" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
-                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                  PG_IMAGE=$(git show "${BASE_SHA}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -787,6 +794,92 @@ jobs:
             # test-selection-verdict job. The shadow strips that job and all artifact
             # uploads, so there is no Upload selection artifact step here.
 
+    # Build an absent schema dump once before the test matrices fan out.
+    # Every test job retains its migration fallback if this optimization fails.
+    prime-schema-cache:
+        needs: [changes, turbo-discover]
+        if: >-
+            !cancelled() &&
+            github.event_name == 'pull_request' &&
+            needs.changes.outputs.backend == 'true' &&
+            needs.turbo-discover.result == 'success'
+        name: Prime schema cache
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 25
+        continue-on-error: true
+        steps:
+            - name: Look up schema cache
+              id: schema-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
+                  restore-keys: |
+                      ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
+                  lookup-only: true
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              with:
+                  # Shared dumps represent the PR base. Run-scoped dumps include
+                  # the PR merge commit because their routing inputs may differ.
+                  ref: ${{ needs.turbo-discover.outputs.schema_cache_key != '' && needs.turbo-discover.outputs.schema_base_sha || github.sha }}
+            - name: Start database services
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: nohup bin/ci-wait-for-docker launch --background --down db redis7 clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+            - name: Set up Python
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              uses: ./.depot/actions/setup-python-cached
+              with:
+                  python-version: 3.13.13
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+            - name: Install uv
+              id: setup-uv
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: false
+            - name: Install SAML dependencies
+              if: steps.schema-cache.outputs.cache-matched-key == '' && steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+            - name: Install Rust
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+            - name: Install Python dependencies
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Wait for database services
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_TIMEOUT: 900
+              run: |
+                  bin/ci-wait-for-docker wait --only db redis7 clickhouse \
+                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+            - name: Build schema dump
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              run: |
+                  set -e
+                  set -o pipefail
+                  python manage.py migrate
+                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean --if-exists -U posthog posthog && \
+                   docker compose -f docker-compose.dev.yml exec -T db pg_dump --data-only --table=django_migrations -U posthog posthog) | gzip > schema.sql.gz
+                  gunzip -t schema.sql.gz
+            - name: Save schema cache
+              if: steps.schema-cache.outputs.cache-matched-key == ''
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
+
     build-product-test-matrix:
         name: Build product test matrix
         needs: [turbo-discover]
@@ -826,7 +919,15 @@ jobs:
     # A status function is required to inspect dependency results after failures.
     # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
     turbo-tests:
-        needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
+        needs:
+            [
+                changes,
+                turbo-discover,
+                prime-schema-cache,
+                detect-snapshot-mode,
+                build-product-test-matrix,
+                get_clickhouse_versions,
+            ]
         if: >-
             !cancelled() && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/') || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
         runs-on: depot-ubuntu-24.04
@@ -912,16 +1013,16 @@ jobs:
               # objectstorage answers InvalidAccessKeyId until its bootstrap registers identities.
               run: bin/ci-wait-for-docker wait objectstorage
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
+              if: ${{ github.event_name == 'pull_request' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # Prefer the shared content key; fall back to the exact PR-base SHA key,
                   # then to the newest dump of any migration set. Right after a migration
                   # lands on master both exact keys miss until ci-backend re-dumps, and a
                   # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
                   # migrate tops a slightly stale dump up in seconds instead.
-                  key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
+                  key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
                       ${{ needs.turbo-discover.outputs.schema_prefix_key }}
@@ -1407,14 +1508,14 @@ jobs:
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
             - name: Save schema to Actions cache for PR shards
-              # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
+              # Kept as the exact PR-base key that every consumer's restore-keys falls back to.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: posthog-schema-master-${{ github.sha }}
             - name: Compute migration-set schema key
-              # Must match the merge-base computation in turbo-discover and the
+              # Must match the PR-base computation in turbo-discover and the
               # master restore key above (inputs, hash, and key prefix).
               if: github.event_name == 'push'
               id: mig-schema-key
@@ -1533,7 +1634,7 @@ jobs:
                   exit 1
     build_django_matrix:
         name: Build Django matrix
-        needs: [changes, get_clickhouse_versions, turbo-discover]
+        needs: [changes, get_clickhouse_versions, turbo-discover, prime-schema-cache]
         if: |
             !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
@@ -2056,16 +2157,16 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: bin/ci-wait-for-docker wait
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
+              if: ${{ github.event_name == 'pull_request' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # Prefer the shared content key; fall back to the exact PR-base SHA key,
                   # then to the newest dump of any migration set. Right after a migration
                   # lands on master both exact keys miss until ci-backend re-dumps, and a
                   # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
                   # migrate tops a slightly stale dump up in seconds instead.
-                  key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
+                  key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
                       ${{ needs.turbo-discover.outputs.schema_prefix_key }}
