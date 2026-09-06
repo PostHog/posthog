@@ -87,6 +87,9 @@ tools:
     hog-flows-rerun-create:
         operation: hog_flows_rerun_create
         enabled: false
+    hog-flows-resume-email-sending:
+        operation: hog_flows_resume_email_sending
+        enabled: false
     hog-flows-revisions-list:
         operation: hog_flows_revisions_list
         enabled: false

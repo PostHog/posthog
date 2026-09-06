@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
+import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
@@ -53,11 +54,13 @@ import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
+import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
     editTemplateId?: string
+    triggerPrefill?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -214,6 +217,9 @@ export interface workflowLogicValues {
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
+    emailSendingPaused: boolean
+    emailSendingPausedByStaff: boolean
+    emailSendingPausedReason: string
     externallyEdited: boolean
     hasStagedDraft: boolean
     hasUnsavedChanges: boolean
@@ -239,6 +245,7 @@ export interface workflowLogicValues {
         | false
         | null
     publishDisabledReason: string | undefined
+    resumeEmailSendingPending: boolean
     saveAttemptedActionIds: string[] | null
     saveBaseUpdatedAt: string | null
     scheduleConfigSources: {
@@ -287,6 +294,9 @@ export interface workflowLogicActions {
     }
     confirmPublishDraft: (confirmToken: string) => {
         confirmToken: string
+    }
+    confirmResumeEmailSending: () => {
+        value: true
     }
     discardChanges: () => {
         value: true
@@ -2350,6 +2360,9 @@ export interface workflowLogicActions {
     resetWorkflow: (values?: HogFlow) => {
         values?: HogFlow
     }
+    resumeEmailSending: () => {
+        value: true
+    }
     saveWorkflow: (updates: HogFlow) => HogFlow
     saveWorkflowFailure: (
         error: string,
@@ -2379,6 +2392,9 @@ export interface workflowLogicActions {
     }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
+    }
+    setResumeEmailSendingPending: (pending: boolean) => {
+        pending: boolean
     }
     setSaveBaseUpdatedAt: (updatedAt: string | null) => {
         updatedAt: string | null
@@ -2969,6 +2985,9 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPaused: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPausedReason: (originalWorkflow: HogFlow | null) => string
+        emailSendingPausedByStaff: (originalWorkflow: HogFlow | null) => boolean
         showDraftActions: (originalWorkflow: HogFlow | null) => boolean
         publishDisabledReason: (
             hasStagedDraft: boolean,
@@ -2994,7 +3013,8 @@ export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
     key(
-        (props) => `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+        (props) =>
+            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
@@ -3048,6 +3068,9 @@ export const workflowLogic = kea<workflowLogicType>([
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
         setDeferredResourceEdited: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredResourceEdited: true,
+        resumeEmailSending: true,
+        confirmResumeEmailSending: true,
+        setResumeEmailSendingPending: (pending: boolean) => ({ pending }),
     }),
     loaders(({ props, values, actions, cache }) => ({
         originalWorkflow: [
@@ -3079,6 +3102,16 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).created_by
 
                             return newWorkflow
+                        }
+                        const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                        if (triggerConfig) {
+                            const prefilled: HogFlow = {
+                                ...NEW_WORKFLOW,
+                                actions: NEW_WORKFLOW.actions.map((action) =>
+                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
+                                ),
+                            }
+                            return prefilled
                         }
                         return { ...NEW_WORKFLOW }
                     }
@@ -3424,6 +3457,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 setDraftActionPending: (_, { pending }) => pending,
             },
         ],
+        resumeEmailSendingPending: [
+            false,
+            {
+                setResumeEmailSendingPending: (_, { pending }) => pending,
+            },
+        ],
         // A resource_edited event parked while our own save/reload was in flight. Replayed once the
         // flight settles, so a genuine external edit landing in that window is reconciled instead of
         // dropped. Latest event wins: the comparison is against timestamps, so older ones are moot.
@@ -3748,6 +3787,22 @@ export const workflowLogic = kea<workflowLogicType>([
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
 
+        // Read off the saved row, never the editor form: a pause is server state and the form is
+        // whatever the author has typed since.
+        emailSendingPaused: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.email_sending_paused_at,
+        ],
+        emailSendingPausedReason: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): string => originalWorkflow?.email_sending_paused_reason ?? '',
+        ],
+        // "staff" means only PostHog staff can lift the pause, so the banner hides the resume button.
+        emailSendingPausedByStaff: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.email_sending_paused_by === 'staff',
+        ],
+
         // A staged draft outlives the edits made after it, so the draft actions stay mounted while
         // the form is dirty. Gating them on a clean form made them appear and disappear on every
         // auto-save cycle.
@@ -3918,6 +3973,42 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.loadWorkflow()
             } finally {
                 actions.setDraftActionPending(null)
+            }
+        },
+        resumeEmailSending: () => {
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            LemonDialog.open({
+                title: 'Resume email sending?',
+                description:
+                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a couple of hours.',
+                primaryButton: {
+                    children: 'Resume sending',
+                    onClick: () => actions.confirmResumeEmailSending(),
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+        confirmResumeEmailSending: async () => {
+            // Also guards the dialog's close-animation window, where a fast double-click on the
+            // confirm button dispatches twice.
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            actions.setResumeEmailSendingPending(true)
+            try {
+                await hogFlowsResumeEmailSending(String(values.currentProjectId), props.id)
+                lemonToast.success('Email sending resumed')
+            } catch {
+                lemonToast.error('Could not resume email sending. Please try again.')
+            } finally {
+                actions.setResumeEmailSendingPending(false)
+                // Reload either way: on success to clear the banner, on failure because another
+                // editor may have resumed it already.
+                actions.loadWorkflow()
             }
         },
         discardDraft: () => {
