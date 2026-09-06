@@ -9429,9 +9429,13 @@ export interface DashboardWidgetApi {
 
 export interface DashboardTileApi {
     id?: number
-    insight: InsightApi
-    text: TextApi
-    button_tile: ButtonTileApi
+    /** The insight shown on this tile. Null on text, button, and widget tiles. */
+    insight?: InsightApi | null
+    /** The text card shown on this tile. Null on insight, button, and widget tiles. */
+    text?: TextApi | null
+    /** The button shown on this tile. Null on insight, text, and widget tiles. */
+    button_tile?: ButtonTileApi | null
+    /** The widget shown on this tile. Null on insight, text, and button tiles. */
     widget?: DashboardWidgetApi | null
     layouts?: unknown
     /**
