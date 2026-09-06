@@ -1,6 +1,8 @@
 import os
 from datetime import timedelta
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db.utils import ProgrammingError
@@ -15,6 +17,11 @@ if TYPE_CHECKING:
 is_cloud_cached: Optional[bool] = None
 is_instance_licensed_cached: Optional[bool] = None
 instance_license_cached: Optional["License"] = None
+
+
+def _posthog_owned_host_suffixes() -> list[str]:
+    """Read from `django.conf.settings`, so `override_settings` applies."""
+    return settings.POSTHOG_OWNED_HOST_SUFFIXES
 
 
 def _run_mode() -> RunMode:
@@ -40,6 +47,35 @@ def is_dev_mode() -> bool:
 def is_hobby() -> bool:
     """Self-hosted install: neither cloud nor local dev. Mirrors `isHobby` in preflightLogic."""
     return _run_mode().is_hobby
+
+
+def is_hobby_url(url: object) -> bool:
+    if not isinstance(url, str):
+        return False
+
+    try:
+        parsed_url = urlsplit(url)
+        hostname = parsed_url.hostname
+    except ValueError:
+        return False
+
+    if parsed_url.scheme not in ("http", "https") or hostname is None:
+        return False
+
+    # Browsers report `location.host` as `localhost.` for `http://localhost./`, and an FQDN
+    # trailing dot must not defeat the localhost, loopback, and owned-host checks below.
+    hostname = hostname.rstrip(".")
+
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return False
+
+    try:
+        if ip_address(hostname).is_loopback:
+            return False
+    except ValueError:
+        pass
+
+    return not any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _posthog_owned_host_suffixes())
 
 
 def is_ci() -> bool:

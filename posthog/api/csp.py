@@ -12,8 +12,11 @@ import structlog
 from prometheus_client import Counter
 from rest_framework import status
 
+from posthog.api.utils import get_token
+from posthog.cloud_utils import is_cloud, is_hobby_url
 from posthog.exceptions import generate_exception_response
 from posthog.models.utils import uuid7
+from posthog.ph_client import PH_US_API_KEY
 from posthog.sampling import sample_on_property
 from posthog.utils_cors import cors_response
 
@@ -43,6 +46,37 @@ CSP_REPORT_TYPES_MAPPING_TABLE = """
 | `$csp_user_agent`          | top-level `user_agent`               | not available                      |
 | `$csp_report_type`         | top-level `type`                     | `"csp-violation"` constant         |
 """
+
+
+SELF_HOSTED_REPORT_KEY = "self_hosted"
+
+
+def _label_self_hosted_reports(reports: list[dict[str, object]], token: Optional[str]) -> None:
+    """Mark, in place, the reports that a legacy self-hosted PostHog install sent to Cloud.
+
+    Three sources reach this endpoint:
+
+    - A customer's site, on their own team token, from any domain.
+    - PostHog's own app or website, on PostHog's token from a host in
+      `POSTHOG_OWNED_HOST_SUFFIXES` or a local host. More than Cloud: we also reach the app over
+      a tailnet and preview the website on Vercel.
+    - A self-hosted install, on PostHog's token because it runs PostHog's own `CSPMiddleware`,
+      from the operator's own host. This is the one we label.
+
+    Only the token tells the first case from the other two, so it is checked first. The document
+    URL then splits PostHog's own hosts from a self-hosted install.
+
+    Nothing is dropped. A host allowlist cannot be complete, and every host missing from it
+    would have its reports discarded with no trace, so the label carries the classification into
+    the event instead. `$csp_self_hosted` then makes the population countable in PostHog, which
+    is what tracks the volume falling away as operators upgrade past the middleware change.
+    """
+    if not is_cloud() or token != PH_US_API_KEY:
+        return
+
+    for report in reports:
+        if is_hobby_url(report.get("document_url")):
+            report[SELF_HOSTED_REPORT_KEY] = True
 
 
 def sample_csp_report(properties: dict, percent: float, add_metadata: bool = False) -> bool:
@@ -271,6 +305,7 @@ def process_csp_report(request):
                 CSP_REPORT_REJECTED.labels(reason="too_many_reports").inc()
                 raise CSPReportTooLarge(f"CSP report bundle of {report_count} reports exceeds the limit")
 
+        token = get_token(csp_data, request)
         distinct_id = request.GET.get("distinct_id") or str(uuid7())
         session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
@@ -298,6 +333,8 @@ def process_csp_report(request):
                 )
                 return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
+            _label_self_hosted_reports([properties], token)
+
             return (
                 build_csp_event(
                     properties,
@@ -320,10 +357,16 @@ def process_csp_report(request):
             violations_props = [parse_report_to(item) for item in items if is_csp_violation(item)]
             crash_props = [parse_crash_report(item) for item in items if is_crash_report(item)]
 
+            if not violations_props and not crash_props:
+                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+
             sampled_violations = []
             for prop in violations_props:
                 if sample_csp_report(prop, sample_rate, add_metadata=True):
                     sampled_violations.append(prop)
+
+            _label_self_hosted_reports(sampled_violations, token)
+            _label_self_hosted_reports(crash_props, token)
 
             # Crash reports skip sampling: they are rare and each one is a dead tab, so
             # applying the CSP sample rate would silently discard most of the signal.

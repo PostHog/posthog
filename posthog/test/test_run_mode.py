@@ -5,7 +5,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.cloud_utils import is_cloud, is_hobby
+from posthog.cloud_utils import is_cloud, is_hobby, is_hobby_url
 from posthog.run_mode import RunMode, derive_run_mode, run_mode
 
 
@@ -76,3 +76,41 @@ class TestCloudUtilsRunMode(SimpleTestCase):
         with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
             self.assertEqual(is_cloud(), cloud)
             self.assertEqual(is_hobby(), hobby)
+
+    @parameterized.expand(
+        [
+            ("cloud", "https://eu.posthog.com/project/1", False),
+            ("cloud_subdomain", "https://app.posthog.com/project/1", False),
+            ("deployed_dev", "https://app.dev.posthog.dev/project/1", False),
+            ("localhost", "http://localhost:8010/project/1", False),
+            ("ipv4_loopback", "http://127.0.0.1:8010/project/1", False),
+            ("ipv6_loopback", "http://[::1]:8010/project/1", False),
+            ("hobby", "https://posthog.example.com/project/1", True),
+            ("similar_domain", "https://notposthog.com/project/1", True),
+            # Browsers can report a trailing-dot host (`localhost.`, `us.posthog.com.`); it must
+            # not defeat the localhost, loopback, and Cloud-domain checks.
+            ("cloud_trailing_dot", "https://eu.posthog.com./project/1", False),
+            ("deployed_dev_trailing_dot", "https://app.dev.posthog.dev./project/1", False),
+            ("localhost_trailing_dot", "http://localhost.:8010/project/1", False),
+            ("ipv4_loopback_trailing_dot", "http://127.0.0.1./project/1", False),
+            ("missing", None, False),
+            ("malformed", "https://[", False),
+            # The replay player renders a recording into an `about:blank` iframe that inherits the
+            # page's CSP, so its violations report `about` as the document URL. The report is
+            # valid and comes from PostHog's own app, so it must not be treated as hobby.
+            ("about_blank_frame", "about", False),
+            # PostHog also serves the app over a Tailscale tailnet and previews the website on
+            # Vercel. Both are PostHog's own, so neither can be treated as hobby.
+            ("tailnet", "https://dev-box.tailnet-example.ts.net/project/1", False),
+            ("vercel_preview", "https://posthog-git-branch-example.vercel.app/docs", False),
+        ]
+    )
+    def test_identifies_hobby_url(self, _name: str, url: str | None, expected: bool) -> None:
+        self.assertEqual(is_hobby_url(url), expected)
+
+    def test_reads_owned_host_suffixes_from_settings(self) -> None:
+        # Operators add a host PostHog starts serving from without a deploy, so the suffixes have
+        # to come from settings rather than a module constant.
+        with override_settings(POSTHOG_OWNED_HOST_SUFFIXES=["example.com"]):
+            self.assertFalse(is_hobby_url("https://app.example.com/project/1"))
+            self.assertTrue(is_hobby_url("https://eu.posthog.com/project/1"))

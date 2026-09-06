@@ -11,6 +11,7 @@ from rest_framework import status
 from structlog.testing import capture_logs
 
 from posthog.api.csp import CSP_REPORT_REJECTED
+from posthog.ph_client import PH_US_API_KEY
 
 SINGLE_VIOLATION_REPORT_URI = {
     "csp-report": {
@@ -19,12 +20,14 @@ SINGLE_VIOLATION_REPORT_URI = {
     }
 }
 
+SINGLE_VIOLATION_REPORT_TO_BODY = {
+    "documentURL": "https://example.com/foo/bar",
+    "effectiveDirective": "script-src",
+}
+
 SINGLE_VIOLATION_REPORT_TO = {
     "type": "csp-violation",
-    "body": {
-        "documentURL": "https://example.com/foo/bar",
-        "effectiveDirective": "script-src",
-    },
+    "body": SINGLE_VIOLATION_REPORT_TO_BODY,
 }
 
 NON_VIOLATION_REPORT = {
@@ -117,6 +120,113 @@ class TestCspReport(BaseTest):
         mock_capture.assert_not_called()
         mock_buffer.enqueue.assert_not_called()
         assert CSP_REPORT_REJECTED.labels(reason=expected_reason)._value.get() - rejected_before == 1
+
+    @parameterized.expand(
+        [
+            ("report_uri_self_hosted", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, "$csp_self_hosted", True),
+            (
+                "report_to_self_hosted",
+                "application/reports+json",
+                [SINGLE_VIOLATION_REPORT_TO],
+                "$csp_self_hosted",
+                True,
+            ),
+            (
+                "crash_self_hosted",
+                "application/reports+json",
+                [CRASH_REPORT],
+                "$browser_crash_self_hosted",
+                True,
+            ),
+            ("report_uri_customer", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, "$csp_self_hosted", False),
+            (
+                "report_to_customer",
+                "application/reports+json",
+                [SINGLE_VIOLATION_REPORT_TO],
+                "$csp_self_hosted",
+                False,
+            ),
+            ("crash_customer", "application/reports+json", [CRASH_REPORT], "$browser_crash_self_hosted", False),
+        ]
+    )
+    def test_cloud_labels_self_hosted_reports_only_for_the_posthog_token(
+        self, _name, content_type, payload, label, posthog_token
+    ):
+        # The label is how the self-hosted population stays countable, so it must land on
+        # PostHog's own token and never on a customer's, whose document URL is their own domain.
+        token = PH_US_API_KEY if posthog_token else self.team.api_token
+
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US"),
+            patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
+            patch("posthog.api.report.capture_internal") as mock_capture,
+        ):
+            mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+            mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+            response = self.client.post(
+                f"/report/?token={token}",
+                data=json.dumps(payload),
+                content_type=content_type,
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        if mock_batch_capture.called:
+            properties = mock_batch_capture.call_args.kwargs["events"][0]["properties"]
+        else:
+            properties = mock_capture.call_args.kwargs["properties"]
+        assert properties.get(label, False) is posthog_token
+
+    @patch("posthog.api.report.capture_batch_internal")
+    def test_cloud_labels_only_the_self_hosted_reports_in_a_mixed_bundle(self, mock_batch_capture):
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+        posthog_violation = {
+            **SINGLE_VIOLATION_REPORT_TO,
+            "body": {
+                **SINGLE_VIOLATION_REPORT_TO_BODY,
+                "documentURL": "https://app.dev.posthog.dev/project/1",
+            },
+        }
+        unknown_origin_violation = {"type": "csp-violation", "body": {"effectiveDirective": "script-src"}}
+        local_violation = {
+            **SINGLE_VIOLATION_REPORT_TO,
+            "body": {**SINGLE_VIOLATION_REPORT_TO_BODY, "documentURL": "http://localhost:8010/project/1"},
+        }
+        posthog_crash = {**CRASH_REPORT, "url": "https://eu.posthog.com/project/1"}
+
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            response = self.client.post(
+                f"/report/?token={PH_US_API_KEY}",
+                data=json.dumps(
+                    [
+                        SINGLE_VIOLATION_REPORT_TO,
+                        posthog_violation,
+                        unknown_origin_violation,
+                        local_violation,
+                        CRASH_REPORT,
+                        posthog_crash,
+                    ]
+                ),
+                content_type="application/reports+json",
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = mock_batch_capture.call_args.kwargs["events"]
+        # Every report is ingested. Only the two on a host outside PostHog's own carry the label.
+        assert [
+            (
+                event["properties"]["$current_url"],
+                event["properties"].get("$csp_self_hosted", event["properties"].get("$browser_crash_self_hosted")),
+            )
+            for event in events
+        ] == [
+            ("https://example.com/foo/bar", True),
+            ("https://app.dev.posthog.dev/project/1", None),
+            (None, None),
+            ("http://localhost:8010/project/1", None),
+            ("https://app.example.com/dashboard/1", True),
+            ("https://eu.posthog.com/project/1", None),
+        ]
 
     @patch("posthog.api.report.capture_batch_internal")
     def test_mixed_report_types_not_rejected_by_violation_count_cap(self, mock_batch_capture):

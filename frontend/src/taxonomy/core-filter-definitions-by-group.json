@@ -1317,6 +1317,13 @@
             ],
             "label": "Script sample"
         },
+        "$csp_self_hosted": {
+            "description": "Set when the report came from a self-hosted PostHog install that reports to PostHog Cloud. Only ever set on PostHog's own project.",
+            "examples": [
+                true
+            ],
+            "label": "Self-hosted install"
+        },
         "$csp_source_file": {
             "description": "The source file where the violation occurred.",
             "examples": [
@@ -5967,6 +5974,13 @@
                 "eval('alert(1)')"
             ],
             "label": "Script sample"
+        },
+        "$csp_self_hosted": {
+            "description": "Set when the report came from a self-hosted PostHog install that reports to PostHog Cloud. Only ever set on PostHog's own project.",
+            "examples": [
+                true
+            ],
+            "label": "Self-hosted install"
         },
         "$csp_source_file": {
             "description": "The source file where the violation occurred.",
