@@ -39,10 +39,9 @@ from prometheus_client import Counter
 from temporalio import activity
 
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
-from posthog.models import OAuthAccessToken, User
+from posthog.models import User
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
-from posthog.temporal.oauth import create_oauth_access_token_for_user
 
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
@@ -162,18 +161,6 @@ def _connected_user(run: ReviewRun) -> User:
     return user
 
 
-def _mint_reviewer_oauth_token(run: ReviewRun, user: User) -> str:
-    """Short-lived OAuth token for the legacy gateway's stamphog route.
-
-    Carries only ``llm_gateway:read`` plus the ``internal_run:read`` marker that route requires.
-    Never ``include_internal_scopes=True``: it drags ``task:write`` into a sandbox running an LLM
-    over untrusted PR content.
-    """
-    return create_oauth_access_token_for_user(
-        user, run.team_id, scopes=["llm_gateway:read", "internal_run:read"], include_internal_scopes=False
-    )
-
-
 def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: User) -> str:
     """Per-run ``phe_`` minted with the worker's ``phs_``, which never enters the sandbox.
 
@@ -240,35 +227,30 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     )
 
 
-def _release_reviewer_token(gateway: AIGatewayConfig | None, token: str) -> None:
+def _release_reviewer_token(gateway: AIGatewayConfig, token: str) -> None:
     """Best-effort revoke of a token the run no longer needs; the TTL outlives the review by design.
 
-    A failure only logs (the token then expires) and never changes the run's outcome. A legacy
-    OAuth token is a row this worker created, so it is deleted here.
+    A failure only logs (the token then expires) and never changes the run's outcome.
     """
     try:
-        if gateway is None:
-            deleted, _ = OAuthAccessToken.objects.filter(token=token).delete()
-            outcome = "ok" if deleted else "no such token"
+        response = requests.post(
+            f"{_gateway_root(gateway)}/v1/tokens/revoke",
+            json={"token": token},
+            headers={"Authorization": f"Bearer {gateway.api_key}"},
+            timeout=_MINT_TIMEOUT_SECONDS,
+        )
+        if not 200 <= response.status_code < 300:
+            outcome = f"HTTP {response.status_code}"
         else:
-            response = requests.post(
-                f"{_gateway_root(gateway)}/v1/tokens/revoke",
-                json={"token": token},
-                headers={"Authorization": f"Bearer {gateway.api_key}"},
-                timeout=_MINT_TIMEOUT_SECONDS,
-            )
-            if not 200 <= response.status_code < 300:
-                outcome = f"HTTP {response.status_code}"
-            else:
-                # The gateway answers 200 with revoked=false when no token matched.
-                outcome = "ok" if response.json().get("revoked", True) else "no such token"
+            # The gateway answers 200 with revoked=false when no token matched.
+            outcome = "ok" if response.json().get("revoked", True) else "no such token"
     except Exception as e:  # noqa: BLE001 — a revoke failure must never mask the review outcome
         outcome = type(e).__name__
     if outcome != "ok":
         activity.logger.warning(f"Could not revoke the reviewer token ({outcome}); it expires with its TTL")
 
 
-def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConfig | None]:
+def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConfig]:
     """Environment for the in-sandbox reviewer.
 
     The sandbox holds no GitHub token by design, and no long-lived LLM credential either: the only
@@ -277,11 +259,9 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     own, and an org-wide Anthropic key must never ride into a sandbox that runs an LLM over untrusted
     PR content.
 
-    With ``AI_GATEWAY_URL`` and ``AI_GATEWAY_API_KEY`` both set, the token is a per-run ``phe_`` from
-    the Go ai-gateway; with the URL alone it must be the legacy ``/stamphog/v1`` route and the token
-    is the OAuth token that route allowlists. Any other pairing fails the run: the OAuth token is a
-    standard credential on the Go gateway and must never be sent there. Returns the env and the Go
-    config (None on the legacy path) so the caller can revoke the token.
+    ``AI_GATEWAY_URL`` and ``AI_GATEWAY_API_KEY`` name the Go ai-gateway and the worker's ``phs_``;
+    the token is a per-run ``phe_`` the caller revokes once the sandbox is gone. The sandbox sees
+    the same two names with the token in place of the key.
 
     POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
     traces from inside the sandbox. The capture key is a public project write token — the same class of
@@ -289,33 +269,20 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events.
     """
-    # Skip the resolver without a key: it warns per call, and legacy regions run keyless for good.
-    gateway = resolve_ai_gateway_config() if settings.AI_GATEWAY_API_KEY else None
-    if gateway is not None:
-        if _is_legacy_stamphog_route(gateway.url):
-            raise RuntimeError(
-                "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
-                "the ai-gateway key belongs with the ai-gateway URL"
-            )
-        gateway_url = gateway.url
-    else:
-        gateway_url = settings.AI_GATEWAY_URL or ""
-        if not gateway_url:
-            raise RuntimeError("AI_GATEWAY_URL is not configured; hosted reviews require the LLM gateway")
-        if not _is_legacy_stamphog_route(gateway_url):
-            raise RuntimeError(
-                "AI_GATEWAY_URL is not the legacy stamphog route and AI_GATEWAY_API_KEY is unset; "
-                "hosted reviews need both values for the ai-gateway"
-            )
-    user = _connected_user(run)
-    token = (
-        _mint_reviewer_scoped_token(gateway, run, user)
-        if gateway is not None
-        else _mint_reviewer_oauth_token(run, user)
-    )
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        raise RuntimeError(
+            "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must both be set; hosted reviews require the ai-gateway"
+        )
+    if _is_legacy_stamphog_route(gateway.url):
+        raise RuntimeError(
+            "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
+            "the ai-gateway key belongs with the ai-gateway URL"
+        )
+    token = _mint_reviewer_scoped_token(gateway, run, _connected_user(run))
     env = {
         "STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR,
-        "AI_GATEWAY_URL": gateway_url,
+        "AI_GATEWAY_URL": gateway.url,
         "AI_GATEWAY_API_KEY": token,
     }
     for key in ("POSTHOG_API_KEY", "POSTHOG_HOST"):
