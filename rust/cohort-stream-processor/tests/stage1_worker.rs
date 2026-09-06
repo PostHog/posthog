@@ -917,41 +917,50 @@ fn whole_event_skips_carry_distinct_reasons() {
         cohort(vec![behavioral_leaf(7), person_leaf()]),
     )]);
 
-    type SkipCase = (&'static str, fn(&mut CohortStreamEvent), SkipReason);
+    type SkipCase = (&'static str, fn(&mut CohortStreamEvent), Option<SkipReason>);
     let cases: [SkipCase; 5] = [
         (
             "empty person id",
             |e| e.person_id = String::new(),
-            SkipReason::NullPersonId,
+            Some(SkipReason::NullPersonId),
         ),
         (
             "non-uuid person id",
             |e| e.person_id = "not-a-uuid".to_string(),
-            SkipReason::UnparseablePersonId,
+            Some(SkipReason::UnparseablePersonId),
         ),
         (
             "unparseable timestamp",
             |e| e.timestamp = "nonsense".to_string(),
-            SkipReason::BadTimestamp,
+            Some(SkipReason::BadTimestamp),
         ),
+        // `properties` is behavioral-only data, so a malformed payload drops the behavioral side
+        // and lets the person side run.
         (
             "malformed properties",
             |e| e.properties = Some("{not json".to_string()),
-            SkipReason::GlobalsParseError,
+            None,
         ),
         (
             "malformed person_properties",
             |e| e.person_properties = Some("nope".to_string()),
-            SkipReason::GlobalsParseError,
+            Some(SkipReason::GlobalsParseError),
         ),
     ];
 
-    for (name, mutate, expected) in cases {
-        let mut ev = event(person(1), 1, 0);
+    // One person and one offset per case: the malformed-`properties` case writes a person record,
+    // which would make the next case a replay and send it down an arm that never parses.
+    for (index, (name, mutate, expected)) in cases.into_iter().enumerate() {
+        let mut ev = event(person(index as u128 + 1), 1, index as i64);
         mutate(&mut ev);
         let out = process_event(PARTITION_ID, &store, &filters, &ev).unwrap();
-        assert_eq!(out.skipped, Some(expected), "{name}");
-        assert!(out.transitions.is_empty(), "{name}");
+        assert_eq!(out.skipped, expected, "{name}");
+        assert!(
+            !out.transitions
+                .iter()
+                .any(|transition| transition.condition_hash == BEHAVIORAL_HASH),
+            "{name}: a behavioral leaf flipped on an event that could not be evaluated",
+        );
     }
 
     let empty = TeamFiltersBuilder::default().freeze(UTC);

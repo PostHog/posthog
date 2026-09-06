@@ -45,7 +45,7 @@ pub use filters::{
 pub use fingerprint::CatalogFingerprint;
 pub use hogvm::{
     build_behavioral_globals, classify_vm_error, evaluate_detailed, CohortEvaluator, EvalOutcome,
-    VmErrorClass,
+    GlobalsPlan, RootSet, VmErrorClass,
 };
 pub use leaf_state::{EvictionWindow, LeafStateKey, StateVariant};
 pub use partitioner::{partition_for, COHORT_PARTITION_COUNT};

@@ -1,7 +1,6 @@
 //! Differential parity for the event-name fan-out gate: the same event sequence with gating ON
 //! (evaluate only the event's name bucket) and OFF (full behavioral sweep) must yield byte-identical
-//! `cf_behavioral` and the same leaf transitions. Covers a matching name, a non-matching name, and
-//! numeric-looking names (`"0"` vs `"0.0"`) that must not cross-match.
+//! `cf_behavioral` and the same leaf transitions.
 
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
@@ -26,6 +25,7 @@ const PURCHASE_HASH: [u8; 16] = *b"purchasehash0002";
 const ZERO_HASH: [u8; 16] = *b"zerohash00000003";
 const ZERODOT_HASH: [u8; 16] = *b"zerodothash00004";
 const PAGEVIEW_MULTIPLE_HASH: [u8; 16] = *b"pageviewmult0006";
+const PERSON_HASH: [u8; 16] = *b"planhash00000005";
 
 /// A `performed_event` leaf whose bytecode roots at `event == <event_name>`.
 fn behavioral_leaf(event_name: &str, hash: &str) -> Value {
@@ -116,6 +116,39 @@ fn multi_condition_catalog() -> TeamFilters {
     builder.freeze(UTC)
 }
 
+/// Only the `$pageview` bucket needs `pdi`, so the two buckets get different globals plans.
+fn pdi_catalog() -> TeamFilters {
+    let pdi_leaf = json!({
+        "type": "behavioral",
+        "value": "performed_event",
+        "key": "$pageview",
+        "time_value": 7,
+        "time_interval": "day",
+        "conditionHash": "pdipageviewhash1",
+        // event == "$pageview" AND pdi.person.properties.plan == "pro"
+        "bytecode": [
+            "_H", 1,
+            32, "$pageview", 32, "event", 1, 1, 11,
+            32, "pro", 32, "plan", 32, "properties", 32, "person", 32, "pdi", 1, 4, 11,
+            3, 2,
+        ],
+    });
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(
+            CohortId(1),
+            TeamId(TEAM),
+            &json!({
+                "properties": {
+                    "type": "AND",
+                    "values": [pdi_leaf, behavioral_leaf("purchase", "purchasehash0002")],
+                }
+            }),
+        )
+        .unwrap();
+    builder.freeze(UTC)
+}
+
 fn event(person: Uuid, event_name: &str, offset: i64, timestamp: &str) -> CohortStreamEvent {
     CohortStreamEvent {
         team_id: TEAM,
@@ -177,9 +210,9 @@ fn sorted_transitions(transitions: &[LeafTransition]) -> Vec<LeafTransition> {
     sorted
 }
 
-/// Feeds each event to two independent stores — gating ON and OFF — and asserts parity after every
-/// step. Gating is the only varying axis; the person leaf never matches, so the person record is
-/// identical on both sides and the gate's effect is confined to `cf_behavioral`.
+/// Feeds each event to two independent stores, gating ON and OFF, and asserts parity after every
+/// step. Gating is the only varying axis, and it varies the globals dict too: the gated arm builds
+/// from one bucket's plan and the ungated arm from the union over every bucket.
 struct GatingParity {
     _on_dir: TempDir,
     _off_dir: TempDir,
@@ -310,7 +343,9 @@ fn gating_matches_full_sweep_on_a_multi_condition_event_name_bucket() {
     // daily-bucket write path), and both leaves must flip.
     let filters = multi_condition_catalog();
     assert_eq!(
-        filters.behavioral_by_event_name["$pageview"].len(),
+        filters.behavioral_by_event_name["$pageview"]
+            .conditions
+            .len(),
         2,
         "the $pageview bucket holds both conditionHashes",
     );
@@ -336,4 +371,66 @@ fn gating_matches_full_sweep_on_a_multi_condition_event_name_bucket() {
         expected.to_vec(),
         "both leaves in the bucket flip — the single and the daily-bucket write paths",
     );
+}
+
+/// Were a malformed payload to skip the whole event, the gate would become a correctness switch:
+/// with gating on an unbucketed event is never parsed and so never skipped, while the ungated sweep
+/// parses it, fails, and skips it, leaving the person record on one side only.
+#[test]
+fn a_malformed_properties_payload_keeps_both_arms_identical() {
+    let mut p = GatingParity::new();
+    let filters = catalog();
+    let alice = Uuid::from_u128(1);
+
+    let mut broken = event(alice, "no_such_event", 0, "2026-05-26 10:00:00.000000");
+    broken.properties = Some("{not json".to_string());
+    // Matches the `pro` person leaf, so the person side flipping is visible as a transition.
+    broken.person_properties = Some(r#"{"plan":"pro"}"#.to_string());
+
+    let outcome = p.feed(&filters, &broken, "malformed properties, unbucketed name");
+    assert_eq!(
+        outcome.skipped, None,
+        "a malformed `properties` is behavioral-only data and must not skip the event",
+    );
+    assert_eq!(
+        outcome.transitions.len(),
+        1,
+        "the person side still ran: {:?}",
+        outcome.transitions,
+    );
+    assert_eq!(outcome.transitions[0].condition_hash, PERSON_HASH);
+    assert!(
+        dump_stage1(&p.on_store).is_empty(),
+        "the behavioral side staged a row from a payload that never parsed",
+    );
+}
+
+/// Every other fixture reads only `event`, so the builder could stop emitting `pdi` under every plan
+/// and they would all still pass.
+#[test]
+fn a_condition_reading_pdi_matches_under_both_gating_arms() {
+    const PDI_HASH: [u8; 16] = *b"pdipageviewhash1";
+    let mut p = GatingParity::new();
+    let filters = pdi_catalog();
+    let alice = Uuid::from_u128(1);
+
+    // The `purchase` bucket plans no `pdi`, so this exercises the narrower plan first.
+    let purchase = p.feed(
+        &filters,
+        &event(alice, "purchase", 0, "2026-05-26 10:00:00.000000"),
+        "purchase",
+    );
+    assert_eq!(purchase.transitions.len(), 1);
+    assert_eq!(purchase.transitions[0].condition_hash, PURCHASE_HASH);
+
+    let mut matching = event(alice, "$pageview", 1, "2026-05-26 11:00:00.000000");
+    matching.person_properties = Some(r#"{"plan":"pro"}"#.to_string());
+    let pageview = p.feed(&filters, &matching, "$pageview reading pdi");
+    assert_eq!(
+        pageview.transitions.len(),
+        1,
+        "the pdi-reading leaf did not flip: {:?}",
+        pageview.transitions,
+    );
+    assert_eq!(pageview.transitions[0].condition_hash, PDI_HASH);
 }

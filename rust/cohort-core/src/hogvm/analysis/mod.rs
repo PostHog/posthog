@@ -23,11 +23,14 @@
 //! program whose `GET_GLOBAL`s all resolve to literal paths cannot reach a global this analysis did
 //! not record, however it combines those values afterwards.
 //!
-//! A path whose root is outside [`GlobalRoot`] records nothing, which is sound because a projection
-//! narrows the values *under* a root and never removes one. A name no globals dict carries is
-//! absent from the projected event and from the full one alike, so it names no column. That rests
-//! on [`GlobalRoot`] covering every dict this crate builds, which
+//! A path whose root is outside [`GlobalRoot`] records nothing. A name no globals dict carries is
+//! absent from the narrowed event and from the full one alike, so it names no column and no root.
+//! That rests on [`GlobalRoot`] covering every dict this crate builds, which
 //! `every_globals_dict_key_is_a_named_root` in `hogvm::globals` checks.
+//!
+//! The two consumers narrow differently and [`Projection::Reads`] serves both: the seeder narrows
+//! the values under a root and keeps the root, while [`GlobalsPlan`] removes whole roots. So a read
+//! set is sound for both only because every path records its root as well as its segments.
 //!
 //! Reading no event data is only half the obligation. A bare native name resolves to a closure
 //! instead of a read, so such a root widens whenever calling it would read a value's spelling
@@ -35,6 +38,7 @@
 
 mod decode;
 mod event_only;
+mod plan;
 mod projection;
 
 use std::collections::BTreeSet;
@@ -43,6 +47,7 @@ use hogvm::Operation;
 use serde_json::Value;
 
 pub use decode::DecodeError;
+pub use plan::{GlobalsPlan, RootSet};
 pub use projection::AnalysisBudget;
 
 /// What a static pass could establish about one condition's bytecode.
@@ -233,6 +238,10 @@ impl GroupIndex {
     pub const fn get(self) -> u8 {
         self.0
     }
+
+    pub fn all() -> impl Iterator<Item = Self> {
+        (0..Self::COUNT).map(Self)
+    }
 }
 
 /// Every root of every globals dict this crate builds, which is the whole surface a condition can
@@ -245,7 +254,7 @@ impl GroupIndex {
 ///
 /// The other direction is benign. A variant no dict carries over-claims a read, which costs bytes
 /// and never correctness, so nothing here has to chase it.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GlobalRoot {
     Event,
     Uuid,
@@ -300,6 +309,59 @@ impl GlobalRoot {
         }
     }
 
+    pub const COUNT: u8 = 14 + 2 * GroupIndex::COUNT;
+
+    /// A dense index into `0..COUNT`, never persisted, that [`GlobalRoot::from_ordinal`] inverts.
+    pub fn ordinal(self) -> u8 {
+        match self {
+            Self::Event => 0,
+            Self::Uuid => 1,
+            Self::ElementsChain => 2,
+            Self::ElementsChainHref => 3,
+            Self::ElementsChainTexts => 4,
+            Self::ElementsChainIds => 5,
+            Self::ElementsChainElements => 6,
+            Self::Timestamp => 7,
+            Self::Properties => 8,
+            Self::Person => 9,
+            Self::Pdi => 10,
+            Self::DistinctId => 11,
+            Self::Variables => 12,
+            Self::Project => 13,
+            Self::DollarGroup(index) => FIRST_GROUP_ORDINAL + index.get(),
+            Self::Group(index) => FIRST_GROUP_ORDINAL + GroupIndex::COUNT + index.get(),
+        }
+    }
+
+    pub fn from_ordinal(ordinal: u8) -> Option<Self> {
+        let root = match ordinal {
+            0 => Self::Event,
+            1 => Self::Uuid,
+            2 => Self::ElementsChain,
+            3 => Self::ElementsChainHref,
+            4 => Self::ElementsChainTexts,
+            5 => Self::ElementsChainIds,
+            6 => Self::ElementsChainElements,
+            7 => Self::Timestamp,
+            8 => Self::Properties,
+            9 => Self::Person,
+            10 => Self::Pdi,
+            11 => Self::DistinctId,
+            12 => Self::Variables,
+            13 => Self::Project,
+            _ => {
+                let group = ordinal - FIRST_GROUP_ORDINAL;
+                return match GroupIndex::parse(group) {
+                    Some(index) => Some(Self::DollarGroup(index)),
+                    None => {
+                        GroupIndex::parse(group.wrapping_sub(GroupIndex::COUNT)).map(Self::Group)
+                    }
+                };
+            }
+        };
+        Some(root)
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Event => "event",
@@ -321,6 +383,8 @@ impl GlobalRoot {
         }
     }
 }
+
+const FIRST_GROUP_ORDINAL: u8 = 14;
 
 const DOLLAR_GROUP_NAMES: [&str; GroupIndex::COUNT as usize] =
     ["$group_0", "$group_1", "$group_2", "$group_3", "$group_4"];
@@ -428,8 +492,31 @@ mod tests {
         );
     }
 
+    /// The compiler forces a new variant to take an ordinal, but not to update
+    /// [`GlobalRoot::COUNT`], and a stale one leaves `RootSet::ALL` short of a root.
     #[test]
-    fn every_global_root_round_trips_through_its_name() {
+    fn every_global_root_round_trips_through_its_name_and_ordinal() {
+        let by_ordinal: Vec<GlobalRoot> = (0..GlobalRoot::COUNT)
+            .map(|ordinal| {
+                GlobalRoot::from_ordinal(ordinal).unwrap_or_else(|| {
+                    panic!("ordinal {ordinal} is below COUNT and resolved to no root")
+                })
+            })
+            .collect();
+        assert_eq!(
+            by_ordinal.iter().collect::<BTreeSet<_>>().len(),
+            GlobalRoot::COUNT as usize,
+            "two roots share an ordinal, so a bitset over them would conflate them",
+        );
+        assert_eq!(
+            GlobalRoot::from_ordinal(GlobalRoot::COUNT),
+            None,
+            "COUNT is not past the last ordinal, so `RootSet::ALL` would be short a root",
+        );
+        for root in &by_ordinal {
+            assert_eq!(GlobalRoot::from_ordinal(root.ordinal()), Some(*root));
+        }
+
         let roots = [
             GlobalRoot::Event,
             GlobalRoot::Uuid,
@@ -447,12 +534,12 @@ mod tests {
             GlobalRoot::Project,
         ];
         for root in roots {
-            assert_eq!(GlobalRoot::parse(root.as_str()), Some(root.clone()));
+            assert_eq!(GlobalRoot::parse(root.as_str()), Some(root));
         }
         for index in 0..GroupIndex::COUNT {
             let index = GroupIndex::parse(index).unwrap();
             for root in [GlobalRoot::DollarGroup(index), GlobalRoot::Group(index)] {
-                assert_eq!(GlobalRoot::parse(root.as_str()), Some(root.clone()));
+                assert_eq!(GlobalRoot::parse(root.as_str()), Some(root));
             }
         }
     }

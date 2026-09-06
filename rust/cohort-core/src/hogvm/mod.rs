@@ -14,6 +14,7 @@ pub mod analysis;
 mod executor;
 mod globals;
 
+pub use analysis::{GlobalsPlan, RootSet};
 pub use executor::{
     classify_vm_error, evaluate_detailed, CohortEvaluator, EvalOutcome, VmErrorClass,
 };

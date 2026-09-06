@@ -5,8 +5,9 @@ use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 // The `cohort-core`-owned metric names this binary emits: its metric-surface manifest.
 pub use cohort_core::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_COHORT_PARSE_ERRORS,
-    FILTER_CATALOG_INVALID_SHAPE_HASH, FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK,
-    STAGE1_GLOBALS_PARSE_ERROR, STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
+    FILTER_CATALOG_CONDITION_PROJECTION, FILTER_CATALOG_INVALID_SHAPE_HASH,
+    FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK, STAGE1_GLOBALS_PARSE_ERROR,
+    STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
 };
 
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
@@ -267,6 +268,10 @@ pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
+/// Behavioral globals builds, labelled by `result`: `built`, `no_candidates` when no condition can
+/// match so neither payload is parsed, or `parse_error` (counter). `no_candidates` conflates an
+/// unbucketed event name with a team that has no behavioral condition; scope by team to separate.
+pub const STAGE1_GLOBALS_BUILDS: &str = "stage1_globals_builds_total";
 /// Condition evaluations skipped because the result was already known, labelled by `reason`
 /// (`event_name_gate`) (counter).
 pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";

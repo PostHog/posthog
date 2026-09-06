@@ -21,11 +21,13 @@ use uuid::Uuid;
 use crate::consumers::events::CohortStreamEvent;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
-use crate::hogvm::{build_behavioral_globals, build_person_property_globals, CohortEvaluator};
+use crate::hogvm::{
+    build_behavioral_globals, build_person_property_globals, CohortEvaluator, GlobalsPlan,
+};
 use crate::observability::metrics::{
     STAGE1_BEHAVIORAL_APPLIES, STAGE1_CONDITIONS_EVALUATED, STAGE1_CONDITIONS_SKIPPED,
-    STAGE1_PERSON_RECORD_SIZE_BYTES, STAGE1_PERSON_RECORD_TOTAL, STAGE1_REPLAY_SKIPPED,
-    STAGE1_SNAPSHOT_KEYS, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
+    STAGE1_GLOBALS_BUILDS, STAGE1_PERSON_RECORD_SIZE_BYTES, STAGE1_PERSON_RECORD_TOTAL,
+    STAGE1_REPLAY_SKIPPED, STAGE1_SNAPSHOT_KEYS, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
     STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
 use crate::stage1::bucket_tz::{
@@ -79,6 +81,8 @@ pub enum SkipReason {
     UnparseablePersonId,
     NoTeamFilters,
     NoConditions,
+    /// `person_properties` failed to parse. A malformed `properties` does not reach here; it drops
+    /// the behavioral side and leaves the person side to run.
     GlobalsParseError,
     BadTimestamp,
 }
@@ -410,28 +414,26 @@ pub(crate) fn plan_event(
         return EventPlan::Skip(SkipReason::NoConditions);
     }
 
-    // Build behavioral globals before any evaluation, so a malformed payload skips the event before
-    // any condition runs. The person side parses its own globals only on the evaluation arm, in the fold.
-    let behavioral_globals = if has_behavioral {
-        match build_behavioral_globals(event) {
-            Ok(globals) => Some(globals),
-            Err(_) => return EventPlan::Skip(SkipReason::GlobalsParseError),
-        }
-    } else {
-        None
-    };
-
-    let mut evaluator = CohortEvaluator::new();
+    // Resolve the candidates first, so an event no condition roots at pays for neither JSON parse.
     let mut behavioral: Vec<BehavioralApply> = Vec::new();
-    if let Some(globals) = behavioral_globals {
-        evaluator.set_globals(globals);
-        collect_behavioral_applies(
-            filters,
-            &event.event,
-            event_name_gating,
-            &mut evaluator,
-            &mut behavioral,
-        );
+    match BehavioralCandidates::resolve(filters, &event.event, event_name_gating) {
+        None => counter!(STAGE1_GLOBALS_BUILDS, "result" => "no_candidates").increment(1),
+        Some(candidates) => match build_behavioral_globals(event, candidates.plan) {
+            // Skipping the whole event here would make the gating flag a correctness switch: an
+            // empty bucket is never parsed and so never skipped, while the sweep parses and skips.
+            Err(_) => counter!(STAGE1_GLOBALS_BUILDS, "result" => "parse_error").increment(1),
+            Ok(globals) => {
+                counter!(STAGE1_GLOBALS_BUILDS, "result" => "built").increment(1);
+                let mut evaluator = CohortEvaluator::new();
+                evaluator.set_globals(globals);
+                collect_behavioral_applies(
+                    filters,
+                    candidates.conditions,
+                    &mut evaluator,
+                    &mut behavioral,
+                );
+            }
+        },
     }
 
     // Fingerprints are computed here; the record read and evaluation happen in the fold.
@@ -794,38 +796,54 @@ fn active_person_props<'a>(filters: &TeamFilters, event: &'a CohortStreamEvent) 
         .filter(|raw| !raw.is_empty())
 }
 
-/// Evaluate this event's behavioral conditions against the set globals, pushing a [`BehavioralApply`]
-/// per matching leaf. Under [`EventNameGating::Enabled`] only the event's name bucket is evaluated.
+/// What one event can match under `gating`, resolved before the globals are built.
+struct BehavioralCandidates<'a> {
+    conditions: &'a [[u8; 16]],
+    plan: GlobalsPlan,
+}
+
+impl<'a> BehavioralCandidates<'a> {
+    /// `None` when nothing can match, the case that skips both JSON parses. The `event_name_gate`
+    /// count is emitted either way, so a gated-out condition still counts on an unparsed event.
+    fn resolve(
+        filters: &'a TeamFilters,
+        event_name: &str,
+        gating: EventNameGating,
+    ) -> Option<Self> {
+        match gating {
+            EventNameGating::Disabled => {
+                (!filters.behavioral_conditions.is_empty()).then(|| Self {
+                    conditions: &filters.behavioral_conditions,
+                    plan: filters.behavioral_plan,
+                })
+            }
+            EventNameGating::Enabled => {
+                let bucket = filters.behavioral_by_event_name.get(event_name);
+                let gated_out = filters
+                    .behavioral_conditions
+                    .len()
+                    .saturating_sub(bucket.map_or(0, |bucket| bucket.conditions.len()));
+                if gated_out > 0 {
+                    counter!(STAGE1_CONDITIONS_SKIPPED, "reason" => "event_name_gate")
+                        .increment(gated_out as u64);
+                }
+                bucket.map(|bucket| Self {
+                    conditions: &bucket.conditions,
+                    plan: bucket.plan,
+                })
+            }
+        }
+    }
+}
+
 fn collect_behavioral_applies(
     filters: &TeamFilters,
-    event_name: &str,
-    gating: EventNameGating,
+    conditions: &[[u8; 16]],
     evaluator: &mut CohortEvaluator,
     applies: &mut Vec<BehavioralApply>,
 ) {
-    match gating {
-        EventNameGating::Disabled => {
-            for &hash in &filters.behavioral_conditions {
-                eval_behavioral_condition(filters, hash, evaluator, applies);
-            }
-        }
-        EventNameGating::Enabled => {
-            let matched = filters
-                .behavioral_by_event_name
-                .get(event_name)
-                .map_or(&[][..], Vec::as_slice);
-            let skipped = filters
-                .behavioral_conditions
-                .len()
-                .saturating_sub(matched.len());
-            if skipped > 0 {
-                counter!(STAGE1_CONDITIONS_SKIPPED, "reason" => "event_name_gate")
-                    .increment(skipped as u64);
-            }
-            for &hash in matched {
-                eval_behavioral_condition(filters, hash, evaluator, applies);
-            }
-        }
+    for &hash in conditions {
+        eval_behavioral_condition(filters, hash, evaluator, applies);
     }
 }
 

@@ -10,7 +10,8 @@ use std::sync::Arc;
 use cohort_core::events::CohortStreamEvent;
 use cohort_core::filters::{TeamFilters, TeamId};
 use cohort_core::hogvm::{
-    build_behavioral_globals, classify_vm_error, CohortEvaluator, EvalOutcome, VmErrorClass,
+    build_behavioral_globals, classify_vm_error, CohortEvaluator, EvalOutcome, GlobalsPlan,
+    VmErrorClass,
 };
 use uuid::Uuid;
 
@@ -88,8 +89,9 @@ impl ChunkAccumulator {
         let active_by_event_name = filters
             .behavioral_by_event_name
             .iter()
-            .map(|(event_name, candidates)| {
-                let candidates = candidates
+            .map(|(event_name, bucket)| {
+                let candidates = bucket
+                    .conditions
                     .iter()
                     .filter_map(|candidate| active.get(candidate).map(|hash| (candidate, hash)))
                     .map(|(candidate, hash)| {
@@ -135,7 +137,7 @@ impl ChunkAccumulator {
         if self.active_by_event_name.is_empty() {
             return Ok(RecordOutcome::Evaluated(RecordStats::default()));
         }
-        let Ok(globals) = build_behavioral_globals(event) else {
+        let Ok(globals) = build_behavioral_globals(event, GlobalsPlan::FULL) else {
             return Ok(RecordOutcome::SkippedGlobals);
         };
         self.evaluator.set_globals(globals);
