@@ -147,6 +147,28 @@ describe('endpointSceneLogic', () => {
         })
     })
 
+    describe('not found handling', () => {
+        it('flags endpointMissing when the endpoint 404s', async () => {
+            ;(api.endpoint.get as jest.Mock).mockRejectedValue({ status: 404 })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadEndpoint('gone-endpoint')
+            }).toFinishAllListeners()
+
+            expect(logic.values.endpointMissing).toBe(true)
+        })
+
+        it('does not flag endpointMissing on a non-404 failure', async () => {
+            ;(api.endpoint.get as jest.Mock).mockRejectedValue({ status: 500 })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadEndpoint('broken-endpoint')
+            }).toFinishAllListeners()
+
+            expect(logic.values.endpointMissing).toBe(false)
+        })
+    })
+
     describe('extractBreakdownPropertyNames', () => {
         // Must match the backend's iter_breakdowns, which stringifies every entry (str(name)),
         // so numeric legacy breakdowns (e.g. cohort IDs) land in the OpenAPI required set as strings

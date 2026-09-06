@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { NotFound } from 'lib/components/NotFound'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ActionLogicProps, actionLogic } from 'products/actions/frontend/logics/actionLogic'
@@ -15,7 +16,11 @@ export const scene: SceneExport<ActionLogicProps> = {
 export function Action({ id }: ActionLogicProps): JSX.Element {
     // Use the scene-bound logic (BindLogic in App.tsx supplies the key props), so we don't need
     // to duplicate them here.
-    const { action, actionLoading } = useValues(actionLogic)
+    const { action, actionLoading, actionMissing } = useValues(actionLogic)
+
+    if (actionMissing) {
+        return <NotFound object="action" />
+    }
 
     return (
         <ActionEdit
