@@ -691,6 +691,14 @@ export interface CommunitySkillPublishResultApi {
     branch: string
 }
 
+export interface LLMSkillRenameApi {
+    /**
+     * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
+     * @maxLength 64
+     */
+    new_name: string
+}
+
 export interface LLMSkillVersionSummaryApi {
     readonly id: string
     readonly version: number

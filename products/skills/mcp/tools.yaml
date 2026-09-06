@@ -183,6 +183,24 @@ tools:
             skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill
             `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id`
             (UUID) is not a valid route segment and will 404.
+    skill-rename:
+        operation: llm_skills_name_rename_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Rename skill
+        description: >
+            Rename an agent skill, keeping its version history, bundled files, and owners. The name is the slug agents
+            call and the directory in the zip export, so a rename changes every one of them at once. Fails with 404 if
+            the skill does not exist, and with 400 if the new name is taken or if either name starts with
+            'signals-scout-' or 'review-hog-' (those products key their own settings on the skill name).
+        param_overrides:
+            skill_name:
+                description: The current kebab-case name of the skill to rename.
     skill-resolve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
