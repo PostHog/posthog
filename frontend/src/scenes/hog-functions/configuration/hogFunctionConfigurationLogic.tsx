@@ -1971,6 +1971,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         upsertHogFunctionFailure: ({ errorObject }) => {
             const maybeValidationError = errorObject.data
 
+            if (errorObject?.status === 404) {
+                // The function was deleted while the scene was open, or the id came from another
+                // project through a deep link. A retry cannot succeed, so name the cause instead of
+                // the generic save error. initKea keeps this out of error tracking.
+                lemonToast.error("Couldn't save. This function no longer exists, or it belongs to another project.")
+                return
+            }
+
             if (maybeValidationError?.type === 'validation_error' && maybeValidationError.attr) {
                 // Errors on `type` (the feature gate and the enabled-function cap reject there)
                 // have no rendered form field, so a toast is the only way the user sees them.
