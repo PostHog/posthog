@@ -119,6 +119,9 @@ services:
             # (native port 9000, user "default", empty password).
             CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
+            # RS256 key for the OAuth/OIDC provider (toolbar authentication, API-scoped
+            # tokens); written to .env by bin/deploy-hobby and bin/upgrade-hobby.
+            OIDC_RSA_PRIVATE_KEY: ${OIDC_RSA_PRIVATE_KEY:-}
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -182,6 +185,9 @@ services:
             # (native port 9000, user "default", empty password).
             CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
+            # RS256 key for the OAuth/OIDC provider (toolbar authentication, API-scoped
+            # tokens); written to .env by bin/deploy-hobby and bin/upgrade-hobby.
+            OIDC_RSA_PRIVATE_KEY: ${OIDC_RSA_PRIVATE_KEY:-}
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -482,6 +488,9 @@ services:
             # Workload.LOGS.
             CLICKHOUSE_LOGS_CLUSTER_HOST: 'clickhouse'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'false'
+            # RS256 key for the OAuth/OIDC provider (toolbar authentication, API-scoped
+            # tokens); written to .env by bin/deploy-hobby and bin/upgrade-hobby.
+            OIDC_RSA_PRIVATE_KEY: ${OIDC_RSA_PRIVATE_KEY:-}
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
