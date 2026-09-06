@@ -406,11 +406,33 @@ def get_personhog_client() -> Optional[PersonHogClient]:
     return _client
 
 
+class PersonHogNotConfigured(RuntimeError):
+    """Raised when a personhog call runs on a deployment that has no PERSONHOG_ADDR.
+
+    This is a static deployment state, not an incident: it holds for the life of the
+    process and every subsequent call fails the same way. Reporting paths tell it apart
+    from a real personhog failure so they degrade quietly instead of capturing the same
+    exception forever and burying the failures that are actionable.
+    """
+
+
 def require_personhog_client() -> PersonHogClient:
     client = get_personhog_client()
     if client is None:
-        raise RuntimeError("personhog client not configured")
+        raise PersonHogNotConfigured("personhog client not configured")
     return client
+
+
+def is_personhog_not_configured(exc: BaseException) -> bool:
+    """True if `exc` is, or was raised from, a missing personhog client."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, PersonHogNotConfigured):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def personhog_call(
@@ -443,10 +465,19 @@ def personhog_call(
         else:
             result = fn()
     except Exception as exc:
+        not_configured = is_personhog_not_configured(exc)
         PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-            operation=operation, source="personhog", error_type="grpc_error", client_name=get_client_name()
+            operation=operation,
+            source="personhog",
+            error_type="not_configured" if not_configured else "grpc_error",
+            client_name=get_client_name(),
         ).inc()
-        logger.warning("personhog_%s_failure", operation, exc_info=True)
+        if not_configured:
+            # A traceback adds nothing here — the setting name is the whole diagnosis,
+            # and this fires on every call for the life of the process.
+            logger.warning("personhog_%s_not_configured", operation)
+        else:
+            logger.warning("personhog_%s_failure", operation, exc_info=True)
         if reraise_as is not None:
             raise reraise_as(f"personhog {operation} failed") from exc
         raise

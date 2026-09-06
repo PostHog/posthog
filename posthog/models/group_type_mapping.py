@@ -19,7 +19,7 @@ from prometheus_client import Counter
 import posthog.personhog_client.client as personhog_client
 from posthog.models.utils import RootTeamMixin
 from posthog.personhog_client import ReadConsistency, consistency_to_read_options
-from posthog.personhog_client.client import personhog_call, require_personhog_client
+from posthog.personhog_client.client import is_personhog_not_configured, personhog_call, require_personhog_client
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import capture_exception_throttled, get_safe_cache, safe_cache_delete, safe_cache_set
@@ -77,7 +77,17 @@ def _record_group_types_fetch_failure(*, operation: str, log_event: str, exc: Ba
 
     The counter is always incremented; only the capture is throttled. Each log line
     records whether the capture ran or was throttled.
+
+    A deployment with no PERSONHOG_ADDR fails every call this way for the life of the
+    process, so it is counted and logged but never captured — the capture repeats one
+    unchanging fact and buries the personhog failures an operator can act on. Alert on
+    the "not_configured" counter label instead.
     """
+    if is_personhog_not_configured(exc):
+        GROUP_TYPES_FETCH_FAILURES.labels(operation=operation, source="personhog", error_type="not_configured").inc()
+        logger.warning(log_event, operation=operation, error_type="not_configured", **log_fields)
+        return
+
     GROUP_TYPES_FETCH_FAILURES.labels(operation=operation, source="personhog", error_type="db_error").inc()
 
     throttle_key = f"group_types_failure_capture_throttle:{operation}"
@@ -358,7 +368,7 @@ def _recover_projects_from_stale_or_fail(project_ids: list[int], exc: DatabaseEr
             unrecovered.append(project_id)
 
     if unrecovered:
-        raise GroupTypesUnavailable(unrecovered)
+        raise GroupTypesUnavailable(unrecovered) from exc
 
     return recovered
 

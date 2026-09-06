@@ -39,6 +39,7 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
 )
 from posthog.models.team import Team
+from posthog.personhog_client.client import is_personhog_not_configured
 from posthog.storage.hypercache import (
     HYPERCACHE_REBUILD_SKIPPED_COUNTER,
     HyperCache,
@@ -517,6 +518,12 @@ def update_flag_caches(team: Team):
     except GroupTypesUnavailable as e:
         # Group types could not be loaded; skip the write to keep the existing entry.
         HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace="feature_flags", reason="group_types_unavailable").inc()
+        if is_personhog_not_configured(e):
+            # A deployment with no PERSONHOG_ADDR skips every rebuild for the life of the
+            # process. The skip counter carries that; a capture per throttle window only
+            # repeats it. The skip itself is unchanged.
+            logger.warning("Skipped feature_flags cache rebuild: personhog is not configured", team_id=team.id)
+            return
         _capture_flag_cache_skip_throttled(
             "flag_cache_group_types_unavailable_capture_throttle",
             e,
