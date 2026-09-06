@@ -1,5 +1,6 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { FeaturePreviewGateConfig } from '~/types'
 
 export const metricsFeaturePreviewGate: FeaturePreviewGateConfig = {
@@ -8,4 +9,5 @@ export const metricsFeaturePreviewGate: FeaturePreviewGateConfig = {
     description:
         "Metrics is available to select teams while we polish it. You can already send metrics with any OpenTelemetry client. Join the waitlist and we'll turn on the viewer for your team.",
     docsURL: 'https://posthog.com/docs/metrics',
+    productIntent: ProductKey.METRICS,
 }
