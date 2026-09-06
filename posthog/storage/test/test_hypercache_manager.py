@@ -687,3 +687,20 @@ class TestNarrowTeamQueryset(BaseTest):
         # Neither the refresh fields nor the extra fields are deferred, so reading
         # team.name never triggers a per-team lazy load.
         assert deferred & {"id", "project_id", "organization_id", "name"} == set()
+
+    def test_related_rows_are_narrowed_to_the_declared_columns(self):
+        config = HyperCacheManagementConfig(
+            hypercache=create_test_hypercache(),
+            update_fn=lambda team, ttl=None: True,
+            cache_name="test_cache",
+            refresh_only_fields=["id", "project_id", "organization_id", "organization__name"],
+        )
+
+        team = config.narrow_team_queryset(Team.objects.filter(id=self.team.id)).get()
+
+        # The wide JSONB columns on the joined organization row cost CPU to detoast for
+        # every page of the cron sweeps, so they stay out of the SELECT.
+        assert "available_product_features" in team.organization.get_deferred_fields()
+        # A declared related column is read from the same query, not a per-team lazy load.
+        with self.assertNumQueries(0):
+            assert team.organization.name

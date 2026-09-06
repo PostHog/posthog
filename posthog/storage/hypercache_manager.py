@@ -214,9 +214,10 @@ class HyperCacheManagementConfig:
     # instead of fetching the whole row. This keeps the refresh working when a Team
     # column added by a migration the read replica hasn't applied yet would otherwise
     # make `SELECT *` raise UndefinedColumn (the replica lags on posthog_team DDL).
-    # Must list every Team field the config's update_fn/load_fn reads; related fields
-    # (organization/project) come via select_related and don't need listing, but the
-    # FK columns (organization_id, project_id) do. Leave None to select all columns.
+    # Must list every Team field the config's update_fn/load_fn reads, including the FK
+    # columns (organization_id, project_id). A column read off the joined organization or
+    # project row is listed as a related path ("organization__name"); an unlisted column on
+    # those rows is not selected. Leave None to select all columns.
     refresh_only_fields: list[str] | None = None
 
     # Optional write guard: given (key, payload), returns True to skip the write. Used
@@ -289,13 +290,17 @@ class HyperCacheManagementConfig:
     def narrow_team_queryset(
         self, queryset: "QuerySet[Team]", *, extra_fields: tuple[str, ...] = ()
     ) -> "QuerySet[Team]":
-        """Select related org/project and restrict Team columns to refresh_only_fields.
+        """Select related org/project and restrict the SELECT to refresh_only_fields.
 
         The library warm, refresh, and verify paths and the management commands all
         route through this so a Team column the read replica hasn't migrated yet
         can't turn their `SELECT *` into an UndefinedColumn error (see the
-        refresh_only_fields field comment). Only Team columns are narrowed:
-        org/project rows are still fully selected.
+        refresh_only_fields field comment).
+
+        Django narrows only the models named in `.only()`, so a joined model with no
+        related path in the list keeps every column, including the wide JSONB columns
+        on Organization. The primary keys below narrow the joined rows to one column
+        each; a config that reads more lists it as "organization__name".
 
         extra_fields adds Team columns a caller needs beyond refresh_only_fields
         (e.g. the management commands print team.name) without widening the hot
@@ -303,7 +308,7 @@ class HyperCacheManagementConfig:
         """
         queryset = queryset.select_related("organization", "project")
         if self.refresh_only_fields is not None:
-            queryset = queryset.only(*self.refresh_only_fields, *extra_fields)
+            queryset = queryset.only(*self.refresh_only_fields, *extra_fields, "organization__id", "project__id")
         return queryset
 
 
