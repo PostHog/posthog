@@ -4,7 +4,7 @@ import { IconFlag } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -36,10 +36,10 @@ interface FeatureFlagReleaseConditionsReadonlyProps {
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
-/** Extract server-provided group_key_names from a property, if present. */
+/** Extract group_key_names from a property, if present. */
 function getGroupKeyNames(property: AnyPropertyFilter): Record<string, string> {
-    if (property.type === PropertyFilterType.Group && 'group_key_names' in property) {
-        return (property as any).group_key_names ?? {}
+    if ('group_key_names' in property) {
+        return property.group_key_names ?? {}
     }
     return {}
 }
@@ -60,15 +60,20 @@ function PropertyValueDisplay({
     }
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
-    const groupKeyNames = property.key === '$group_key' ? getGroupKeyNames(property) : {}
+    const groupKeyNames = getGroupKeyNames(property)
     const isDistinctId = isDistinctIdFilter(property)
 
     return (
         <>
             {propertyValues.map((val, idx) => {
                 const strVal = String(val)
-                const display = isDistinctId ? getDistinctIdName(strVal) : groupKeyNames[strVal] || strVal
-                return <LemonSnack key={idx}>{display}</LemonSnack>
+                const display = isDistinctId ? getDistinctIdName(strVal) : labelWithGroupName(strVal, groupKeyNames)
+                // Keep the resolved group or person name out of session replay, like GroupActorDisplay.
+                return (
+                    <LemonSnack key={idx} className="ph-no-capture">
+                        {display}
+                    </LemonSnack>
+                )
             })}
         </>
     )
@@ -131,7 +136,7 @@ export function FeatureFlagReleaseConditionsReadonly({
         filters,
     })
 
-    const { filterGroups, aggregationTargetName, properties, getDistinctIdName, getFlagKey } =
+    const { filterGroups, aggregationTargetName, properties, getDistinctIdName, getFlagKey, resolveGroupKeyNames } =
         useValues(releaseConditionsLogic)
 
     return (
@@ -169,6 +174,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                             aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                             getDistinctIdName={getDistinctIdName}
                             getFlagKey={getFlagKey}
+                            resolveGroupKeyNames={resolveGroupKeyNames}
                         />
                     </div>
                 ))}
@@ -185,6 +191,7 @@ interface ConditionSetCardProps {
     aggregationTargetName: string
     getDistinctIdName: (distinctId: string) => string
     getFlagKey: (flagId: string) => string
+    resolveGroupKeyNames: (properties: AnyPropertyFilter[] | undefined) => AnyPropertyFilter[]
 }
 
 function ConditionSetCard({
@@ -193,8 +200,9 @@ function ConditionSetCard({
     aggregationTargetName,
     getDistinctIdName,
     getFlagKey,
+    resolveGroupKeyNames,
 }: ConditionSetCardProps): JSX.Element {
-    const properties = withResolvedFlagLabels(group.properties, getFlagKey)
+    const properties = resolveGroupKeyNames(withResolvedFlagLabels(group.properties, getFlagKey))
     const rollout = group.rollout_percentage ?? 100
 
     const getSummary = (): JSX.Element => {

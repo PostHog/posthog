@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { chunk } from 'lib/utils/arrays'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,6 +14,11 @@ export interface GroupKeySelectLogicProps {
     groupTypeIndex: GroupTypeIndex
     value: string[]
 }
+
+// `findGroups` issues one request per key, so an "is one of" list of a hundred org ids would
+// otherwise open a hundred connections at once. Resolve in chunks instead. The bound lives here,
+// the single fan-out point, so every caller gets it.
+const FIND_GROUPS_CHUNK_SIZE = 10
 
 // A `null` value is a definitive "no such group" (404) that callers may cache.
 // A key absent from the result hit a transient error and should be retried, not
@@ -25,29 +31,37 @@ export async function findGroups(
     if (!teamId || groupKeys.length === 0) {
         return {}
     }
-    const results = await Promise.all(
-        groupKeys.map(async (groupKey) => {
-            try {
-                const response: Group = await api.get(
-                    `api/environments/${teamId}/groups/find/?${new URLSearchParams({
-                        group_type_index: String(groupTypeIndex),
-                        group_key: groupKey,
-                        // Resolving a display name is read-only; don't lazily
-                        // create the group's CRM notebook as a side effect.
-                        skip_create_notebook: 'true',
-                    }).toString()}`
-                )
-                return [groupKey, response] as const
-            } catch (error) {
-                if (error instanceof ApiError && error.status === 404) {
-                    return [groupKey, null] as const
+    const resolved: Record<string, Group | null> = {}
+    for (const batch of chunk(groupKeys, FIND_GROUPS_CHUNK_SIZE)) {
+        const results = await Promise.all(
+            batch.map(async (groupKey) => {
+                try {
+                    const response: Group = await api.get(
+                        `api/environments/${teamId}/groups/find/?${new URLSearchParams({
+                            group_type_index: String(groupTypeIndex),
+                            group_key: groupKey,
+                            // Resolving a display name is read-only; don't lazily
+                            // create the group's CRM notebook as a side effect.
+                            skip_create_notebook: 'true',
+                        }).toString()}`
+                    )
+                    return [groupKey, response] as const
+                } catch (error) {
+                    if (error instanceof ApiError && error.status === 404) {
+                        return [groupKey, null] as const
+                    }
+                    posthog.captureException(error)
+                    return null
                 }
-                posthog.captureException(error)
-                return null
+            })
+        )
+        for (const result of results) {
+            if (result !== null) {
+                resolved[result[0]] = result[1]
             }
-        })
-    )
-    return Object.fromEntries(results.filter((r): r is readonly [string, Group | null] => r !== null))
+        }
+    }
+    return resolved
 }
 
 export async function resolveGroupNames(

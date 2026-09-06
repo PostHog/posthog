@@ -19,7 +19,11 @@ import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupK
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
-import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import {
+    isGroupCardFilterKey,
+    labelWithGroupName,
+    propertyFilterTypeToPropertyDefinitionType,
+} from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -339,19 +343,20 @@ export function PropertyValue({
         )
     }
 
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+    const selectedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
+        String
+    )
+    const formattedValues = selectedValues.map((label) =>
+        String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+    )
+    // `groupKeyNames` is keyed by the raw group key, so a name is looked up by the raw value while
+    // the formatted value is what gets shown next to it.
+    const displayValues = formattedValues.map((formatted, index) =>
+        labelWithGroupName(selectedValues[index], groupKeyNames, formatted)
     )
 
     if (!editable) {
-        if (isGroupKeyProperty && groupKeyNames) {
-            const rawValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-                String
-            )
-            const displayValues = rawValues.map((key) => groupKeyNames[key] || key)
-            return <>{displayValues.join(' or ')}</>
-        }
-        return <>{formattedValues.join(' or ')}</>
+        return <>{displayValues.join(' or ')}</>
     }
 
     if (isDurationProperty) {
@@ -514,8 +519,11 @@ export function PropertyValue({
                 options={[
                     ...displayOptions.map(({ name: _name }, index) => {
                         const name = toString(_name)
+                        const groupName = groupKeyNames?.[name]
                         return {
                             key: name,
+                            // The id, not the group name: `label` is what the dropdown's fuzzy search
+                            // indexes, and a match on the name would commit the typed text as a value.
                             label: name,
                             value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                             tooltip: showGroupCardOnValue ? groupCardTooltip(name) : undefined,
@@ -524,19 +532,35 @@ export function PropertyValue({
                                     key={name}
                                     data-attr={'prop-val-' + index}
                                     className="ph-no-capture flex items-center gap-1.5"
-                                    title={name}
+                                    title={labelWithGroupName(name, groupKeyNames)}
                                 >
-                                    {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                    {/* A resolved key is always a real group id, so prefixing the
+                                        name never costs a value its `(empty string)` or boolean
+                                        rendering. */}
+                                    {groupName
+                                        ? labelWithGroupName(name, groupKeyNames)
+                                        : formatLabelContent(isFlagDependencyProperty ? _name : name)}
                                 </span>
                             ),
                         }
                     }),
-                    // A pasted group id is a custom value absent from the suggestions, so add
-                    // an option for each selected value to carry the group-card tooltip on its snack.
-                    ...(showGroupCardOnValue
+                    // A pasted group id is a custom value absent from the suggestions, so add an
+                    // option for each selected value to carry its name and group card on its snack.
+                    ...(showGroupCardOnValue || groupKeyNames
                         ? formattedValues
-                              .filter((v) => !displayOptions.some((o) => toString(o.name) === v))
-                              .map((v) => ({ key: v, label: v, tooltip: groupCardTooltip(v) }))
+                              .map((formatted, index) => [selectedValues[index], formatted] as const)
+                              .filter(([, formatted]) => !displayOptions.some((o) => toString(o.name) === formatted))
+                              .map(([raw, formatted]) => ({
+                                  key: formatted,
+                                  label: formatted,
+                                  // Mask the resolved group name in session replay, matching the suggestion option above.
+                                  labelComponent: (
+                                      <span key={formatted} className="ph-no-capture">
+                                          {labelWithGroupName(raw, groupKeyNames, formatted)}
+                                      </span>
+                                  ),
+                                  tooltip: showGroupCardOnValue ? groupCardTooltip(raw) : undefined,
+                              }))
                         : []),
                 ]}
             />
