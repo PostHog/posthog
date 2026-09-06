@@ -14,6 +14,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -54,7 +55,9 @@ export const scene: SceneExport<GroupLogicProps> = {
     logic: groupLogic,
     paramsToProps: ({ params: { groupTypeIndex, groupKey } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
-        groupKey: decodeURIComponent(groupKey ?? ''),
+        // A group key with a stray `%` (e.g. `50%off`) makes decodeURIComponent throw
+        // `URIError: URI malformed`. Fall back to the raw key so the scene still renders.
+        groupKey: tryDecodeURIComponent(groupKey ?? ''),
     }),
 }
 
