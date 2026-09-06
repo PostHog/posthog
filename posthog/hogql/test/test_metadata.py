@@ -341,15 +341,22 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             MAX_SUGGESTED_NAMES,
         )
 
-    def test_metadata_reads_suggestion_candidates_in_one_query(self) -> None:
-        # A candidate read per unknown name costs a round trip per name. A typical project holds a
-        # few hundred definitions, where those round trips cost more than the comparison they save.
+    def test_metadata_reads_suggestion_candidates_scoped_to_the_project(self) -> None:
+        # The only index that answers a trigram match on `name` carries no project column, so a
+        # trigram-ranked lookup matches and sorts every team's names before the project scope
+        # applies. Candidates have to be read through the project-scoped index and ranked in Python.
         with CaptureQueriesContext(connection) as captured:
             metadata = self._select_with_unknown_properties(MAX_SUGGESTED_NAMES)
 
         self.assertTrue(metadata.isValid)
-        candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
+        statements = [query["sql"] for query in captured.captured_queries]
+        self.assertEqual([sql for sql in statements if "SIMILARITY" in sql.upper()], [])
+
+        # A candidate read per unknown name costs a round trip per name. A typical project holds a
+        # few hundred definitions, where those round trips cost more than the comparison they save.
+        candidate_reads = [sql for sql in statements if "LENGTH(" in sql.upper()]
         self.assertEqual(len(candidate_reads), 1, candidate_reads)
+        self.assertIn(str(self.team.project_id), candidate_reads[0])
 
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
@@ -376,11 +383,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     def test_metadata_skips_suggestion_lookup_for_known_event(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
-        with patch("posthog.hogql.taxonomy_validation._similar_names") as similar_names:
+        with patch("posthog.hogql.taxonomy_validation._candidate_names") as candidate_names:
             metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
 
         self.assertTrue(metadata.isValid)
-        similar_names.assert_not_called()
+        candidate_names.assert_not_called()
 
     def test_metadata_event_literal_fix_preserves_quotes(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")

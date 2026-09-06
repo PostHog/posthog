@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from difflib import get_close_matches
 from logging import getLogger
+from math import ceil, floor
 from typing import Literal
 
-from django.contrib.postgres.search import TrigramSimilarity
 from django.db import DatabaseError
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
-from django.db.models.functions import Greatest
+from django.db.models import QuerySet
+from django.db.models.functions import Length
 
 from posthog.schema import HogQLNotice
 
@@ -25,16 +25,21 @@ logger = getLogger(__name__)
 # `property` → a `properties.<identifier>` field. Both escape the suggestion (see `_build_fix`).
 FixContext = Literal["string", "property"]
 
-# How many similar names the suggestion lookup reads per typed name. Postgres ranks candidates by
-# trigram similarity, so the best match is in the first rows and difflib does not need every name.
-SUGGESTION_CANDIDATE_LIMIT = 20
+# How many project-scoped names one suggestion lookup reads. A project holds hundreds to low
+# thousands of definitions, and the length band below drops most of those, so the cap only binds on
+# a project whose taxonomy is far larger than that.
+SUGGESTION_CANDIDATE_LIMIT = 2000
+
+# How close a candidate must be to earn a "Did you mean". `difflib` scores a pair as
+# `2 * matching_characters / (len(a) + len(b))`.
+SIMILARITY_CUTOFF = 0.6
 
 # The `name` column of both definition models is `CharField(max_length=400)`.
 MAX_SUGGESTION_INPUT_LENGTH = 400
 
-# How many unknown names in one query get a suggestion. One lookup covers the whole batch, but
-# pg_trgm compares every name in it, and a caller controls how many unknown names one query carries.
-# Names past this cap still warn, only without "Did you mean".
+# How many unknown names in one query get a suggestion. One lookup covers the whole batch, but every
+# name in it is compared against every candidate, and a caller controls how many unknown names one
+# query carries. Names past this cap still warn, only without "Did you mean".
 MAX_SUGGESTED_NAMES = 5
 
 # Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
@@ -197,9 +202,13 @@ def _warnings_for_unknown_references(
         references_by_name.setdefault(reference.name, reference)
     referenced_names = list(references_by_name.keys())
 
-    # Hot path: an indexed `name__in` existence check over only the referenced names (usually 1–5).
-    # When every name is valid we never load more.
-    found_names = set(taxonomy.filter(name__in=referenced_names).values_list("name", flat=True))
+    # Hot path: an indexed `name__in` existence check over the referenced names and their
+    # `$`-prefixed forms (usually 2–10 rows). One seek answers both "does this name exist" and
+    # "did the caller drop the `$`", so a query whose names are all valid never reads more.
+    dollar_prefixed_names = [f"${name}" for name in referenced_names if not name.startswith("$")]
+    found_names = set(
+        taxonomy.filter(name__in=[*referenced_names, *dollar_prefixed_names]).values_list("name", flat=True)
+    )
     unknown_names = [name for name in referenced_names if name not in found_names]
     if not unknown_names:
         return []
@@ -209,7 +218,7 @@ def _warnings_for_unknown_references(
     if not found_names and not taxonomy.exists():
         return []
 
-    suggestions = _suggestions_for(taxonomy, unknown_names[:MAX_SUGGESTED_NAMES])
+    suggestions = _suggestions_for(taxonomy, unknown_names[:MAX_SUGGESTED_NAMES], found_names)
 
     warnings: list[HogQLNotice] = []
     for name in unknown_names:
@@ -242,25 +251,27 @@ def _build_fix(fix_context: FixContext | None, suggestion: str) -> str | None:
     return None
 
 
-def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
+def _suggestions_for(taxonomy: QuerySet, names: list[str], found_names: set[str]) -> dict[str, str]:
     """Map the names that earn a suggestion to the name suggested for each.
 
-    One candidate read covers the whole batch. A read per name would cost a round trip per name, and
-    a typical project holds a few hundred definitions, where those round trips cost more than the
-    comparison they save.
+    A name whose `$`-prefixed form is already in `found_names` needs no further read: the existence
+    check above proved that name exists. The rest share one candidate read, because a read per name
+    would cost a round trip per name.
     """
-    candidates = _similar_names(taxonomy, names)
-    if not candidates:
-        return {}
-
-    candidate_set = set(candidates)
     suggestions: dict[str, str] = {}
+    unresolved: list[str] = []
     for name in names:
         dollar_prefixed = f"${name}"
-        if not name.startswith("$") and dollar_prefixed in candidate_set:
+        if dollar_prefixed in found_names:
             suggestions[name] = dollar_prefixed
-            continue
+        else:
+            unresolved.append(name)
 
+    if not unresolved:
+        return suggestions
+
+    candidates = _candidate_names(taxonomy, unresolved)
+    for name in unresolved:
         closest = _closest_name(name, candidates)
         if closest:
             suggestions[name] = closest
@@ -268,54 +279,38 @@ def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
     return suggestions
 
 
-def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
-    """Read the names most similar to any of `names`, ranked and capped by Postgres.
+def _candidate_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
+    """Read the project's definition names that can still reach the similarity cutoff.
 
-    `name__trigram_similar` is the pg_trgm `%` operator, which the GIN trigram indexes
-    `index_event_definition_name` and `index_property_definition_name` answer directly. Postgres
-    still intersects that match with the project scope, so this call is bounded by what it returns,
-    not by what it reads.
+    The read is scoped to the project, so Postgres seeks it in `posthog_propdef_proj_uniq` /
+    `event_definition_proj_uniq` and stays inside the project's rows. A trigram match on `name`
+    cannot do that: the only index that answers the pg_trgm `%` operator is a GIN index on `name`
+    alone, so Postgres matches and ranks the name across every team first, then applies the project
+    scope to the result.
 
-    The `$`-prefixed form of each name is matched exactly as well, and sorts ahead of the ranked
-    candidates. A caller who typed a name without its `$` therefore keeps that suggestion however
-    many other candidates the batch pulls in.
+    A candidate scores `2 * matching_characters / (len(name) + len(candidate))`, and the match count
+    cannot exceed the shorter of the two. A candidate outside the length band that follows can
+    therefore never reach the cutoff, so Postgres drops it before it reaches Python.
 
-    A name longer than the `name` column can never equal a definition, and pg_trgm cost grows with
-    the input, so an oversized literal is dropped rather than compared.
+    A name longer than the `name` column can never equal a definition, so an oversized literal is
+    dropped rather than compared.
     """
     comparable = [name for name in names if len(name) <= MAX_SUGGESTION_INPUT_LENGTH]
     if not comparable:
         return []
 
-    dollar_prefixed = [f"${name}" for name in comparable if not name.startswith("$")]
-
-    matches = Q(name__in=dollar_prefixed) if dollar_prefixed else Q()
-    for name in comparable:
-        matches |= Q(name__trigram_similar=name)
-
-    similarities = [TrigramSimilarity("name", name) for name in comparable]
-    ranked = taxonomy.filter(matches).annotate(
-        # `Greatest` needs two expressions, and one unknown name is the common case.
-        name_similarity=Greatest(*similarities) if len(similarities) > 1 else similarities[0]
-    )
-
-    ordering = ["-name_similarity", "name"]
-    if dollar_prefixed:
-        ranked = ranked.annotate(
-            name_is_dollar_prefixed=Case(
-                When(name__in=dollar_prefixed, then=Value(1)), default=Value(0), output_field=IntegerField()
-            )
-        )
-        ordering.insert(0, "-name_is_dollar_prefixed")
+    span = 2 / SIMILARITY_CUTOFF - 1
+    shortest = ceil(min(len(name) for name in comparable) / span)
+    longest = floor(max(len(name) for name in comparable) * span)
 
     return list(
-        ranked.order_by(*ordering).values_list("name", flat=True)[: SUGGESTION_CANDIDATE_LIMIT * len(comparable)]
+        taxonomy.alias(name_length=Length("name"))
+        .filter(name_length__gte=shortest, name_length__lte=longest)
+        .order_by("name")
+        .values_list("name", flat=True)[:SUGGESTION_CANDIDATE_LIMIT]
     )
 
 
 def _closest_name(name: str, candidates: list[str]) -> str | None:
-    # pg_trgm selects candidates at the server's `pg_trgm.similarity_threshold` (0.3 by default),
-    # which is loose enough to return names a reader would not accept as a typo. difflib makes the
-    # final call at a stricter cutoff, so a suggestion needs both measures to agree.
-    matches = get_close_matches(name, candidates, n=1, cutoff=0.6)
+    matches = get_close_matches(name, candidates, n=1, cutoff=SIMILARITY_CUTOFF)
     return matches[0] if matches else None
