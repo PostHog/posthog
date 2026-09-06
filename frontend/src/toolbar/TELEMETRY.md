@@ -12,9 +12,9 @@ and exception autocapture. Session recording stays off until someone starts a pr
 
 Those options fall back to the internal project's remote config when unset, so the project
 settings could switch them back on. A `before_send` guard therefore drops the events too:
-`$autocapture`, `$copy_autocapture`, `$dead_click`, `$pageleave`, `$pageview`, `$rageclick`,
-`$web_vitals`, `$$heatmap`, and any `$exception` without a `toolbar_context` property. Report
-toolbar failures with `captureToolbarException`, which adds that property.
+`$autocapture`, `$copy_autocapture`, `$dead_click`, `$dead_swipe`, `$pageleave`, `$pageview`,
+`$rageclick`, `$web_vitals`, `$$heatmap`, and any `$exception` without a `toolbar_context`
+property. Report toolbar failures with `captureToolbarException`, which adds that property.
 
 posthog-js also describes the host page on every event it sends, whatever the event is. The same
 guard removes those properties from the events the toolbar keeps, so none of them reach the internal

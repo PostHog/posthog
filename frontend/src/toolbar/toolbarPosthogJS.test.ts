@@ -37,6 +37,7 @@ describe('toolbar posthog instance', () => {
         ['$autocapture'],
         ['$copy_autocapture'],
         ['$dead_click'],
+        ['$dead_swipe'],
         ['$pageleave'],
         ['$pageview'],
         ['$rageclick'],

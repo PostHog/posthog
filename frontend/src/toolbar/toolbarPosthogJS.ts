@@ -15,6 +15,7 @@ const HOST_PAGE_CAPTURE_EVENTS = new Set([
     '$autocapture',
     '$copy_autocapture',
     '$dead_click',
+    '$dead_swipe',
     '$pageleave',
     '$pageview',
     '$rageclick',
