@@ -169,6 +169,7 @@ class AgentServerLaunchMixin(SandboxBase):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            unset_bedrock=self.disable_direct_bedrock,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown

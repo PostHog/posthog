@@ -1314,7 +1314,7 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions"]
+depends_on = ["posthog", "products.event_definitions", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]

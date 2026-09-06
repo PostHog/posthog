@@ -13,8 +13,9 @@ import { hashCodeForString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { MCPServiceAccountServerApi } from 'products/mcp_store/frontend/generated/api.schemas'
-import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
+import { signalsScoutConfigUpdate, signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type {
+    SignalScoutConfigApi,
     SignalScoutConfigOptionsApi,
     SignalScoutCreateApi,
     SignalScoutCreateResponseApi,
@@ -41,7 +42,13 @@ import { scoutMcpServersLogic } from './scoutMcpServersLogic'
 type ScoutCreateConfigFormValues = Required<
     Pick<
         SignalScoutConfigOptionsApi,
-        'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule' | 'tags' | 'mcp_gateway_server_ids'
+        | 'enabled'
+        | 'emit'
+        | 'run_interval_minutes'
+        | 'run_cron_schedule'
+        | 'tags'
+        | 'mcp_gateway_server_ids'
+        | 'write_scopes'
     >
 > &
     Pick<SignalScoutConfigOptionsApi, 'output_destinations'>
@@ -56,6 +63,18 @@ export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'descrip
 
 export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'>> & {
     config?: Partial<ScoutCreateConfigFormValues>
+    /**
+     * The scout suggestion this form was opened from. Sent with the create so the suggestion stops
+     * being offered. Kept off the form values: it identifies the opening, not anything editable, and
+     * the form is persisted as a draft.
+     */
+    suggestionId?: string
+    /**
+     * The config of a scout that already exists, when the form opens to turn it on rather than
+     * create it. The name, description and body then show what the scout is and stay read-only;
+     * submitting patches this config with the run settings instead of creating a skill.
+     */
+    existingConfigId?: string
 }
 
 export interface ScoutCreateModalLogicProps {
@@ -63,6 +82,8 @@ export interface ScoutCreateModalLogicProps {
     initialValues?: ScoutCreateInitialValues
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
+    /** Called instead of `onCreated` when the form turned an existing scout on. */
+    onEnabled?: (config: SignalScoutConfigApi) => void
 }
 
 export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
@@ -78,6 +99,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
         run_cron_schedule: null,
         tags: [],
         mcp_gateway_server_ids: [],
+        write_scopes: [],
     },
 }
 
@@ -94,9 +116,16 @@ export function getScoutCreateFormValues(
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES.config,
         ...initialValues?.config,
     }
+    // `suggestionId` rides on the props, not the form: it is sent with the create but is nothing
+    // the person edits, and the form values are persisted as a draft.
+    const {
+        suggestionId: _suggestionId,
+        existingConfigId: _existingConfigId,
+        ...editableInitialValues
+    } = initialValues ?? {}
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
-        ...initialValues,
+        ...editableInitialValues,
         name: redesign
             ? stripScoutPrefix((initialValues?.name ?? '').trim())
             : (initialValues?.name ?? SIGNALS_SCOUT_SKILL_PREFIX),
@@ -116,6 +145,17 @@ export function getScoutCreateFormValues(
  */
 export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues | undefined): string {
     const name = initialValues?.name?.trim()
+    if (initialValues?.existingConfigId) {
+        // A form opened on an existing scout shows that scout as it is now, read-only, so a draft
+        // persisted under the bare name must not outlive a change to the skill or the pick's cadence.
+        // Keying on the content means a fresh read always opens fresh.
+        const content = JSON.stringify([
+            initialValues.description ?? '',
+            initialValues.body ?? '',
+            initialValues.config ?? {},
+        ])
+        return `existing-${initialValues.existingConfigId}-${hashCodeForString(content)}`
+    }
     if (name) {
         return name
     }
@@ -354,6 +394,29 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                     throw new Error('No project selected')
                 }
 
+                const existingConfigId = logicProps.initialValues?.existingConfigId
+                if (existingConfigId) {
+                    // The scout exists already, so only its run settings are written. The name,
+                    // description and body were shown for the person to check, not to change.
+                    try {
+                        const { enabled: _enabled, ...runSettings } = formValues.config
+                        const config = await signalsScoutConfigUpdate(String(values.currentTeamId), existingConfigId, {
+                            ...runSettings,
+                            enabled: true,
+                        })
+                        actions.resetScoutCreateForm()
+                        actions.resetMcpServersDefaulted()
+                        lemonToast.success('Scout turned on')
+                        logicProps.onEnabled?.(config)
+                        logicProps.onClose()
+                    } catch (error) {
+                        const apiError = error instanceof ApiError ? error : null
+                        lemonToast.error(apiError?.detail ?? 'Could not turn the scout on')
+                        throw error
+                    }
+                    return
+                }
+
                 try {
                     const scout = await signalsScoutCreate(String(values.currentTeamId), {
                         name: isInboxRedesignEnabled(values.featureFlags)
@@ -362,6 +425,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                         description: formValues.description.trim(),
                         body: formValues.body.trim(),
                         config: formValues.config,
+                        suggestion_id: logicProps.initialValues?.suggestionId,
                     })
 
                     actions.resetScoutCreateForm()
