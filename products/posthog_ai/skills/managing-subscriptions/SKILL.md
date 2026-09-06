@@ -76,9 +76,13 @@ Get it from the user context or from `org-members-list`.
 
 1. Call `integrations-list` and look for an integration where `kind` is `"slack"`
 2. If a Slack integration exists, note its `id` — you'll need it as `integration_id`
-3. If **no Slack integration exists**, tell the user:
+3. Note the `_posthogUrl` on the `integrations-list` response. It is the full link to the
+   project's integrations settings page. Use it as the link target below, verbatim. A bare
+   `/settings/...` path does not open outside the PostHog app, and it leaves out the project
+   id, so the user can connect Slack to the wrong project.
+4. If **no Slack integration exists**, tell the user:
    > Slack isn't connected to this project yet. You can set it up in
-   > [Project settings > Integrations](/settings/environment-integrations).
+   > [Project settings > Integrations](<_posthogUrl>).
    > In the meantime, would you like to receive this via email instead?
 
 Slack setup requires an OAuth flow in the browser — it cannot be done via MCP.
@@ -201,7 +205,7 @@ When the user doesn't specify details:
 ## Error handling
 
 - **Duplicate check**: If a subscription already exists for the same insight/dashboard and channel, inform the user and offer to update it rather than creating a duplicate
-- **Slack not connected**: If a Slack subscription is requested but no Slack integration exists, explain that Slack must be connected in [Project settings > Integrations](/settings/environment-integrations) first, then offer email as an alternative. Do not attempt to create the subscription — it will fail with a validation error
+- **Slack not connected**: If a Slack subscription is requested but no Slack integration exists, explain that Slack must be connected in Project settings > Integrations first, linking the `_posthogUrl` from the `integrations-list` response, then offer email as an alternative. Do not attempt to create the subscription — it will fail with a validation error
 - **Slack integration wrong team**: The Slack integration must belong to the same PostHog team. If `integrations-list` returns Slack integrations but creation still fails, the integration may be misconfigured
 - **Dashboard insights**: Dashboard subscriptions require at least 1 and at most 10 insights selected via `dashboard_export_insights`. If the user doesn't specify which insights, fetch the dashboard with `dashboard-get` and select up to the first 10 insights from its tiles
 
