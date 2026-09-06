@@ -58,6 +58,8 @@ const series: Series[] = [
 
 Charts fill their container and need a parent with real dimensions — a `0`-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, `flex-1` in a sized column). Sparkline alone takes `height`/`width` props.
 
+The shell's own containment — the wrapper's `position`/`overflow` and each layer's out-of-flow placement — is an inline style, not a utility class. This is the one place the package breaks quill's "Tailwind exclusively" rule, and it has to stay that way: an in-flow layer grows the wrapper, the wrapper's `ResizeObserver` measures the taller wrapper, and the chart grows to the browser's maximum element height. Expressed as a utility class, that loop runs on any page whose stylesheet has not applied yet.
+
 Overlays (axis labels, axis titles, reference/goal lines, value labels, legend, tooltip) are DOM, positioned from the scales; the grid, axis lines, tick marks, and the series themselves are canvas.
 That split is the first thing to check when a chart looks broken: if the labels and goal lines render in the right places but the plot area is empty, the layout is fine and the canvas alone failed.
 Check the cheap causes first: `theme.skipDraw` suppresses all canvas painting by design, and a `drawStatic` that throws leaves the frame it was clearing empty.
