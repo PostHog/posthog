@@ -277,6 +277,8 @@ class TestTableDdl:
         sql = TABLE_CONFIGS["posthog_team"].ddl()
         assert "models.posthog_team" in sql
         assert "ReplicatedReplacingMergeTree" in sql
+        assert "event_retention_months UInt16 DEFAULT 84" in sql
+        assert "event_retention_months" in TABLE_CONFIGS["posthog_team"].select_columns
 
     def test_feature_flag_ddl_shape(self):
         sql = TABLE_CONFIGS["posthog_featureflag"].ddl()
