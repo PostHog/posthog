@@ -83,6 +83,7 @@ import {
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
+import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -591,9 +592,18 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, metadata, metadataLoading } =
-        useValues(sqlEditorLogic)
-    const { setSourceQuery } = useActions(sqlEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        insightLoading,
+        hasQueryInput,
+        isEmbeddedMode,
+        metadata,
+        metadataLoading,
+        indexReportStale,
+    } = useValues(sqlEditorLogic)
+    const { setSourceQuery, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
+    const { responseLoading: fixWithAILoading } = useValues(fixSQLErrorsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -914,7 +924,14 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
-            <QueryIndexUsageBar predicates={metadata?.index_usage ?? []} refreshing={metadataLoading} />
+            <QueryIndexUsageBar
+                predicates={metadata?.index_usage ?? []}
+                refreshing={metadataLoading}
+                stale={indexReportStale}
+                onApplyQuickfix={applyIndexQuickfix}
+                onFixWithAI={fixIndexUsageWithAI}
+                fixWithAILoading={fixWithAILoading}
+            />
             {outputContent}
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>

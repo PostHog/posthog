@@ -69,6 +69,7 @@ import {
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
+    PredicateQuickfix,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlResourceType,
@@ -581,6 +582,7 @@ export interface sqlEditorLogicValues {
     hoveredNode: string | null
     inProgressDraftEdits: Record<string, string>
     inProgressViewEdits: Record<string, string>
+    indexReportStale: boolean
     insightLoading: boolean
     isDraft: boolean
     isEditingMaterializedView: boolean
@@ -819,6 +821,9 @@ export interface sqlEditorLogicActions {
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
     }
+    applyIndexQuickfix: (quickfix: PredicateQuickfix) => {
+        quickfix: PredicateQuickfix
+    }
     closeAccessControlModal: () => {
         value: true
     }
@@ -869,6 +874,9 @@ export interface sqlEditorLogicActions {
     }
     enforceConnectionRawQueryMode: () => {
         value: true
+    }
+    fixIndexUsageWithAI: (prompt: string) => {
+        prompt: string
     }
     initialize: () => {
         value: true
@@ -1187,6 +1195,13 @@ export interface sqlEditorLogicMeta {
         ) => boolean
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
         hasQueryInput: (queryInput: string | null) => boolean
+        indexReportStale: (
+            metadata: HogQLMetadataResponse | null,
+            activeQueryText: string | null,
+            queryInput: string | null,
+            suggestedQueryInput: string,
+            metadataLoading: boolean
+        ) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
@@ -1445,6 +1460,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
+        applyIndexQuickfix: (quickfix: PredicateQuickfix) => ({ quickfix }),
+        fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
@@ -1801,6 +1818,38 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             reportAIQueryPromptOpen: () => {
                 posthog.capture('ai_query_prompt_open')
+            },
+            applyIndexQuickfix: ({ quickfix }) => {
+                const editor = props.editor
+                const model = editor?.getModel()
+                if (!editor || !model) {
+                    return
+                }
+                // The offsets describe the SQL the server analyzed. Once the text has moved on they
+                // would land the edit somewhere else, so wait for the next report instead of guessing.
+                if (values.indexReportStale) {
+                    return
+                }
+                const start = model.getPositionAt(quickfix.start + values.activeQueryOffset)
+                const end = model.getPositionAt(quickfix.end + values.activeQueryOffset)
+                editor.executeEdits('index-quickfix', [
+                    {
+                        range: {
+                            startLineNumber: start.lineNumber,
+                            startColumn: start.column,
+                            endLineNumber: end.lineNumber,
+                            endColumn: end.column,
+                        },
+                        text: quickfix.text,
+                    },
+                ])
+                posthog.capture('sql-editor-index-quickfix-applied')
+            },
+            fixIndexUsageWithAI: ({ prompt }) => {
+                // The error fixer takes free text as its "error", so an index instruction rides the
+                // same suggestion flow and lands as a reviewable diff rather than a silent rewrite.
+                actions.fixErrors(values.queryInput ?? '', prompt, values.selectedConnectionId)
+                posthog.capture('sql-editor-index-fix-with-ai')
             },
             insertTextAtCursor: ({ text }) => {
                 const editor = props.editor
@@ -3309,6 +3358,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
+        // A quickfix carries character offsets into the SQL the server analyzed, so it can only be
+        // applied while the editor still holds that exact text. The comparison mirrors the fallback
+        // in `codeEditorLogic`, which analyzes the whole editor text whenever there is no active
+        // statement; comparing against the active statement alone reads as stale forever there.
+        indexReportStale: [
+            (s) => [s.metadata, s.activeQueryText, s.queryInput, s.suggestedQueryInput, s.metadataLoading],
+            (
+                metadata: HogQLMetadataResponse | null,
+                activeQueryText: string | null,
+                queryInput: string | null,
+                suggestedQueryInput: string,
+                metadataLoading: boolean
+            ) => metadataLoading || metadata?.query !== (activeQueryText ?? (suggestedQueryInput || queryInput) ?? ''),
+        ],
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],
             (mode: SQLEditorMode | undefined) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),

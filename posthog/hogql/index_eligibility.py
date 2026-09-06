@@ -20,14 +20,16 @@ from enum import StrEnum
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.property_planner import (
     PropertyComparisonPlan,
+    PropertyLiteralConversion,
     PropertyMinmaxBlocker,
     PropertyScope,
     PropertySourceKind,
     plan_property_comparison,
 )
-from posthog.hogql.type_system import ComparisonCompatibility, comparison_compatibility
+from posthog.hogql.type_system import ComparisonCompatibility, comparison_compatibility, runtime_type_from_constant_type
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -63,6 +65,14 @@ class PredicateIndexVerdict(StrEnum):
     """Negations, regexes and case-sensitive LIKE match granules that skip indexes cannot exclude."""
 
 
+class PredicateFixAction(StrEnum):
+    """Which surface a reader has to go to for the fix, so the UI can offer the right control."""
+
+    EDIT_QUERY = "edit_query"
+    EDIT_PROPERTY_TYPE = "edit_property_type"
+    MATERIALIZE = "materialize"
+
+
 # Which skip indexes ClickHouse can use to drop granules for a given operator. Negated operators are
 # absent on purpose: a granule holding one non-matching row still satisfies `!=`, so no skip index
 # can exclude it. `like` is absent because only a prefix pattern prunes, and whether a pattern is a
@@ -79,6 +89,12 @@ _OPERATOR_INDEXES: dict[ast.CompareOperationOp, frozenset[IndexKind]] = {
 }
 
 _COMPATIBLE_COMPARISONS = frozenset({ComparisonCompatibility.DEFINITELY_COMPATIBLE, ComparisonCompatibility.CHEAP_CAST})
+
+# Operators whose meaning survives comparing the value as text. A range comparison does not: '900' is
+# above '1000' as text and below it as numbers, so quoting the literal would change which rows match.
+_TEXT_REWRITABLE_OPERATORS = frozenset(
+    {ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn}
+)
 
 _COLUMN_SOURCE_KINDS = frozenset(
     {
@@ -131,6 +147,19 @@ def _plain_type(printed_type: str) -> str:
     return _PLAIN_TYPE_WORDS.get(printed_type, printed_type)
 
 
+@frozen
+class PredicateQuickfix:
+    """A query edit that unblocks the index: replacement text for one range of the query.
+
+    The editor substitutes ``text`` for the range verbatim, so it has to be valid HogQL on its own
+    and the range has to cover exactly the expression being replaced.
+    """
+
+    start: int
+    end: int
+    text: str
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PredicateIndexEligibility:
     property_name: str
@@ -151,6 +180,9 @@ class PredicateIndexEligibility:
     substitute into the marked range, so this must never be handed to an editor marker directly."""
     ai_fix_prompt: str | None
     """Instruction for the editor's "Fix with AI" action, set only where rewriting the query helps."""
+    fix_action: PredicateFixAction | None
+    quickfix: PredicateQuickfix | None
+    """A deterministic edit, set when the compared value is a literal the analysis can rewrite itself."""
     start: int | None
     end: int | None
 
@@ -166,9 +198,7 @@ class PredicateIndexEligibility:
         the property definition, not about the query, so underlining a correct comparison leaves the
         reader nothing to edit and teaches them to ignore the markers that do carry an edit.
         """
-        if self.verdict != PredicateIndexVerdict.BLOCKED:
-            return False
-        return self.blocker != PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+        return self.fix_action == PredicateFixAction.EDIT_QUERY
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,14 +262,12 @@ def eligibility_from_plan(
     negated: bool = False,
     start: int | None = None,
     end: int | None = None,
+    value_expr: ast.Expr | None = None,
 ) -> PredicateIndexEligibility:
     source = plan.access.source
     available = _available_indexes(plan)
     relevant = frozenset() if negated else _OPERATOR_INDEXES.get(plan.operator, frozenset())
-    # `_minmax_blocker` reports the absent-index case first, so any other value it returns is a type
-    # problem that makes the printer wrap the column in a cast. A cast defeats every skip index on
-    # that column, not just the minmax one.
-    type_blocker = plan.minmax_blocker if plan.minmax_blocker != PropertyMinmaxBlocker.NO_MINMAX_INDEX else None
+    type_blocker = _type_blocker(plan)
     if type_blocker is not None and _set_members_match_source(plan):
         type_blocker = None
     usable: tuple[IndexKind, ...] = () if type_blocker is not None else tuple(sorted(available & relevant))
@@ -253,6 +281,12 @@ def eligibility_from_plan(
     )
     semantic_type = plan.access.semantic_type.print_type()
     physical_type = source.physical_type.print_type()
+    quickfix = (
+        _string_literal_quickfix(plan, value_expr)
+        if verdict == PredicateIndexVerdict.BLOCKED
+        and type_blocker == PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE
+        else None
+    )
     copy = _copy_for(
         verdict=verdict,
         plan=plan,
@@ -260,6 +294,7 @@ def eligibility_from_plan(
         type_blocker=type_blocker,
         semantic_type=semantic_type,
         physical_type=physical_type,
+        quickfix=quickfix,
     )
 
     return PredicateIndexEligibility(
@@ -278,9 +313,84 @@ def eligibility_from_plan(
         message=copy.message,
         fix=copy.fix,
         ai_fix_prompt=copy.ai_fix_prompt,
+        fix_action=copy.action,
+        quickfix=quickfix,
         start=start,
         end=end,
     )
+
+
+def _type_blocker(plan: PropertyComparisonPlan) -> PropertyMinmaxBlocker | None:
+    """The type problem that makes the printer wrap the column in a cast, if there is one.
+
+    Read off the plan's compatibility facts rather than ``plan.minmax_blocker``: that field reports
+    the absence of a minmax index ahead of any type problem, so on a column carrying only a bloom
+    filter it would hide the mismatch. A cast defeats every skip index on the column, not just the
+    minmax one, so the check has to run whatever indexes the column has.
+    """
+    if not plan.source_matches_semantics:
+        return PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+    # An UNKNOWN compatibility means the value's type could not be inferred, which a subquery or a
+    # placeholder on the right-hand side produces. Reporting a mismatch there would warn about a
+    # filter that is very likely fine, so the analysis only claims a blocker it can substantiate.
+    if (
+        plan.physical_compatibility not in _COMPATIBLE_COMPARISONS
+        and plan.physical_compatibility != ComparisonCompatibility.UNKNOWN
+        and plan.literal_conversion == PropertyLiteralConversion.NONE
+    ):
+        return PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE
+    return None
+
+
+def _string_literal_quickfix(plan: PropertyComparisonPlan, value_expr: ast.Expr | None) -> PredicateQuickfix | None:
+    """Quote a whole-number literal so a text column is compared as text and keeps its index.
+
+    Only plain integers qualify. A boolean's text form is a guess (``'true'`` or ``'1'``), a float's
+    depends on how Python renders it (``2.0`` and ``1e+20`` do not match the text a row stores), and
+    anything computed has no literal to rewrite, so those fall back to the AI prompt.
+    """
+    if (
+        value_expr is None
+        or plan.operator not in _TEXT_REWRITABLE_OPERATORS
+        or runtime_type_from_constant_type(plan.access.source.physical_type).family != "string"
+    ):
+        return None
+
+    while isinstance(value_expr, ast.Alias):
+        value_expr = value_expr.expr
+    if value_expr.start is None or value_expr.end is None:
+        return None
+
+    if isinstance(value_expr, ast.Constant):
+        text = _quoted_number(value_expr)
+    elif isinstance(value_expr, ast.Tuple | ast.Array):
+        members = _quoted_numbers(value_expr.exprs)
+        if members is None:
+            return None
+        open_bracket, close_bracket = ("(", ")") if isinstance(value_expr, ast.Tuple) else ("[", "]")
+        text = f"{open_bracket}{', '.join(members)}{close_bracket}"
+    else:
+        return None
+
+    if text is None:
+        return None
+    return PredicateQuickfix(start=value_expr.start, end=value_expr.end, text=text)
+
+
+def _quoted_numbers(exprs: list[ast.Expr]) -> list[str] | None:
+    quoted: list[str] = []
+    for member in exprs:
+        text = _quoted_number(member) if isinstance(member, ast.Constant) else None
+        if text is None:
+            return None
+        quoted.append(text)
+    return quoted or None
+
+
+def _quoted_number(constant: ast.Constant) -> str | None:
+    if isinstance(constant.value, bool) or not isinstance(constant.value, int):
+        return None
+    return escape_hogql_string(str(constant.value))
 
 
 def _set_members_match_source(plan: PropertyComparisonPlan) -> bool:
@@ -350,6 +460,7 @@ class _PredicateCopy:
     message: str
     fix: str | None = None
     ai_fix_prompt: str | None = None
+    action: PredicateFixAction | None = None
 
 
 def _copy_for(
@@ -359,6 +470,7 @@ def _copy_for(
     type_blocker: PropertyMinmaxBlocker | None,
     semantic_type: str,
     physical_type: str,
+    quickfix: PredicateQuickfix | None,
 ) -> _PredicateCopy:
     # Messages name the property, never the physical column behind it. A reader cannot select,
     # create or drop `mat_$browser`, so naming it spends words on something they cannot act on.
@@ -384,14 +496,33 @@ def _copy_for(
                 f"{_plain_type(semantic_type)}, so every row is converted before the filter runs and the index on "
                 f"'{name}' cannot skip any data.",
                 fix=f"If '{name}' does not really hold {_plain_type(semantic_type)}, correct its type in data management.",
+                action=PredicateFixAction.EDIT_PROPERTY_TYPE,
+            )
+        if plan.operator not in _TEXT_REWRITABLE_OPERATORS:
+            # Comparing text against a number with an ordering operator has no safe query rewrite:
+            # reading the value as text reorders the results, and reading the column as a number is
+            # the cast that already defeats the index. Whichever the reader meant, the type the
+            # property declares is the thing that is wrong.
+            return _PredicateCopy(
+                message=f"{label} '{name}' holds {_plain_type(physical_type)} but is compared against "
+                f"{_plain_type(plan.value_type.print_type())}, so every row has to be converted and the index on "
+                f"'{name}' goes unused.",
+                fix=f"If '{name}' holds numbers, correct its type in data management. Comparing it as text would "
+                "order the values differently.",
+                action=PredicateFixAction.EDIT_PROPERTY_TYPE,
             )
         return _PredicateCopy(
             message=f"{label} '{name}' is compared against a value of another type, so every row has to be "
             f"converted and the index on '{name}' goes unused.",
-            fix=f"Compare '{name}' against {_plain_type(physical_type)}.",
+            fix=(
+                f"Write the value as text: {quickfix.text}."
+                if quickfix is not None
+                else f"Compare '{name}' against {_plain_type(physical_type)}."
+            ),
             # The AI prompt keeps the engine's type name: its reader is a model rewriting HogQL, not
             # someone looking for a setting in the UI.
             ai_fix_prompt=f"Rewrite this filter so '{name}' is compared against a {physical_type} value.",
+            action=PredicateFixAction.EDIT_QUERY,
         )
 
     if verdict == PredicateIndexVerdict.UNINDEXED_JSON:
@@ -401,6 +532,7 @@ def _copy_for(
         return _PredicateCopy(
             message=f"{label} '{name}' is read out of the properties JSON on every row, with no index to skip data.",
             fix=f"Materialize '{name}' so this filter reads a dedicated column instead of parsing the JSON.",
+            action=PredicateFixAction.MATERIALIZE,
         )
 
     if verdict == PredicateIndexVerdict.UNINDEXED_COLUMN:
@@ -469,4 +601,7 @@ class _FilterPredicateCollector(TraversingVisitor):
             return
         self._seen.add(key)
 
-        self.predicates.append(eligibility_from_plan(plan, negated=negated, start=node.start, end=node.end))
+        value_expr = node.right if plan.property_side == "left" else node.left
+        self.predicates.append(
+            eligibility_from_plan(plan, negated=negated, start=node.start, end=node.end, value_expr=value_expr)
+        )
