@@ -1,9 +1,10 @@
-from functools import cached_property
+from copy import deepcopy
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
@@ -156,15 +157,23 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._original_query = self.query
+        self._original_query = deepcopy(self.query)
 
     def save(self, *args, **kwargs) -> None:
+        update_fields = kwargs.get("update_fields")
+        query_will_be_saved = self._state.adding or update_fields is None or "query" in update_fields
+        previous_query = self._original_query
+        query_changed = self._state.adding or self.query != previous_query
+
         # generate query metadata if needed
         if self._state.adding or self.query != self._original_query or self.query_metadata is None:
             try:
                 self.generate_query_metadata()
-                if "update_fields" in kwargs:
-                    kwargs["update_fields"].append("query_metadata")
+                if update_fields is not None:
+                    updated_fields = list(update_fields)
+                    if "query_metadata" not in updated_fields:
+                        updated_fields.append("query_metadata")
+                    kwargs["update_fields"] = updated_fields
             except Exception as e:
                 # log and ignore the error, as this is not critical
                 logger.exception(
@@ -176,6 +185,36 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 )
                 capture_exception(e)
         super().save(*args, **kwargs)
+
+        if query_will_be_saved and query_changed:
+            from products.product_analytics.backend.lineage.extraction import (  # noqa: PLC0415 - keeps HogQL off django.setup()
+                query_fingerprint,
+                query_may_reference_data_models,
+            )
+
+            lineage_is_relevant = query_may_reference_data_models(self.query) or query_may_reference_data_models(
+                previous_query
+            )
+            if lineage_is_relevant:
+                from products.product_analytics.backend.lineage.synchronization import (  # noqa: PLC0415 - keeps HogQL off django.setup()
+                    synchronize_insight_data_model_dependencies,
+                )
+
+                query_snapshot = deepcopy(self.query)
+                transaction.on_commit(
+                    partial(
+                        synchronize_insight_data_model_dependencies,
+                        team_id=self.team_id,
+                        insight_id=self.pk,
+                        query_snapshot=query_snapshot,
+                        fingerprint=query_fingerprint(query_snapshot),
+                        insight_model=type(self),
+                    )
+                )
+
+        if query_will_be_saved:
+            persisted_query_snapshot = deepcopy(self.query)
+            transaction.on_commit(partial(setattr, self, "_original_query", persisted_query_snapshot))
 
     def get_analytics_query_kinds(self) -> dict[str, str]:
         """

@@ -19,6 +19,14 @@ from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class InsightDataModelDependencyDefinition:
+    team_id: int
+    insight_id: int
+    saved_query_id: UUID
+    query_fingerprint: str
+
+
+@dataclass(frozen=True)
 class InsightVariableDefinition:
     """A saved query variable, as callers outside product analytics read it.
 
