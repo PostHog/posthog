@@ -133,7 +133,9 @@ export function SettingsTab(): JSX.Element {
                     />
                 </div>
                 <p className="text-muted text-xs mt-1">
-                    Exclude participants whose conversion or retention window hasn't elapsed yet. Default is set in{' '}
+                    Applies per metric. It affects retention metrics and metrics whose conversion window is set to Time
+                    window, and excludes participants whose window has not elapsed. Metrics set to Experiment duration
+                    are not affected. The default is set in{' '}
                     <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
                         environment settings
                     </Link>

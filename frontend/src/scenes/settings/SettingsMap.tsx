@@ -707,9 +707,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'environment-experiment-matured-users',
-                title: 'Default conversion window filter',
+                title: 'Default per-metric conversion window filter',
                 description:
-                    'When enabled, new experiments will only count participants whose full conversion window has elapsed. Can be overridden per experiment.',
+                    'A default for new experiments, applied per metric. It affects retention metrics and metrics whose conversion window is set to Time window, and excludes participants whose window has not elapsed. Metrics set to Experiment duration are not affected. Can be overridden per experiment.',
                 component: <DefaultOnlyCountMaturedUsers />,
                 keywords: ['matured', 'conversion', 'window', 'filter'],
             },
