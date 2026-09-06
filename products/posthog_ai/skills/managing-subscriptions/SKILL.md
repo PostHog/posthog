@@ -74,7 +74,8 @@ Get it from the user context or from `org-members-list`.
 
 **Slack** requires a connected Slack integration. Before creating a Slack subscription:
 
-1. Call `integrations-list` and look for an integration where `kind` is `"slack"`
+1. Call `integrations-list` with `kind: "slack"`. The unfiltered list is paginated, so a Slack
+   integration can sit outside the first page and look absent
 2. If a Slack integration exists, note its `id` — you'll need it as `integration_id`
 3. Note the `_posthogUrl` on the `integrations-list` response. It is the full link to the
    project's integrations settings page. Use it as the link target below, verbatim. A bare
