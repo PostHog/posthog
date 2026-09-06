@@ -404,8 +404,35 @@ class ExperimentQueryRunner(QueryRunner):
     def _team_experiments_config(self) -> TeamExperimentsConfig:
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
+    def _cohort_gate_filter_sources(self) -> list[Any]:
+        """Filter structures the exposure precompute embeds and that can name a cohort.
+
+        The exposure criteria and the metric are always in scope. The team's test-account
+        filters are in scope only when test-account filtering is on for this experiment,
+        because build_test_accounts_filter() then embeds them in the same precompute query.
+        A cohort reached only through those filters must gate precompute too, so its
+        first-calculation snapshot is not frozen into the cache.
+        """
+        sources: list[Any] = [self.experiment.exposure_criteria, self.metric]
+        exposure_params = get_exposure_config_params_for_builder(
+            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+        )
+        if exposure_params.filter_test_accounts:
+            sources.append(self.team.test_account_filters)
+        return sources
+
     def _should_precompute(self) -> bool:
         """Resolve whether to use precomputation: query-level override > team-level default + duration gate."""
+        # Capability gates come first: the builder can't produce a precomputed query for these,
+        # so even an explicit PRECOMPUTED override must fall back to a direct scan.
+        # Activation-mode exposures can't be cached per day (the flag→activation ordering
+        # crosses bucket boundaries), and precomputing against an uncalculated cohort would
+        # cache incomplete exposures.
+        if has_activation_config(self.experiment.exposure_criteria):
+            return False
+        if has_uncalculated_cohorts(self.team, *self._cohort_gate_filter_sources()):
+            return False
+
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return True
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
@@ -414,21 +441,19 @@ class ExperimentQueryRunner(QueryRunner):
         if not self._team_experiments_config.experiment_precomputation_enabled:
             return False
 
-        if not experiment_has_min_runtime_for_precomputation(
+        return experiment_has_min_runtime_for_precomputation(
             self.experiment.start_date,
             self.experiment.end_date,
-        ):
-            return False
-
-        # Activation-mode exposures can't be cached per day: the flag→activation ordering
-        # crosses bucket boundaries.
-        if has_activation_config(self.experiment.exposure_criteria):
-            return False
-
-        return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
+        )
 
     def _precompute_skip_reason(self) -> Optional[str]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
+        # Mirror the capability-gate-first order of _should_precompute so the reason stays
+        # accurate even when a PRECOMPUTED override is present.
+        if has_activation_config(self.experiment.exposure_criteria):
+            return "activation_config"
+        if has_uncalculated_cohorts(self.team, *self._cohort_gate_filter_sources()):
+            return "cohort_not_calculated"
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return None
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
@@ -440,10 +465,6 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             return "min_runtime"
-        if has_activation_config(self.experiment.exposure_criteria):
-            return "activation_config"
-        if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
-            return "cohort_not_calculated"
         if self.is_data_warehouse_query:
             return "data_warehouse"
         if self.group_type_index is not None:

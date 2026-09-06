@@ -776,6 +776,8 @@ class DebugCHQueries(viewsets.ViewSet):
         "override_direct",
         "data_warehouse",
         "group_aggregation",
+        "activation_config",
+        "cohort_not_calculated",
     )
 
     @action(detail=False, methods=["GET"], url_path="precompute_overview", required_scopes=["query_performance:read"])

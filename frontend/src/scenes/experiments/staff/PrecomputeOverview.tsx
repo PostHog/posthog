@@ -26,6 +26,8 @@ const SKIP_REASON_LABELS: Record<string, string> = {
     override_direct: 'Forced direct (query override)',
     data_warehouse: 'Data warehouse metric',
     group_aggregation: 'Group-aggregated experiment',
+    activation_config: 'Activation-mode experiment',
+    cohort_not_calculated: 'Cohort not calculated yet',
 }
 
 const formatMs = (ms: number | null): string => {
