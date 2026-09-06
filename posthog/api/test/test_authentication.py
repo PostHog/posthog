@@ -15,8 +15,10 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
+from django.db import connection
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -366,6 +368,20 @@ class TestLoginAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
+
+    def test_login_does_not_run_an_unindexed_email_scan(self):
+        # `email__iexact` compiles to UPPER(email) = UPPER(...), which the unique index on
+        # posthog_user.email cannot serve, so it reads the whole table on every login attempt.
+        self.user.is_email_verified = True
+        self.user.save()
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        scans = [q["sql"] for q in ctx.captured_queries if "posthog_user" in q["sql"] and "UPPER(" in q["sql"]]
+        # Report the tail of each match, which holds the WHERE clause, not the full column list.
+        self.assertEqual(scans, [], f"unindexed posthog_user lookups: {[sql[-160:] for sql in scans]}")
 
     def test_login_refused_for_blocked_member_when_org_requires_verified_domain(self):
         # A blocked member has no recovery action a session would enable, so they get a clear

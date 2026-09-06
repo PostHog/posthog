@@ -286,13 +286,13 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
+        # No user lookup here: Radar ignores every non-signup action, so `user_id` would be
+        # discarded, and `email__iexact` cannot use the unique index on `posthog_user.email`.
         evaluate_auth_attempt(
             request=request._request,
             email=validated_data["email"],
             action=RadarAction.SIGNIN,
             auth_method=RadarAuthMethod.PASSWORD,
-            user_id=str(existing_user.distinct_id) if existing_user else None,
         )
 
         axes_request = getattr(request, "_request", request)
