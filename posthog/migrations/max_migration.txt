@@ -1,1 +1,1 @@
-1342_drop_cimd_blocklist_table
+1343_drop_unused_playlist_last_counted_index
