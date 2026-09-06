@@ -7,6 +7,26 @@ import {
     reconcileById,
 } from 'lib/utils/objects'
 
+const selfReferencing = (label: string): Record<string, any> => {
+    const object: Record<string, any> = { label }
+    object.self = object
+    return object
+}
+
+// The only way into objectsEqual's catch is an error raised by the comparison itself, so read a
+// property that throws. Jest runs on V8, so Firefox's recursion overflow has to be synthetic.
+const throwsOnRead = (makeError: () => Error): Record<string, any> => ({
+    get value() {
+        throw makeError()
+    },
+})
+
+const firefoxRecursionOverflow = (): Error => {
+    const error = new Error('too much recursion')
+    error.name = 'InternalError'
+    return error
+}
+
 describe('objects utils', () => {
     describe('objectsEqual()', () => {
         it.each([
@@ -19,8 +39,33 @@ describe('objects utils', () => {
             ['valueOf shadowed by a number', { valueOf: 5, a: 1 }, { valueOf: 5, a: 1 }, true],
             ['toString callable only on the left', { toString: (): string => 'x' }, { toString: 'x' }, false],
             ['valueOf callable only on the right', { valueOf: 5 }, { valueOf: (): number => 5 }, false],
+            ['a self-reference on both sides', selfReferencing('a'), selfReferencing('a'), true],
+            ['a self-reference and different content', selfReferencing('a'), selfReferencing('b'), false],
+            [
+                'a recursion overflow reported the Firefox way',
+                throwsOnRead(firefoxRecursionOverflow),
+                throwsOnRead(firefoxRecursionOverflow),
+                false,
+            ],
         ])('compares objects with %s without throwing', (_name, a, b, expected) => {
             expect(objectsEqual(a, b)).toBe(expected)
+        })
+
+        it('answers "not equal" for objects too deep to walk', () => {
+            const deepObject = (): Record<string, any> => {
+                let object: Record<string, any> = {}
+                for (let depth = 0; depth < 200000; depth++) {
+                    object = { child: object }
+                }
+                return object
+            }
+            expect(objectsEqual(deepObject(), deepObject())).toBe(false)
+        })
+
+        it('re-throws an error that is not a stack overflow', () => {
+            // Widening the guard to swallow every error would hide real failures as "not equal".
+            const boom = (): Error => new Error('boom')
+            expect(() => objectsEqual(throwsOnRead(boom), throwsOnRead(boom))).toThrow('boom')
         })
     })
 
