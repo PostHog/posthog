@@ -18,7 +18,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.access import can_configure_plugins, can_globally_manage_plugins, can_install_plugins
-from posthog.plugins.test.mock import mocked_plugin_requests_get
+from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -32,6 +32,8 @@ def mocked_plugin_reload(*args, **kwargs):
 
 @mock.patch("products.cdp.backend.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("products.cdp.backend.api.plugin.requests.get", side_effect=mocked_plugin_requests_get)
+# `new=` keeps this out of every test signature (nothing here asserts on the commit lookup).
+@mock.patch("posthog.plugins.utils.github_request", new=mocked_plugin_github_request)
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     maxDiff = None
