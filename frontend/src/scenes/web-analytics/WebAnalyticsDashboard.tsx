@@ -948,8 +948,6 @@ const getEmptyOnboardingContent = (
         return (
             <div className="col-span-full w-full">
                 <ProductIntroduction
-                    productName="Web Analytics"
-                    productKey={ProductKey.WEB_ANALYTICS}
                     thingName="event"
                     isEmpty={true}
                     titleOverride="Nothing to investigate yet!"
