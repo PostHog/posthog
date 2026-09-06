@@ -206,10 +206,11 @@ fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
             let line = line.trim();
             if line.starts_with("url = ") {
                 let url = line.trim_start_matches("url = ").trim();
-                let normalized = if url.ends_with(".git") {
-                    url.to_string()
+                let sanitized = strip_credentials(url);
+                let normalized = if sanitized.ends_with(".git") {
+                    sanitized
                 } else {
-                    format!("{url}.git")
+                    format!("{sanitized}.git")
                 };
                 return Some(normalized);
             }
@@ -217,6 +218,34 @@ fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
     }
 
     None
+}
+
+/// Drops a userinfo component (`user[:pass]@`) from a URL's authority before it is stored
+/// anywhere. CI checkouts commonly write a remote URL with an embedded credential (e.g.
+/// `actions/checkout`'s `https://x-access-token:<token>@github.com/owner/repo.git`), and that
+/// credential must never reach release metadata. Non-URL forms (SSH's `git@host:owner/repo.git`)
+/// have no `://` authority and pass through unchanged.
+fn strip_credentials(url: &str) -> String {
+    let Some(scheme_end) = url.find("://") else {
+        return url.to_string();
+    };
+    let authority_start = scheme_end + 3;
+    let authority_end = url[authority_start..]
+        .find('/')
+        .map(|i| authority_start + i)
+        .unwrap_or(url.len());
+
+    let authority = &url[authority_start..authority_end];
+    let Some(at_pos) = authority.rfind('@') else {
+        return url.to_string();
+    };
+
+    format!(
+        "{}{}{}",
+        &url[..authority_start],
+        &authority[at_pos + 1..],
+        &url[authority_end..]
+    )
 }
 
 pub fn get_repo_name(git_dir: &Path) -> Option<String> {
@@ -378,5 +407,73 @@ fn get_env_variable(name: &str) -> Option<String> {
     match env_variable.as_ref() {
         "" => None,
         _ => Some(env_variable),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_credentials_removes_github_actions_checkout_token() {
+        let url = "https://x-access-token:ghs_abc123def456@github.com/owner/repo.git";
+        assert_eq!(strip_credentials(url), "https://github.com/owner/repo.git");
+    }
+
+    #[test]
+    fn strip_credentials_removes_username_and_password() {
+        let url = "https://user:secret@host/owner/repo.git";
+        assert_eq!(strip_credentials(url), "https://host/owner/repo.git");
+    }
+
+    #[test]
+    fn strip_credentials_removes_username_only() {
+        let url = "https://token@github.com/owner/repo.git";
+        assert_eq!(strip_credentials(url), "https://github.com/owner/repo.git");
+    }
+
+    #[test]
+    fn strip_credentials_leaves_url_without_credential_unchanged() {
+        let url = "https://github.com/owner/repo.git";
+        assert_eq!(strip_credentials(url), url);
+    }
+
+    #[test]
+    fn strip_credentials_leaves_scp_like_ssh_url_unchanged() {
+        // No `://` authority, so there is nothing to strip; `git` here isn't a stored credential.
+        let url = "git@github.com:owner/repo.git";
+        assert_eq!(strip_credentials(url), url);
+    }
+
+    #[test]
+    fn strip_credentials_preserves_path_and_query_after_authority() {
+        let url = "https://x-access-token:ghs_abc@github.com/owner/repo.git?ref=main";
+        assert_eq!(
+            strip_credentials(url),
+            "https://github.com/owner/repo.git?ref=main"
+        );
+    }
+
+    #[test]
+    fn get_remote_url_from_paths_strips_credential_from_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+        fs::write(
+            git_dir.join("config"),
+            "[remote \"origin\"]\n\turl = https://x-access-token:ghs_abc123@github.com/owner/repo.git\n",
+        )
+        .unwrap();
+
+        let paths = GitRepositoryPaths {
+            git_dir: git_dir.clone(),
+            common_dir: git_dir,
+            worktree_dir: dir.path().to_path_buf(),
+        };
+
+        assert_eq!(
+            get_remote_url_from_paths(&paths),
+            Some("https://github.com/owner/repo.git".to_string())
+        );
     }
 }
