@@ -1032,6 +1032,67 @@ export interface ScoutActionProperties {
   report_status?: string;
 }
 
+/** Where a suggestion card was rendered: the section above the roster, or the empty state. */
+export type ScoutSuggestionSurface = "strip" | "empty_state";
+
+/** Which offer a suggestion card makes. Mirrors the API's `kind`. */
+export type ScoutSuggestionKind = "canonical" | "custom";
+
+/** What the person did with a suggestion card, beyond creating or dismissing it. */
+export type ScoutSuggestionClickTarget =
+  | "expand"
+  | "collapse"
+  | "turn_on"
+  | "create"
+  | "refine_with_ai";
+
+/** How a suggestion became a scout: the create API in place, or a chat the person drove. */
+export type ScoutSuggestionCreatedVia = "api" | "chat";
+
+/** How a refresh request ended, from the endpoint's answer. */
+export type ScoutSuggestionsRefreshOutcome =
+  | "accepted"
+  | "running"
+  | "capped"
+  | "failed";
+
+/**
+ * The suggestion batch as it was first rendered this visit. Without it a batch
+ * nobody acts on reads the same as one nobody was shown.
+ */
+export interface ScoutSuggestionsShownProperties {
+  suggestion_count: number;
+  batch_status: string;
+  /** Age of the batch in hours; null before the first scan lands. */
+  batch_age_hours: number | null;
+  collapsed: boolean;
+  surface: ScoutSuggestionSurface;
+}
+
+export interface ScoutSuggestionClickedProperties {
+  suggestion_kind: ScoutSuggestionKind;
+  skill_name: string;
+  click_target: ScoutSuggestionClickTarget;
+  surface: ScoutSuggestionSurface;
+}
+
+export interface ScoutSuggestionCreatedProperties {
+  suggestion_kind: ScoutSuggestionKind;
+  skill_name: string;
+  via: ScoutSuggestionCreatedVia;
+  surface: ScoutSuggestionSurface;
+}
+
+export interface ScoutSuggestionDismissedProperties {
+  suggestion_kind: ScoutSuggestionKind;
+  skill_name: string;
+  surface: ScoutSuggestionSurface;
+}
+
+export interface ScoutSuggestionsRefreshedProperties {
+  outcome: ScoutSuggestionsRefreshOutcome;
+}
+
 export interface SignalSourceConnectedProperties {
   source_product: SourceProduct;
   /** True when this is a brand-new createSignalSourceConfig, false for re-enable of an existing config. */
@@ -1653,6 +1714,11 @@ export const ANALYTICS_EVENTS = {
   SCOUT_CONFIG_CHANGED: "Scout config changed",
   SCOUT_CHAT_STARTED: "Scout chat started",
   SCOUT_ACTION: "Scout action",
+  SCOUT_SUGGESTIONS_SHOWN: "Scout suggestions shown",
+  SCOUT_SUGGESTION_CLICKED: "Scout suggestion clicked",
+  SCOUT_SUGGESTION_CREATED: "Scout suggestion created",
+  SCOUT_SUGGESTION_DISMISSED: "Scout suggestion dismissed",
+  SCOUT_SUGGESTIONS_REFRESHED: "Scout suggestions refreshed",
 
   // Usage and spend analysis events
   USAGE_VIEWED: "Usage viewed",
@@ -1860,6 +1926,11 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SCOUT_CONFIG_CHANGED]: ScoutConfigChangedProperties;
   [ANALYTICS_EVENTS.SCOUT_CHAT_STARTED]: ScoutChatStartedProperties;
   [ANALYTICS_EVENTS.SCOUT_ACTION]: ScoutActionProperties;
+  [ANALYTICS_EVENTS.SCOUT_SUGGESTIONS_SHOWN]: ScoutSuggestionsShownProperties;
+  [ANALYTICS_EVENTS.SCOUT_SUGGESTION_CLICKED]: ScoutSuggestionClickedProperties;
+  [ANALYTICS_EVENTS.SCOUT_SUGGESTION_CREATED]: ScoutSuggestionCreatedProperties;
+  [ANALYTICS_EVENTS.SCOUT_SUGGESTION_DISMISSED]: ScoutSuggestionDismissedProperties;
+  [ANALYTICS_EVENTS.SCOUT_SUGGESTIONS_REFRESHED]: ScoutSuggestionsRefreshedProperties;
 
   // Usage and spend analysis events
   [ANALYTICS_EVENTS.USAGE_VIEWED]: UsageViewedProperties;

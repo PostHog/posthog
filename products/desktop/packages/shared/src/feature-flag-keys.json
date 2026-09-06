@@ -29,6 +29,7 @@
   "PROJECT_BLUEBIRD_FLAG": "project-bluebird",
   "REPORTS_INBOX_FLAG": "posthog-desktop-reports-inbox",
   "SAVED_SEARCHES_RAIL_FLAG": "posthog-desktop-saved-searches-rail",
+  "SCOUTS_SUGGESTIONS_UI_FLAG": "scouts-suggestions-ui",
   "SELF_DRIVING_SETUP_TASK_FLAG": "posthog-code-self-driving-setup-task",
   "SIGNALS_PR_REFUNDS_FLAG": "signals-pr-refunds",
   "SPEND_ANALYSIS_FLAG": "posthog-code-spend-analysis",
