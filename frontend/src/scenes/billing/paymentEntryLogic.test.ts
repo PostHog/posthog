@@ -12,7 +12,7 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { BillingType } from '~/types'
+import { BillingProductV2Type, BillingType } from '~/types'
 
 const seedBilling = async (billing: Partial<BillingType> | null): Promise<void> => {
     useMocks({ get: { '/api/billing': () => [200, billing ?? {}] } })
@@ -86,6 +86,31 @@ describe('paymentEntryLogic', () => {
             expect(toastErrorSpy).not.toHaveBeenCalled()
         })
 
+        // The self-driving onboarding sells the inbox product but subscribes through the platform
+        // product, so the two have to stay apart: one pays, the other is named on the modal.
+        it('names the display product while activating the one it was handed', async () => {
+            let activateBody: Record<string, string> | null = null
+            useMocks({
+                post: {
+                    '/api/billing/activate': async ({ request }) => {
+                        activateBody = (await request.json()) as Record<string, string>
+                        return [200, { must_setup_payment: true }]
+                    },
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const platform = { type: 'platform_and_support', name: 'Platform and support' } as BillingProductV2Type
+            const inbox = { type: 'inbox', name: 'Inbox' } as BillingProductV2Type
+
+            await expectLogic(logic, () =>
+                logic.actions.startPaymentEntryFlow(platform, null, inbox)
+            ).toFinishAllListeners()
+
+            expect(logic.values.intentProduct).toEqual(inbox)
+            expect(activateBody).toEqual({ products: 'all_products:', intent_product: 'platform_and_support' })
+        })
+
         it('redirects with upgraded=true when activate succeeds', async () => {
             setupActivate([200, { success: true }])
             const pushSpy = jest.spyOn(router.actions, 'push')
@@ -117,6 +142,36 @@ describe('paymentEntryLogic', () => {
             expect(logic.values.paymentEntryModalOpen).toBe(true)
             expect(logic.values.redirectPath).toBe('/foo')
             expect(toastErrorSpy).not.toHaveBeenCalled()
+        })
+
+        it('keeps the product so the modal can name what is being subscribed to', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const surveys = { type: 'surveys', name: 'Surveys' } as BillingProductV2Type
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow(surveys)).toFinishAllListeners()
+            expect(logic.values.intentProduct).toEqual(surveys)
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
+            expect(logic.values.intentProduct).toBe(null)
+        })
+
+        // An addon purchase opens the modal straight from billingProductLogic, with no product to
+        // name. A product left over from an earlier flow would sell the wrong thing on that card form.
+        it('drops the product when the modal opens for something else or closes', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const surveys = { type: 'surveys', name: 'Surveys' } as BillingProductV2Type
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow(surveys)).toFinishAllListeners()
+            logic.actions.showPaymentEntryModal()
+            expect(logic.values.intentProduct).toBe(null)
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow(surveys)).toFinishAllListeners()
+            logic.actions.hidePaymentEntryModal()
+            expect(logic.values.intentProduct).toBe(null)
         })
     })
 })
