@@ -16,7 +16,6 @@ from django.http import HttpRequest
 
 import structlog
 from drf_spectacular.utils import empty
-from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
 from rest_framework import request, serializers, status
@@ -701,6 +700,12 @@ def action(methods=None, detail=None, url_path=None, url_name=None, responses=No
 
 
 # context manager for gathering a sequence of server timings
+SERVER_TIMING_HEADER_TRUNCATED_COUNTER = Counter(
+    "server_timing_header_truncated_total",
+    "Server timing header exceeded the size limit and was truncated.",
+)
+
+
 # can be used to then return the timings in the HTTP response headers
 # so that browsers and other tools can show them
 class ServerTimingsGathered:
@@ -755,11 +760,9 @@ class ServerTimingsGathered:
                 So, we limit here to 10k characters to avoid that issue
                 The timings header is a debug signal we don't rely on for functionality
                 so not receiving all timings is not the worse thing in the world
+                Truncation is expected on large queries, so we count it as a metric, not an exception.
                 """
-                capture_exception(
-                    Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
-                    properties={"generated_so_far": ", ".join(result), "length_of_timings": len(timings)},
-                )
+                SERVER_TIMING_HEADER_TRUNCATED_COUNTER.inc()
                 break
 
             result.append(timing_str)
