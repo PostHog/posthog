@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 25 enabled ops
+ * PostHog API - MCP 26 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -44,6 +44,26 @@ export const FeatureFlagsCopyFlagsCreateBody = () => zod.object({
         .boolean()
         .default(featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault)
         .describe('Whether to also copy missing feature flags that this flag depends on'),
+})
+
+export const FeatureFlagsCopyFlagsDependencyRequirementsCreateParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax = 50
+
+export const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody = () => zod.object({
+    feature_flag_key: zod.string().describe('Key of the feature flag to check'),
+    from_project: zod.number().describe('Source project ID to copy the flag from'),
+    target_project_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax)
+        .describe('List of target project IDs to check dependency copy eligibility for'),
 })
 
 /**

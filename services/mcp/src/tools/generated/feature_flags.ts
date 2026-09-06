@@ -416,6 +416,39 @@ const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
     },
 })
 
+const FeatureFlagsCopyDependenciesCheckSchema = () => {
+    const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody =
+        orvalSchemas.FeatureFlagsCopyFlagsDependencyRequirementsCreateBody()
+    return FeatureFlagsCopyFlagsDependencyRequirementsCreateBody
+}
+
+const featureFlagsCopyDependenciesCheck = (): ToolBase<
+    ReturnType<typeof FeatureFlagsCopyDependenciesCheckSchema>,
+    Schemas.CopyFlagsDependencyRequirementsResponse
+> => ({
+    name: 'feature-flags-copy-dependencies-check',
+    schema: FeatureFlagsCopyDependenciesCheckSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsCopyDependenciesCheckSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.feature_flag_key !== undefined) {
+            body['feature_flag_key'] = params.feature_flag_key
+        }
+        if (params.from_project !== undefined) {
+            body['from_project'] = params.from_project
+        }
+        if (params.target_project_ids !== undefined) {
+            body['target_project_ids'] = params.target_project_ids
+        }
+        const result = await context.api.request<Schemas.CopyFlagsDependencyRequirementsResponse>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/dependency_requirements/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FeatureFlagsCopyFlagsCreateSchema = () => {
     const FeatureFlagsCopyFlagsCreateBody = orvalSchemas.FeatureFlagsCopyFlagsCreateBody()
     return FeatureFlagsCopyFlagsCreateBody
@@ -883,6 +916,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
     'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,
     'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
+    'feature-flags-copy-dependencies-check': featureFlagsCopyDependenciesCheck,
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
     'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,
