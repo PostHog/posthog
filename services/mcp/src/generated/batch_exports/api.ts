@@ -313,9 +313,8 @@ export const BatchExportsCreateBody = () => zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -765,9 +764,8 @@ export const BatchExportsPartialUpdateBody = () => zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({

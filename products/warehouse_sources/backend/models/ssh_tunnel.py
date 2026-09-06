@@ -68,7 +68,9 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
 class SSHTunnelAuthConfig(config.Config):
     """Configuration for SSH tunnel authentication."""
 
-    type: Literal["password", "keypair"] | None = config.value(alias="selection")
+    # `SSHTunnelConfig.auth` falls back to an empty auth config, so every field here needs a
+    # default. `config.value` ignores `default=None`, so the factory is the way to express it.
+    type: Literal["password", "keypair"] | None = config.value(alias="selection", default_factory=lambda: None)
     password: str | None = None
     passphrase: str | None = None
     private_key: str | None = None

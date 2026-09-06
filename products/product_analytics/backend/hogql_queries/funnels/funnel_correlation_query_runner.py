@@ -33,13 +33,13 @@ from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.user import User
-from posthog.queries.util import correct_result_for_sampling
 
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend.hogql_queries.funnels import FunnelUDF

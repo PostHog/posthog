@@ -661,6 +661,7 @@ def get_user_mcp_server_configs(
     *,
     include_personal: bool = True,
     interaction_origin: str | None = None,
+    slack_reply_context: bool = False,
     allowed_installation_ids: list[str] | None = None,
     origin_product: str | None = None,
     task_agent_key: str | None = None,
@@ -712,7 +713,7 @@ def get_user_mcp_server_configs(
         allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
     api_base = get_sandbox_api_url().rstrip("/")
-    consumer = _resolve_mcp_consumer(interaction_origin)
+    consumer = _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context)
 
     configs: list[McpServerConfig] = []
     for installation in installations:
@@ -828,10 +829,10 @@ def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[
     return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
 
 
-def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
-    """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
+def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context: bool = False) -> str:
+    """Map the task's reply context to the `x-posthog-mcp-consumer` value.
 
-    Slack-launched runs send `"slack"` and posthog_ai (Max) runs send
+    Slack reply contexts send `"slack"` and posthog_ai (Max) runs send
     `"posthog_ai"`; everything else (the PostHog Desktop UI, API callers, missing
     origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
     on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
@@ -839,7 +840,7 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     in sync with `POSTHOG_CODE_CONSUMER` in
     `services/mcp/src/lib/client-detection.ts`.
     """
-    if interaction_origin == "slack":
+    if slack_reply_context or interaction_origin == "slack":
         return "slack"
     if interaction_origin == "posthog_ai":
         return "posthog_ai"
@@ -861,6 +862,7 @@ def get_sandbox_ph_mcp_configs(
     *,
     scopes: PosthogMcpScopes = "read_only",
     interaction_origin: str | None = None,
+    slack_reply_context: bool = False,
     task_id: str | None = None,
     origin_product: str | None = None,
 ) -> list[McpServerConfig]:
@@ -889,7 +891,10 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-project-id", "value": str(project_id)},
         {"name": "x-posthog-mcp-version", "value": "2"},
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
-        {"name": "x-posthog-mcp-consumer", "value": _resolve_mcp_consumer(interaction_origin)},
+        {
+            "name": "x-posthog-mcp-consumer",
+            "value": _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context),
+        },
     ]
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})

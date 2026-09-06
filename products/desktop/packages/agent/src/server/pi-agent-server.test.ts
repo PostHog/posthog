@@ -198,6 +198,7 @@ describe("PiAgentServer", () => {
         id: expect.any(String),
         type: "pi_event",
         timestamp: expect.any(String),
+        event_id: expect.any(String),
         event: {
           type: "user_message",
           timestamp: 1,
@@ -209,6 +210,7 @@ describe("PiAgentServer", () => {
         id: expect.any(String),
         type: "pi_event",
         timestamp: expect.any(String),
+        event_id: expect.any(String),
         event: {
           type: "turn_completed",
           timestamp: 2,
@@ -347,15 +349,26 @@ describe("PiAgentServer", () => {
     }
 
     expect(server.pendingEvents).toHaveLength(1_000);
-    expect(server.pendingEvents[0]).toEqual({ type: "test", index: 100 });
+    expect(server.pendingEvents[0]).toEqual({
+      type: "test",
+      index: 100,
+      event_id: expect.any(String),
+    });
   });
 
   it("coalesces replay and log buffers for repeated tool updates", () => {
     const server = new PiAgentServer(config()) as unknown as {
       broadcast(event: Record<string, unknown>): void;
+      nextEventId: () => string;
       pendingEvents: Record<string, unknown>[];
-      pendingLogEntries: Array<{ event?: Record<string, unknown> }>;
+      pendingLogEntries: Array<{
+        event?: Record<string, unknown>;
+        event_id?: string;
+        covered_event_ids?: string[];
+      }>;
     };
+    let seq = 0;
+    server.nextEventId = () => `boot-${++seq}`;
 
     server.broadcast({
       type: "pi_event",
@@ -370,20 +383,79 @@ describe("PiAgentServer", () => {
       event: {
         type: "tool_call_updated",
         timestamp: 2,
+        toolCall: { id: "tool-2", status: "in_progress" },
+      },
+    });
+    server.broadcast({
+      type: "pi_event",
+      event: {
+        type: "tool_call_updated",
+        timestamp: 3,
         toolCall: { id: "tool-1", status: "completed" },
       },
     });
 
-    expect(server.pendingEvents).toHaveLength(1);
-    expect(server.pendingLogEntries).toHaveLength(1);
+    expect(server.pendingEvents).toHaveLength(2);
+    expect(server.pendingLogEntries).toHaveLength(2);
     expect(server.pendingLogEntries[0]?.event).toMatchObject({
-      timestamp: 2,
+      timestamp: 3,
       toolCall: {
         id: "tool-1",
         status: "completed",
         content: [{ type: "content" }],
       },
     });
+    expect(server.pendingLogEntries[0]?.event_id).toBe("boot-3");
+    expect(server.pendingLogEntries[0]?.covered_event_ids).toEqual(["boot-1"]);
+    expect(server.pendingLogEntries[1]?.event_id).toBe("boot-2");
+    expect(server.pendingLogEntries[1]?.covered_event_ids).toBeUndefined();
+    expect(JSON.stringify(server.pendingLogEntries[0])).toBe(
+      JSON.stringify(server.pendingEvents[0]),
+    );
+    expect(JSON.stringify(server.pendingLogEntries[1])).toBe(
+      JSON.stringify(server.pendingEvents[1]),
+    );
+  });
+
+  it("keeps the durable log entry byte-identical to the live envelope", () => {
+    const server = new PiAgentServer(config()) as unknown as {
+      handleEvent(event: Record<string, unknown>): void;
+      pendingEvents: Record<string, unknown>[];
+      pendingLogEntries: Record<string, unknown>[];
+    };
+
+    server.handleEvent({
+      type: "agent_message",
+      timestamp: 1,
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    expect(server.pendingEvents).toHaveLength(1);
+    expect(server.pendingLogEntries).toHaveLength(1);
+    expect(JSON.stringify(server.pendingLogEntries[0])).toBe(
+      JSON.stringify(server.pendingEvents[0]),
+    );
+  });
+
+  it("bounds covered ids accumulated by a long tool update stream", () => {
+    const server = new PiAgentServer(config()) as unknown as {
+      broadcast(event: Record<string, unknown>): void;
+      pendingLogEntries: Array<{ covered_event_ids?: string[] }>;
+    };
+
+    for (let index = 0; index < 10_005; index++) {
+      server.broadcast({
+        type: "pi_event",
+        event: {
+          type: "tool_call_updated",
+          timestamp: index,
+          toolCall: { id: "tool-1", status: "in_progress" },
+        },
+      });
+    }
+
+    expect(server.pendingLogEntries).toHaveLength(1);
+    expect(server.pendingLogEntries[0]?.covered_event_ids).toHaveLength(10_000);
   });
 
   it("flushes long-running conversation logs in bounded batches", async () => {

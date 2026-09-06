@@ -3,7 +3,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 
 
 def _keypair_tunnel(private_key: str | None, passphrase: str | None) -> SSHTunnel:
@@ -145,3 +145,10 @@ def test_get_tunnel_invalid_port():
     with pytest.raises(Exception) as e:
         ssh_tunnel.get_tunnel("host.com", 1337, ssh_host="93.184.216.34")
         assert "port" in str(e.value)
+
+
+def test_config_from_dict_without_an_auth_section():
+    ssh_tunnel_config = SSHTunnelConfig.from_dict({"host": "host.com", "port": "22", "enabled": "false"})
+
+    assert ssh_tunnel_config.enabled is False
+    assert ssh_tunnel_config.auth.type is None

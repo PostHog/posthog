@@ -1899,7 +1899,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
         # saved-expressions fetch in the HogQL database build. +1 for the shared-database
         # kill-switch instance setting, cold-cache here but TTL-cached per worker in production.
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(16):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -1912,7 +1912,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # 16 as above, plus the include_total counting queries (was 20); the count runs a second
         # HogQL database build, which pays the saved-expressions fetch again.
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(19):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 

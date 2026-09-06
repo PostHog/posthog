@@ -32,6 +32,7 @@ from datetime import datetime
 from functools import partial
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -306,6 +307,13 @@ def scout_report_exists(*, team_id: int, report_id: str) -> bool:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).exists()
 
 
+def get_scout_report_signal_count(*, team_id: int, report_id: str) -> int | None:
+    """Team-scoped signal-count lookup, for the edit path's pre-judge evidence cap. Returns None when
+    the report doesn't exist for the team. A cost gate only — `append_report_evidence` re-checks the
+    cap under the report lock."""
+    return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("signal_count", flat=True).first()
+
+
 def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Status | None:
     """Team-scoped status lookup, for the edit path's Slack-delivery gate: only a surfaced report may
     have its content pushed to a configured destination, matching emit. Returns None when the report
@@ -425,6 +433,97 @@ def append_report_note(
         )
     logger.info("signals_scout.edit_report: note appended", extra={"team_id": team_id, "report_id": report_id})
     return report_id
+
+
+def append_report_evidence(
+    *,
+    team_id: int,
+    report_id: str,
+    signals: Sequence[ScoutReportSignal],
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> list[str]:
+    """Add backing signal rows to an existing report (the `edit_report` evidence path).
+
+    Additive, the way a note is: the supplied observations join the ones the report already carries
+    instead of replacing them. `signal_count` and `total_weight` move with them, because the inbox
+    card, the Slack context line and the ranking features read those columns — leaving them stale
+    would show fewer signals than the evidence rail renders.
+
+    Team-scoped fail-closed like `append_report_note`, and capped: emit plus every append share
+    `MAX_REPORT_SIGNALS`, checked under the report lock so two concurrent appends cannot both pass.
+    A deleted report is refused under the same lock.
+
+    Returns the ClickHouse `document_id`s to write, in input order. Only the Postgres side runs here.
+    The caller emits the rows with `emit_appended_report_evidence` AFTER the edit commits, so a
+    rolled-back edit never leaves orphan signals bound to the report — the rule `create_scout_report`
+    follows for the same reason.
+    """
+    if not signals:
+        raise InvalidScoutReportError("append_report_evidence needs at least one observation")
+    _validate_report_id(report_id)
+    document_ids = [signal.document_id or str(uuid.uuid4()) for signal in signals]
+    appended_weight = sum(signal.weight for signal in signals)
+
+    with transaction.atomic():
+        stored = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("signal_count", "status")
+            .first()
+        )
+        if stored is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        stored_count, stored_status = stored
+        # Deletion tombstones every signal row bound to the report, so a live row appended after that
+        # supersedes the tombstone and pulls later pipeline signals back into the dead group. The
+        # grouping pipeline declines to move a deleted report's counters for the same reason, and the
+        # embedding receiver drops its document write. Checked under the lock, so a deletion that
+        # commits while this call runs still blocks the append.
+        if stored_status == SignalReport.Status.DELETED:
+            raise InvalidScoutReportError(f"report {report_id} is deleted; evidence cannot be appended")
+        if stored_count + len(signals) > MAX_REPORT_SIGNALS:
+            raise InvalidScoutReportError(
+                f"report {report_id} holds {stored_count} signals; appending {len(signals)} "
+                f"exceeds the {MAX_REPORT_SIGNALS} cap"
+            )
+        # `F()` rather than a read-modify-write on the locked row: the counters are also bumped by the
+        # grouping pipeline when a pipeline signal matches this report, outside this lock.
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            signal_count=F("signal_count") + len(signals),
+            total_weight=F("total_weight") + appended_weight,
+            updated_at=timezone.now(),
+        )
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(note=_evidence_edit_note(len(signals)), author=author),
+            attribution=attribution,
+        )
+
+    logger.info(
+        "signals_scout.edit_report: evidence appended",
+        extra={"team_id": team_id, "report_id": report_id, "count": len(signals)},
+    )
+    return document_ids
+
+
+def emit_appended_report_evidence(
+    *,
+    team_id: int,
+    report_id: str,
+    signals: Sequence[ScoutReportSignal],
+    document_ids: Sequence[str],
+    skill_name: str | None = None,
+) -> None:
+    """Write the rows `append_report_evidence` reserved, once the edit has committed.
+
+    Sequential rather than an `on_commit` hook, mirroring `create_scout_report`: a broker failure
+    surfaces to the caller instead of being swallowed."""
+    for signal, document_id in zip(signals, document_ids):
+        _emit_bound_signal(
+            team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
+        )
 
 
 def set_report_charts(
@@ -931,6 +1030,10 @@ def _chart_edit_note(count: int) -> str:
     if count == 0:
         return "Removed the report's charts via edit_report."
     return f"Replaced report charts ({count}) via edit_report."
+
+
+def _evidence_edit_note(count: int) -> str:
+    return f"Appended {count} evidence item{'s' if count != 1 else ''} via edit_report."
 
 
 def _suggested_prompts_edit_note(count: int) -> str:

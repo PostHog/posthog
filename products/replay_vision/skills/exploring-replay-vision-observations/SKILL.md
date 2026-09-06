@@ -20,8 +20,7 @@ and doing something useful with it. For creating or sizing scanners, use [[creat
   - `classifier` → one or more `tags` from the scanner's label set, plus `tags_freeform` when the scanner
     allows freeform tags, and the `reasoning`.
   - `scorer` → a numeric `score` on the scanner's `scale`, and the `reasoning`.
-  - `summarizer` → a `title` and free-text `summary`, plus the facets that get embedded for search
-    (`intent`, `outcome`, `friction_points`, `keywords`).
+  - `summarizer` → a `title` and free-text `summary`.
 - **Only `succeeded` observations carry a finding.** Triage the rest by `status`/`error_reason` (see below).
 - **Observations are LLM judgments, not ground truth.** One observation is one model's read of one session —
   corroborate before you act on it.
