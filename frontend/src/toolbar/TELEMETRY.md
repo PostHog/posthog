@@ -16,6 +16,17 @@ settings could switch them back on. A `before_send` guard therefore drops the ev
 `$web_vitals`, `$$heatmap`, and any `$exception` without a `toolbar_context` property. Report
 toolbar failures with `captureToolbarException`, which adds that property.
 
+posthog-js also describes the host page on every event it sends, whatever the event is. The same
+guard removes those properties from the events the toolbar keeps, so none of them reach the internal
+project: the page URL, host and path, the referrer and its search engine and keyword, the campaign
+parameters (`utm_*`, `gclid` and the rest), and every `$initial_` and `$session_entry_` copy of
+those. It removes them from the person properties as well, so a toolbar user's PostHog person never
+records the customer page they were on. `save_referrer` and `save_campaign_params` are off for the
+same reason, which stops posthog-js storing the values in the first place.
+
+None of the events in this document therefore carry `$current_url`. To tell where a toolbar event
+came from, use the properties the toolbar sets itself, such as `api_host` on `toolbar loaded`.
+
 ## Lifecycle
 
 ### `toolbar loaded`
