@@ -7,6 +7,7 @@ import {
   GitCommit,
   GitFork,
   GitPullRequest,
+  Link,
 } from "@phosphor-icons/react";
 import { getPrVisualConfig } from "@posthog/core/git-interaction/prStatus";
 import { parseGithubUrl } from "@posthog/git/utils";
@@ -284,7 +285,7 @@ interface PrBadgeControlProps {
   onOtherPrSelect: (url: string) => void;
 }
 
-function PrBadgeControl({
+export function PrBadgeControl({
   prUrl,
   prState,
   merged,
@@ -301,7 +302,15 @@ function PrBadgeControl({
   const tone = prBadgeToneProps(config);
   const lifecycleItems = config.actions;
   const hasMenuItems = gitItems.length + lifecycleItems.length > 0;
-  const hasDropdown = hasMenuItems || !!branchName || otherPrs.length > 0;
+
+  const copyPrUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(prUrl);
+      toast.success("Pull request URL copied");
+    } catch {
+      toast.error("Couldn't copy pull request URL");
+    }
+  };
 
   const copyBranchName = async () => {
     if (!branchName) return;
@@ -323,93 +332,87 @@ function PrBadgeControl({
         isPrPending={isPrPending}
         otherCount={otherPrs.length}
       />
-      {hasDropdown && (
-        <>
-          {/* quill's group only collapses corners, and both halves share one
-              fill, so without a seam the trigger disappears into the badge. */}
-          <ButtonGroupSeparator />
-          <ChevronMenu
-            label="Pull request actions"
-            disabled={isPrPending}
-            // The trigger wears the badge's own lifecycle colour: the group is
-            // one control, and a neutral half beside a green one reads as two.
-            variant={tone.variant}
-            className={tone.className}
+      {/* quill's group only collapses corners, and both halves share one
+          fill, so without a seam the trigger disappears into the badge. */}
+      <ButtonGroupSeparator />
+      {/* The chevron is unconditional: this half only renders for a task that
+          has a PR, and the PR's URL is always something to copy. */}
+      <ChevronMenu
+        label="Pull request actions"
+        disabled={isPrPending}
+        // The trigger wears the badge's own lifecycle colour: the group is
+        // one control, and a neutral half beside a green one reads as two.
+        variant={tone.variant}
+        className={tone.className}
+      >
+        {gitItems.map((item) => (
+          <GitDropdownItem key={item.id} action={item} onSelect={onGitSelect} />
+        ))}
+        {gitItems.length > 0 && lifecycleItems.length > 0 && (
+          <DropdownMenuSeparator />
+        )}
+        {lifecycleItems.map((action) => (
+          <QDropdownMenuItem
+            key={action.id}
+            onClick={() => onPrSelect(action.id)}
           >
-            {gitItems.map((item) => (
-              <GitDropdownItem
-                key={item.id}
-                action={item}
-                onSelect={onGitSelect}
-              />
-            ))}
-            {gitItems.length > 0 && lifecycleItems.length > 0 && (
-              <DropdownMenuSeparator />
-            )}
-            {lifecycleItems.map((action) => (
-              <QDropdownMenuItem
-                key={action.id}
-                onClick={() => onPrSelect(action.id)}
-              >
-                {getPrActionIcon(action.id)}
-                {action.label}
-              </QDropdownMenuItem>
-            ))}
-            {otherPrs.length > 0 && (
-              <>
-                {hasMenuItems && <DropdownMenuSeparator />}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <GitPullRequest size={12} weight="bold" />
-                    Other PRs
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {otherPrs.map((otherPr) => (
-                      <QDropdownMenuItem
-                        key={otherPr.url}
-                        onClick={() => onOtherPrSelect(otherPr.url)}
-                      >
-                        <OtherPrStateIcon visual={otherPr.visual} />
-                        <span>
-                          {otherPr.label}
-                          {otherPr.summary && ` ${otherPr.summary}`}
-                          {otherPr.visual && (
-                            <span
-                              style={{
-                                color: `var(--${otherPr.visual.color}-11)`,
-                              }}
-                            >
-                              {" "}
-                              · {otherPr.visual.label}
-                            </span>
-                          )}
-                          {otherPr.repoLabel && (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              · {otherPr.repoLabel}
-                            </span>
-                          )}
+            {getPrActionIcon(action.id)}
+            {action.label}
+          </QDropdownMenuItem>
+        ))}
+        {otherPrs.length > 0 && (
+          <>
+            {hasMenuItems && <DropdownMenuSeparator />}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <GitPullRequest size={12} weight="bold" />
+                Other PRs
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {otherPrs.map((otherPr) => (
+                  <QDropdownMenuItem
+                    key={otherPr.url}
+                    onClick={() => onOtherPrSelect(otherPr.url)}
+                  >
+                    <OtherPrStateIcon visual={otherPr.visual} />
+                    <span>
+                      {otherPr.label}
+                      {otherPr.summary && ` ${otherPr.summary}`}
+                      {otherPr.visual && (
+                        <span
+                          style={{
+                            color: `var(--${otherPr.visual.color}-11)`,
+                          }}
+                        >
+                          {" "}
+                          · {otherPr.visual.label}
                         </span>
-                      </QDropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              </>
-            )}
-            {branchName && (
-              <>
-                {(hasMenuItems || otherPrs.length > 0) && (
-                  <DropdownMenuSeparator />
-                )}
-                <QDropdownMenuItem onClick={copyBranchName}>
-                  <Copy size={12} weight="bold" />
-                  Copy branch name
-                </QDropdownMenuItem>
-              </>
-            )}
-          </ChevronMenu>
-        </>
-      )}
+                      )}
+                      {otherPr.repoLabel && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {otherPr.repoLabel}
+                        </span>
+                      )}
+                    </span>
+                  </QDropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        )}
+        {(hasMenuItems || otherPrs.length > 0) && <DropdownMenuSeparator />}
+        <QDropdownMenuItem onClick={copyPrUrl}>
+          <Link size={12} weight="bold" />
+          Copy URL
+        </QDropdownMenuItem>
+        {branchName && (
+          <QDropdownMenuItem onClick={copyBranchName}>
+            <Copy size={12} weight="bold" />
+            Copy branch name
+          </QDropdownMenuItem>
+        )}
+      </ChevronMenu>
     </ButtonGroup>
   );
 }
