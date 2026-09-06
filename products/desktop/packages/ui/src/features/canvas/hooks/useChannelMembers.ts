@@ -11,7 +11,6 @@ export const channelMembersQueryKey = (channelId: string | null) =>
 export function useChannelMembers(channelId: string | null): {
   members: UserBasic[];
   isLoading: boolean;
-  isError: boolean;
 } {
   const query = useAuthenticatedQuery<UserBasic[]>(
     channelMembersQueryKey(channelId),
@@ -21,7 +20,6 @@ export function useChannelMembers(channelId: string | null): {
   return {
     members: query.data ?? [],
     isLoading: query.isLoading,
-    isError: query.isError,
   };
 }
 
@@ -42,13 +40,12 @@ export function useSetChannelMembers(channelId: string): {
       return client.setTaskChannelMembers(channelId, userIds);
     },
     onSuccess: (members) => {
+      // The PUT returns the authoritative set, so write it straight in. The channel
+      // list still needs a refetch: a space may have just become visible or hidden.
       queryClient.setQueryData<UserBasic[]>(
         channelMembersQueryKey(channelId),
         members,
       );
-      void queryClient.invalidateQueries({
-        queryKey: channelMembersQueryKey(channelId),
-      });
       void queryClient.invalidateQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
     },
   });
