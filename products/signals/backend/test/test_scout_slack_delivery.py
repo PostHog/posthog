@@ -76,10 +76,10 @@ class TestGetScoutSlackDestination(SimpleTestCase):
     @parameterized.expand(
         [
             ("explicit_true", {"thread_reports": True}, True),
-            ("omitted_defaults_off", {}, False),
+            ("omitted_defaults_on", {}, True),
             ("explicit_false", {"thread_reports": False}, False),
-            # Only a real boolean True turns threading on; a truthy non-bool stays off.
-            ("truthy_non_bool_stays_off", {"thread_reports": "yes"}, False),
+            # Only a real boolean False turns threading off; a falsy non-bool stays on.
+            ("falsy_non_bool_stays_on", {"thread_reports": "no"}, True),
         ]
     )
     def test_parses_thread_reports(self, _name: str, extra: dict, expected: bool) -> None:

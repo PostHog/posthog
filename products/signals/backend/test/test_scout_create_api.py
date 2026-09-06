@@ -70,7 +70,7 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         assert config.emit is False
         assert config.run_cron_schedule == "30 9 * * 1-5"
         assert config.output_destinations == {
-            "slack": {**payload["config"]["output_destinations"]["slack"], "thread_reports": False}
+            "slack": {**payload["config"]["output_destinations"]["slack"], "thread_reports": True}
         }
         assert response.json()["config"]["description"] == payload["description"]
 

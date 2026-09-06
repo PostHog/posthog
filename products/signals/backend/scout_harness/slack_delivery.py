@@ -88,7 +88,7 @@ class ScoutSlackDestination:
     # or one or more members to DM individually (`U…|@name`) — Slack's chat.postMessage accepts
     # either id as its `channel` argument, opening the DM for a member id.
     targets: tuple[str, ...]
-    thread_reports: bool = False
+    thread_reports: bool = True
 
 
 class ScoutSlackPermanentDeliveryError(RuntimeError):
@@ -107,7 +107,8 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
     integration_id = slack.get("integration_id")
     if not isinstance(integration_id, int) or isinstance(integration_id, bool) or integration_id < 1:
         return None
-    thread_reports = slack.get("thread_reports") is True
+    # Threading is the default, so only an explicit `false` turns it off.
+    thread_reports = slack.get("thread_reports") is not False
     channel = slack.get("channel")
     if isinstance(channel, str) and channel.strip():
         return ScoutSlackDestination(

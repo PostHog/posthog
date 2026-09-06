@@ -77,7 +77,7 @@ export function ScoutSlackDestination({
             slack: {
                 integration_id: selectedIntegration.id,
                 channel,
-                thread_reports: destination?.thread_reports ?? false,
+                thread_reports: destination?.thread_reports ?? true,
             },
         })
     }
@@ -207,7 +207,7 @@ export function ScoutSlackDestination({
                             {configuredIntegration && hasChannel ? (
                                 <LemonSwitch
                                     size="small"
-                                    checked={destination?.thread_reports ?? false}
+                                    checked={destination?.thread_reports ?? true}
                                     onChange={setThreadReports}
                                     disabledReason={disabledReason}
                                     label="Post reports as a thread"
