@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@posthog/quill";
+import { useMinuteNow } from "@posthog/ui/hooks/useMinuteNow";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
@@ -40,7 +41,9 @@ export function ScoutTable({
   onUpdateConfig: (configId: string, updates: ScoutConfigUpdate) => void;
   emptyMessage: string;
 }) {
-  const now = new Date();
+  // One `now` for every row, changing on the minute: a fresh Date each render
+  // would re-do the work of every visible row on every scroll frame.
+  const now = useMinuteNow();
   const viewportRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: configs.length,

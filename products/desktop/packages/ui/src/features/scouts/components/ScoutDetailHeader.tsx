@@ -1,7 +1,6 @@
 import { ArrowLeftIcon, PlayIcon } from "@phosphor-icons/react";
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
 import {
-  SCOUT_DETAIL_TAB_LABEL,
   SCOUT_DETAIL_TABS,
   type ScoutDetailTab,
 } from "@posthog/core/scouts/scoutDetailTabs";
@@ -19,7 +18,8 @@ import {
   scoutRunOutcomeLabel,
   scoutSummarySentence,
 } from "@posthog/core/scouts/scoutPresentation";
-import { Button, Skeleton, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
+import { Button, Skeleton } from "@posthog/quill";
+import { CountedTabStrip } from "@posthog/ui/primitives/CountedTabStrip";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Fragment, type ReactNode } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
@@ -28,6 +28,14 @@ import { useScoutSkillCreators } from "../hooks/useScoutSkillCreators";
 import { ScoutChatButton } from "./ScoutChatButton";
 import { ScoutEnabledSwitch } from "./ScoutConfigControls";
 import { ScoutHealthBanner } from "./ScoutLifecycleBadges";
+
+const TAB_LABEL: Record<ScoutDetailTab, string> = {
+  activity: "Activity",
+  signals: "Signals",
+  settings: "Settings",
+};
+
+const TABS = SCOUT_DETAIL_TABS.map((key) => ({ key, label: TAB_LABEL[key] }));
 
 /**
  * Header for the agent page: name and health, one line on what it does, the
@@ -85,34 +93,14 @@ export function ScoutDetailHeader({
         />
       )}
 
-      <Tabs
+      <CountedTabStrip
+        tabs={TABS}
         value={tab}
+        counts={counts}
+        onValueChange={onTabChange}
+        dataAttrPrefix="scout-tab"
         className="-mb-px min-w-0 overflow-x-auto"
-        onValueChange={(value: string) => onTabChange(value as ScoutDetailTab)}
-      >
-        <TabsList variant="line" className="h-auto gap-0.5">
-          {SCOUT_DETAIL_TABS.map((key) => {
-            const count = counts[key];
-            return (
-              <TabsTrigger
-                key={key}
-                value={key}
-                className="gap-1.5 px-2.5 py-2"
-                data-attr={`scout-tab-${key}`}
-              >
-                <span className="font-medium text-[13px]">
-                  {SCOUT_DETAIL_TAB_LABEL[key]}
-                </span>
-                {count !== undefined && count > 0 ? (
-                  <span className="text-[12px] text-gray-10 tabular-nums">
-                    {count}
-                  </span>
-                ) : null}
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-      </Tabs>
+      />
     </div>
   );
 }

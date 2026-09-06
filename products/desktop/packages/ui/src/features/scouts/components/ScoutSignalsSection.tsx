@@ -3,6 +3,7 @@ import type {
   ScoutEmission,
   ScoutRun,
 } from "@posthog/api-client/posthog-client";
+import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { track } from "@posthog/ui/shell/analytics";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
@@ -29,20 +30,15 @@ const INITIAL_EMITTED_RUNS = 10;
  */
 export function ScoutSignalsSection({
   runs,
-  windowLabel,
   loading,
   error,
   highlightFindingId,
-  hideTitle = false,
 }: {
   runs: ScoutRun[];
-  windowLabel: string;
   loading: boolean;
   error?: boolean;
   /** Emission id from a shared finding link – expanded and scrolled to when present. */
   highlightFindingId?: string;
-  /** The Signals tab already names the section in its tab. */
-  hideTitle?: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
   const emittedRuns = useMemo(
@@ -88,20 +84,17 @@ export function ScoutSignalsSection({
 
   return (
     <div className="flex flex-col gap-3">
-      {hideTitle ? null : (
-        <h2 className="font-semibold text-[13px] text-gray-12">Signals</h2>
-      )}
       {loading ? (
         <div className="h-24 w-full animate-pulse rounded-(--radius-2) bg-(--gray-3)" />
       ) : error ? (
         <p className="text-(--red-11) text-[12.5px]">
           Couldn&apos;t load this agent&apos;s runs, so signals for the{" "}
-          {windowLabel} are unavailable.
+          {SCOUT_RUNS_WINDOW_LABEL} are unavailable.
         </p>
       ) : emittedRuns.length === 0 ? (
         <p className="text-[12.5px] text-gray-11">
-          No signals in the {windowLabel}. Quiet is normal for a watchdog. Use
-          Run now to check that the agent still works.
+          No signals in the {SCOUT_RUNS_WINDOW_LABEL}. Quiet is normal for a
+          watchdog. Use Run now to check that the agent still works.
         </p>
       ) : (
         <div className="flex flex-col gap-2">

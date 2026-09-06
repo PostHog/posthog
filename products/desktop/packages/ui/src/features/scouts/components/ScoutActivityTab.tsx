@@ -11,6 +11,7 @@ import {
 } from "@posthog/core/scouts/scoutRunsWindow";
 import { Skeleton, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { useMinuteNow } from "@posthog/ui/hooks/useMinuteNow";
 import { track } from "@posthog/ui/shell/analytics";
 import { useMemo, useState } from "react";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
@@ -46,7 +47,7 @@ export function ScoutActivityTab({
   error: boolean;
 }) {
   const [filter, setFilter] = useState<ScoutRunFilter>("all");
-  const now = new Date();
+  const now = useMinuteNow();
   const sorted = useMemo(
     () =>
       [...runs].sort((a, b) =>
@@ -68,7 +69,7 @@ export function ScoutActivityTab({
     }
     return map;
   }, [runs]);
-  const summary = summarizeRunWindow(rollup, now);
+  const summary = useMemo(() => summarizeRunWindow(rollup, now), [rollup, now]);
   const incomplete = runsWindow ? !runsWindow.complete : false;
 
   return (

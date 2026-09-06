@@ -23,6 +23,7 @@ interface AgentsPageActions {
   ) => void;
   showAgentTab: (tab: ScoutDetailTab) => void;
   closeAgent: () => void;
+  reset: () => void;
 }
 
 type AgentsPageStore = AgentsPageState & { actions: AgentsPageActions };
@@ -50,6 +51,7 @@ const useStore = create<AgentsPageStore>((set) => ({
           : state,
       ),
     closeAgent: () => set({ agent: null }),
+    reset: () => set({ tab: "agents", agent: null }),
   },
 }));
 

@@ -44,12 +44,13 @@ import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { skillUrl } from "@posthog/ui/utils/posthogLinks";
+import { memo } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { useScoutRunNow } from "../hooks/useScoutRunNow";
+import { AgentNameLink } from "./AgentNameLink";
 import { DryRunBadge } from "./ScoutBadges";
 import { ScoutEnabledSwitch } from "./ScoutConfigControls";
 import { ScoutLifecycleBadge } from "./ScoutLifecycleBadges";
-import { ScoutNameHoverCard } from "./ScoutNameHoverCard";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
 
 const ROW_BOXES = 24;
@@ -94,7 +95,7 @@ function statusDotClass(
   return "bg-(--green-9)";
 }
 
-export function ScoutTableRow({
+function ScoutTableRowInner({
   config,
   rollup,
   runsPending,
@@ -141,18 +142,10 @@ export function ScoutTableRow({
             className={`inline-block h-2 w-2 shrink-0 rounded-full ${statusDotClass(config, rollup, now)}`}
             aria-hidden
           />
-          <ScoutNameHoverCard
+          <AgentNameLink
             config={config}
-            trigger={
-              <button
-                type="button"
-                onClick={() => openAgent(slug)}
-                className="cursor-pointer truncate border-0 bg-transparent p-0 text-left font-medium text-[13px] text-gray-12 hover:underline"
-                data-attr="scout-row-open"
-              >
-                {name}
-              </button>
-            }
+            onOpen={() => openAgent(slug)}
+            dataAttr="scout-row-open"
           />
           <DryRunBadge config={config} />
           <ScoutLifecycleBadge config={config} />
@@ -273,3 +266,7 @@ export function ScoutTableRow({
     </TableRow>
   );
 }
+
+// The fleet can hold hundreds of agents. Rows re-render on every scroll frame
+// without this, and each one re-derives its schedule, outcome and run boxes.
+export const ScoutTableRow = memo(ScoutTableRowInner);

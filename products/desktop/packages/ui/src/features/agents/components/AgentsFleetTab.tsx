@@ -25,7 +25,7 @@ export function AgentsFleetTab() {
     <AgentsTabLayout
       tab="agents"
       fill
-      counts={{ agents: configs?.length }}
+      count={configs?.length}
       actions={
         <>
           <FleetOverviewButton />

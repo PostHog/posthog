@@ -5,7 +5,6 @@ import {
   prettifyScoutSkillName,
   scoutSkillNameFromSlug,
 } from "@posthog/core/scouts/scoutPresentation";
-import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import { track } from "@posthog/ui/shell/analytics";
@@ -58,7 +57,6 @@ export function ScoutDetailView({
     () => computeScoutRollups(scoutRuns).get(skillName),
     [scoutRuns, skillName],
   );
-  const windowLabel = SCOUT_RUNS_WINDOW_LABEL;
   // Pages arrive newest first, so an agent with nothing yet may still be in a
   // page that has not landed. That reads as loading, never as "no runs".
   const runsUnknown =
@@ -130,11 +128,9 @@ export function ScoutDetailView({
           ) : tab === "signals" ? (
             <ScoutSignalsSection
               runs={scoutRuns}
-              windowLabel={windowLabel}
               loading={runsUnknown}
               error={runsError}
               highlightFindingId={highlightFindingId}
-              hideTitle
             />
           ) : config ? (
             <ScoutConfigForm config={config} onUpdate={updateConfig} />

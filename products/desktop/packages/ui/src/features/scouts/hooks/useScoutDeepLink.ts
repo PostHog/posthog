@@ -1,6 +1,7 @@
 import { useHostTRPC } from "@posthog/host-router/react";
-import { openAgentPage } from "@posthog/ui/features/agents/openAgentsPage";
+import { agentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
@@ -37,7 +38,8 @@ export function useScoutDeepLink() {
     log.info(
       `Opening scout from deep link: skillSlug=${skillSlug} findingId=${findingId ?? "(none)"}`,
     );
-    openAgentPage(skillSlug, findingId);
+    agentsPageActions().openAgent(skillSlug, { findingId });
+    openSettings("agents");
   }, []);
 
   useEffect(() => {

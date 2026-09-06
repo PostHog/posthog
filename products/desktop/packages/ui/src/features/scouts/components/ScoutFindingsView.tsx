@@ -1,4 +1,3 @@
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import {
   availableScoutsFromRows,
   filterAndSortScoutFindings,
@@ -10,16 +9,16 @@ import {
 } from "@posthog/core/scouts/scoutFindings";
 import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import { SCOUT_RUNS_WINDOW_SPAN } from "@posthog/core/scouts/scoutRunsWindow";
-import { Input } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { AgentsTabLayout } from "@posthog/ui/features/agents/components/AgentsTabLayout";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import { SearchInput } from "@posthog/ui/primitives/SearchInput";
 import { track } from "@posthog/ui/shell/analytics";
-import { Box, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useScoutFindings } from "../hooks/useScoutFindings";
 import { ScoutEmissionCard } from "./ScoutEmissionCard";
+import { ScoutListBody } from "./ScoutListBody";
 import { VirtualCardList } from "./VirtualCardList";
 
 /** A collapsed signal card: header, one summary line, footer. */
@@ -84,233 +83,150 @@ export function ScoutFindingsView() {
   const loadFailed = emissionsError || runsError;
 
   return (
-    <AgentsTabLayout
-      tab="signals"
-      fill
-      counts={{ signals: summary.totalCount }}
-    >
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        {summary.totalCount > 0 ? (
-          <Flex
-            align="center"
-            gap="1"
-            className="text-[12px] text-gray-10"
-            wrap="wrap"
-          >
-            <Text className="text-[12px] text-gray-10">
-              {summary.totalCount} signal
-              {summary.totalCount === 1 ? "" : "s"} · {summary.scoutCount} agent
-              {summary.scoutCount === 1 ? "" : "s"}
-            </Text>
-            {summary.latestEmittedAt ? (
-              <>
-                <Text className="text-[12px] text-gray-9">· latest</Text>
-                <RelativeTimestamp
-                  timestamp={summary.latestEmittedAt}
-                  className="text-[12px] text-gray-10"
-                />
-              </>
-            ) : null}
-            <Text className="text-[12px] text-gray-9">
-              · from the most recent {SCOUT_RUNS_WINDOW_SPAN} of runs
-            </Text>
-          </Flex>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-64">
-            <MagnifyingGlassIcon
-              size={13}
-              className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-gray-10"
-            />
-            <Input
-              type="search"
-              placeholder="Search signals"
-              aria-label="Search signals"
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              className="h-8 pl-7"
-            />
-          </div>
-          <div className="w-44">
-            <SettingsOptionSelect
-              value={scoutFilter}
-              options={[
-                { value: SCOUT_FINDINGS_SCOUT_FILTER_ALL, label: "All agents" },
-                ...availableScouts.map((scout) => ({
-                  value: scout.skillName,
-                  label: `${scout.label} (${scout.count})`,
-                })),
-              ]}
-              ariaLabel="Filter by agent"
-              onValueChange={(value) => {
-                setScoutFilter(value);
-                track(ANALYTICS_EVENTS.SCOUT_ACTION, {
-                  action_type: "filter_findings",
-                  surface: "scout_findings",
-                  filter: value,
-                });
-              }}
-            />
-          </div>
-          <div className="w-36">
-            <SettingsOptionSelect
-              value={severityFilter}
-              options={[
-                {
-                  value: SCOUT_FINDINGS_SEVERITY_FILTER_ALL,
-                  label: "All severities",
-                },
-                ...SCOUT_FINDINGS_SEVERITY_OPTIONS.map((severity) => ({
-                  value: severity,
-                  label: severity,
-                })),
-              ]}
-              ariaLabel="Filter by severity"
-              onValueChange={(value) => {
-                setSeverityFilter(value);
-                track(ANALYTICS_EVENTS.SCOUT_ACTION, {
-                  action_type: "filter_findings",
-                  surface: "scout_findings",
-                  filter: `severity:${value}`,
-                });
-              }}
-            />
-          </div>
-          <span className="flex-1" />
-          <div className="w-40">
-            <SettingsOptionSelect
-              value={sortKey}
-              options={SORT_OPTIONS.map((option) => ({
-                value: option.value,
-                label: `Sort: ${option.label}`,
-              }))}
-              ariaLabel="Sort signals"
-              onValueChange={(value) => {
-                const next = value as ScoutFindingsSortKey;
-                setSortKey(next);
-                track(ANALYTICS_EVENTS.SCOUT_ACTION, {
-                  action_type: "sort_findings",
-                  surface: "scout_findings",
-                  filter: next,
-                });
-              }}
-            />
-          </div>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      {summary.totalCount > 0 ? (
+        <div className="flex flex-wrap items-center gap-1 text-[12px] text-gray-10">
+          <span>
+            {summary.totalCount} signal
+            {summary.totalCount === 1 ? "" : "s"} · {summary.scoutCount} agent
+            {summary.scoutCount === 1 ? "" : "s"}
+          </span>
+          {summary.latestEmittedAt ? (
+            <>
+              <span className="text-gray-9">· latest</span>
+              <RelativeTimestamp
+                timestamp={summary.latestEmittedAt}
+                className="text-[12px] text-gray-10"
+              />
+            </>
+          ) : null}
+          <span className="text-gray-9">
+            · from the most recent {SCOUT_RUNS_WINDOW_SPAN} of runs
+          </span>
         </div>
-
-        {hasLoadedOnce &&
-        (emissionsError || runsError) &&
-        emissionsFetching === false &&
-        rows.length > 0 ? (
-          // A later poll/retry failed while a prior set is still on screen.
-          // The list may be incomplete — warn rather than show it silently.
-          <Flex
-            align="center"
-            gap="3"
-            className="rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-4 py-3 text-[12.5px]"
-          >
-            <Text className="flex-1 text-(--amber-11)">
-              Some signals couldn&apos;t be loaded, so this list may be
-              incomplete.
-            </Text>
-            <button
-              type="button"
-              onClick={() => refetch()}
-              className="shrink-0 rounded-(--radius-2) border border-(--amber-7) px-2.5 py-1 text-(--amber-11) transition-colors hover:bg-(--amber-3)"
-            >
-              Retry
-            </button>
-          </Flex>
-        ) : null}
-
-        <FindingsBody
-          hasLoadedOnce={hasLoadedOnce}
-          loadFailed={loadFailed}
-          rowCount={rows.length}
-          filteredRows={filteredRows}
-          isFiltering={isFiltering}
-          onRetry={refetch}
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchInput
+          value={searchText}
+          onValueChange={setSearchText}
+          placeholder="Search signals"
         />
-      </div>
-    </AgentsTabLayout>
-  );
-}
-
-function FindingsBody({
-  hasLoadedOnce,
-  loadFailed,
-  rowCount,
-  filteredRows,
-  isFiltering,
-  onRetry,
-}: {
-  hasLoadedOnce: boolean;
-  loadFailed: boolean;
-  rowCount: number;
-  filteredRows: ReturnType<typeof filterAndSortScoutFindings>;
-  isFiltering: boolean;
-  onRetry: () => void;
-}) {
-  if (!hasLoadedOnce) {
-    return (
-      <Flex direction="column" gap="2">
-        {[0, 1, 2].map((key) => (
-          <Box
-            key={key}
-            className="h-14 w-full animate-pulse rounded-(--radius-2) bg-(--gray-3)"
+        <div className="w-44">
+          <SettingsOptionSelect
+            value={scoutFilter}
+            options={[
+              { value: SCOUT_FINDINGS_SCOUT_FILTER_ALL, label: "All agents" },
+              ...availableScouts.map((scout) => ({
+                value: scout.skillName,
+                label: `${scout.label} (${scout.count})`,
+              })),
+            ]}
+            ariaLabel="Filter by agent"
+            onValueChange={(value) => {
+              setScoutFilter(value);
+              track(ANALYTICS_EVENTS.SCOUT_ACTION, {
+                action_type: "filter_findings",
+                surface: "scout_findings",
+                filter: value,
+              });
+            }}
           />
-        ))}
-      </Flex>
-    );
-  }
+        </div>
+        <div className="w-36">
+          <SettingsOptionSelect
+            value={severityFilter}
+            options={[
+              {
+                value: SCOUT_FINDINGS_SEVERITY_FILTER_ALL,
+                label: "All severities",
+              },
+              ...SCOUT_FINDINGS_SEVERITY_OPTIONS.map((severity) => ({
+                value: severity,
+                label: severity,
+              })),
+            ]}
+            ariaLabel="Filter by severity"
+            onValueChange={(value) => {
+              setSeverityFilter(value);
+              track(ANALYTICS_EVENTS.SCOUT_ACTION, {
+                action_type: "filter_findings",
+                surface: "scout_findings",
+                filter: `severity:${value}`,
+              });
+            }}
+          />
+        </div>
+        <span className="flex-1" />
+        <div className="w-40">
+          <SettingsOptionSelect
+            value={sortKey}
+            options={SORT_OPTIONS.map((option) => ({
+              value: option.value,
+              label: `Sort: ${option.label}`,
+            }))}
+            ariaLabel="Sort signals"
+            onValueChange={(value) => {
+              const next = value as ScoutFindingsSortKey;
+              setSortKey(next);
+              track(ANALYTICS_EVENTS.SCOUT_ACTION, {
+                action_type: "sort_findings",
+                surface: "scout_findings",
+                filter: next,
+              });
+            }}
+          />
+        </div>
+      </div>
 
-  if (loadFailed && rowCount === 0) {
-    return (
-      <Flex
-        direction="column"
-        align="center"
-        gap="2"
-        className="rounded-(--radius-2) border border-(--gray-6) border-dashed bg-gray-1 px-4 py-8 text-center text-[12.5px] text-gray-11"
+      {hasLoadedOnce &&
+      (emissionsError || runsError) &&
+      emissionsFetching === false &&
+      rows.length > 0 ? (
+        // A later poll/retry failed while a prior set is still on screen.
+        // The list may be incomplete — warn rather than show it silently.
+        <div className="flex items-center gap-3 rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-4 py-3 text-[12.5px]">
+          <p className="flex-1 text-(--amber-11)">
+            Some signals couldn&apos;t be loaded, so this list may be
+            incomplete.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      <ScoutListBody
+        loading={!hasLoadedOnce}
+        failed={loadFailed && rows.length === 0}
+        empty={filteredRows.length === 0}
+        errorMessage="Couldn't load signals. The scout API may be unavailable or this project may not be enrolled yet."
+        emptyMessage={
+          isFiltering
+            ? "No signals match your search and filters."
+            : "Your agents haven't sent any signals yet. As they scan your project, what they surface shows up here."
+        }
+        onRetry={refetch}
       >
-        <Text className="text-[12.5px] text-gray-11">
-          Couldn&apos;t load signals. The scout API may be unavailable or this
-          project may not be enrolled yet.
-        </Text>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="rounded-(--radius-2) border border-(--gray-7) px-2.5 py-1 text-[12px] text-gray-11 transition-colors hover:bg-(--gray-3)"
-        >
-          Retry
-        </button>
-      </Flex>
-    );
-  }
-
-  if (filteredRows.length === 0) {
-    return (
-      <Box className="rounded-(--radius-2) border border-(--gray-6) border-dashed bg-gray-1 px-4 py-8 text-center text-[12.5px] text-gray-11">
-        {isFiltering
-          ? "No signals match your search and filters."
-          : "Your agents haven't sent any signals yet. As they scan your project, what they surface shows up here."}
-      </Box>
-    );
-  }
-
-  return (
-    <VirtualCardList
-      items={filteredRows}
-      // emission.id, not source_id — a run can re-emit a finding_id, sharing source_id.
-      getKey={(row) => row.emission.id}
-      estimateSize={SIGNAL_CARD_HEIGHT}
-      renderItem={(row) => (
-        <ScoutEmissionCard
-          emission={row.emission}
-          skillName={row.run.skill_name}
-          scoutLabel={prettifyScoutSkillName(row.run.skill_name)}
-          linkedReport={row.linkedReport}
+        <VirtualCardList
+          items={filteredRows}
+          // emission.id, not source_id — a run can re-emit a finding_id, sharing source_id.
+          getKey={(row) => row.emission.id}
+          estimateSize={SIGNAL_CARD_HEIGHT}
+          renderItem={(row) => (
+            <ScoutEmissionCard
+              emission={row.emission}
+              skillName={row.run.skill_name}
+              scoutLabel={prettifyScoutSkillName(row.run.skill_name)}
+              linkedReport={row.linkedReport}
+            />
+          )}
         />
-      )}
-    />
+      </ScoutListBody>
+    </div>
   );
 }

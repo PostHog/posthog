@@ -1,4 +1,4 @@
-import { CheckIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@phosphor-icons/react";
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
 import {
   computeFleetSummary,
@@ -13,16 +13,10 @@ import {
   sortConfigsForDisplay,
 } from "@posthog/core/scouts/scoutPresentation";
 import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
-import {
-  Button,
-  Input,
-  Skeleton,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@posthog/quill";
+import { Button, Skeleton, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
+import { SearchInput } from "@posthog/ui/primitives/SearchInput";
 import { track } from "@posthog/ui/shell/analytics";
 import { useMemo, useState } from "react";
 import { useMeQuery } from "../../auth/useMeQuery";
@@ -68,18 +62,18 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
   const [creatorKey, setCreatorKey] = useState("");
   const [hideDisabled, setHideDisabled] = useState(false);
 
+  const allConfigs = configs ?? EMPTY_CONFIGS;
   const rollups = useMemo(
     () => computeScoutRollups(runsWindow?.runs ?? []),
     [runsWindow],
   );
   const summary = useMemo(
-    () => computeFleetSummary(configs ?? EMPTY_CONFIGS, rollups),
-    [configs, rollups],
+    () => computeFleetSummary(allConfigs, rollups),
+    [allConfigs, rollups],
   );
   const attention = useMemo(
-    () =>
-      listScoutsNeedingAttention(configs ?? EMPTY_CONFIGS, rollups, new Date()),
-    [configs, rollups],
+    () => listScoutsNeedingAttention(allConfigs, rollups, new Date()),
+    [allConfigs, rollups],
   );
   const originCounts = useMemo(() => {
     const counts: Record<OriginFilter, number> = {
@@ -87,12 +81,12 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
       canonical: 0,
       all: 0,
     };
-    for (const config of configs ?? EMPTY_CONFIGS) {
+    for (const config of allConfigs) {
       counts[getScoutOrigin(config)] += 1;
       counts.all += 1;
     }
     return counts;
-  }, [configs]);
+  }, [allConfigs]);
   // Custom agents are the ones a person wrote, so they lead when there are any.
   const origin: OriginFilter =
     originChoice ?? (originCounts.custom > 0 ? "custom" : "all");
@@ -102,13 +96,18 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
     [creators, currentUser],
   );
 
-  const visibleConfigs = useMemo(() => {
-    const needle = search.trim().toLowerCase();
+  // The order depends on the fleet alone, so a keystroke in the search box
+  // filters what is already sorted rather than sorting it again.
+  const orderedConfigs = useMemo(() => {
     const urgent = new Set(attention.map((item) => item.config.id));
-    const sorted = sortConfigsForDisplay(configs ?? EMPTY_CONFIGS).sort(
+    return sortConfigsForDisplay(allConfigs).sort(
       (a, b) => Number(urgent.has(b.id)) - Number(urgent.has(a.id)),
     );
-    return sorted.filter((config) => {
+  }, [allConfigs, attention]);
+
+  const visibleConfigs = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return orderedConfigs.filter((config) => {
       if (origin !== "all" && getScoutOrigin(config) !== origin) return false;
       if (
         hideDisabled &&
@@ -132,7 +131,7 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
         (config.description ?? "").toLowerCase().includes(needle)
       );
     });
-  }, [configs, origin, hideDisabled, creatorKey, creators, search, attention]);
+  }, [orderedConfigs, origin, hideDisabled, creatorKey, creators, search]);
 
   if (isLoading || (isSyncing && !configs?.length)) {
     return <FleetSkeleton />;
@@ -242,29 +241,21 @@ export function ScoutsFleetView({ onNewAgent }: { onNewAgent: () => void }) {
             ))}
           </TabsList>
         </Tabs>
-        <div className="relative w-52">
-          <MagnifyingGlassIcon
-            size={13}
-            className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-gray-10"
-          />
-          <Input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onBlur={() => {
-              if (search.trim()) {
-                track(ANALYTICS_EVENTS.SCOUT_ACTION, {
-                  action_type: "search_agents",
-                  surface: "fleet_list",
-                  filter_match_count: visibleConfigs.length,
-                });
-              }
-            }}
-            placeholder="Search agents"
-            aria-label="Search agents"
-            className="h-8 pl-7"
-          />
-        </div>
+        <SearchInput
+          className="w-52"
+          value={search}
+          onValueChange={setSearch}
+          onBlur={() => {
+            if (search.trim()) {
+              track(ANALYTICS_EVENTS.SCOUT_ACTION, {
+                action_type: "search_agents",
+                surface: "fleet_list",
+                filter_match_count: visibleConfigs.length,
+              });
+            }
+          }}
+          placeholder="Search agents"
+        />
         {creatorOptions.length > 0 ? (
           <div className="w-44">
             <SettingsOptionSelect

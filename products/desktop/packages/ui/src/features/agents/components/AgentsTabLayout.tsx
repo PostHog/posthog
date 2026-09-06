@@ -1,11 +1,11 @@
-import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import {
   type AgentsTab,
   useAgentsPageActions,
 } from "@posthog/ui/features/agents/agentsPageStore";
+import { CountedTabStrip } from "@posthog/ui/primitives/CountedTabStrip";
 import type { ReactNode } from "react";
 
-const TABS: { key: AgentsTab; label: string }[] = [
+const TABS: readonly { key: AgentsTab; label: string }[] = [
   { key: "agents", label: "Agents" },
   { key: "signals", label: "Signals" },
   { key: "memory", label: "Memory" },
@@ -26,13 +26,14 @@ const TAB_DESCRIPTION: Record<AgentsTab, string> = {
 /** Page chrome shared by the tabs of the Agents settings page. */
 export function AgentsTabLayout({
   tab,
-  counts,
+  count,
   actions,
   fill = false,
   children,
 }: {
   tab: AgentsTab;
-  counts?: Partial<Record<AgentsTab, number>>;
+  /** How many things this tab holds, shown beside its label. */
+  count?: number;
   actions?: ReactNode;
   /** The tab owns the height and scrolls its own list, as the agent table does. */
   fill?: boolean;
@@ -43,32 +44,14 @@ export function AgentsTabLayout({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-end gap-3 border-(--gray-5) border-b px-6">
-        <Tabs
+        <CountedTabStrip
+          tabs={TABS}
           value={tab}
+          counts={{ [tab]: count } as Partial<Record<AgentsTab, number>>}
+          onValueChange={showTab}
+          dataAttrPrefix="agents-tab"
           className="min-w-0 flex-1 overflow-x-auto"
-          onValueChange={(value: string) => showTab(value as AgentsTab)}
-        >
-          <TabsList variant="line" className="h-auto gap-0.5">
-            {TABS.map(({ key, label }) => {
-              const count = counts?.[key];
-              return (
-                <TabsTrigger
-                  key={key}
-                  value={key}
-                  className="gap-1.5 px-2.5 py-2"
-                  data-attr={`agents-tab-${key}`}
-                >
-                  <span className="font-medium text-[13px]">{label}</span>
-                  {count !== undefined && count > 0 ? (
-                    <span className="text-[12px] text-gray-10 tabular-nums">
-                      {count}
-                    </span>
-                  ) : null}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </Tabs>
+        />
         {actions ? (
           <div className="flex shrink-0 items-center gap-2 pb-1.5">
             {actions}
