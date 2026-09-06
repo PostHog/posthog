@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ChannelContextChip } from "./ChannelContextChip";
-import { shouldShowChannelContextChip } from "./channelContext";
+import { channelContextChipProps } from "./channelContext";
 
 function renderChip(props: ComponentProps<typeof ChannelContextChip>): void {
   render(<ChannelContextChip {...props} />);
@@ -10,20 +10,26 @@ function renderChip(props: ComponentProps<typeof ChannelContextChip>): void {
 
 describe("ChannelContextChip", () => {
   it.each([
-    ["resolved context-layer page", true, "/spaces/engineering.md", false],
-    ["legacy CONTEXT.md fallback", true, undefined, true],
-    ["dismissed legacy context", false, undefined, false],
+    [
+      "resolved context-layer page",
+      "spaces/engineering.md",
+      { label: "engineering.md", removable: false },
+    ],
+    [
+      "legacy CONTEXT.md fallback",
+      undefined,
+      { label: "CONTEXT.md", removable: true },
+    ],
   ] as const)(
-    "shows the chip for %s: %s",
-    (_case, includeChannelContext, channelContextPath, expected) => {
-      expect(
-        shouldShowChannelContextChip(includeChannelContext, channelContextPath),
-      ).toBe(expected);
+    "labels the chip for a %s",
+    (_case, channelContextPath, expected) => {
+      expect(channelContextChipProps(channelContextPath)).toEqual(expected);
     },
   );
 
   it("keeps legacy CONTEXT.md removable", () => {
     renderChip({
+      label: "CONTEXT.md",
       channelName: "engineering",
       onRemove: vi.fn(),
     });
@@ -34,5 +40,12 @@ describe("ChannelContextChip", () => {
         name: "Remove #engineering CONTEXT.md",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("names a wiki page and offers no remove control", () => {
+    renderChip({ label: "engineering.md", channelName: "engineering" });
+
+    expect(screen.getByText("engineering.md")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
   });
 });
