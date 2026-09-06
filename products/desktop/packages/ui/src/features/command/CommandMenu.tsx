@@ -724,6 +724,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           keywords: "space channel",
           icon: channelGlyph(channel.name, {
             personal: channel.channelType === "personal",
+            private: channel.channelType === "private",
             size: 12,
             space: spacesLayout,
             className: "text-muted-foreground",

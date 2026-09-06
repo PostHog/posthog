@@ -10,6 +10,7 @@ import {
   PlusIcon,
   StarIcon,
   TrashIcon,
+  UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { ChannelPresence } from "@posthog/core/canvas/presence";
@@ -58,6 +59,7 @@ import {
 } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import { ManageMembersDialog } from "@posthog/ui/features/canvas/components/ManageMembersDialog";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
@@ -713,6 +715,8 @@ function useChannelActions(channel: Channel): {
   isUpdatingAutoArchive: boolean;
   renameOpen: boolean;
   setRenameOpen: (open: boolean) => void;
+  membersOpen: boolean;
+  setMembersOpen: (open: boolean) => void;
   confirmDeleteOpen: boolean;
   setConfirmDeleteOpen: (open: boolean) => void;
   confirmDelete: () => Promise<boolean>;
@@ -721,6 +725,7 @@ function useChannelActions(channel: Channel): {
   const spacesLayout = useChannelsLayout();
   const noun = spacesLayout ? "space" : "channel";
   const [renameOpen, setRenameOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [autoArchiveOpen, setAutoArchiveOpen] = useState(false);
   // "Delete channel" opens a confirmation dialog rather than deleting inline —
   // the action is destructive and irreversible.
@@ -850,10 +855,23 @@ function useChannelActions(channel: Channel): {
               },
             },
           ];
+    // Only a private space has a member list; public and personal spaces do not.
+    const membersActions: ChannelActionItem[] =
+      channel.channelType === "private"
+        ? [
+            {
+              key: "members",
+              label: "Members…",
+              icon: <UsersThreeIcon size={14} />,
+              onSelect: () => setMembersOpen(true),
+            },
+          ]
+        : [];
     const editableSpaceActions: ChannelActionItem[] =
       channel.channelType === "personal"
         ? []
         : [
+            ...membersActions,
             {
               key: "rename",
               label: `Rename ${noun}…`,
@@ -905,6 +923,8 @@ function useChannelActions(channel: Channel): {
     isUpdatingAutoArchive,
     renameOpen,
     setRenameOpen,
+    membersOpen,
+    setMembersOpen,
     confirmDeleteOpen,
     setConfirmDeleteOpen,
     confirmDelete,
@@ -1072,6 +1092,8 @@ const ChannelSection = memo(
       isUpdatingAutoArchive,
       renameOpen,
       setRenameOpen,
+      membersOpen,
+      setMembersOpen,
       confirmDeleteOpen,
       setConfirmDeleteOpen,
       confirmDelete,
@@ -1110,6 +1132,7 @@ const ChannelSection = memo(
 
     const glyph = channelGlyph(channel.name, {
       personal: channel.channelType === "personal",
+      private: channel.channelType === "private",
       size: 14,
       space: spacesLayout,
       weight: isUnread ? "bold" : undefined,
@@ -1297,6 +1320,14 @@ const ChannelSection = memo(
               channel={channel}
               open={renameOpen}
               onOpenChange={setRenameOpen}
+            />
+          )}
+          {/* Private spaces only — the action that opens this is gated the same way. */}
+          {channel.channelType === "private" && (
+            <ManageMembersDialog
+              channel={channel}
+              open={membersOpen}
+              onOpenChange={setMembersOpen}
             />
           )}
           {/* Destructive confirm for "Delete channel" — spells out what's removed. */}

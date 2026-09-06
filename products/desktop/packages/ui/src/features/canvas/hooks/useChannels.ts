@@ -13,8 +13,11 @@ export interface Channel {
   id: string;
   /** Normalized display name (lowercase-dashed; rendered "#name"). */
   name: string;
-  /** `personal` is the user's private "#me" channel. */
-  channelType: "public" | "personal";
+  /**
+   * `personal` is the user's private "#me" channel. `private` is a shared space
+   * only its members can see.
+   */
+  channelType: "public" | "personal" | "private";
   /** Whether the current user starred this channel. */
   starred: boolean;
   /** The repos the space is wired to. Empty where none are. */
@@ -72,7 +75,17 @@ export function useChannelMutations() {
   }, [queryClient]);
 
   const createMutation = useMutation({
-    mutationFn: async ({ name, star }: { name: string; star: boolean }) => {
+    mutationFn: async ({
+      name,
+      star,
+      channelType,
+      memberIds,
+    }: {
+      name: string;
+      star: boolean;
+      channelType?: "public" | "private";
+      memberIds?: number[];
+    }) => {
       if (!client) throw new Error("Not authenticated");
       // Resolve-or-create is idempotent server-side, so racing creators of the
       // same name converge on one channel.
@@ -84,7 +97,11 @@ export function useChannelMutations() {
       const isNewToTheList = queryClient
         .getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY)
         ?.every((channel) => channel.name !== name);
-      const created = await client.resolveTaskChannel(name, { star });
+      const created = await client.resolveTaskChannel(name, {
+        star,
+        channelType,
+        memberIds,
+      });
       if (!star || created.starred || !isNewToTheList) return created;
       // TODO: delete once `star` on create is live on Cloud. A backend that
       // predates it drops the flag and hands back an unstarred channel, so ask
@@ -155,8 +172,22 @@ export function useChannelMutations() {
   });
 
   return {
-    createChannel: (name: string, options: { star: boolean }) =>
-      createMutation.mutateAsync({ name, star: options.star }).then(toChannel),
+    createChannel: (
+      name: string,
+      options: {
+        star: boolean;
+        channelType?: "public" | "private";
+        memberIds?: number[];
+      },
+    ) =>
+      createMutation
+        .mutateAsync({
+          name,
+          star: options.star,
+          channelType: options.channelType,
+          memberIds: options.memberIds,
+        })
+        .then(toChannel),
     deleteChannel: (id: string) => deleteMutation.mutateAsync(id),
     renameChannel: (id: string, name: string) =>
       renameMutation.mutateAsync({ id, name }).then(toChannel),

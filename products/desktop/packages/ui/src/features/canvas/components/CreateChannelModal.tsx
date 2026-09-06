@@ -31,6 +31,7 @@ import {
   ANALYTICS_EVENTS,
   type ChannelsSurface,
 } from "@posthog/shared/analytics-events";
+import { MemberPicker } from "@posthog/ui/features/canvas/components/MemberPicker";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
@@ -122,6 +123,8 @@ export function CreateChannelModal({
     number | null
   >(null);
   const [star, setStar] = useState(true);
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [memberIds, setMemberIds] = useState<number[]>([]);
   const [step, setStep] = useState<CreateStep>("name");
   const [direction, setDirection] = useState(1);
   const descriptionHelperId = useId();
@@ -144,6 +147,8 @@ export function CreateChannelModal({
       setRepositories([]);
       setRepositoryIntegration(null);
       setStar(true);
+      setVisibility("public");
+      setMemberIds([]);
       setStep("name");
     }
   }
@@ -171,7 +176,11 @@ export function CreateChannelModal({
   const submitCreate = async (linkSelectedRepositories: boolean) => {
     let contextId: string;
     try {
-      const channel = await createChannel(trimmedName, { star });
+      const channel = await createChannel(trimmedName, {
+        star,
+        channelType: visibility,
+        memberIds,
+      });
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
         surface,
@@ -448,6 +457,36 @@ export function CreateChannelModal({
             </DialogHeader>
 
             <DialogBody viewportClassName="flex flex-col gap-3">
+              <Item variant="outline">
+                <ItemContent>
+                  <ItemTitle>
+                    <Label htmlFor="context-private">
+                      Private {spacesLayout ? "space" : "channel"}
+                    </Label>
+                  </ItemTitle>
+                  <ItemDescription>
+                    Only invited members can see it. Off means everyone in the
+                    project can.
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <Switch
+                    id="context-private"
+                    checked={visibility === "private"}
+                    disabled={busy}
+                    onCheckedChange={(on) =>
+                      setVisibility(on ? "private" : "public")
+                    }
+                  />
+                </ItemActions>
+              </Item>
+              {visibility === "private" && (
+                <MemberPicker
+                  selectedIds={memberIds}
+                  onChange={setMemberIds}
+                  disabled={busy}
+                />
+              )}
               <Item variant="outline">
                 <ItemContent>
                   <ItemTitle>Repositories</ItemTitle>
