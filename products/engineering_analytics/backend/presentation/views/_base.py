@@ -70,6 +70,15 @@ _RUN_SCOPE = OpenApiParameter(
     "(a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.",
 )
 
+_WORKFLOW_NAME = OpenApiParameter(
+    name="workflow_name",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Optional exact workflow name to scope results to, e.g. 'Backend CI'. Omit to rank every "
+    "workflow. Pass it when you want one workflow's figures over the whole window rather than the top slice.",
+)
+
 _SOURCE_ID = OpenApiParameter(
     name="source_id",
     type=OpenApiTypes.UUID,

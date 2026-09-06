@@ -159,6 +159,18 @@ def branch_filter_clause(
     return f"AND {column} = {{branch}}"
 
 
+def workflow_name_filter_clause(
+    workflow_name: str | None, placeholders: dict[str, ast.Expr], *, column: str = "r.workflow_name"
+) -> str:
+    """Exact workflow-name filter; registers its ``{workflow_name}`` placeholder. Empty means no
+    filter, so a blank query param ranks every workflow rather than matching a workflow named ''."""
+    value = workflow_name.strip() if workflow_name else ""
+    if not value:
+        return ""
+    placeholders["workflow_name"] = ast.Constant(value=value)
+    return f"AND {column} = {{workflow_name}}"
+
+
 def date_to_filter_clause(
     date_to: datetime | None, placeholders: dict[str, ast.Expr], *, column: str = "r.run_started_at"
 ) -> str:

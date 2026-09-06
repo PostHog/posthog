@@ -28,6 +28,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     _RUN_SCOPE,
     _SOURCE_ID,
     _WORKFLOW_DATE_FROM,
+    _WORKFLOW_NAME,
     EngineeringAnalyticsViewSetBase,
     _bad_request,
     _bool_param,
@@ -54,7 +55,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _SOURCE_ID, _REPO],
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _WORKFLOW_NAME, _SOURCE_ID, _REPO],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
@@ -67,7 +68,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             "by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive "
             "failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over "
             "successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. "
-            "Optionally scope to a single git branch via `branch`, "
+            "Optionally scope to a single git branch via `branch`, to one workflow via `workflow_name`, "
             "or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' "
             "and 'which workflow is the long pole'; compare two windows to get a trend."
         ),
@@ -81,6 +82,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
                 run_scope=request.query_params.get("run_scope") or None,
+                workflow_name=request.query_params.get("workflow_name") or None,
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,

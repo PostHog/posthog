@@ -330,6 +330,7 @@ const workflowHealth = (): ToolBase<
                 repo: params.repo,
                 run_scope: params.run_scope,
                 source_id: params.source_id,
+                workflow_name: params.workflow_name,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics/workflows')
