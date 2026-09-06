@@ -550,7 +550,7 @@
                     "type": "string"
                 },
                 "category": {
-                    "description": "For MCP feedback (`feedback_type: \"mcp\"`) only: the single category that best describes the dominant theme. Pick \"missing_tool\" if a capability was absent, \"tool_description\" if the tool docs were unclear, \"tool_input_schema\" if input args were confusing, \"tool_output_format\" if the response was hard to consume, \"instructions_clarity\" if these MCP instructions were unclear, \"tool_correctness\" if a tool returned wrong data, \"error_message\" if an error was unhelpful, \"performance\" if latency was the issue. Omit for product, docs, or other feedback.",
+                    "description": "For MCP feedback (`feedback_type: \"mcp\"`) only: the single category that best describes the dominant theme. Pick \"tool_description\" if the tool docs were unclear, \"tool_input_schema\" if input args were confusing, \"tool_output_format\" if the response was hard to consume, \"instructions_clarity\" if these MCP instructions were unclear, \"tool_correctness\" if a tool returned wrong data, \"error_message\" if an error was unhelpful, \"performance\" if latency was the issue. Report an absent capability with the `report-missing-capability` tool instead; pick \"missing_tool\" only when the gap is a side note to feedback about a tool that does exist. Omit for product, docs, or other feedback.",
                     "type": "string",
                     "enum": [
                         "tool_correctness",

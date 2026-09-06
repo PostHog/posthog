@@ -418,6 +418,38 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    // Two channels can look like the right place to report a gap, but only
+    // `report-missing-capability` reaches the missing capabilities feed. The feedback
+    // section renders first, so it must not claim the same trigger.
+    describe('missing capability routing', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+        }[] = [
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                name: 'feedback learn topic content',
+                render: (formatter, ctx) =>
+                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'feedback')!.content,
+            },
+            {
+                name: 'buildExecCommandReference',
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+            },
+        ]
+
+        it.each(surfaces)('$name names one tool for a capability that does not exist', ({ render }) => {
+            const [beforeSection, section] = render(new InstructionsFormatter(), fullCtx).split(
+                '### Reporting a missing capability'
+            )
+            expect(section).toContain('`report-missing-capability`')
+            expect(beforeSection).not.toMatch(/missing (capabilit(y|ies)|tools?)/i)
+        })
+    })
+
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
     // `instructions` field, that payload carries exactly one thing — the tool-domain index
     // (including the `query` domain) — because clients hard-truncate it. Everything else,
