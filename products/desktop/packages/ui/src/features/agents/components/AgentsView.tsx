@@ -42,7 +42,7 @@ export function AgentsView() {
 
   if (tab === "signals") return <SignalsTab />;
   if (tab === "memory") return <MemoryTab />;
-  if (tab === "connections") return <ConnectionsTab />;
+  if (tab === "setup") return <SetupTab />;
   return <FleetTab />;
 }
 
@@ -103,9 +103,9 @@ function MemoryTab() {
   );
 }
 
-function ConnectionsTab() {
+function SetupTab() {
   return (
-    <AgentsTabLayout tab="connections">
+    <AgentsTabLayout tab="setup">
       <div className="max-w-[800px]">
         <ConfigureAgentsSection />
       </div>

@@ -100,7 +100,7 @@ export function ScratchpadView() {
         loading={isLoading}
         failed={isError}
         empty={visibleEntries.length === 0}
-        errorMessage="Couldn't load the scratchpad. The scout API may be unavailable or this project may not be enrolled yet."
+        errorMessage="Couldn't load these notes. PostHog may be unavailable, or this project may not be set up for agents yet."
         emptyMessage={
           isSearching
             ? "No notes match your search."

@@ -204,7 +204,7 @@ export function ScoutFindingsView() {
         loading={!hasLoadedOnce}
         failed={loadFailed && rows.length === 0}
         empty={filteredRows.length === 0}
-        errorMessage="Couldn't load signals. The scout API may be unavailable or this project may not be enrolled yet."
+        errorMessage="Couldn't load signals. PostHog may be unavailable, or this project may not be set up for agents yet."
         emptyMessage={
           isFiltering
             ? "No signals match your search and filters."

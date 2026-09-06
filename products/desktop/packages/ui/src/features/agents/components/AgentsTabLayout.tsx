@@ -9,7 +9,7 @@ const TABS: readonly { key: AgentsTab; label: string }[] = [
   { key: "agents", label: "Agents" },
   { key: "signals", label: "Signals" },
   { key: "memory", label: "Memory" },
-  { key: "connections", label: "Connections" },
+  { key: "setup", label: "Setup" },
 ];
 
 const TAB_DESCRIPTION: Record<AgentsTab, string> = {
@@ -19,8 +19,8 @@ const TAB_DESCRIPTION: Record<AgentsTab, string> = {
     "Everything your agents surfaced recently, newest first, with the Self-driving report each one fed into.",
   memory:
     "Notes your agents keep about this project as they scan it: what they classified, ruled out, or named.",
-  connections:
-    "What your agents can reach, and which sources they watch for work.",
+  setup:
+    "What your agents watch, what they can reach, and where their reports land.",
 };
 
 /** Page chrome shared by the tabs of the Agents settings page. */

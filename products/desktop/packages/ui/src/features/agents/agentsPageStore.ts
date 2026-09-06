@@ -1,7 +1,7 @@
 import type { ScoutDetailTab } from "@posthog/core/scouts/scoutDetailTabs";
 import { create } from "zustand";
 
-export type AgentsTab = "agents" | "signals" | "memory" | "connections";
+export type AgentsTab = "agents" | "signals" | "memory" | "setup";
 
 interface OpenAgent {
   slug: string;
