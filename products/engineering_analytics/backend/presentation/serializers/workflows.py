@@ -69,6 +69,10 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
                 "first and fall back to this.",
                 "allow_null": True,
             },
+            "is_merge_queue": {
+                "help_text": "True when a merge queue pushed this run to gate pr_number, rather than the author "
+                "pushing it. Count it when measuring CI; drop it when counting what the author did."
+            },
         }
 
 

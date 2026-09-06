@@ -54,6 +54,7 @@ _SELECT = f"""
         coalesce(ci.passing, 0) AS passing,
         coalesce(ci.failing, 0) AS failing,
         coalesce(ci.pending, 0) AS pending,
+        coalesce(ci.inconclusive, 0) AS inconclusive,
         ci.failing_workflows AS failing_workflows,
         coalesce(rp.pushes, 0) AS pushes,
         coalesce(rp.rerun_cycles, 0) AS rerun_cycles
@@ -195,6 +196,7 @@ def _map_row(
         passing,
         failing,
         pending,
+        inconclusive,
         failing_workflows,
         pushes,
         rerun_cycles,
@@ -224,6 +226,7 @@ def _map_row(
             passing=passing,
             failing=failing,
             pending=pending,
+            inconclusive=inconclusive,
             failing_workflows=list(failing_workflows or []),
         ),
         pushes=pushes,

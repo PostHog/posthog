@@ -322,6 +322,10 @@ class WorkflowRunDetail:
     # This is the only PR attribution a default-branch push has, since its `pull_requests`
     # association is empty by then, so consumers read `pr_number` first and fall back to this (SPEC §6).
     commit_pr_number: int | None
+    # True when this run is a merge-queue gate attempt landing `pr_number`, not a push the author made.
+    # CI measurement counts these; anything measuring authoring activity (pushes, re-run cycles) must
+    # drop them, which is what the PR-list rollup does (SPEC §6).
+    is_merge_queue: bool
 
 
 @dataclass(frozen=True)
@@ -813,6 +817,11 @@ class CIStatusRollup:
     passing: int
     failing: int
     pending: int
+    # Runs that completed without reaching a pass-or-fail verdict: cancelled, skipped, neutral,
+    # action_required. The same outcomes SPEC §6 keeps out of the pass rate. Counted here so
+    # `passing + failing + pending + inconclusive == runs`, which is what lets a caller tell "every
+    # run was cancelled" apart from "everything passed" rather than reading the gap as a pass.
+    inconclusive: int
     # The workflow names behind `failing`, sorted — what the UI names under the CI tag.
     failing_workflows: list[str] = field(default_factory=list)
 

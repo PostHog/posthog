@@ -369,6 +369,13 @@ class CuratedGitHubSource:
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
+                    -- The fourth branch completes the partition. Without it a PR whose runs were all
+                    -- cancelled has passing = failing = pending = 0, which reads as "nothing failed,
+                    -- nothing pending" and therefore as passing.
+                    countIf(
+                        s = 'completed'
+                        AND ifNull(c, '') NOT IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})
+                    ) AS inconclusive,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
                     arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows

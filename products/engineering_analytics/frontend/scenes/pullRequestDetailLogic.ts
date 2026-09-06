@@ -20,6 +20,7 @@ import type {
     WorkflowJobApi,
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
+import { authoredRunsOnly } from '../lib/ci'
 import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
 import {
@@ -175,6 +176,7 @@ export interface pullRequestDetailLogicValues {
     filteredRuns: PrRunRow[]
     latestPushStats: LatestPushStats | null
     lifecycle: PRLifecycleApi | null
+    authoredRuns: WorkflowRunDetailApi[]
     lifecycleLoading: boolean
     loadFailed: boolean
     prCost: PRCostSummaryApi | null
@@ -330,8 +332,9 @@ export interface pullRequestDetailLogicMeta {
             filteredRuns: PrRunRow[],
             runJobs: Record<string, WorkflowJobApi[]>
         ) => Record<string, string>
-        pushes: (prRuns: WorkflowRunDetailApi[]) => number
-        rerunCycles: (prRuns: WorkflowRunDetailApi[]) => number
+        authoredRuns: (prRuns: WorkflowRunDetailApi[]) => WorkflowRunDetailApi[]
+        pushes: (authoredRuns: WorkflowRunDetailApi[]) => number
+        rerunCycles: (authoredRuns: WorkflowRunDetailApi[]) => number
         breadcrumbs: (repoOwner: string, repoName: string, number: number) => Breadcrumb[]
     }
 }
@@ -613,14 +616,18 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 return labels
             },
         ],
-        // Both match the backend definitions (`pushes`, `rerun_cycles`).
-        pushes: [
+        authoredRuns: [
             (s) => [s.prRuns],
-            (prRuns: WorkflowRunDetailApi[]): number => new Set(prRuns.map((run) => run.head_sha)).size,
+            (prRuns: WorkflowRunDetailApi[]): WorkflowRunDetailApi[] => authoredRunsOnly(prRuns),
+        ],
+        pushes: [
+            (s) => [s.authoredRuns],
+            (authoredRuns: WorkflowRunDetailApi[]): number => new Set(authoredRuns.map((run) => run.head_sha)).size,
         ],
         rerunCycles: [
-            (s) => [s.prRuns],
-            (prRuns: WorkflowRunDetailApi[]): number => prRuns.filter((run) => (run.run_attempt ?? 1) > 1).length,
+            (s) => [s.authoredRuns],
+            (authoredRuns: WorkflowRunDetailApi[]): number =>
+                authoredRuns.filter((run) => (run.run_attempt ?? 1) > 1).length,
         ],
         breadcrumbs: [
             (_, p) => [p.repoOwner, p.repoName, p.number],
