@@ -1,3 +1,4 @@
+import math
 from typing import cast
 
 from posthog.test.base import APIBaseTest
@@ -23,6 +24,7 @@ from products.experiments.backend.hogql_queries.trends_statistics_v2_continuous 
 )
 from products.experiments.backend.hogql_queries.trends_statistics_v2_count import calculate_credible_intervals_v2_count
 from products.experiments.backend.hogql_queries.utils import (
+    get_bayesian_ci_level,
     get_bayesian_experiment_result,
     get_bayesian_interval_bounds,
     get_frequentist_experiment_result,
@@ -229,6 +231,83 @@ class TestStatsConfig(APIBaseTest):
 
         self.assertGreater(count_width_99, count_width_90, "99% count CI should be wider than 90% CI")
         self.assertGreater(continuous_width_99, continuous_width_90, "99% continuous CI should be wider than 90% CI")
+
+    @parameterized.expand(
+        [
+            ("ninety", {"bayesian": {"ci_level": 0.90}}, 0.90),
+            ("fractional", {"bayesian": {"ci_level": 0.925}}, 0.925),
+            ("ninety_nine", {"bayesian": {"ci_level": 0.99}}, 0.99),
+            ("numeric_string", {"bayesian": {"ci_level": "0.925"}}, 0.925),
+        ]
+    )
+    def test_bayesian_ci_level_accepts_valid_open_interval_values(self, _name, stats_config, expected) -> None:
+        self.assertAlmostEqual(get_bayesian_ci_level(stats_config), expected)
+
+    @parameterized.expand(
+        [
+            ("zero", {"bayesian": {"ci_level": 0}}),
+            ("one", {"bayesian": {"ci_level": 1}}),
+            ("below_range", {"bayesian": {"ci_level": -0.1}}),
+            ("above_range", {"bayesian": {"ci_level": 1.5}}),
+            ("none", {"bayesian": {"ci_level": None}}),
+            ("nan", {"bayesian": {"ci_level": math.nan}}),
+            ("infinity", {"bayesian": {"ci_level": math.inf}}),
+            ("negative_infinity", {"bayesian": {"ci_level": -math.inf}}),
+            ("not_a_number", {"bayesian": {"ci_level": "not-a-number"}}),
+            ("bayesian_none", {"bayesian": None}),
+            ("bayesian_list", {"bayesian": []}),
+            ("bayesian_string", {"bayesian": "bad"}),
+            ("bayesian_int", {"bayesian": 123}),
+            ("root_list", []),
+        ]
+    )
+    def test_bayesian_ci_level_invalid_values_use_default(self, _name, stats_config) -> None:
+        self.assertEqual(get_bayesian_ci_level(stats_config), 0.95)
+
+    def test_bayesian_interval_bounds_use_fractional_ci_level(self) -> None:
+        lower, upper = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.925}})
+
+        self.assertAlmostEqual(lower, 0.0375)
+        self.assertAlmostEqual(upper, 0.9625)
+
+    @parameterized.expand(
+        [
+            ("zero", {"bayesian": {"ci_level": 0}}),
+            ("one", {"bayesian": {"ci_level": 1}}),
+            ("above_range", {"bayesian": {"ci_level": 1.5}}),
+            ("malformed_bayesian", {"bayesian": []}),
+        ]
+    )
+    def test_bayesian_interval_bounds_invalid_values_use_default(self, _name, stats_config) -> None:
+        lower, upper = get_bayesian_interval_bounds(stats_config)
+
+        self.assertAlmostEqual(lower, 0.025)
+        self.assertAlmostEqual(upper, 0.975)
+
+    @parameterized.expand(
+        [
+            ("bayesian_none", {"bayesian": None}),
+            ("bayesian_list", {"bayesian": []}),
+            ("bayesian_string", {"bayesian": "bad"}),
+            ("bayesian_int", {"bayesian": 123}),
+        ]
+    )
+    def test_bayesian_malformed_nested_config_falls_back_to_defaults(self, _name, stats_config) -> None:
+        metric = self.create_mean_metric()
+        control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
+        test = self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000)
+
+        result = get_bayesian_experiment_result(
+            metric=metric,
+            control_variant=control,
+            test_variants=[test],
+            stats_config=stats_config,
+        )
+
+        assert result.variant_results is not None
+        variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
+        assert variant.credible_interval is not None
+        self.assertEqual(len(variant.credible_interval), 2)
 
     def test_numeric_validation_alpha_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()
