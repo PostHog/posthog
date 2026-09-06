@@ -138,6 +138,24 @@ describe('LemonInputSelect', () => {
         expect(screen.getAllByText('String Variant').length).toBeGreaterThanOrEqual(1)
     })
 
+    it.each([
+        [true, 'Person Example'],
+        [false, 'Person@Example.com'],
+    ])('with caseInsensitiveOptionMatching=%s labels a case-mismatched value as %s', (enabled, expected) => {
+        render(
+            <LemonInputSelect
+                mode="multiple"
+                allowCustomValues
+                caseInsensitiveOptionMatching={enabled}
+                options={[{ key: 'person@example.com', label: 'Person Example' }]}
+                value={['Person@Example.com']}
+                onChange={jest.fn()}
+            />
+        )
+
+        expect(screen.getAllByText(expected).length).toBeGreaterThanOrEqual(1)
+    })
+
     it('preserves correct types during onChange callback', () => {
         // This test focuses on the onChange callback behavior
         const onChange = jest.fn()
