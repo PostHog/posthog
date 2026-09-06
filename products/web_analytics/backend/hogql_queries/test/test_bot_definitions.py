@@ -1,8 +1,24 @@
+import json
+import importlib.util
+from pathlib import Path
+from types import ModuleType
+
 import pytest
 
 from posthog.models.bot_definition.sql import _bot_definition_rows
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+
+# livestream/ is a Go service and carries no Python package markers, so the generator loads by path.
+_GENERATOR_PATH = Path(__file__).resolve().parents[5] / "livestream" / "bot" / "generate_definitions.py"
+
+
+def _load_livestream_generator() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("livestream_bot_generate_definitions", _GENERATOR_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class TestBotDefinitionsDataStructure:
@@ -124,6 +140,15 @@ class TestBotDefinitionsDataStructure:
         assert bot_def.name == expected_name
         assert bot_def.category == expected_category
         assert bot_def.traffic_type == expected_type
+
+    def test_livestream_definitions_json_matches_source(self):
+        # The Go classifier reads the generated JSON, not this module, so a definition added
+        # here reaches live dashboards only once the file is regenerated and committed.
+        generator = _load_livestream_generator()
+        committed = json.loads(generator.OUTPUT_PATH.read_text())
+        assert committed == generator.generate_entries(), (
+            "livestream/bot/definitions.json is stale. Run `hogli build:bot-definitions` and commit the result."
+        )
 
     def test_longer_patterns_come_before_shorter_substrings(self):
         patterns = list(BOT_DEFINITIONS.keys())
