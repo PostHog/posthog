@@ -7,6 +7,7 @@ import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn, lemo
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
 
@@ -56,9 +57,7 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
         params.set('saved_filter_id', filter.id)
         const url = `${baseUrl}?${params.toString()}${window.location.hash}`
 
-        navigator.clipboard.writeText(url).then(() => {
-            lemonToast.success('Filter link copied to clipboard!')
-        })
+        void copyToClipboard(url, 'filter link')
     }
 
     const columns: LemonTableColumn<DataTableSavedFilter, keyof DataTableSavedFilter | undefined>[] = [
