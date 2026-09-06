@@ -88753,6 +88753,15 @@ export namespace Schemas {
       ClaudeOpus5: 'claude-opus-5',
     } as const;
 
+    export interface WidgetPermissions {
+      /** Whether the widget can read this notebook's dataframes. */
+      notebook_data?: boolean;
+      /** Whether the widget can run arbitrary HogQL queries. */
+      hogql_queries?: boolean;
+      /** Whether the widget can call PostHog MCP tools. */
+      tool_calls?: boolean;
+    }
+
     export interface WidgetGenerateRequest {
       /**
          * Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.
@@ -88776,6 +88785,8 @@ export namespace Schemas {
       generation_operation?: GenerationOperationEnum;
       /** Current widget version the improvement is based on. Required for improve operations. */
       expected_current_version_id?: string;
+      /** Capabilities granted to the generated widget version. New widgets default to notebook data only; later generations inherit the current version when omitted. */
+      permissions?: WidgetPermissions;
     }
 
     /**
@@ -88921,6 +88932,35 @@ export namespace Schemas {
          * @nullable
          */
       build_hash: string | null;
+      /** Capabilities granted to the selected immutable version. Omitted only by older servers. */
+      permissions?: WidgetPermissions;
+    }
+
+    /**
+     * JSON object passed to the PostHog MCP tool.
+     */
+    export type WidgetToolCallRequestArguments = { [key: string]: unknown };
+
+    export interface WidgetToolCallRequest {
+      /** Immutable widget version requesting the tool call. */
+      version_id: string;
+      /**
+         * SHA-256 of the exact verified widget build requesting the tool call.
+         * @pattern ^[0-9a-f]{64}$
+         */
+      build_hash: string;
+      /**
+         * Exact PostHog MCP tool name to call.
+         * @pattern ^[a-z0-9][a-z0-9-]{0,127}$
+         */
+      tool_name: string;
+      /** JSON object passed to the PostHog MCP tool. */
+      arguments?: WidgetToolCallRequestArguments;
+    }
+
+    export interface WidgetToolCallResponse {
+      /** Text result returned by the PostHog MCP tool. */
+      content: string;
     }
 
     export interface WidgetVersion {
@@ -88980,6 +89020,8 @@ export namespace Schemas {
          * @nullable
          */
       build_hash: string | null;
+      /** Capabilities granted to this immutable version. Omitted only by older servers. */
+      permissions?: WidgetPermissions;
     }
 
     export interface WidgetVersionPage {

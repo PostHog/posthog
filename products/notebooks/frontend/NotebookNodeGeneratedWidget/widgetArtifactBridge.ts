@@ -7,6 +7,7 @@ const MAX_TOTAL_REQUESTS = 200
 const MAX_TOTAL_MESSAGES = MAX_TOTAL_REQUESTS + 16
 const MAX_TOTAL_RESPONSE_BYTES = 32 * 1024 * 1024
 const MAX_REQUEST_KEY_LENGTH = 8 * 1024
+const MAX_REQUEST_PAYLOAD_BYTES = 64 * 1024
 const MAX_MESSAGE_ID_LENGTH = 128
 const MAX_FRAME_PAGE_ROWS = 500
 const REQUEST_TIMEOUT_MS = 30_000
@@ -45,6 +46,7 @@ export async function readWidgetFrame(
 }
 
 export type WidgetHostCallbacks = {
+    allowedMethods?: Array<'stateGet' | 'query' | 'toolCall'>
     onDataRequest: (method: string, payload: unknown, signal: AbortSignal) => Promise<unknown> | unknown
     onError?: (message?: string) => void
     onRendered?: () => void
@@ -135,7 +137,9 @@ export function createWidgetHostMessageRouter(
         ) {
             return
         }
-        if (message.method !== 'stateGet') {
+        if (
+            !(callbacks().allowedMethods ?? ['stateGet']).includes(message.method as 'stateGet' | 'query' | 'toolCall')
+        ) {
             post({
                 channel: CANVAS_CHANNEL,
                 type: 'data-response',
@@ -152,10 +156,16 @@ export function createWidgetHostMessageRouter(
             typeof (message.payload as { key?: unknown }).key === 'string'
                 ? (message.payload as { key: string }).key
                 : null
+        let requestPayloadBytes = MAX_REQUEST_PAYLOAD_BYTES + 1
+        try {
+            requestPayloadBytes = new TextEncoder().encode(JSON.stringify(message.payload)).byteLength
+        } catch {
+            // The limit check below rejects values that cannot cross the JSON API boundary.
+        }
         if (
             activeRequests >= MAX_CONCURRENT_REQUESTS ||
-            requestKey === null ||
-            requestKey.length > MAX_REQUEST_KEY_LENGTH
+            (message.method === 'stateGet' && (requestKey === null || requestKey.length > MAX_REQUEST_KEY_LENGTH)) ||
+            requestPayloadBytes > MAX_REQUEST_PAYLOAD_BYTES
         ) {
             post({
                 channel: CANVAS_CHANNEL,
@@ -177,7 +187,7 @@ export function createWidgetHostMessageRouter(
         activeCancellations.add(cancelRequest)
         let timeoutId: ReturnType<typeof setTimeout> | undefined
         const request = Promise.resolve().then(() =>
-            callbacks().onDataRequest('stateGet', message.payload, controller.signal)
+            callbacks().onDataRequest(message.method as string, message.payload, controller.signal)
         )
         try {
             const result = await Promise.race([

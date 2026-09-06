@@ -407,7 +407,22 @@ tools:
         enabled: false
     notebooks-widget-generate:
         operation: notebooks_widget_generate
-        enabled: false
+        enabled: true
+        scopes:
+            - notebook:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Generate notebook widget
+        description: >
+            Generate or improve an interactive Widget node already present in a markdown notebook. Choose the exact
+            immutable grants in permissions: notebook_data defaults true; hogql_queries and tool_calls default false.
+            Keep the Widget tag in sync: notebook_data=false uses noDataFrames, hogql_queries=true uses allowSQL, and
+            tool_calls=true uses allowTools. A unique generation_id makes retries idempotent. Generation is
+            asynchronous; poll notebooks-widget-status until it is ready or failed.
+        feature_flag: notebook-generated-widgets
     notebooks-widget-revert:
         operation: notebooks_widget_revert
         enabled: false
@@ -416,6 +431,20 @@ tools:
         enabled: false
     notebooks-widget-status:
         operation: notebooks_widget_status
+        enabled: true
+        scopes:
+            - notebook:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get notebook widget generation status
+        description: >
+            Poll generation and build status for a Widget node. Returns the immutable version's dataframe, HogQL, and
+            tool grants alongside its security review and artifact state.
+        feature_flag: notebook-generated-widgets
+    notebooks-widget-tool-call:
+        operation: notebooks_widget_tool_call
         enabled: false
     notebooks-widget-versions:
         operation: notebooks_widget_versions

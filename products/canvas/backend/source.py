@@ -141,6 +141,8 @@ _PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
 _STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
 _PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
+_PH_READ_FRAME_RE = re.compile(r"\bph\s*\.\s*readFrame\s*\(")
+_PH_TOOLS_CALL_RE = re.compile(r"\bph\s*\.\s*tools\s*\.\s*call\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -335,6 +337,11 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
     agent_requests = bool(posthog_capabilities.get("agentRequests"))
+    notebook_frames = posthog_capabilities.get("notebookFrames")
+    notebook_data_access = (
+        isinstance(notebook_frames, list) and posthog_capabilities.get("notebookDataAccess") is not False
+    )
+    notebook_tool_calls = bool(posthog_capabilities.get("notebookToolCalls"))
 
     declared_state = set(posthog_capabilities.get("state") or [])
     if not declared_state:
@@ -485,6 +492,41 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                     "the host rejects undeclared agent requests at runtime",
                     path=path,
                     line=_line_of(code, request_match.start()),
+                )
+            )
+
+    for match in _PH_TOOLS_CALL_RE.finditer(code):
+        line = _line_of(code, match.start())
+        if not notebook_tool_calls:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_notebook_tools",
+                    "ph.tools.call() requires notebook tool access — the notebook host rejects undeclared tool calls",
+                    path=path,
+                    line=line,
+                )
+            )
+        elif match.group(1) is None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "notebook_tool_name_dynamic",
+                    "ph.tools.call() must use a literal tool name so the generated widget can be reviewed safely",
+                    path=path,
+                    line=line,
+                )
+            )
+
+    if not notebook_data_access:
+        for match in _PH_READ_FRAME_RE.finditer(code):
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_notebook_data",
+                    "ph.readFrame() requires notebook dataframe access",
+                    path=path,
+                    line=_line_of(code, match.start()),
                 )
             )
 

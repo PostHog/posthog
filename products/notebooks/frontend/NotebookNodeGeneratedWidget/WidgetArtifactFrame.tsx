@@ -18,6 +18,10 @@ export type WidgetArtifactFrameProps = {
         runId: string | undefined,
         signal: AbortSignal
     ) => Promise<WidgetFrameApi>
+    allowHogQL?: boolean
+    allowTools?: boolean
+    onQuery?: (payload: unknown, signal: AbortSignal) => Promise<unknown>
+    onToolCall?: (payload: unknown, signal: AbortSignal) => Promise<unknown>
     onArtifactUnavailable?: () => void
     onError?: (message?: string) => void
     onRendered?: () => void
@@ -28,6 +32,10 @@ export function WidgetArtifactFrame({
     title,
     allowedFrames,
     onReadFrame,
+    allowHogQL = false,
+    allowTools = false,
+    onQuery,
+    onToolCall,
     onArtifactUnavailable,
     onError,
     onRendered,
@@ -40,8 +48,30 @@ export function WidgetArtifactFrame({
     const renderTimeoutRef = useRef<number | null>(null)
     const hasLoadedRef = useRef(false)
     const initialTheme = useRef(theme).current
-    const latest = useRef({ allowedFrames, onArtifactUnavailable, onError, onReadFrame, onRendered, theme })
-    latest.current = { allowedFrames, onArtifactUnavailable, onError, onReadFrame, onRendered, theme }
+    const latest = useRef({
+        allowedFrames,
+        allowHogQL,
+        allowTools,
+        onArtifactUnavailable,
+        onError,
+        onQuery,
+        onReadFrame,
+        onRendered,
+        onToolCall,
+        theme,
+    })
+    latest.current = {
+        allowedFrames,
+        allowHogQL,
+        allowTools,
+        onArtifactUnavailable,
+        onError,
+        onQuery,
+        onReadFrame,
+        onRendered,
+        onToolCall,
+        theme,
+    }
 
     const themedArtifactUrl = new URL(artifactUrl)
     themedArtifactUrl.hash = `theme=${initialTheme}`
@@ -68,8 +98,25 @@ export function WidgetArtifactFrame({
         const router = createWidgetHostMessageRouter(
             (message) => port.postMessage(message),
             () => ({
-                onDataRequest: async (_method, payload, signal) =>
-                    await readWidgetFrame(
+                allowedMethods: [
+                    'stateGet' as const,
+                    ...(latest.current.allowHogQL ? (['query'] as const) : []),
+                    ...(latest.current.allowTools ? (['toolCall'] as const) : []),
+                ],
+                onDataRequest: async (method, payload, signal) => {
+                    if (method === 'query') {
+                        if (!latest.current.onQuery) {
+                            throw new Error('HogQL is not available to this widget')
+                        }
+                        return await latest.current.onQuery(payload, signal)
+                    }
+                    if (method === 'toolCall') {
+                        if (!latest.current.onToolCall) {
+                            throw new Error('PostHog tools are not available to this widget')
+                        }
+                        return await latest.current.onToolCall(payload, signal)
+                    }
+                    return await readWidgetFrame(
                         latest.current.allowedFrames,
                         async (name, offset, limit, requestSignal) => {
                             let runId = runIds.get(name)
@@ -122,7 +169,8 @@ export function WidgetArtifactFrame({
                         },
                         payload,
                         signal
-                    ),
+                    )
+                },
                 onError: (message) => latest.current.onError?.(message),
                 onRendered: () => {
                     if (renderTimeoutRef.current !== null) {

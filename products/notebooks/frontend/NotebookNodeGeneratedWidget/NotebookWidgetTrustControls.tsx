@@ -2,9 +2,12 @@ import { LemonButton, LemonTag, type LemonTagType } from '@posthog/lemon-ui'
 
 import type { WidgetSecurityReviewApi } from 'products/notebooks/frontend/generated/api.schemas'
 
+import type { WidgetPermissions } from './widgetPermissions'
+
 export type NotebookWidgetTrustControlsProps = {
     buildHash: string | null
     isEditable: boolean
+    permissions: WidgetPermissions
     securityReview: WidgetSecurityReviewApi | null
     variant: 'gate' | 'toolbar'
     onRun: () => void
@@ -32,12 +35,18 @@ function severityTagType(severity: WidgetSecurityReviewApi['severity']): LemonTa
 export function NotebookWidgetTrustControls({
     buildHash,
     isEditable,
+    permissions,
     securityReview,
     variant,
     onRun,
     onViewSource,
 }: NotebookWidgetTrustControlsProps): JSX.Element {
     const shortBuildHash = buildHash ? buildHash.slice(0, 12) : null
+    const enabledPermissions = [
+        permissions.notebookData ? 'Notebook dataframes' : null,
+        permissions.hogqlQueries ? 'HogQL queries' : null,
+        permissions.toolCalls ? 'PostHog tool calls' : null,
+    ].filter((permission): permission is string => permission !== null)
     const reviewTag = securityReview ? (
         <LemonTag type={severityTagType(securityReview.severity)}>
             Automated review: {SEVERITY_LABELS[securityReview.severity]}
@@ -54,6 +63,11 @@ export function NotebookWidgetTrustControls({
                         View source
                     </LemonButton>
                     {reviewTag}
+                    {enabledPermissions.map((permission) => (
+                        <LemonTag key={permission} type="muted">
+                            {permission}
+                        </LemonTag>
+                    ))}
                     {shortBuildHash ? (
                         <span className="font-mono text-xs text-muted">Build {shortBuildHash}</span>
                     ) : null}
@@ -83,6 +97,20 @@ export function NotebookWidgetTrustControls({
                         : reviewPassed
                           ? 'The automated review flagged no potential issues, but automated reviews can miss issues. View the source before running this generated widget.'
                           : 'This version was generated before automated reviews were available. View its source before deciding whether to run it.'}
+                </div>
+                <div className="flex flex-col gap-1">
+                    <div className="text-sm font-semibold">This version can access</div>
+                    <div className="flex flex-wrap gap-2">
+                        {enabledPermissions.length ? (
+                            enabledPermissions.map((permission) => (
+                                <LemonTag key={permission} type="muted">
+                                    {permission}
+                                </LemonTag>
+                            ))
+                        ) : (
+                            <span className="text-secondary">No notebook data or PostHog APIs</span>
+                        )}
+                    </div>
                 </div>
                 {hasFindings ? (
                     <ul className="m-0 flex list-disc flex-col gap-2 pl-5 text-left">

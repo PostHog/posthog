@@ -34,6 +34,8 @@ import type {
     WidgetRevertRequestApi,
     WidgetSourceApi,
     WidgetStatusApi,
+    WidgetToolCallRequestApi,
+    WidgetToolCallResponseApi,
     WidgetVersionPageApi,
 } from './api.schemas'
 
@@ -698,6 +700,28 @@ export const notebooksWidgetStatus = async (
     return apiMutator<WidgetStatusApi>(getNotebooksWidgetStatusUrl(projectId, shortId, nodeId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetToolCallUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/tools/call/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetToolCall = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    widgetToolCallRequestApi: WidgetToolCallRequestApi,
+    options?: RequestInit
+): Promise<WidgetToolCallResponseApi> => {
+    return apiMutator<WidgetToolCallResponseApi>(getNotebooksWidgetToolCallUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetToolCallRequestApi),
     })
 }
 

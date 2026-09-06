@@ -34,6 +34,22 @@ class TestNotebookCanvasSourceValidation(SimpleTestCase):
 
         self.assertFalse([diagnostic for diagnostic in diagnostics if diagnostic["severity"] == "error"])
 
+    def test_tool_calls_require_a_grant_and_literal_tool_name(self) -> None:
+        missing_grant = validate_notebook_canvas_source('void ph.tools.call("annotations-create", {})', [])
+        dynamic_name = validate_notebook_canvas_source("void ph.tools.call(toolName, {})", [], tool_access=True)
+        allowed = validate_notebook_canvas_source('void ph.tools.call("annotations-create", {})', [], tool_access=True)
+
+        assert any(item["code"] == "capability_missing_notebook_tools" for item in missing_grant)
+        assert any(item["code"] == "notebook_tool_name_dynamic" for item in dynamic_name)
+        assert not [item for item in allowed if item["severity"] == "error"]
+
+    def test_dataframe_calls_require_a_grant(self) -> None:
+        diagnostics = validate_notebook_canvas_source(
+            'void ph.readFrame("public_df")', ["public_df"], notebook_data_access=False
+        )
+
+        assert any(item["code"] == "capability_missing_notebook_data" for item in diagnostics)
+
 
 class TestNotebookCanvasCreation(APIBaseTest):
     def test_rejects_another_users_personal_channel(self) -> None:

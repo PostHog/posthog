@@ -81,15 +81,25 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             "canvasSdkVersion": canvas_sdk_version(),
         }
 
-    def _notebook_project(self, source: str, frame_names: list[str] | None = None) -> dict[str, Any]:
+    def _notebook_project(
+        self,
+        source: str,
+        frame_names: list[str] | None = None,
+        *,
+        notebook_data_access: bool = True,
+        hogql_access: bool = False,
+        tool_access: bool = False,
+    ) -> dict[str, Any]:
         project = self._project(source)
         project["capabilities"] = {
             "posthog": {
                 "insights": [],
-                "inlineQueries": False,
+                "inlineQueries": hogql_access,
                 "captureEvents": [],
                 "state": ["user"],
                 "notebookFrames": frame_names or [],
+                "notebookDataAccess": notebook_data_access,
+                "notebookToolCalls": tool_access,
             },
             "network": {"origins": []},
         }
@@ -145,6 +155,39 @@ class TestCanvasCloudBuilder(SimpleTestCase):
 
         self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
 
+    @parameterized.expand([("disabled", False), ("enabled", True)])
+    def test_notebook_runtime_exposes_only_granted_live_apis(self, _name: str, enabled: bool) -> None:
+        result = run_cloud_builder(self._notebook_project("void 0", hogql_access=enabled, tool_access=enabled))
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = { postMessage: () => {} };",
+                'globalThis.document = { readyState: "complete", documentElement: { classList: { toggle: () => {} }, style: {} }, body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.Element = class {};",
+                "globalThis.Event = class { preventDefault() {} };",
+                "globalThis.MessageEvent = class { constructor(_type, init) { Object.assign(this, init); } };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.dispatchEvent = () => {};",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                f'if (("query" in ph) !== {str(enabled).lower()}) process.exit(1);',
+                f'if (("tools" in ph) !== {str(enabled).lower()}) process.exit(1);',
+                'if ("__notebookToolCall" in ph) process.exit(1);',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
     def test_notebook_runtime_hides_state_and_enforces_allowed_frame_names(self) -> None:
         result = run_cloud_builder(self._notebook_project("void ph.readFrame", ["public_df"]))
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
@@ -176,6 +219,40 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
 
         self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
+    def test_notebook_runtime_removes_dataframe_api_without_access(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void 0", notebook_data_access=False))
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = { postMessage: () => {} };",
+                'globalThis.document = { readyState: "complete", documentElement: { classList: { toggle: () => {} }, style: {} }, body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.Element = class {};",
+                "globalThis.Event = class { preventDefault() {} };",
+                "globalThis.MessageEvent = class { constructor(_type, init) { Object.assign(this, init); } };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.dispatchEvent = () => {};",
+                runtime,
+                'if ("readFrame" in ph) process.exit(1);',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
+    def test_legacy_notebook_runtime_keeps_dataframe_access(self) -> None:
+        project = self._notebook_project("void ph.readFrame", ["public_df"])
+        del project["capabilities"]["posthog"]["notebookDataAccess"]
+        result = run_cloud_builder(project)
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+
+        self.assertIn('if(true)Object.defineProperty(ph,"readFrame"', runtime)
 
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
         result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
@@ -390,6 +467,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn('url.protocol!=="https:"', runtime)
         self.assertIn('url.hostname.endsWith(".posthog.com")', runtime)
         self.assertIn("serialized.length>16384", runtime)
+        self.assertNotIn("__notebookToolCall", runtime)
 
     def _run_runtime_harness(self, runtime: str, harness: str) -> None:
         with tempfile.TemporaryDirectory() as directory:
