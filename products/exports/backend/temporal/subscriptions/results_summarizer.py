@@ -28,7 +28,7 @@ def _safe_value(value: Any) -> str:
 
 def build_results_summary(
     query_kind: str,
-    results: list[Any] | None,
+    results: Any,
     columns: list[str] | None = None,
     value_format: dict[str, Any] | None = None,
 ) -> str:
@@ -36,12 +36,21 @@ def build_results_summary(
         return "No results"
 
     text: str | None = None
-    if query_kind in _TREND_SUMMARY_KINDS:
-        text = _summarize_trends(results, _sanitize_value_format(value_format))
-    elif summarizer := _SUMMARIZERS.get(query_kind):
-        text = summarizer(results)
+    if isinstance(results, list):
+        rows: list[Any] = results
+        if query_kind in _TREND_SUMMARY_KINDS:
+            text = _summarize_trends(results, _sanitize_value_format(value_format))
+        elif summarizer := _SUMMARIZERS.get(query_kind):
+            text = summarizer(results)
+    else:
+        # The snapshot keeps the query result as the runner produced it, and some kinds produce a
+        # mapping instead of a row list. A funnel with the time-to-convert visualization gives
+        # `{bins, average_conversion_time, median_conversion_time}`, and a calendar heatmap gives
+        # an aggregation mapping. Every summarizer reads rows off a list, so such a payload
+        # becomes one row for the generic path to describe.
+        rows = [results]
     if text is None:
-        text = _summarize_generic(results, columns)
+        text = _summarize_generic(rows, columns)
     if len(text) > MAX_SUMMARY_LENGTH:
         text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
     return text

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 import structlog
@@ -188,12 +190,30 @@ class TestBuildResultsSummaryEmpty:
             [["2026-04-20", 100, 40]],
             ["Row 1: col0=2026-04-20, col1=100, col2=40"],
         ),
+        (
+            "funnels_kind_with_mapping_payload",
+            "FunnelsQuery",
+            {"bins": [[0, 4562], [14435, 19]], "average_conversion_time": 10.2, "median_conversion_time": 8.0},
+            ["Row 1: bins=", "average_conversion_time=10.2", "median_conversion_time=8.0"],
+        ),
+        (
+            "trends_kind_with_mapping_payload",
+            "TrendsQuery",
+            {"allAggregations": 12, "columnAggregations": [], "rowAggregations": []},
+            ["Row 1: allAggregations=12", "columnAggregations=[]", "rowAggregations=[]"],
+        ),
+        (
+            "trends_kind_with_scalar_payload",
+            "TrendsQuery",
+            42,
+            ["Row 1: 42"],
+        ),
     ],
 )
 class TestBuildResultsSummary:
     name: str
     query_kind: str
-    results: list
+    results: Any
     expected_fragments: list[str]
 
     def test_summary_contains_expected_fragments(self):
