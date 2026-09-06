@@ -59,6 +59,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
 
+    // A margin over the floor period would let last_seen_at lag by more than two floor periods,
+    // which is more staleness than the readers of that column were sized for.
+    if config.eventdef_last_seen_write_margin_secs < 0
+        || config.eventdef_last_seen_write_margin_secs > config.eventdef_last_seen_floor_secs
+    {
+        return Err(format!(
+            "EVENTDEF_LAST_SEEN_WRITE_MARGIN_SECS must be in 0..={}, got {}",
+            config.eventdef_last_seen_floor_secs, config.eventdef_last_seen_write_margin_secs
+        )
+        .into());
+    }
+
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     let _profiling_agent = match config.continuous_profiling.start_agent() {
         Ok(agent) => agent,

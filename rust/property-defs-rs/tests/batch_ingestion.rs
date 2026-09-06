@@ -619,6 +619,82 @@ async fn test_event_definitions_dedupe_within_batch(db: PgPool) {
     );
 }
 
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_event_definitions_refresh_last_seen_at_only_past_the_write_margin(db: PgPool) {
+    // Flooring bounds re-issues to one per event per period *per pod*, so a known event still
+    // reaches this statement many times a period, each attempt carrying a last_seen_at minutes
+    // newer than the stored one. `xmin` is the id of the transaction that wrote the live tuple,
+    // so an unchanged xmin proves no new row version was written for those attempts. The
+    // margin-0 case proves the guard is what suppresses the write, and the aged case proves a
+    // genuinely stale row still refreshes - the staleness filters that read this column need it.
+    let cases = [
+        ("within_margin", 0i64, 900i64, false),
+        ("no_margin", 0, 0, true),
+        ("older_than_margin", 3600, 900, true),
+    ];
+
+    for (name, age_secs, margin_secs, expect_rewrite) in cases {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.eventdef_last_seen_write_margin_secs = margin_secs;
+
+        process_batch(
+            &config,
+            setup_cache(&config),
+            &db,
+            None,
+            vec![evt(name, Utc::now())],
+            &test_lifecycle_handle(),
+        )
+        .await;
+
+        sqlx::query(
+            "UPDATE posthog_eventdefinition SET last_seen_at = last_seen_at - make_interval(secs => $1) WHERE name = $2",
+        )
+        .bind(age_secs as f64)
+        .bind(name)
+        .execute(&db)
+        .await
+        .unwrap();
+
+        let (xmin_before, last_seen_before): (String, DateTime<Utc>) = sqlx::query_as(
+            "SELECT xmin::text, last_seen_at FROM posthog_eventdefinition WHERE name = $1",
+        )
+        .bind(name)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        process_batch(
+            &config,
+            setup_cache(&config),
+            &db,
+            None,
+            vec![evt(name, Utc::now())],
+            &test_lifecycle_handle(),
+        )
+        .await;
+
+        let (xmin_after, last_seen_after): (String, DateTime<Utc>) = sqlx::query_as(
+            "SELECT xmin::text, last_seen_at FROM posthog_eventdefinition WHERE name = $1",
+        )
+        .bind(name)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            xmin_after != xmin_before,
+            expect_rewrite,
+            "{name}: expected rewritten={expect_rewrite}, xmin {xmin_before} -> {xmin_after}"
+        );
+        assert_eq!(
+            last_seen_after > last_seen_before,
+            expect_rewrite,
+            "{name}: last_seen_at must move only when the row is rewritten"
+        );
+    }
+}
+
 fn gen_updates_for_team(team_id: i32, event_name: &str, num_props: usize) -> Vec<Update> {
     let mut properties = HashMap::<String, Value>::new();
     for i in 0..num_props {
