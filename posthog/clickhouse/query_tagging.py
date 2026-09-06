@@ -95,6 +95,22 @@ class Product(StrEnum):
     INTERNAL = "internal"  # for internal use only
 
 
+def resolve_product(value: str | Product | ProductKey | None) -> Product | ProductKey | None:
+    # The client `productKey` is an open string, so it can name a product we do not
+    # enumerate. Callers use this to skip tagging an unknown value — the strict `product`
+    # field would raise on it, and a cosmetic tag must never fail the query.
+    if value is None or isinstance(value, (Product, ProductKey)):
+        return value
+    try:
+        return Product(value)
+    except ValueError:
+        pass
+    try:
+        return ProductKey(value)
+    except ValueError:
+        return None
+
+
 class Feature(StrEnum):
     ACCOUNTS = "accounts"
     ALERTING = "alerting"
