@@ -175,12 +175,20 @@ jobs:
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
-            # On PRs, only run chromium shards — no story opts into webkit snapshots
-            # (see common/storybook/.storybook/test-runner.ts), so webkit shards consume CI
-            # minutes without producing snapshot diffs. WebKit render-error coverage is
-            # preserved on master pushes.
+            # WebKit runs wherever a break can still be stopped: on master pushes, and on the
+            # merge-queue run that gates the merge. No story opts into webkit snapshots (see
+            # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
+            # only — worth a batched queue run, not worth every push of every frontend PR. Author
+            # PRs stay chromium-only; a webkit-only break now fails the queue instead of master.
             - name: Build matrix
               id: matrix
+              env:
+                  MERGE_QUEUE: >-
+                      ${{
+                          github.event_name == 'pull_request'
+                          && github.event.pull_request.head.repo.full_name == github.repository
+                          && startsWith(github.head_ref, 'trunk-merge/')
+                      }}
               run: |
                   # Shard counts — change here to resize the matrix.
                   CHROMIUM_SHARDS=16
@@ -192,7 +200,7 @@ jobs:
                   }
 
                   CHROMIUM=$(shards chromium "$CHROMIUM_SHARDS")
-                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                  if [ "${{ github.event_name }}" = "pull_request" ] && [ "$MERGE_QUEUE" != "true" ]; then
                     MATRIX=$(jq -cn --argjson c "$CHROMIUM" '{include: $c}')
                   else
                     WEBKIT=$(shards webkit "$WEBKIT_SHARDS")
@@ -443,7 +451,7 @@ jobs:
             # are tuned for runner CPU — consult #team-devex before changing.
             # PRs may use chromium shards running only affected story files.
             # Forced-full PRs fall back to changes.outputs.matrix (full chromium),
-            # while master pushes run chromium + webkit.
+            # while master pushes and merge-queue runs add webkit.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
