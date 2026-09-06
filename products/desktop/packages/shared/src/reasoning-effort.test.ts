@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isSupportedReasoningEffort } from "./reasoning-effort";
+import {
+  getCapabilityLadder,
+  isSupportedReasoningEffort,
+} from "./reasoning-effort";
 
 describe("isSupportedReasoningEffort", () => {
   it.each([
@@ -31,4 +34,13 @@ describe("isSupportedReasoningEffort", () => {
       );
     },
   );
+});
+
+describe("getCapabilityLadder", () => {
+  it("uses GPT-6 Astra at Max as the smartest Codex notch", () => {
+    expect(getCapabilityLadder("codex").at(-1)).toEqual({
+      model: "gpt-6-astra",
+      effort: "max",
+    });
+  });
 });
