@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     AssistantDateRange,
+    AssistantFunnelsActionsNode,
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
@@ -224,6 +225,7 @@ class TestFunnelResultsFormatter(BaseTest):
             series=[
                 AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
                 AssistantFunnelsEventsNode(event="$ai_trace"),
+                AssistantFunnelsActionsNode(id=1, name="Signed up", custom_name="renamed"),
             ],
             dateRange=AssistantDateRange(date_from="2025-01-20", date_to="2025-01-22"),
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
@@ -231,7 +233,7 @@ class TestFunnelResultsFormatter(BaseTest):
         results = {"average_conversion_time": 600, "bins": [[600, 1], [601, 0]]}
         self.assertEqual(
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
-            "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59 (UTC)\n\nEvents: $pageview (custom) -> $ai_trace\nAverage time to convert|User distribution\n10m|100%\n10m 1s|0%\n\nThe user distribution is the percentage of users who completed the funnel in the given period.",
+            "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59 (UTC)\n\nEvents: $pageview (custom) -> $ai_trace -> Signed up (renamed) (action 1.0)\nAverage time to convert|User distribution\n10m|100%\n10m 1s|0%\n\nThe user distribution is the percentage of users who completed the funnel in the given period.",
         )
 
     def test_funnel_trends(self):
