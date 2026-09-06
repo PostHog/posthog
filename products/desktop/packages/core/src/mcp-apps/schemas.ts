@@ -46,14 +46,59 @@ export interface McpUiResource {
 
 export type McpToolUiVisibility = "model" | "app";
 
-/** Shape of the `_meta.ui` field on MCP tool definitions that have a UI. */
+export const LEGACY_RESOURCE_URI_META_KEY = "ui/resourceUri";
+
+/** Shape of UI metadata on MCP tool definitions. */
 export interface McpToolUiMeta {
   _meta?: {
     ui?: {
       resourceUri?: string;
       visibility?: McpToolUiVisibility[];
     };
+    [LEGACY_RESOURCE_URI_META_KEY]?: string;
   };
+}
+
+export interface McpToolRegistrationMetadata {
+  resourceUri?: string;
+  visibility: McpToolUiVisibility[];
+}
+
+const DEFAULT_TOOL_VISIBILITY: McpToolUiVisibility[] = ["model", "app"];
+
+/**
+ * Registration metadata supports both resource URI formats, while visibility
+ * defaults to both callers when the server omits it, as required by MCP Apps.
+ */
+export function resolveToolRegistrationMetadata(
+  tool: unknown,
+): McpToolRegistrationMetadata {
+  if (tool == null || typeof tool !== "object") {
+    return { visibility: [...DEFAULT_TOOL_VISIBILITY] };
+  }
+
+  const meta = (tool as McpToolUiMeta)._meta;
+  const modernResourceUri = meta?.ui?.resourceUri;
+  const legacyResourceUri = meta?.[LEGACY_RESOURCE_URI_META_KEY];
+  const resourceUri =
+    typeof modernResourceUri === "string" && modernResourceUri.length > 0
+      ? modernResourceUri
+      : typeof legacyResourceUri === "string" && legacyResourceUri.length > 0
+        ? legacyResourceUri
+        : undefined;
+
+  const declaredVisibility = meta?.ui?.visibility;
+  const visibility =
+    declaredVisibility === undefined
+      ? [...DEFAULT_TOOL_VISIBILITY]
+      : Array.isArray(declaredVisibility)
+        ? declaredVisibility.filter(
+            (value): value is McpToolUiVisibility =>
+              value === "model" || value === "app",
+          )
+        : [];
+
+  return { resourceUri, visibility };
 }
 
 /** Shape of MCP resource definitions that carry `_meta.ui` CSP/permissions. */
@@ -80,15 +125,6 @@ export interface McpResourceUiMeta {
 export const BUILTIN_POSTHOG_SERVER_NAME = "posthog";
 export const EXEC_TOOL_NAME = "exec";
 export const POSTHOG_EXEC_TOOL_KEY = `mcp__${BUILTIN_POSTHOG_SERVER_NAME}__${EXEC_TOOL_NAME}`;
-
-/**
- * Legacy flat `_meta` key for a UI resource URI on a tool-call response. Mirrors
- * `RESOURCE_URI_META_KEY` from `@modelcontextprotocol/ext-apps`. The modern form
- * is the nested `_meta.ui.resourceUri`; servers may emit either (PostHog emits
- * both). Hardcoded rather than imported so this module stays free of the
- * ext-apps server entrypoint.
- */
-export const LEGACY_RESOURCE_URI_META_KEY = "ui/resourceUri";
 
 /**
  * Resolve a UI resource URI from a tool-call response, preferring the modern

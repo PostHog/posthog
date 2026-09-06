@@ -1,11 +1,105 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   computeContainerDimensions,
   FULLSCREEN_HEADER_HEIGHT,
   FULLSCREEN_PADDING,
   INLINE_MAX_HEIGHT,
+  isMcpAppEventForToolCall,
+  resolveMcpToolPair,
+  selectMcpAppResource,
+  sendToolResultOnce,
   toCallToolResult,
 } from "./mcp-app-host-utils";
+
+function resultWithResourceUri(resourceUri: string): unknown {
+  return { _meta: { ui: { resourceUri } } };
+}
+
+describe("resolveMcpToolPair", () => {
+  it("uses structured metadata when the server name contains separators", () => {
+    expect(
+      resolveMcpToolPair(
+        {
+          posthog: {
+            toolName: "mcp__legal__server__query",
+            mcp: { server: "legal__server", tool: "query" },
+          },
+        },
+        "mcp__legal__server__query",
+      ),
+    ).toEqual({ serverName: "legal__server", toolName: "query" });
+  });
+
+  it("falls back to the tool key when metadata is absent", () => {
+    expect(resolveMcpToolPair(undefined, "mcp__posthog__query")).toEqual({
+      serverName: "posthog",
+      toolName: "query",
+    });
+  });
+});
+
+describe("selectMcpAppResource", () => {
+  it.each([
+    {
+      name: "uses a result resource without a registered UI",
+      rawOutput: resultWithResourceUri("ui://server/result"),
+      hasRegistrationUi: false,
+      expected: { source: "result", resourceUri: "ui://server/result" },
+    },
+    {
+      name: "uses a result resource instead of the registered UI",
+      rawOutput: resultWithResourceUri("ui://server/result"),
+      hasRegistrationUi: true,
+      expected: { source: "result", resourceUri: "ui://server/result" },
+    },
+    {
+      name: "falls back to the registered UI without a result resource",
+      rawOutput: { content: [] },
+      hasRegistrationUi: true,
+      expected: { source: "registration" },
+    },
+    {
+      name: "falls back to registration for a non-UI result URI",
+      rawOutput: resultWithResourceUri("https://example.com/app"),
+      hasRegistrationUi: true,
+      expected: { source: "registration" },
+    },
+  ])("$name", ({ rawOutput, hasRegistrationUi, expected }) => {
+    expect(selectMcpAppResource(rawOutput, hasRegistrationUi)).toEqual(
+      expected,
+    );
+  });
+});
+
+describe("MCP app event delivery", () => {
+  it.each([
+    ["matching", "call-1", true],
+    ["different", "call-2", false],
+  ])("identifies a %s tool call", (_name, eventToolCallId, expected) => {
+    expect(
+      isMcpAppEventForToolCall({ toolCallId: eventToolCallId }, "call-1"),
+    ).toBe(expected);
+  });
+
+  it("delivers a result once per bridge and tool call", () => {
+    const deliveredResults = new WeakMap<object, Set<string>>();
+    const firstBridge = { sendToolResult: vi.fn() };
+    const remountedBridge = { sendToolResult: vi.fn() };
+
+    expect(
+      sendToolResultOnce(deliveredResults, firstBridge, "call-1", "result"),
+    ).toBe(true);
+    expect(
+      sendToolResultOnce(deliveredResults, firstBridge, "call-1", "result"),
+    ).toBe(false);
+    expect(
+      sendToolResultOnce(deliveredResults, remountedBridge, "call-1", "result"),
+    ).toBe(true);
+
+    expect(firstBridge.sendToolResult).toHaveBeenCalledOnce();
+    expect(remountedBridge.sendToolResult).toHaveBeenCalledOnce();
+  });
+});
 
 describe("computeContainerDimensions", () => {
   it("returns inline dimensions with maxHeight", () => {

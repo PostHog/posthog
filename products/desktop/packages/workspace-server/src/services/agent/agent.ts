@@ -86,6 +86,7 @@ import {
   type ExecutionMode,
   isAuthError,
   type ModelAccess,
+  readMcpToolName,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -150,11 +151,6 @@ function isDevBuild(): boolean {
 
 /** Mark all content blocks as hidden so the renderer doesn't show a duplicate user message on retry */
 type MessageCallback = (message: unknown) => void;
-
-/** Shape of the `_meta.claudeCode` extension field on tool call updates. */
-interface ClaudeCodeToolMeta {
-  claudeCode?: { toolName?: string };
-}
 
 class NdJsonTap {
   private decoder = new TextDecoder();
@@ -2204,22 +2200,37 @@ For git operations while detached:
           return;
         }
 
-        const toolName = (update._meta as ClaudeCodeToolMeta | undefined)
-          ?.claudeCode?.toolName;
-        if (!toolName?.startsWith("mcp__")) return;
-
         const session = service.sessions.get(taskRunId);
+        const metadataToolName = readMcpToolName(update._meta);
         if (update.sessionUpdate === "tool_call") {
-          session?.inFlightMcpToolCalls.set(update.toolCallId, toolName);
+          if (!metadataToolName) return;
           service.mcpAppsService.notifyToolInput(
-            toolName,
+            metadataToolName,
             update.toolCallId,
             update.rawInput,
           );
+          if (update.status === "completed" || update.status === "failed") {
+            session?.inFlightMcpToolCalls.delete(update.toolCallId);
+            service.mcpAppsService.notifyToolResult(
+              metadataToolName,
+              update.toolCallId,
+              update.rawOutput,
+              update.status === "failed",
+            );
+          } else {
+            session?.inFlightMcpToolCalls.set(
+              update.toolCallId,
+              metadataToolName,
+            );
+          }
         } else if (
           update.status === "completed" ||
           update.status === "failed"
         ) {
+          const toolName =
+            metadataToolName ??
+            session?.inFlightMcpToolCalls.get(update.toolCallId);
+          if (!toolName) return;
           session?.inFlightMcpToolCalls.delete(update.toolCallId);
           service.mcpAppsService.notifyToolResult(
             toolName,

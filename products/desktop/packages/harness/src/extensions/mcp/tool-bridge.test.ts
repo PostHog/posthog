@@ -29,7 +29,10 @@ interface RegisteredTool {
     toolCallId: string,
     params: unknown,
     signal?: AbortSignal,
-  ) => Promise<{ content: Array<{ type: string; text?: string }> }>;
+  ) => Promise<{
+    content: Array<{ type: string; text?: string }>;
+    details?: unknown;
+  }>;
 }
 
 function fakeHost(initialActive: string[] = ["read", "bash"]) {
@@ -219,6 +222,38 @@ describe("ToolBridge", () => {
     expect(getActive()).toContain("read");
   });
 
+  it("does not register or expose app-only tools to model search", async () => {
+    const { host, registered, getActive } = fakeHost();
+    const bridge = new ToolBridge(settings, host);
+
+    await bridge.refreshTools(
+      "demo",
+      fakeClient({
+        tools: [
+          {
+            name: "model-tool",
+            description: "Visible to the model",
+            inputSchema: {},
+            _meta: { ui: { visibility: ["model", "app"] } },
+          },
+          {
+            name: "app-only-tool",
+            description: "Visible only to the app",
+            inputSchema: {},
+            _meta: { ui: { visibility: ["app"] } },
+          },
+        ],
+      }),
+    );
+
+    expect(registered.has("mcp_demo_model_tool")).toBe(true);
+    expect(registered.has("mcp_demo_app_only_tool")).toBe(false);
+    expect(getActive()).not.toContain("mcp_demo_app_only_tool");
+    expect(bridge.getSearchableTools().map((tool) => tool.piName)).toEqual([
+      "mcp_demo_model_tool",
+    ]);
+  });
+
   it("appends annotation hints to descriptions", async () => {
     const { host, registered } = fakeHost();
     const bridge = new ToolBridge(settings, host);
@@ -405,14 +440,33 @@ describe("ToolBridge", () => {
       expect(text).toContain("row 0");
       expect(text).not.toContain("row 4999");
       expect(text).toContain("Output truncated");
+      expect(result?.details).toMatchObject({
+        posthog: {
+          mcp: { server: "demo", tool: "dump" },
+          mcpResult: { content: [{ type: "text", text: bigOutput }] },
+        },
+      });
     });
 
     it("forwards arguments and converts result content", async () => {
       const { host, registered } = fakeHost();
       const bridge = new ToolBridge(settings, host);
-      const onCall = vi.fn().mockReturnValue({
-        content: [{ type: "text", text: "hi jonathan" }],
-      });
+      const mcpResult = {
+        content: [
+          { type: "text", text: "hi jonathan" },
+          {
+            type: "resource",
+            resource: {
+              uri: "ui://demo/result",
+              mimeType: "text/html",
+              text: "resource body",
+            },
+          },
+        ],
+        structuredContent: { resultCount: 1 },
+        _meta: { ui: { resourceUri: "ui://demo/result" } },
+      };
+      const onCall = vi.fn().mockReturnValue(mcpResult);
       await bridge.refreshTools(
         "demo",
         fakeClient({ tools: [{ name: "echo", inputSchema: {} }], onCall }),
@@ -424,10 +478,16 @@ describe("ToolBridge", () => {
         name: "echo",
         arguments: { text: "hi" },
       });
-      expect(result).toMatchObject({
-        content: [{ type: "text", text: "hi jonathan" }],
+      expect(result).toEqual({
+        content: [
+          { type: "text", text: "hi jonathan" },
+          { type: "text", text: "resource body" },
+        ],
         details: {
-          posthog: { mcp: { server: "demo", tool: "echo" } },
+          posthog: {
+            mcp: { server: "demo", tool: "echo" },
+            mcpResult,
+          },
         },
       });
     });

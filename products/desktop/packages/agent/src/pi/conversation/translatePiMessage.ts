@@ -48,6 +48,7 @@ interface PiToolExecutionResult {
 const mcpToolDetailsSchema = z.object({
   posthog: z.object({
     mcp: z.object({ server: z.string().min(1), tool: z.string().min(1) }),
+    mcpResult: z.unknown().optional(),
   }),
 });
 
@@ -230,20 +231,23 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     status: AgentToolCallStatus,
     timestamp: number,
   ): AgentConversationEvent[] {
+    const mcpDetails = mcpToolDetailsSchema.safeParse(result.details);
+    const mcpResult = mcpDetails.success
+      ? mcpDetails.data.posthog.mcpResult
+      : undefined;
     const toolCall: Extract<
       AgentConversationEvent,
       { type: "tool_call_updated" }
     >["toolCall"] & { _meta?: ReturnType<typeof posthogToolMeta> } = {
       id: toolCallId,
       status,
-      rawOutput: result.content,
+      rawOutput: mcpResult ?? result.content,
     };
 
     if (result.details !== undefined) {
       toolCall.details = result.details;
     }
 
-    const mcpDetails = mcpToolDetailsSchema.safeParse(result.details);
     if (mcpDetails.success) {
       const mcp = mcpDetails.data.posthog.mcp;
       toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });

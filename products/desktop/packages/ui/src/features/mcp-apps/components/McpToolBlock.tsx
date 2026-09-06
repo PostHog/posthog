@@ -1,11 +1,10 @@
-import {
-  POSTHOG_EXEC_TOOL_KEY,
-  resolveResultResourceUri,
-} from "@posthog/core/mcp-apps/schemas";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { McpToolView } from "@posthog/ui/features/mcp-apps/components/McpToolView";
-import { parseMcpToolKey } from "@posthog/ui/features/mcp-apps/utils/mcp-app-host-utils";
+import {
+  resolveMcpToolPair,
+  selectMcpAppResource,
+} from "@posthog/ui/features/mcp-apps/utils/mcp-app-host-utils";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,12 +20,10 @@ interface McpToolBlockProps extends ToolViewProps {
 
 export function McpToolBlock(props: McpToolBlockProps) {
   const { mcpToolName, toolCall } = props;
-  const { serverName, toolName } = parseMcpToolKey(mcpToolName);
-
-  const isExec = mcpToolName === POSTHOG_EXEC_TOOL_KEY;
-  const execResourceUri = isExec
-    ? resolveResultResourceUri(toolCall.rawOutput)
-    : undefined;
+  const { serverName, toolName } = resolveMcpToolPair(
+    toolCall._meta,
+    mcpToolName,
+  );
 
   const mcpAppsDisabled = useSettingsStore((s) => s.mcpAppsDisabledServers);
   const isDisabledForServer = mcpAppsDisabled.includes(serverName);
@@ -42,29 +39,37 @@ export function McpToolBlock(props: McpToolBlockProps) {
       { toolKey: mcpToolName },
       {
         staleTime: Infinity,
-        enabled: !isDisabledForServer && !isExec,
+        enabled:
+          !isDisabledForServer &&
+          selectMcpAppResource(toolCall.rawOutput, false) === null,
       },
     ),
   );
 
-  const hasUi = isExec ? !!execResourceUri : hasUiByTool;
+  const resourceSelection = selectMcpAppResource(
+    toolCall.rawOutput,
+    hasUiByTool,
+  );
 
   useSubscription(
     trpc.mcpApps.onDiscoveryComplete.subscriptionOptions(undefined, {
       enabled: !isDisabledForServer,
       onData: (_event) => {
-        if (isExec) {
+        void queryClient.invalidateQueries(
+          trpc.mcpApps.getToolDefinition.pathFilter(),
+        );
+        if (resourceSelection?.source === "result") {
           void queryClient.invalidateQueries(
             trpc.mcpApps.getUiResourceByUri.pathFilter(),
           );
-          return;
+        } else {
+          void queryClient.invalidateQueries(
+            trpc.mcpApps.hasUiForTool.pathFilter(),
+          );
+          void queryClient.invalidateQueries(
+            trpc.mcpApps.getUiResource.pathFilter(),
+          );
         }
-        void queryClient.invalidateQueries(
-          trpc.mcpApps.hasUiForTool.pathFilter(),
-        );
-        void queryClient.invalidateQueries(
-          trpc.mcpApps.getUiResource.pathFilter(),
-        );
       },
     }),
   );
@@ -72,8 +77,17 @@ export function McpToolBlock(props: McpToolBlockProps) {
   return (
     <>
       <McpToolView {...props} />
-      {hasUi && !isDisabledForServer && McpAppHost && (
-        <McpAppHost {...props} serverName={serverName} toolName={toolName} />
+      {resourceSelection && !isDisabledForServer && McpAppHost && (
+        <McpAppHost
+          {...props}
+          serverName={serverName}
+          toolName={toolName}
+          resourceUri={
+            resourceSelection.source === "result"
+              ? resourceSelection.resourceUri
+              : undefined
+          }
+        />
       )}
     </>
   );

@@ -197,19 +197,81 @@ describe("createPiMessageTranslator", () => {
   it("adds canonical metadata to a bridged MCP tool result", () => {
     const translator = createPiMessageTranslator();
     const content: ToolResultMessage["content"] = [
-      { type: "text", text: "ok" },
+      { type: "text", text: "visible result" },
     ];
+    const mcpResult = {
+      content: [
+        {
+          type: "resource",
+          resource: {
+            uri: "ui://posthog/actions",
+            mimeType: "text/html",
+            text: "full resource",
+          },
+        },
+      ],
+      structuredContent: { actions: [{ id: 1 }] },
+      _meta: { ui: { resourceUri: "ui://posthog/actions" } },
+    };
+    const details = {
+      posthog: {
+        mcp: { server: "posthog-code-tools", tool: "show_actions" },
+        mcpResult,
+      },
+    };
 
     expect(
       translator.translateToolExecutionEnd(
         "action-1",
         "mcp_posthog_code_tools_show_actions",
+        { content, details },
+        false,
+        false,
+        12,
+      ),
+    ).toEqual([
+      {
+        type: "tool_call_updated",
+        timestamp: 12,
+        toolCall: {
+          id: "action-1",
+          status: "completed",
+          rawOutput: mcpResult,
+          details,
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "visible result" },
+            },
+          ],
+          _meta: {
+            posthog: {
+              toolName: "mcp__posthog-code-tools__show_actions",
+              mcp: {
+                server: "posthog-code-tools",
+                tool: "show_actions",
+              },
+            },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("falls back to bridged content for legacy MCP details", () => {
+    const translator = createPiMessageTranslator();
+    const content: ToolResultMessage["content"] = [
+      { type: "text", text: "legacy result" },
+    ];
+
+    expect(
+      translator.translateToolExecutionEnd(
+        "action-legacy",
+        "mcp_posthog_query",
         {
           content,
           details: {
-            posthog: {
-              mcp: { server: "posthog-code-tools", tool: "show_actions" },
-            },
+            posthog: { mcp: { server: "posthog", tool: "query" } },
           },
         },
         false,
@@ -218,15 +280,12 @@ describe("createPiMessageTranslator", () => {
       ),
     ).toMatchObject([
       {
-        type: "tool_call_updated",
         toolCall: {
+          rawOutput: content,
           _meta: {
             posthog: {
-              toolName: "mcp__posthog-code-tools__show_actions",
-              mcp: {
-                server: "posthog-code-tools",
-                tool: "show_actions",
-              },
+              toolName: "mcp__posthog__query",
+              mcp: { server: "posthog", tool: "query" },
             },
           },
         },

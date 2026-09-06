@@ -20,6 +20,8 @@ const ECHO_TOOL = {
   },
   handler: (args: Record<string, unknown>) => ({
     content: [{ type: "text", text: `echo: ${String(args.text)}` }],
+    structuredContent: { echoed: args.text },
+    _meta: { ui: { resourceUri: "ui://demo/echo" } },
   }),
 };
 
@@ -290,11 +292,31 @@ describe("mcp proxy tool", () => {
     });
     await manager.startServer("demo", "/workspace");
 
-    const result = await text(tool, {
-      tool: "mcp_demo_echo",
-      args: '{"text":"hi"}',
+    const result = await tool.execute(
+      "id-1",
+      {
+        tool: "mcp_demo_echo",
+        args: '{"text":"hi"}',
+      } as never,
+      undefined,
+      undefined as never,
+      undefined as never,
+    );
+    expect(result.content).toEqual([{ type: "text", text: "echo: hi" }]);
+    expect(result.details).toEqual({
+      kind: "call",
+      server: "demo",
+      tool: "echo",
+      piName: "mcp_demo_echo",
+      posthog: {
+        mcp: { server: "demo", tool: "echo" },
+        mcpResult: {
+          content: [{ type: "text", text: "echo: hi" }],
+          structuredContent: { echoed: "hi" },
+          _meta: { ui: { resourceUri: "ui://demo/echo" } },
+        },
+      },
     });
-    expect(result).toBe("echo: hi");
     await mock.close();
   });
 

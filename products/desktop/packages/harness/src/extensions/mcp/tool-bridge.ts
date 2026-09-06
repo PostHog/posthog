@@ -19,6 +19,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
+  type CallToolResult,
   CallToolResultSchema,
   ListToolsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -111,6 +112,7 @@ export interface McpToolDefinition {
   name: string;
   description?: string;
   inputSchema: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
   annotations?: {
     readOnlyHint?: boolean;
     destructiveHint?: boolean;
@@ -148,6 +150,15 @@ export async function listAllTools(
   return tools;
 }
 
+function isVisibleToModel(tool: McpToolDefinition): boolean {
+  const ui = tool._meta?.ui;
+  if (!ui || typeof ui !== "object") return true;
+
+  const visibility = (ui as { visibility?: unknown }).visibility;
+  if (visibility === undefined) return true;
+  return Array.isArray(visibility) && visibility.includes("model");
+}
+
 function buildDescription(tool: McpToolDefinition): string {
   let description = tool.description ?? `MCP tool: ${tool.name}`;
   const ann = tool.annotations;
@@ -179,6 +190,13 @@ export interface SearchableTool extends ToolMeta {
   piName: string;
   /** Whether this tool is currently in the model's active tool set. */
   active: boolean;
+}
+
+export interface McpToolDetails {
+  posthog: {
+    mcp: { server: string; tool: string };
+    mcpResult?: CallToolResult;
+  };
 }
 
 /**
@@ -220,9 +238,15 @@ export async function invokeTool(
   args: Record<string, unknown>,
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<{ content: BridgedContent[] }> {
+): Promise<{
+  content: BridgedContent[];
+  mcpResult: CallToolResult | undefined;
+}> {
   if (signal?.aborted) {
-    return { content: [{ type: "text", text: "Cancelled" }] };
+    return {
+      content: [{ type: "text", text: "Cancelled" }],
+      mcpResult: undefined,
+    };
   }
   try {
     const result = await client.request(
@@ -244,7 +268,7 @@ export async function invokeTool(
       throw new McpError(text || "Tool reported an error", serverName, "tool");
     }
 
-    return { content };
+    return { content, mcpResult: result };
   } catch (err) {
     if (err instanceof McpError) throw err;
     throw new McpError(
@@ -387,6 +411,7 @@ export class ToolBridge {
       );
     }
 
+    const modelVisibleTools = tools.filter(isVisibleToModel);
     const previous = this.serverToolNames.get(serverName) ?? new Set<string>();
     const current = new Set<string>();
     // First MCP tool name to claim each pi name, so a collision report shows
@@ -397,7 +422,7 @@ export class ToolBridge {
     const directConfig = serverConfig?.directTools ?? true;
     const directNames = new Set<string>();
 
-    for (const tool of tools) {
+    for (const tool of modelVisibleTools) {
       const piName = buildToolName(
         this.settings.toolPrefix,
         serverName,
@@ -467,7 +492,7 @@ export class ToolBridge {
         ...(serverConfig.description !== undefined
           ? { description: serverConfig.description }
           : {}),
-        tools: tools.map((tool) => ({
+        tools: modelVisibleTools.map((tool) => ({
           name: buildToolName(this.settings.toolPrefix, serverName, tool.name),
           mcpName: tool.name,
           description: buildDescription(tool),
@@ -541,7 +566,7 @@ export class ToolBridge {
 
       async execute(_toolCallId, params, signal) {
         onToolUsed?.(serverName);
-        const { content } = await invokeTool(
+        const { content, mcpResult } = await invokeTool(
           client,
           serverName,
           tool.name,
@@ -552,7 +577,10 @@ export class ToolBridge {
         return {
           content,
           details: {
-            posthog: { mcp: { server: serverName, tool: tool.name } },
+            posthog: {
+              mcp: { server: serverName, tool: tool.name },
+              ...(mcpResult !== undefined ? { mcpResult } : {}),
+            },
           },
         };
       },

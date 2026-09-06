@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { McpAppsService } from "./mcp-apps";
 import {
+  LEGACY_RESOURCE_URI_META_KEY,
   McpAppsServiceEvent,
   type McpResourceUiMeta,
   type McpServerConnectionConfig,
@@ -128,28 +129,50 @@ const REVIEW_PERMISSIONS = { clipboardWrite: {} };
 
 const UI_META = { ui: { csp: REVIEW_CSP, permissions: REVIEW_PERMISSIONS } };
 
+type TestTool = {
+  name: string;
+  _meta?: Record<string, unknown>;
+};
+
+const DEFAULT_TOOLS: TestTool[] = [
+  {
+    name: "loops-review",
+    _meta: { ui: { resourceUri: REVIEW_URI } },
+  },
+  { name: "loops-list" },
+];
+
 // metaOn picks whether this client advertises `_meta.ui` on resources/list or
 // on the read response.
-function makeClient(metaOn: "list" | "read" = "list") {
+function makeClient(
+  metaOn: "list" | "read" = "list",
+  tools: TestTool[] = DEFAULT_TOOLS,
+) {
   return {
     close: vi.fn(async () => {}),
-    listTools: vi.fn(async () => ({
-      tools: [
-        {
-          name: "loops-review",
-          _meta: { ui: { resourceUri: REVIEW_URI } },
-        },
-        { name: "loops-list" },
-      ],
-    })),
-    listResources: vi.fn(async () => ({
-      resources: [
-        {
-          uri: REVIEW_URI,
-          ...(metaOn === "list" ? { _meta: UI_META } : {}),
-        } as { uri: string; _meta?: McpResourceUiMeta["_meta"] },
-      ],
-    })),
+    listTools: vi.fn(
+      async (_params?: {
+        cursor?: string;
+      }): Promise<{ tools: TestTool[]; nextCursor?: string }> => ({ tools }),
+    ),
+    listResources: vi.fn(
+      async (_params?: {
+        cursor?: string;
+      }): Promise<{
+        resources: Array<{
+          uri: string;
+          _meta?: McpResourceUiMeta["_meta"];
+        }>;
+        nextCursor?: string;
+      }> => ({
+        resources: [
+          {
+            uri: REVIEW_URI,
+            ...(metaOn === "list" ? { _meta: UI_META } : {}),
+          },
+        ],
+      }),
+    ),
     readResource: vi.fn(async ({ uri }: { uri: string }) => ({
       contents: [
         {
@@ -164,6 +187,9 @@ function makeClient(metaOn: "list" | "read" = "list") {
           _meta?: McpResourceUiMeta["_meta"];
         },
       ],
+    })),
+    callTool: vi.fn(async ({ name }: { name: string }) => ({
+      content: [{ type: "text", text: name }],
     })),
   };
 }
@@ -201,6 +227,33 @@ describe("McpAppsService lazy discovery", () => {
       service.hasUiForTool("mcp__posthog__loops-review"),
     ).resolves.toBe(true);
     expect(client.listTools).toHaveBeenCalledTimes(1);
+  });
+
+  it("discovers on first getToolDefinition when no session ran discovery", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = connectClient(service);
+
+    await expect(
+      service.getToolDefinition("mcp__posthog__loops-list"),
+    ).resolves.toMatchObject({ name: "loops-list" });
+    expect(client.listTools).toHaveBeenCalledTimes(1);
+  });
+
+  it("discovers a UI from legacy flat tool metadata", async () => {
+    service.setServerConfigs([config("posthog")]);
+    connectClient(
+      service,
+      makeClient("list", [
+        {
+          name: "legacy-review",
+          _meta: { [LEGACY_RESOURCE_URI_META_KEY]: REVIEW_URI },
+        },
+      ]),
+    );
+
+    await expect(
+      service.hasUiForTool("mcp__posthog__legacy-review"),
+    ).resolves.toBe(true);
   });
 
   it("emits DiscoveryComplete after a lazy discovery", async () => {
@@ -338,15 +391,29 @@ describe("McpAppsService lazy discovery", () => {
     await expect(
       service.hasUiForTool("mcp__posthog__loops-list"),
     ).resolves.toBe(false);
+    await expect(
+      service.getToolDefinition("mcp__posthog__loops-list"),
+    ).resolves.toMatchObject({ name: "loops-list" });
     expect(client.listTools).toHaveBeenCalledTimes(1);
   });
 
-  it("re-lists on handleDiscovery even when already discovered", async () => {
+  it("replaces the server's tool state when discovery runs again", async () => {
     service.setServerConfigs([config("posthog")]);
     const client = connectClient(service);
 
     await service.hasUiForTool("mcp__posthog__loops-review");
+    client.listTools.mockResolvedValueOnce({ tools: [] });
     await service.handleDiscovery(["posthog"]);
+
+    await expect(
+      service.hasUiForTool("mcp__posthog__loops-review"),
+    ).resolves.toBe(false);
+    await expect(
+      service.getToolDefinition("mcp__posthog__loops-review"),
+    ).resolves.toBeNull();
+    await expect(
+      service.getToolDefinition("mcp__posthog__loops-list"),
+    ).resolves.toBeNull();
     expect(client.listTools).toHaveBeenCalledTimes(2);
   });
 
@@ -357,9 +424,58 @@ describe("McpAppsService lazy discovery", () => {
     await service.hasUiForTool("mcp__posthog__loops-review");
     await service.disconnectServer("posthog");
     await expect(
+      service.getToolDefinition("mcp__posthog__loops-review"),
+    ).resolves.toMatchObject({ name: "loops-review" });
+    await expect(
       service.hasUiForTool("mcp__posthog__loops-review"),
     ).resolves.toBe(true);
     expect(client.listTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("follows pagination for tool and resource discovery", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeClient();
+    client.listTools
+      .mockResolvedValueOnce({ tools: [], nextCursor: "tools-page-2" })
+      .mockResolvedValueOnce({ tools: DEFAULT_TOOLS });
+    client.listResources
+      .mockResolvedValueOnce({ resources: [], nextCursor: "resources-page-2" })
+      .mockResolvedValueOnce({
+        resources: [{ uri: REVIEW_URI, _meta: UI_META }],
+      });
+    connectClient(service, client);
+
+    await service.handleDiscovery(["posthog"]);
+
+    await expect(
+      service.getToolDefinition("mcp__posthog__loops-list"),
+    ).resolves.toMatchObject({ name: "loops-list" });
+    const resource = await service.getUiResourceForTool(
+      "mcp__posthog__loops-review",
+    );
+    expect(resource?.csp).toEqual(REVIEW_CSP);
+    expect(client.listTools).toHaveBeenNthCalledWith(2, {
+      cursor: "tools-page-2",
+    });
+    expect(client.listResources).toHaveBeenNthCalledWith(2, {
+      cursor: "resources-page-2",
+    });
+  });
+
+  it("stops discovery when a server never ends pagination", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeClient();
+    client.listTools.mockResolvedValue({ tools: [], nextCursor: "again" });
+    client.listResources.mockResolvedValue({
+      resources: [],
+      nextCursor: "again",
+    });
+    connectClient(service, client);
+
+    await service.handleDiscovery(["posthog"]);
+
+    expect(client.listTools).toHaveBeenCalledTimes(100);
+    expect(client.listResources).toHaveBeenCalledTimes(100);
   });
 
   it("resolves lazily-discovered UI resources for a tool", async () => {
@@ -371,6 +487,27 @@ describe("McpAppsService lazy discovery", () => {
     );
     expect(resource?.uri).toBe(REVIEW_URI);
     expect(resource?.html).toBe("<html></html>");
+  });
+
+  it("does not register executable HTML from a non-ui resource URI", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = connectClient(
+      service,
+      makeClient("list", [
+        {
+          name: "unsafe-review",
+          _meta: { ui: { resourceUri: "https://example.test/app.html" } },
+        },
+      ]),
+    );
+
+    await expect(
+      service.hasUiForTool("mcp__posthog__unsafe-review"),
+    ).resolves.toBe(false);
+    await expect(
+      service.getUiResourceForTool("mcp__posthog__unsafe-review"),
+    ).resolves.toBeNull();
+    expect(client.readResource).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -490,9 +627,109 @@ describe("McpAppsService lazy discovery", () => {
     await service.getUiResourceByUri("staging", REVIEW_URI);
     await service.disconnectServer("posthog");
 
+    await expect(
+      service.getToolDefinition("mcp__staging__loops-review"),
+    ).resolves.toMatchObject({ name: "loops-review" });
     await service.getUiResourceByUri("staging", REVIEW_URI);
     expect(stagingClient.readResource).toHaveBeenCalledTimes(1);
     await service.getUiResourceByUri("posthog", REVIEW_URI);
     expect(posthogClient.readResource).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("McpAppsService executable resource validation", () => {
+  let service: McpAppsService;
+
+  beforeEach(() => {
+    service = makeService();
+    service.setServerConfigs([config("posthog")]);
+  });
+
+  it("requires the exact MCP App HTML MIME type", async () => {
+    const client = makeClient();
+    client.readResource.mockResolvedValueOnce({
+      contents: [
+        {
+          uri: REVIEW_URI,
+          mimeType: "text/html",
+          text: "<html></html>",
+        },
+      ],
+    });
+    connectClient(service, client);
+
+    await expect(
+      service.getUiResourceByUri("posthog", REVIEW_URI),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects MCP App HTML over the HTML size limit", async () => {
+    const client = makeClient();
+    client.readResource.mockResolvedValueOnce({
+      contents: [
+        {
+          uri: REVIEW_URI,
+          mimeType: UI_MIME_TYPE,
+          text: "x".repeat(5 * 1024 * 1024 + 1),
+        },
+      ],
+    });
+    connectClient(service, client);
+
+    await expect(
+      service.getUiResourceByUri("posthog", REVIEW_URI),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("McpAppsService app proxies", () => {
+  let service: McpAppsService;
+
+  beforeEach(() => {
+    service = makeService();
+    service.setServerConfigs([config("posthog")]);
+  });
+
+  it("rejects UI-less model-only tools and allows default visibility", async () => {
+    const client = connectClient(
+      service,
+      makeClient("list", [
+        {
+          name: "model-only",
+          _meta: { ui: { visibility: ["model"] } },
+        },
+        { name: "default-visible" },
+      ]),
+    );
+
+    await expect(
+      service.proxyToolCall("posthog", "model-only"),
+    ).rejects.toThrow('Tool "model-only" is not accessible to apps');
+    await expect(
+      service.proxyToolCall("posthog", "default-visible"),
+    ).resolves.toEqual({
+      content: [{ type: "text", text: "default-visible" }],
+    });
+    await expect(
+      service.proxyToolCall("posthog", "unlisted-tool"),
+    ).rejects.toThrow('Tool "unlisted-tool" is not available to apps');
+    expect(client.callTool).toHaveBeenCalledExactlyOnceWith({
+      name: "default-visible",
+      arguments: undefined,
+    });
+  });
+
+  it("reads arbitrary URI schemes through the same MCP server", async () => {
+    const client = makeClient();
+    const uri = "data://documents/report.json";
+    client.readResource.mockResolvedValueOnce({
+      contents: [{ uri, mimeType: "application/json", text: "{}" }],
+    });
+    connectClient(service, client);
+
+    await expect(service.proxyResourceRead("posthog", uri)).resolves.toEqual({
+      contents: [{ uri, mimeType: "application/json", text: "{}" }],
+    });
+    expect(client.readResource).toHaveBeenCalledExactlyOnceWith({ uri });
   });
 });

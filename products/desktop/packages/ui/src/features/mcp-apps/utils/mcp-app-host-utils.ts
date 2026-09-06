@@ -1,12 +1,10 @@
-/**
- * Shared utilities for McpAppHost: container dimension calculations
- * for inline/fullscreen display modes.
- *
- * @see https://modelcontextprotocol.io/specification/2025-03-26/extensions/mcp-apps
- */
-
-import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  AppBridge,
+  McpUiDisplayMode,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { resolveResultResourceUri } from "@posthog/core/mcp-apps/schemas";
+import { readMcpToolDescriptor } from "@posthog/shared";
 
 export const INLINE_MAX_HEIGHT = 600;
 export const FULLSCREEN_HEADER_HEIGHT = 48;
@@ -18,6 +16,46 @@ export interface ContainerDimensions {
   maxHeight?: number;
 }
 
+export type McpAppResourceSelection =
+  | { source: "result"; resourceUri: string }
+  | { source: "registration" };
+
+export function selectMcpAppResource(
+  rawOutput: unknown,
+  hasRegistrationUi: boolean | undefined,
+): McpAppResourceSelection | null {
+  const resultResourceUri = resolveResultResourceUri(rawOutput);
+  if (resultResourceUri?.startsWith("ui://")) {
+    return { source: "result", resourceUri: resultResourceUri };
+  }
+  return hasRegistrationUi ? { source: "registration" } : null;
+}
+
+export function isMcpAppEventForToolCall(
+  event: { toolCallId: string },
+  toolCallId: string,
+): boolean {
+  return event.toolCallId === toolCallId;
+}
+
+export function sendToolResultOnce(
+  deliveredResults: WeakMap<object, Set<string>>,
+  bridge: Pick<AppBridge, "sendToolResult">,
+  toolCallId: string,
+  rawOutput: unknown,
+): boolean {
+  const deliveredToolCalls = deliveredResults.get(bridge);
+  if (deliveredToolCalls?.has(toolCallId)) return false;
+
+  if (deliveredToolCalls) {
+    deliveredToolCalls.add(toolCallId);
+  } else {
+    deliveredResults.set(bridge, new Set([toolCallId]));
+  }
+  bridge.sendToolResult(toCallToolResult(rawOutput));
+  return true;
+}
+
 export function parseMcpToolKey(mcpToolName: string): {
   serverName: string;
   toolName: string;
@@ -27,6 +65,16 @@ export function parseMcpToolKey(mcpToolName: string): {
     serverName: parts[1] ?? "",
     toolName: parts.slice(2).join("__"),
   };
+}
+
+export function resolveMcpToolPair(
+  meta: unknown,
+  mcpToolName: string,
+): { serverName: string; toolName: string } {
+  const descriptor = readMcpToolDescriptor(meta);
+  return descriptor
+    ? { serverName: descriptor.server, toolName: descriptor.tool }
+    : parseMcpToolKey(mcpToolName);
 }
 
 /**

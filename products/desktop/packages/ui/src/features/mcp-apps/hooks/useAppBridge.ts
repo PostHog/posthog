@@ -21,7 +21,6 @@ import type { ToolCall } from "../../sessions/types";
 import {
   computeContainerDimensions,
   INLINE_MAX_HEIGHT,
-  toCallToolResult,
 } from "../utils/mcp-app-host-utils";
 import { buildHostStyles } from "../utils/mcp-app-theme";
 
@@ -47,6 +46,7 @@ interface UseAppBridgeArgs {
   onPhaseChange: (phase: Phase) => void;
   onSizeChange: (height: number) => void;
   onDisplayModeChange: (mode: McpUiDisplayMode) => void;
+  onBridgeInitialized: (bridge: AppBridge) => void;
   proxyToolCall: (args: {
     serverName: string;
     toolName: string;
@@ -160,6 +160,7 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
     const iframe = iframeEl;
     const resource = uiResource;
     let cleanedUp = false;
+    let effectBridge: AppBridge | null = null;
 
     const onProxyReady = async (event: MessageEvent) => {
       if (event.source !== iframe.contentWindow) return;
@@ -180,6 +181,7 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
         const bridge = new AppBridge(null, HOST_INFO, HOST_CAPABILITIES, {
           hostContext,
         });
+        effectBridge = bridge;
 
         // We are NOT listening to every single event coming from the bridge
         // but this can always very easily be extended to listen to more events if needed
@@ -259,6 +261,8 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
         };
 
         bridge.oninitialized = () => {
+          if (cleanedUp) return;
+
           log.debug("App initialized, phase -> initialized", {
             serverName: latestRef.current.serverName,
           });
@@ -283,20 +287,7 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
             });
           }
 
-          // If the tool already completed (e.g. component remounted after
-          // scrolling back into the virtualized list), send the result now
-          // since the subscription event was missed.
-          if (
-            tc.rawOutput &&
-            (tc.status === "completed" || tc.status === "failed")
-          ) {
-            const toolResult = toCallToolResult(tc.rawOutput);
-            log.debug("Sending existing tool result to app (remount)", {
-              serverName: latestRef.current.serverName,
-              toolResult,
-            });
-            bridge.sendToolResult(toolResult);
-          }
+          latestRef.current.onBridgeInitialized(bridge);
 
           // Flush pending
           log.debug("Flushing pending messages", {
@@ -314,8 +305,9 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
           iframe.contentWindow as Window,
         );
         await bridge.connect(transport);
-        bridgeRef.current = bridge;
+        if (cleanedUp) return;
 
+        bridgeRef.current = bridge;
         await bridge.sendSandboxResourceReady({
           html: applyCspToHtml(resource.html, resource.csp),
           csp: resource.csp,
@@ -329,10 +321,9 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
           latestRef.current.onPhaseChange("resource-sent");
         }
       } catch (err) {
+        if (cleanedUp) return;
         log.error("Failed to initialize AppBridge", err);
-        if (!cleanedUp) {
-          latestRef.current.onPhaseChange("error");
-        }
+        latestRef.current.onPhaseChange("error");
       }
     };
 
@@ -342,13 +333,12 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
       cleanedUp = true;
       window.removeEventListener("message", onProxyReady);
 
-      if (bridgeRef.current) {
-        const b = bridgeRef.current;
-        b.teardownResource({}).catch(() => {});
-        b.close().catch(() => {});
-      }
+      effectBridge?.teardownResource({}).catch(() => {});
+      effectBridge?.close().catch(() => {});
 
-      bridgeRef.current = null;
+      if (bridgeRef.current === effectBridge) {
+        bridgeRef.current = null;
+      }
       initializedRef.current = false;
       prevContextRef.current = null;
       pendingRef.current = [];
