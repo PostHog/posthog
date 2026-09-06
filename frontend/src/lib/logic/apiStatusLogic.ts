@@ -23,6 +23,9 @@ export interface apiStatusLogicActions {
         error: any
         response: Response | undefined
     }
+    reportReauthenticationCompleted: () => {
+        value: true
+    }
     setInternetConnectionIssue: (issue: boolean) => {
         issue: boolean
     }
@@ -39,10 +42,16 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+// A request already in flight when re-authentication completes can still return a
+// `sensitive_action_required_reauth` 403 against the just-refreshed session. Ignore that stale 403
+// for this long after a success so it can't reopen the modal.
+export const SENSITIVE_REAUTH_GRACE_MS = 10_000
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
         onApiResponse: (response?: Response, error?: any) => ({ response, error }),
+        reportReauthenticationCompleted: true,
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
         setTimeSensitiveAuthenticationRequired: (
             required: boolean | [onSuccess: () => void, onFailure: () => void]
@@ -86,6 +95,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
     }),
     listeners(({ cache, actions, values }) => ({
+        reportReauthenticationCompleted: () => {
+            cache.lastReauthCompletedAt = Date.now()
+        },
         onApiResponse: async ({ response, error }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
@@ -103,7 +115,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 if (response?.status === 403) {
                     const responseData = await response?.json()
                     if (responseData.code === 'sensitive_action_required_reauth') {
-                        actions.setTimeSensitiveAuthenticationRequired(true)
+                        if (Date.now() - (cache.lastReauthCompletedAt ?? 0) > SENSITIVE_REAUTH_GRACE_MS) {
+                            actions.setTimeSensitiveAuthenticationRequired(true)
+                        }
                     } else if (
                         responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&

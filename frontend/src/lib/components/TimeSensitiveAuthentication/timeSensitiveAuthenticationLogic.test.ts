@@ -141,6 +141,23 @@ describe('timeSensitiveAuthenticationLogic', () => {
             })
         })
 
+        it('should clear a stale password error and 2FA step when the modal reopens', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            // Leftovers from a prior attempt that the singleton would otherwise redisplay
+            logic.actions.setReauthenticationManualErrors({ password: 'Incorrect password' })
+            logic.actions.setRequiresTwoFactor(true)
+
+            await expectLogic(logic, () => {
+                apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired(true)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                showAuthenticationModal: true,
+                reauthenticationManualErrors: {},
+                twoFactorRequired: false,
+            })
+        })
+
         it('should settle a pending checkReauthentication when the modal is dismissed', async () => {
             userLogic.actions.loadUserSuccess({
                 ...MOCK_DEFAULT_USER,
