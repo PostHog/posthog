@@ -443,6 +443,7 @@ impl PersonHogReplica for TestReplicaService {
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count: 0,
+            last_id: 0,
         }))
     }
 

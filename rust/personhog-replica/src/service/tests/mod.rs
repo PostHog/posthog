@@ -210,6 +210,7 @@ async fn test_delete_persons_batch_for_team_storage_error(
         .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
             team_id: 1,
             batch_size: 100,
+            after_id: 0,
         }))
         .await;
 
@@ -228,12 +229,30 @@ async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_siz
         .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
             team_id: 1,
             batch_size,
+            after_id: 0,
         }))
         .await
         .unwrap_err();
 
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
     assert!(status.message().contains("batch_size"));
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_negative_after_id() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
+            team_id: 1,
+            batch_size: 100,
+            after_id: -1,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("after_id"));
 }
 
 #[tokio::test]
@@ -244,6 +263,7 @@ async fn test_delete_persons_batch_for_team_success() {
         .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
             team_id: 1,
             batch_size: 1000,
+            after_id: 0,
         }))
         .await;
 

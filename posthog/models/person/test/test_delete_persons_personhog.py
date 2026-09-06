@@ -13,6 +13,7 @@ from django.test import SimpleTestCase
 from posthog.models.person.util import delete_persons_from_postgres, get_person_by_distinct_id, get_person_by_uuid
 from posthog.models.team.util import _delete_persons_for_teams
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.proto import DeletePersonsBatchForTeamResponse
 from posthog.test.persons import create_person
 
 # ── Routing tests for delete_persons_from_postgres ──────────────────
@@ -64,7 +65,7 @@ class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
             fake.assert_not_called("delete_persons")
 
 
-# ── Routing tests for _delete_persons_for_teams ─────────────────────
+# ── Tests for _delete_persons_for_teams that need no database ───────
 
 
 class TestDeletePersonsForTeamsRouting(SimpleTestCase):
@@ -74,6 +75,23 @@ class TestDeletePersonsForTeamsRouting(SimpleTestCase):
             _delete_persons_for_teams([1])
 
         mock_raw_delete_batch.assert_not_called()
+
+    def test_batch_rpc_keeps_going_after_a_short_deleted_count(self):
+        # A concurrent delete can remove a selected person before the batch deletes it.
+        # The count is then short although persons above last_id are still there, so the
+        # loop must not read it as the team being empty.
+        responses = [
+            DeletePersonsBatchForTeamResponse(deleted_count=1, last_id=10),
+            DeletePersonsBatchForTeamResponse(deleted_count=2, last_id=20),
+            DeletePersonsBatchForTeamResponse(deleted_count=0, last_id=0),
+        ]
+
+        with fake_personhog_client() as fake:
+            with patch.object(fake, "delete_persons_batch_for_team", side_effect=responses) as rpc:
+                with patch("posthog.models.team.util.TEAM_DELETE_BATCH_SIZE", 2):
+                    _delete_persons_for_teams([7])
+
+        assert [call.args[0].after_id for call in rpc.call_args_list] == [0, 10, 20]
 
 
 # ── RPC behavior tests (personhog fake with real test data) ─────────
@@ -109,7 +127,7 @@ class TestDeletePersonsForTeamsRPC(BaseTest):
             assert self.team.pk in team_ids_called
             assert other_team.pk in team_ids_called
 
-    def test_personhog_batch_rpc_loops_until_done(self):
+    def test_personhog_batch_rpc_loops_until_a_batch_selects_nothing(self):
         p1 = create_person(team=self.team, distinct_ids=["a"])
         p2 = create_person(team=self.team, distinct_ids=["b"])
 
@@ -117,10 +135,11 @@ class TestDeletePersonsForTeamsRPC(BaseTest):
             fake.add_person(team_id=self.team.pk, person_id=p1.pk, uuid=str(p1.uuid), distinct_ids=["a"])
             fake.add_person(team_id=self.team.pk, person_id=p2.pk, uuid=str(p2.uuid), distinct_ids=["b"])
 
-            _delete_persons_for_teams([self.team.pk])
+            with patch("posthog.models.team.util.TEAM_DELETE_BATCH_SIZE", 1):
+                _delete_persons_for_teams([self.team.pk])
 
-            # Should have called at least twice: once to delete, once to confirm 0 remaining
+            # One batch per person, each resuming after the previous one, then an empty
+            # batch that ends the loop.
             calls = fake.assert_called("delete_persons_batch_for_team")
-            assert len(calls) >= 2
-            # Last call should have returned deleted_count=0
-            assert calls[-1].response.deleted_count == 0
+            assert [c.request.after_id for c in calls] == [0, p1.pk, p2.pk]
+            assert [c.response.deleted_count for c in calls] == [1, 1, 0]
