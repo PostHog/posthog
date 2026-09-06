@@ -31,7 +31,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
-import { PluginServerService, RawKafkaEvent } from '~/types'
+import { HealthCheckResult, PluginServerService, RawKafkaEvent } from '~/types'
 
 import { PartitionProgressMonitor, evaluationSchedulerPartitionMessages } from './partition-progress-monitor'
 
@@ -342,14 +342,21 @@ export const startEvaluationScheduler = async (
 
     return {
         id: 'evaluation-scheduler',
-        // The consumer check covers the poll loop; the monitor covers a group that keeps polling
-        // while a subset of its partitions stops advancing.
-        healthcheck: () => {
-            const consumerHealth = kafkaConsumer.isHealthy()
-            return consumerHealth.isError() ? consumerHealth : progressMonitor.health()
-        },
+        healthcheck: () => resolveSchedulerHealth(kafkaConsumer.isHealthy(), () => progressMonitor.health()),
         onShutdown,
     }
+}
+
+/**
+ * The consumer check covers the poll loop, so its failure is reported as-is. The monitor covers
+ * the case the consumer check cannot see: a group that keeps polling while a subset of its
+ * partitions stops advancing.
+ */
+export function resolveSchedulerHealth(
+    consumerHealth: HealthCheckResult,
+    partitionHealth: () => HealthCheckResult
+): HealthCheckResult {
+    return consumerHealth.isError() ? consumerHealth : partitionHealth()
 }
 
 export interface ProviderKeyGateOptions {

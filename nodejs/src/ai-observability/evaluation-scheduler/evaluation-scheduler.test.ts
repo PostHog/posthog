@@ -7,6 +7,7 @@ import {
     createTagger,
 } from '~/ai-observability/_tests/fixtures'
 import { logger } from '~/common/utils/logger'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '~/types'
 
 import {
     EvaluationMatcher,
@@ -16,6 +17,7 @@ import {
     extractEvaluationContext,
     filterAndParseMessages,
     groupEventsByTeam,
+    resolveSchedulerHealth,
     unwrapOrLog,
 } from './evaluation-scheduler'
 
@@ -930,6 +932,30 @@ describe('Evaluation Scheduler', () => {
                 event,
                 evaluation.evaluation_type
             )
+        })
+    })
+
+    describe('resolveSchedulerHealth', () => {
+        const consumerError = new HealthCheckResultError('Consumer not connected to Kafka broker', {})
+        const partitionError = new HealthCheckResultError('Evaluation scheduler made no progress on partitions 3', {})
+
+        it.each([
+            ['a group that polls but leaves partitions behind', new HealthCheckResultOk(), partitionError, 'error'],
+            ['a consumer that stopped polling', consumerError, new HealthCheckResultOk(), 'error'],
+            ['a consumer working through every partition', new HealthCheckResultOk(), new HealthCheckResultOk(), 'ok'],
+        ])('reports %s as %s', (_case, consumerHealth, partitionHealth, expected) => {
+            const result = resolveSchedulerHealth(consumerHealth as HealthCheckResult, () => partitionHealth)
+
+            expect(result.status).toBe(expected)
+        })
+
+        it('leaves a disconnected consumer to report itself, without asking the monitor', () => {
+            const partitionHealth = jest.fn()
+
+            const result = resolveSchedulerHealth(consumerError, partitionHealth)
+
+            expect(result).toBe(consumerError)
+            expect(partitionHealth).not.toHaveBeenCalled()
         })
     })
 })
