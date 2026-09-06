@@ -1073,7 +1073,9 @@ body {
   }
 }
 
-/* Resting opacity is 1, so a dropped/stalled animation can never leave the app invisible. */
+/* Resting opacity is 1, so a dropped animation leaves the app visible. A frozen
+   animation is different: a hidden or occluded window stops the animation clock and
+   holds the app on the 0% keyframe, so useAppVisibilityWatchdog forces it opaque. */
 .app-fade-in {
   animation: appFadeIn 0.5s ease-out forwards;
 }
