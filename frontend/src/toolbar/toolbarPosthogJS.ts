@@ -29,6 +29,9 @@ const initResult = posthog.init(
         capture_performance: false,
         capture_pageview: false,
         capture_pageleave: false,
+        // Console capture has no client-side off switch. Remote config turns it on and a client
+        // `logs` value cannot turn it back off, so keep the extension out of this instance.
+        __extensionClasses: { logs: undefined },
         disable_surveys: true,
         disable_scroll_properties: true,
         disable_product_tours: true,
