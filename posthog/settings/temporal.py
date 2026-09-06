@@ -211,13 +211,21 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
 # Temporal has a limitation where a worker can only listen to a single queue.
 # To avoid running multiple workers, when running locally (DEBUG=True), we use a single queue for all tasks.
 # In production (DEBUG=False), we use separate queues for each worker type.
+# Self-hosted stacks that run one temporal-django-worker (hobby) opt into the same collapse with
+# TEMPORAL_USE_SINGLE_TASK_QUEUE, so every workflow is scheduled on the queue that worker polls
+# instead of on queues nothing services.
+TEMPORAL_USE_SINGLE_TASK_QUEUE: bool = get_from_env("TEMPORAL_USE_SINGLE_TASK_QUEUE", False, type_cast=str_to_bool)
+default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
+
+
 def _set_temporal_task_queue(task_queue: str) -> str:
     if DEBUG:
         return "development-task-queue"
+    if TEMPORAL_USE_SINGLE_TASK_QUEUE:
+        return default_task_queue
     return task_queue
 
 
-default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
 TEMPORAL_TASK_QUEUE: str = _set_temporal_task_queue(default_task_queue)
 DATA_WAREHOUSE_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-task-queue")
 DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-cdp-producer-task-queue")

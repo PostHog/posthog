@@ -109,6 +109,10 @@ services:
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            # Hobby runs a single temporal-django-worker. Collapse every Temporal task queue
+            # onto the one it polls, so workflows started on other queues (exports, Max AI,
+            # replay, batch exports, data warehouse) run instead of never being picked up.
+            TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -172,6 +176,10 @@ services:
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
+            # Hobby runs a single temporal-django-worker. Collapse every Temporal task queue
+            # onto the one it polls, so workflows started on other queues (exports, Max AI,
+            # replay, batch exports, data warehouse) run instead of never being picked up.
+            TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -470,6 +478,10 @@ services:
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            # Hobby runs a single temporal-django-worker. Collapse every Temporal task queue
+            # onto the one it polls, so workflows started on other queues (exports, Max AI,
+            # replay, batch exports, data warehouse) run instead of never being picked up.
+            TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'

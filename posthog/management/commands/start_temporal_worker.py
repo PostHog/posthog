@@ -550,7 +550,7 @@ def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
-if settings.DEBUG:
+if settings.DEBUG or settings.TEMPORAL_USE_SINGLE_TASK_QUEUE:
     TASK_QUEUE_METRIC_PREFIXES = {}
 else:
     TASK_QUEUE_METRIC_PREFIXES = {
