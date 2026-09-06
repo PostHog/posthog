@@ -97,6 +97,43 @@ class TestDecagonSource:
         # exception noise.
         assert error_message_matches(error_msg, self.source.get_retryable_errors())
 
+    @parameterized.expand(
+        [
+            (
+                "agent_assist_403_names_the_plan_gate",
+                "403 Client Error: Forbidden for url: "
+                "https://api.decagon.ai/agent_assist/actions/export?min_timestamp=0",
+                "Agent Assist",
+            ),
+            (
+                "other_endpoint_403_keeps_the_generic_message",
+                "403 Client Error: Forbidden for url: https://api.decagon.ai/tag/all",
+                "endpoint behind this table",
+            ),
+            (
+                "401_still_maps_to_the_key_message",
+                "401 Client Error: Unauthorized for url: https://api.decagon.ai/conversation/export",
+                "rejected the API key",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_surface_the_most_specific_message(
+        self, _name: str, error_msg: str, expected_fragment: str
+    ) -> None:
+        # Mirrors the finalization activity: the first matching pattern in insertion order
+        # decides the message the operator sees, so the agent_assist entry must win over the
+        # bare 403 fallback for its own URL and lose it for every other endpoint.
+        friendly = next(
+            (
+                message
+                for pattern, message in self.source.get_non_retryable_errors().items()
+                if error_message_matches(error_msg, [pattern])
+            ),
+            None,
+        )
+        assert friendly is not None
+        assert expected_fragment in friendly
+
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.decagon.source.validate_decagon_credentials"
     )

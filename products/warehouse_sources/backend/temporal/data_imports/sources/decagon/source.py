@@ -75,14 +75,29 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Insertion order matters: the finalization activity surfaces the first matching
+        # pattern's message, so endpoint-specific 403 entries must precede the bare 403 one.
+        # A bare 403 does not establish a key problem, because the same key keeps syncing
+        # sibling tables when Decagon gates an endpoint on an account plan (#87958). The 403
+        # messages therefore point the operator at the sibling-table check instead of the key.
         return {
             "401 Client Error: Unauthorized": (
                 "Decagon rejected the API key. Generate a new key on the Developer page of the "
                 "Decagon dashboard and reconnect."
             ),
+            "403 Client Error: Forbidden for url: https://api.decagon.ai/agent_assist": (
+                "Decagon refused access to the Agent Assist export. If your other Decagon tables "
+                "are syncing, the API key works and your Decagon plan likely does not include "
+                "Agent Assist. Ask Decagon to enable it, then re-enable the sync. If every table "
+                "is failing, generate a new key on the Developer page of the Decagon dashboard "
+                "and reconnect."
+            ),
             "403 Client Error: Forbidden": (
-                "The Decagon API key does not have access to the endpoint behind this table. Check "
-                "the key on the Developer page of the Decagon dashboard and reconnect."
+                "Decagon refused access to the endpoint behind this table. If your other Decagon "
+                "tables are syncing, the API key works and your Decagon plan likely does not "
+                "include this endpoint. Ask Decagon to enable it, then re-enable the sync. If "
+                "every table is failing, generate a new key on the Developer page of the Decagon "
+                "dashboard and reconnect."
             ),
         }
 
