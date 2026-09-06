@@ -43,9 +43,9 @@ export function AppErrorState({ message }: { message: string }): ReactElement {
     }, [message])
 
     return (
-        <div className="flex flex-col items-center justify-center gap-3 h-[200px]">
+        <div className="flex flex-col items-center justify-center gap-3 h-[200px] px-4">
             <PostHogLogo size={40} />
-            <span className="text-xs text-destructive-foreground">{message}</span>
+            <span className="text-xs text-center text-destructive-foreground">{message}</span>
         </div>
     )
 }
@@ -143,7 +143,7 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
 
         return (
             <div
-                className="mx-auto flex w-full max-w-[960px] flex-col items-center justify-center gap-3"
+                className="mx-auto flex w-full max-w-[960px] flex-col items-center justify-center gap-3 px-4"
                 style={{
                     ...rootStyle,
                     ...(containerDimensions?.height == null ? { minHeight: 200 } : {}),
@@ -152,8 +152,12 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
                 <div className={showError ? '' : '[animation:loading__pulse_4s_ease-in-out_infinite]'}>
                     <PostHogLogo size={40} />
                 </div>
-                {isCancelled && <span className="text-xs text-muted-foreground">Tool call was cancelled</span>}
-                {error && !isCancelled && <span className="text-xs text-destructive-foreground">{error.message}</span>}
+                {isCancelled && (
+                    <span className="text-xs text-center text-muted-foreground">Tool call was cancelled</span>
+                )}
+                {error && !isCancelled && (
+                    <span className="text-xs text-center text-destructive-foreground">{error.message}</span>
+                )}
             </div>
         )
     }
