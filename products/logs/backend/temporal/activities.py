@@ -870,7 +870,8 @@ def _load_alerts_for_batch(alert_ids: set[str]) -> dict[str, LogsAlertConfigurat
     slower than per-team scoping — and saves one round-trip per team.
     """
     return {
-        str(alert.id): alert for alert in LogsAlertConfiguration.objects.filter(id__in=alert_ids).select_related("team")
+        str(alert.id): alert
+        for alert in LogsAlertConfiguration.objects.filter(id__in=alert_ids).select_related("team__organization")
     }
 
 
