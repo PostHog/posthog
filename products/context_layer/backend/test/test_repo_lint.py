@@ -1,6 +1,8 @@
+import os
 import uuid
 import shutil
 import tempfile
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -111,6 +113,45 @@ class TestRepoLint(SimpleTestCase):
 
     def test_default_structure_is_clean(self) -> None:
         assert lint_repo(self.root) == []
+
+    def test_publish_sends_summary_contents_as_text(self) -> None:
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "git").write_text(
+            """#!/bin/sh
+if [ "$1" = "rev-parse" ]; then
+    echo "dream/2026-09-01"
+fi
+"""
+        )
+        (bin_dir / "curl").write_text(
+            """#!/bin/sh
+for arg do
+    printf '<%s>\\n' "$arg"
+done
+"""
+        )
+        (bin_dir / "git").chmod(0o755)
+        (bin_dir / "curl").chmod(0o755)
+        summary_file = self.root / "dream summary.md"
+        summary_file.write_text("Reviewed recent activity")
+
+        result = subprocess.run(
+            [self.root / "scripts" / "publish", summary_file],
+            cwd=self.root,
+            env={
+                **os.environ,
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "POSTHOG_API_URL": "https://example.com",
+                "POSTHOG_PERSONAL_API_KEY": "test-key",
+                "POSTHOG_CONTEXT_LAYER_COMMITS_PATH": "/commits/",
+            },
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        assert "<--form-string>\n<summary=Reviewed recent activity>" in result.stdout
 
     def test_valid_pages_in_every_directory_are_clean(self) -> None:
         (self.root / "areas").mkdir()
