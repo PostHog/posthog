@@ -120,6 +120,37 @@ describe('the authorized urls list logic', () => {
         })
     })
 
+    describe('editing an existing row', () => {
+        let editLogic: ReturnType<typeof authorizedUrlListLogic.build>
+
+        beforeEach(() => {
+            editLogic = authorizedUrlListLogic({
+                type: AuthorizedUrlListType.WEB_ANALYTICS,
+                actionId: null,
+                experimentId: null,
+                productTourId: null,
+                allowWildCards: false,
+            })
+            editLogic.mount()
+            editLogic.actions.setAuthorizedUrls(['https://example.com', 'https://*.posthog.com'])
+        })
+
+        // Regression: validateProposedUrl also ran on stored values via the edit path, so re-saving
+        // an unchanged row was rejected as a duplicate of itself, and a saved wildcard entry (allowed
+        // by the shared toolbar surface) was rejected here where new wildcards are disallowed.
+        it.each([
+            [0, 'https://example.com'],
+            [1, 'https://*.posthog.com'],
+        ])('re-saving row %i (%s) has no validation error', async (index, url) => {
+            await expectLogic(editLogic, () => {
+                editLogic.actions.setEditUrlIndex(index)
+            }).toMatchValues({
+                proposedUrl: { url },
+                proposedUrlValidationErrors: { url: undefined },
+            })
+        })
+    })
+
     describe('loading suggestions', () => {
         // Regression coverage: suggestions are advisory, so a failed query must leave the list empty
         // and succeed the loader rather than escape as an unhandled kea-loaders error into error tracking.
