@@ -221,6 +221,61 @@ def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, 
     return " ".join(p for p in parts if p), params
 
 
+# Lifecycle analytics events, captured to PostHog's own project so staff can measure request
+# volume, time to approval, and failure rate. The flow is staff-only and was otherwise
+# uninstrumented, so none of these questions could be answered before.
+DATA_DELETION_REQUEST_CREATED = "data deletion request created"
+DATA_DELETION_REQUEST_SUBMITTED = "data deletion request submitted"
+DATA_DELETION_REQUEST_APPROVED = "data deletion request approved"
+DATA_DELETION_REQUEST_EXECUTED = "data deletion request executed"
+DATA_DELETION_REQUEST_FAILED = "data deletion request failed"
+
+
+def data_deletion_request_analytics_properties(request: "DataDeletionRequest", **extra: object) -> dict:
+    """Properties shared by every lifecycle event for a deletion request.
+
+    ``seconds_since_created`` gives each event a quick age; precise time-in-state (e.g. time to
+    approval) comes from differencing the transition events by ``data_deletion_request_id``.
+    """
+    created_at = request.created_at
+    properties: dict = {
+        "data_deletion_request_id": str(request.pk),
+        "request_type": request.request_type,
+        "status": request.status,
+        "target_team_id": request.team_id,
+        "matched_count": request.count,
+        "delete_all_events": request.delete_all_events,
+        "requires_approval": request.requires_approval,
+        "approved": request.approved,
+        "approved_automatically": request.approved_automatically,
+        "execution_mode": request.execution_mode,
+        "attempt_count": request.attempt_count,
+        "seconds_since_created": (timezone.now() - created_at).total_seconds() if created_at else None,
+    }
+    properties.update(extra)
+    return properties
+
+
+def capture_data_deletion_request_event(request: "DataDeletionRequest", event: str, **extra: object) -> None:
+    """Emit a lifecycle event from a system context (Dagster jobs, the auto-approve sweep).
+
+    Uses a scoped client that flushes before the process exits — a short-lived Dagster op worker
+    is the same failure mode ``ph_scoped_capture`` guards against in Celery, where the global
+    client's background flush may never run. The distinct id is the request id, so every lifecycle
+    event for one request shares an actor and system transitions aren't misattributed to a person.
+    Admin transitions capture through ``report_user_action`` instead, which keeps the acting staff
+    user as the actor.
+    """
+    from posthog.ph_client import ph_scoped_capture
+
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=f"data_deletion_request_{request.pk}",
+            event=event,
+            properties=data_deletion_request_analytics_properties(request, **extra),
+        )
+
+
 class RequestType(models.TextChoices):
     PROPERTY_REMOVAL = "property_removal"
     EVENT_REMOVAL = "event_removal"
@@ -1066,6 +1121,13 @@ def auto_approve_pending_requests(
             log(f"Request {request.pk}: changed while being evaluated, left alone.")
             continue
         approved += 1
+        # Reflect the just-written approval fields so the event records the auto-approval,
+        # not the pre-update state read from the candidate queryset.
+        request.status = RequestStatus.APPROVED
+        request.approved = True
+        request.approved_automatically = True
+        request.execution_mode = ExecutionMode.DEFERRED
+        capture_data_deletion_request_event(request, DATA_DELETION_REQUEST_APPROVED)
         log(f"Request {request.pk}: auto-approved (deferred), {request.count:,} matching events.")
 
     return AutoApproveOutcome(approved=approved, skipped=skipped, errored=errored)

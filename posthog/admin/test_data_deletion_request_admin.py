@@ -14,7 +14,14 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
-from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+from posthog.models.data_deletion_request import (
+    DATA_DELETION_REQUEST_APPROVED,
+    DATA_DELETION_REQUEST_SUBMITTED,
+    DataDeletionRequest,
+    ExecutionMode,
+    RequestStatus,
+    RequestType,
+)
 
 
 def _attach_messages(request) -> None:
@@ -127,6 +134,20 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.PENDING)
+
+    def test_approve_view_captures_analytics_event(self):
+        # The whole point of the change: an approval must emit a lifecycle event so time to
+        # approval and volume are measurable. Guards against the capture call being dropped.
+        request = self._pending_request()
+        with patch("posthog.admin.admins.data_deletion_request_admin.report_user_action") as capture:
+            self._call_approve("POST", request, {"execution_mode": ExecutionMode.IMMEDIATE.value})
+
+        capture.assert_called_once()
+        _user, event = capture.call_args.args
+        self.assertEqual(event, DATA_DELETION_REQUEST_APPROVED)
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["data_deletion_request_id"], str(request.pk))
+        self.assertEqual(properties["request_type"], RequestType.EVENT_REMOVAL)
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -339,6 +360,16 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.PENDING)
+
+    def test_submit_captures_analytics_event(self):
+        request = self._event_removal_request()
+        with patch("posthog.admin.admins.data_deletion_request_admin.report_user_action") as capture:
+            self._call_submit(request)
+
+        capture.assert_called_once()
+        _user, event = capture.call_args.args
+        self.assertEqual(event, DATA_DELETION_REQUEST_SUBMITTED)
+        self.assertEqual(capture.call_args.kwargs["properties"]["data_deletion_request_id"], str(request.pk))
 
     def test_submit_with_person_properties_only_succeeds(self):
         request = self._property_removal_request(person_properties=["email"])
