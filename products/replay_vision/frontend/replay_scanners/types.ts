@@ -47,6 +47,28 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'order_by',
 ]
 
+/**
+ * The observations table's state as it lives in the scanner page URL: filters, sort, and page.
+ * Links into the Observations tab build from these keys, and an observation page carries them back
+ * so returning to the list restores the view the reader left.
+ */
+export const OBSERVATION_LIST_URL_PARAM_KEYS = [
+    'page',
+    'sort',
+    'status',
+    'triggered_by',
+    'verdict',
+    'tags',
+    'min_score',
+    'max_score',
+    'recording_subject',
+    'date_from',
+    'date_to',
+    'backfill_id',
+] as const
+
+export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>
+
 export type EnabledFilter = 'enabled' | 'disabled'
 
 export type IneligibleKind =
@@ -139,8 +161,9 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
         retryHint: "A retry runs the scanner's current prompt. Edit the prompt first if you haven't changed it yet.",
     },
     infra_transient: {
-        label: 'PostHog timed out',
-        description: 'A PostHog service took too long while preparing this recording. Retry the scan in a few minutes.',
+        label: 'PostHog service unavailable',
+        description:
+            'A PostHog service was slow or unavailable while preparing this recording. Retry the scan in a few minutes.',
         retryWorthwhile: true,
     },
     internal_error: {
@@ -228,6 +251,10 @@ export function ineligibleKindDescription(kind: IneligibleKind): string {
     return INELIGIBLE_KINDS[kind].description
 }
 
+export function ineligibleKindLabel(kind: IneligibleKind): string {
+    return INELIGIBLE_KINDS[kind].label
+}
+
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
 
@@ -241,13 +268,20 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 2,
     [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
-    [ScannerModelEnumApi.Gemini37Flash]: 15,
+    [ScannerModelEnumApi.Gemini38Flash]: 15,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
     [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
-    [ScannerModelEnumApi.Gemini37Flash]: 'Gemini 3.7 Flash',
+    [ScannerModelEnumApi.Gemini38Flash]: 'Gemini 3.8 Flash',
+}
+
+// Names for models dropped from the lineup, so an observation frozen against one still reads as a
+// product name instead of a raw id. Tier arms keep provider names here: no tier claim survives retirement.
+const RETIRED_MODEL_NAMES: Record<string, string> = {
+    'gemini-3.7-flash': 'Gemini 3.7 Flash',
+    'gemini-3.6-flash': 'Gemini 3.6 Flash',
 }
 
 // Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
@@ -259,12 +293,12 @@ const MODEL_TIER_NAMES: Record<ModelNamingVariant, Record<ScannerModelEnumApi, s
     test: {
         [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
         [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
-        [ScannerModelEnumApi.Gemini37Flash]: 'Ultra',
+        [ScannerModelEnumApi.Gemini38Flash]: 'Ultra',
     },
     'lite-standard-pro': {
         [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
         [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
-        [ScannerModelEnumApi.Gemini37Flash]: 'Pro',
+        [ScannerModelEnumApi.Gemini38Flash]: 'Pro',
     },
 }
 
@@ -284,12 +318,14 @@ export function getModelOptions(
     }))
 }
 
-// Falls back to the raw id for retired models frozen in old observation snapshots.
+// Falls back to the raw id for models retired before they were named here.
 export function modelLabel(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
     if (!model) {
         return '—'
     }
-    return getModelOptions(namingVariant).find((opt) => opt.value === model)?.label ?? model
+    return (
+        getModelOptions(namingVariant).find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
+    )
 }
 
 /** Plain model name without the price suffix, for surfaces that show the price separately. */
@@ -298,7 +334,7 @@ export function modelName(model: string | null | undefined, namingVariant: Model
         return '—'
     }
     const names = namingVariant ? MODEL_TIER_NAMES[namingVariant] : MODEL_NAMES
-    return names[model as ScannerModelEnumApi] ?? model
+    return names[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
 }
 
 /** Fallback name for a scanner the user never named, e.g. "Hedgebox classifier". */

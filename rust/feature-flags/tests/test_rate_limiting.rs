@@ -1,7 +1,9 @@
 use anyhow::Result;
+use governor::clock::FakeRelativeClock;
 use reqwest::StatusCode;
 use serde_json::json;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::common::*;
 use feature_flags::config::{Config, FlexBool};
@@ -372,7 +374,8 @@ async fn test_rate_limit_replenishment() -> Result<()> {
     });
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
-    let server = ServerHandle::for_config(config).await;
+    let clock = FakeRelativeClock::default();
+    let server = ServerHandle::for_config_with_rate_limiter_clock(config, clock.clone()).await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -402,9 +405,7 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         "Second request blocked"
     );
 
-    // Replenish window is ~1s (1 token/sec); 1100ms gives a small buffer without
-    // depending on sub-100ms inter-request timing on loaded CI runners.
-    tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+    clock.advance(Duration::from_secs(1));
 
     let response = client
         .post(format!("http://{}/flags", server.addr))

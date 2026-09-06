@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 import shlex
+import base64
 import shutil
 import asyncio
 import logging
@@ -93,6 +94,7 @@ from .sandbox import (
 )
 
 logger = logging.getLogger(__name__)
+
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
@@ -1143,26 +1145,77 @@ class ModalSandbox(AgentServerLaunchMixin):
             )
 
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
+        step_timeout = timeout_seconds or self.config.default_execution_timeout_seconds
+        write_stage = "filesystem_write" if timeout_seconds is None else "exec_write"
+        write_result: ExecutionResult | None = None
         try:
-            self._sandbox.filesystem.write_bytes(payload, temp_path)
+            if timeout_seconds is None:
+                try:
+                    self._sandbox.filesystem.write_bytes(payload, temp_path)
+                except Exception as filesystem_error:
+                    logger.warning(
+                        "sandbox_filesystem_write_fallback",
+                        extra={
+                            "sandbox_id": self.id,
+                            "path": path,
+                            "error": str(filesystem_error),
+                            "error_type": type(filesystem_error).__name__,
+                        },
+                    )
+                    write_stage = "exec_write"
+                    write_result = self._write_file_with_exec(temp_path, payload, step_timeout)
+            else:
+                write_result = self._write_file_with_exec(temp_path, payload, step_timeout)
+            if write_result is not None and write_result.exit_code != 0:
+                write_result.error = "exec_write"
+                try:
+                    self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
+                except Exception:
+                    pass
+                return write_result
+            write_stage = "atomic_move"
             mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(
-                mv_command, timeout_seconds=timeout_seconds or self.config.default_execution_timeout_seconds
-            )
+            result = self.execute(mv_command, timeout_seconds=step_timeout)
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
                     extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
                 )
+                result.error = "atomic_move"
+                try:
+                    self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
+                except Exception:
+                    pass
             return result
         except Exception as e:
+            try:
+                self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
+            except Exception:
+                pass
             capture_exception(e)
             logger.exception(f"Failed to write file to sandbox: {e}")
             raise SandboxExecutionError(
                 "Failed to write file",
-                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                {"sandbox_id": self.id, "path": path, "write_stage": write_stage, "error": str(e)},
                 cause=e,
             )
+
+    def _write_file_with_exec(self, temp_path: str, payload: bytes, timeout_seconds: int) -> ExecutionResult:
+        parent_path = str(Path(temp_path).parent)
+        chunk_starts = range(0, len(payload), 37_500) if payload else (0,)
+        for index, start in enumerate(chunk_starts):
+            chunk = base64.b64encode(payload[start : start + 37_500]).decode("ascii")
+            redirect = ">" if index == 0 else ">>"
+            command = (
+                f"mkdir -p {shlex.quote(parent_path)} && base64 -d {redirect} {shlex.quote(temp_path)} "
+                "<<'POSTHOG_FILE_EOF'\n"
+                f"{chunk}\n"
+                "POSTHOG_FILE_EOF"
+            )
+            result = self.execute(command, timeout_seconds=timeout_seconds)
+            if result.exit_code != 0:
+                return result
+        return result
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""

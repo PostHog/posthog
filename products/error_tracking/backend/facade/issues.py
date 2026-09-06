@@ -8,6 +8,8 @@ django.setup() path of the read-oriented main facade.
 from typing import Any
 from uuid import UUID
 
+from posthog.models.user import User
+
 from ..logic import issue_mutations as _mutations
 from ..models import ErrorTrackingIssueMergeResult
 from . import api, contracts
@@ -24,12 +26,16 @@ def update_issue(
     return api._to_issue(issue)
 
 
-def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> ErrorTrackingIssueMergeResult:
-    return _mutations.merge_issues(team_id, issue_id, source_ids)
+def merge_issues(
+    team_id: int, issue_id: UUID, source_ids: list[str], *, user: User, was_impersonated: bool
+) -> ErrorTrackingIssueMergeResult:
+    return _mutations.merge_issues(team_id, issue_id, source_ids, user=user, was_impersonated=was_impersonated)
 
 
-def split_issue(team_id: int, issue_id: UUID, fingerprints: list[dict]) -> list[UUID]:
-    return _mutations.split_issue(team_id, issue_id, fingerprints)
+def split_issue(
+    team_id: int, issue_id: UUID, fingerprints: list[dict], *, user: User, was_impersonated: bool
+) -> list[UUID]:
+    return _mutations.split_issue(team_id, issue_id, fingerprints, user=user, was_impersonated=was_impersonated)
 
 
 def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:

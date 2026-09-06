@@ -82,7 +82,7 @@ graph LR
 
 - Job-level CI: per-job duration, queue time, runner tier, and dollar cost ride `workflow_jobs` (webhook stream plus bounded backfill).
 - One write surface: test quarantine. The `quarantine/request` endpoint files a tracking issue plus a PR against the repo's checked-in `.test_quarantine.json` through the team's GitHub App; it is reachable via the API and MCP only, with no in-app UI. Everything else is read-only.
-- The test-health view is the Trunk quarantine debt scoreboard: every test Trunk currently quarantines, attributed to its owning team from the span-stamped ownership, aged against a TTL, and rolled up per team. A quarantine masks a failure without fixing it, so the board is the standing work queue of masked tests. The flaky-test queue itself (failures plus same-commit recovery evidence from the pytest and Jest suites, counted per CI run, ranked by blast radius) remains an endpoint and MCP tool; the weekly Slack report requests each runner separately and shows up to 10 pytest tests followed by up to 10 Jest tests; it is informational, so suppressed tests stay listed with their quarantine state. Logs-based rescue counts and links remain pytest-only.
+- The test-health view is the Trunk quarantine debt scoreboard: every test Trunk currently quarantines, attributed to the team that owns its file in the repository today, aged against a TTL, and rolled up per team. A quarantine masks a failure without fixing it, so the board is the standing work queue of masked tests. The flaky-test queue itself (failures plus same-commit recovery evidence from the pytest and Jest suites, counted per CI run, ranked by blast radius) remains an endpoint and MCP tool; the weekly Slack report requests each runner separately and shows up to 10 pytest tests followed by up to 10 Jest tests; it is informational, so suppressed tests stay listed with their quarantine state. Logs-based rescue counts and links remain pytest-only.
 - Access control: per-user warehouse RBAC at the source resolver, `engineering_analytics:read` scopes on tools, feature-flag gated.
 
 ## The goal: CI Signals for PostHog Desktop
@@ -104,6 +104,10 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
 Immutable lifecycle events are the only thing the deferred events destination is for.
 Deploys left that deferral: unlike the snapshots, `github_deployment_statuses` is an append-oriented, webhook-fed status history (one row per transition), so DORA reads don't need the events destination.
+When a deployment's merge SHA is absent from the PR snapshot, Health reuses workflow-run `commit_pr_number` attribution for the exact deployed commit on the same repository's default branch.
+The candidate PR must have merged into that branch, and must carry no merge commit of its own — one that names some other commit is evidence the suffix is wrong, not evidence the deploy carries that PR.
+That drops a cherry-pick: a commit forward-ported onto the default branch keeps the original subject line, so its `(#N)` suffix still names the PR it came from, which landed elsewhere.
+This fallback depends on the merge-message PR suffix and synced workflow history; unresolved deployments remain unattributed.
 Change failure rate and time-to-restore still lack an incident link, so they ship as honest deploy-status proxies — the caveat rides in the field docs (`failed_deployment_share`, `median_failed_deploy_to_next_success_seconds`), the aggregate-endpoint pattern; a typed `metric_quality` field is reserved for deep tools like `pr_lifecycle`.
 
 ## Locked decisions

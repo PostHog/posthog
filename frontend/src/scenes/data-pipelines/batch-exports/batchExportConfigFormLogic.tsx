@@ -7,6 +7,7 @@ import { beforeUnload, router } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -17,6 +18,7 @@ import {
     BatchExportConfigurationTest,
     BatchExportConfigurationTestStep,
     BatchExportService,
+    IntegrationType,
 } from '~/types'
 
 import { batchExportDataLogic } from './batchExportDataLogic'
@@ -540,6 +542,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
 export interface batchExportConfigFormLogicValues {
     batchExportConfig: BatchExportConfiguration | null // batchExportDataLogic
     batchExportConfigLoading: boolean // batchExportDataLogic
+    integrations: IntegrationType[] | null // integrationsLogic
     teamTimezone: string // teamLogic
     teamWeekStartDay: number // teamLogic
     batchExportConfigTest: BatchExportConfigurationTest | null
@@ -564,6 +567,7 @@ export interface batchExportConfigFormLogicValues {
     requiredFields: string[]
     runningStep: number | null
     savedConfiguration: Record<string, any>
+    selectedIntegration: IntegrationType | null
     selectedModel: string
     service:
         | 'AwsS3'
@@ -733,6 +737,10 @@ export interface batchExportConfigFormLogicMeta {
                 | 'Snowflake'
                 | null
         ) => boolean
+        selectedIntegration: (
+            integrations: IntegrationType[] | null,
+            configuration: Record<string, any>
+        ) => IntegrationType | null
         requiredFields: (
             service:
                 | 'AwsS3'
@@ -746,7 +754,8 @@ export interface batchExportConfigFormLogicMeta {
                 | 'Snowflake'
                 | null,
             isNew: boolean,
-            configuration: Record<string, any>
+            configuration: Record<string, any>,
+            selectedIntegration: IntegrationType | null
         ) => string[]
     }
 }
@@ -778,6 +787,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay'],
             batchExportDataLogic({ id: props.id }),
             ['batchExportConfig', 'batchExportConfigLoading'],
+            integrationsLogic,
+            ['integrations'],
         ],
         actions: [
             batchExportDataLogic({ id: props.id }),
@@ -984,8 +995,16 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             ): boolean =>
                 !!service && ['Postgres', 'Redshift', 'Snowflake', 'Databricks', 'BigQuery'].includes(service),
         ],
+        // The Integration picked in the form, for destinations whose required fields depend on what
+        // the Integration itself stores (a plain Redshift connection carries its own host, an AWS
+        // one does not).
+        selectedIntegration: [
+            (s) => [s.integrations, s.configuration],
+            (integrations: IntegrationType[] | null, config: Record<string, any>): IntegrationType | null =>
+                integrations?.find((integration) => integration.id === config.integration_id) ?? null,
+        ],
         requiredFields: [
-            (s) => [s.service, s.isNew, s.configuration],
+            (s) => [s.service, s.isNew, s.configuration, s.selectedIntegration],
             (
                 service:
                     | 'AwsS3'
@@ -999,7 +1018,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'Snowflake'
                     | null,
                 isNew: boolean,
-                config: Record<string, any>
+                config: Record<string, any>,
+                selectedIntegration: IntegrationType | null
             ): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (!service) {
@@ -1009,7 +1029,10 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 if (!definition) {
                     return generalRequiredFields
                 }
-                return [...generalRequiredFields, ...definition.requiredFields({ isNew, formValues: config })]
+                return [
+                    ...generalRequiredFields,
+                    ...definition.requiredFields({ isNew, formValues: config, selectedIntegration }),
+                ]
             },
         ],
     })),

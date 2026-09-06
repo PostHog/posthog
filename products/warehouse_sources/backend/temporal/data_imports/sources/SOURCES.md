@@ -972,6 +972,7 @@ doesn't conflict with concurrent PRs.
 - crowdstrike_falcon
 - cube_cloud
 - curve
+- cybersource
 - d2l_brightspace
 - datascope
 - datorama
@@ -1027,6 +1028,7 @@ doesn't conflict with concurrent PRs.
 - flexport
 - flowlu
 - fly_io
+- folk
 - formbricks
 - fortnox
 - fourthwall
@@ -1170,8 +1172,10 @@ doesn't conflict with concurrent PRs.
 - mantle
 - manychat
 - mastodon
+- medusa
 - meetup
 - memberful
+- membrain
 - mendeley
 - mercado_ads
 - mercado_pago
@@ -1298,6 +1302,7 @@ doesn't conflict with concurrent PRs.
 - raygun
 - rb2b
 - rd_station_marketing
+- recall_ai
 - reddit
 - redis
 - redpanda_cloud
@@ -1384,6 +1389,7 @@ doesn't conflict with concurrent PRs.
 - starburst
 - statsig
 - stockx
+- strato
 - strava
 - streamlabs
 - sumsub
@@ -1402,6 +1408,7 @@ doesn't conflict with concurrent PRs.
 - tebra
 - telli
 - tempo
+- tenjin
 - terabox
 - ternary
 - terra_api

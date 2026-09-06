@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconMagicWand, IconTarget } from '@posthog/icons'
@@ -10,8 +9,6 @@ import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -20,7 +17,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/stats/heatmapCaptureLogic'
-import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS, useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { urls } from '~/toolbar/urls'
 import { joinWithUiHost } from '~/toolbar/utils'
 
@@ -83,7 +80,8 @@ const SectionButton = ({
 }
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
-    const { wildcardHref, autoWildcardEnabled } = useValues(currentPageLogic)
+    const { wildcardHref, autoWildcardEnabled, wildcardHrefTooSpecific, wildcardHrefEndsWithSlash } =
+        useValues(currentPageLogic)
     const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
     const areaFilterFlagEnabled = useToolbarFeatureFlag('toolbar-heatmap-area-filter')
 
@@ -104,21 +102,22 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         clickmapsEnabled,
         heatmapFixedPositionMode,
         heatmapColorPalette,
-        samplingFactor,
         elementsLoading,
         processingProgress,
         areaSelectionActive,
         heatmapAreaFilter,
+        loadingAllElementStats,
+        loadAllPagesLoaded,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
         patchHeatmapFilters,
-        loadMoreElementStats,
+        startLoadingAllElementStats,
+        stopLoadingAllElementStats,
         setMatchLinksByHref,
         toggleClickmapsEnabled,
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
-        setSamplingFactor,
         startAreaSelection,
         cancelAreaSelection,
         selectHeatmapAreaFilter,
@@ -168,6 +167,21 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }}
                     />
                 </div>
+                {wildcardHrefTooSpecific && (
+                    <p className="text-xs text-secondary mt-1 mb-0">
+                        {wildcardHrefEndsWithSlash ? (
+                            <>
+                                A trailing slash matches only URLs that end there, so deeper pages and query strings
+                                drop out. Use <code>*</code> to include them.
+                            </>
+                        ) : (
+                            <>
+                                This URL is specific, so it matches less data. Use <code>*</code> as a wildcard to match
+                                more.
+                            </>
+                        )}
+                    </p>
+                )}
 
                 <div className="flex flex-row items-center gap-2 py-2 border-b">
                     <DateFilter
@@ -294,58 +308,36 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 Tip: Hold <kbd className="border rounded px-1 py-0.5 bg-surface-tertiary">shift</kbd> to
                                 interact with the page beneath the clickmap.
                             </p>
-                            <div className="flex items-center justify-between pb-2">
-                                <div className="flex items-center gap-1">
-                                    <LemonLabel
-                                        info="Sampling computes the result on a proportion of data of the users in the dataset, making click maps load significantly faster."
-                                        infoLink="https://posthog.com/docs/toolbar/heatmaps"
-                                    >
-                                        Sampling
-                                    </LemonLabel>
-                                    <LemonSwitch
-                                        className="m-2"
-                                        onChange={(checked) => {
-                                            if (checked) {
-                                                setSamplingFactor(0.1)
-                                                posthog.capture('sampling_enabled_on_heatmap')
-                                                return
-                                            }
-                                            setSamplingFactor(1)
-                                            posthog.capture('sampling_disabled_on_heatmap')
-                                        }}
-                                        checked={samplingFactor !== 1}
-                                    />
-                                </div>
-                                {samplingFactor !== 1 && (
-                                    <div className="flex items-center gap-2">
-                                        <LemonSegmentedButton
-                                            options={[0.1, 1, 10, 25, 50].map((percentage) => ({
-                                                value: percentage / 100,
-                                                label: `${percentage}%`,
-                                            }))}
-                                            value={samplingFactor}
-                                            onChange={(newValue) => {
-                                                setSamplingFactor(newValue)
-                                                posthog.capture('sampling_percentage_updated_on_heatmap', {
-                                                    samplingFactor: newValue,
-                                                })
-                                            }}
-                                        />
-                                    </div>
-                                )}
-                            </div>
                             <div className="flex items-center gap-2">
                                 <LemonButton
-                                    icon={<IconSync />}
+                                    icon={loadingAllElementStats ? <Spinner textColored /> : <IconSync />}
                                     type="secondary"
                                     size="small"
-                                    onClick={loadMoreElementStats}
-                                    loading={elementStatsLoading}
+                                    active={loadingAllElementStats}
+                                    onClick={() => {
+                                        if (loadingAllElementStats) {
+                                            stopLoadingAllElementStats()
+                                            toolbarPosthogJS.capture('toolbar heatmap load all stopped', {
+                                                pages_loaded: loadAllPagesLoaded,
+                                                element_count: loadedElementStatsCount,
+                                            })
+                                            return
+                                        }
+                                        startLoadingAllElementStats()
+                                        toolbarPosthogJS.capture('toolbar heatmap load all started')
+                                    }}
+                                    // a loading button is disabled, and the run needs to stay stoppable
+                                    loading={elementStatsLoading && !loadingAllElementStats}
+                                    tooltip={
+                                        loadingAllElementStats
+                                            ? 'Stop after the page being loaded now. What loaded so far stays on the heatmap.'
+                                            : 'Loads page after page of click data. A long date range or a busy site can take a while, and can need more than one run.'
+                                    }
                                     disabledReason={
                                         canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
                                     }
                                 >
-                                    Load more
+                                    {loadingAllElementStats ? 'Stop loading' : 'Load all'}
                                 </LemonButton>
                                 <Tooltip
                                     title={

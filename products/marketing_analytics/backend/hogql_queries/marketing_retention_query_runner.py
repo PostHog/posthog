@@ -27,9 +27,9 @@ from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlo
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, date_to_start_of_interval
+from posthog.hogql_queries.utils.utils import get_start_of_interval_hogql
 
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
 

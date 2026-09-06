@@ -77,7 +77,7 @@ export function useSidebarData({
     useTaskSummaries(summaryIds, { enabled: !showAllUsers });
   const { data: fullTasks = [], isLoading: isTasksLoading } = useTasks(
     { showAllUsers, showInternal },
-    { enabled: showAllUsers },
+    { enabled: showAllUsers, subscribed: showAllUsers },
   );
   const { data: slackTasks = [] } = useSlackTasks({
     enabled: !showAllUsers,
@@ -131,8 +131,7 @@ export function useSidebarData({
     ],
   );
 
-  const isHomeActive =
-    activeView.type === "task-input" || activeView.type === "task-pending";
+  const isHomeActive = activeView.type === "task-input";
   const isInboxActive = activeView.type === "inbox";
   const isAgentsActive = activeView.type === "agents";
   const isCommandCenterActive = activeView.type === "command-center";

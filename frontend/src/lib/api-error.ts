@@ -41,6 +41,54 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * How each browser engine words a `fetch` that never reached the server. Chromium says "Failed to
+ * fetch", WebKit "Load failed", and Gecko "NetworkError when attempting to fetch resource.".
+ */
+export const BROWSER_FETCH_FAILURE_MESSAGES: readonly string[] = [
+    'Failed to fetch',
+    'Load failed',
+    'NetworkError when attempting to fetch resource',
+]
+
+/**
+ * A module the browser could not load, which is a defect of ours rather than connectivity: a chunk
+ * an open tab still asks for went missing in a deploy. Chromium and Gecko word this by extending
+ * one of the messages above, so a module failure has to be recognized before a connectivity one.
+ *
+ * `isChunkLoadError` answers a wider question, whether to retry the import or offer a reload, and
+ * so it also treats a bare "Load failed" as a stale chunk. That guess is wrong for this decision,
+ * because it would keep reporting every WebKit connectivity failure.
+ */
+const MODULE_LOAD_FAILURE_MESSAGES: readonly string[] = [
+    'dynamically imported module',
+    'Importing a module script failed',
+]
+
+/**
+ * A `fetch` the browser refused to complete, recognized by the message the engine produced. The
+ * request never reached the server, so there is no status to react to and no code path of ours to
+ * fix: the cause is an ad blocker, tracking protection, DNS, a captive portal, or a connection that
+ * dropped mid-request.
+ *
+ * The match is on the message and not on the `TypeError` class on purpose. Application bugs raise
+ * status-less `TypeError`s too, such as "x is not a function", and dropping those would hide real
+ * crashes.
+ */
+export function isBrowserNetworkFailure(error: unknown): boolean {
+    if (error === null || typeof error !== 'object') {
+        return false
+    }
+    const message = (error as { message?: unknown }).message
+    if (typeof message !== 'string') {
+        return false
+    }
+    if (MODULE_LOAD_FAILURE_MESSAGES.some((known) => message.includes(known))) {
+        return false
+    }
+    return BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+}
+
+/**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
  * `ApiError` is built in this file, so they all share one stack, and grouping ignores the message
@@ -55,15 +103,26 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
+ * Left unreported for a second reason, that there is nothing to fix:
+ * - a `fetch` the browser never completed. No request reached us, so no code of ours failed, and
+ *   the user is told by whatever the caller renders for an empty result. Reporting these is what
+ *   floods the project: grouping is stack-based, so every loader that meets the same connectivity
+ *   blip opens an issue of its own, and one bad minute on a user's network manufactures dozens.
+ *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
  * no recovery runs. That event is also the better record, since an exception raised here cannot say
  * which endpoint failed: every `ApiError` shares this file's stack.
  *
- * A plain 500 stays reportable on purpose, being a genuine backend exception, and so does anything
- * without an HTTP status (a thrown string, a bare `Error`) — there is no response to excuse it.
+ * A plain 500 stays reportable on purpose, being a genuine backend exception. So does a status-less
+ * failure that is not a recognized connectivity failure, such as a thrown string, a bare `Error`,
+ * or an application `TypeError`, because there is no response to excuse it. A failed module import
+ * keeps reporting too, since a stale chunk after a deploy is a defect we can fix.
  */
 export function shouldReportApiFailure(error: unknown): boolean {
+    if (isBrowserNetworkFailure(error)) {
+        return false
+    }
     if (error === null || typeof error !== 'object') {
         return true
     }

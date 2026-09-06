@@ -97,7 +97,6 @@ export function useReportOpenTracker(
 
     track(ANALYTICS_EVENTS.INBOX_REPORT_OPENED, {
       report_id: opened.id,
-      report_title: opened.title ?? null,
       report_age_hours: reportAgeHours(opened.created_at),
       status: opened.status ?? null,
       priority: opened.priority ?? null,
@@ -113,7 +112,6 @@ export function useReportOpenTracker(
     return () => {
       track(ANALYTICS_EVENTS.INBOX_REPORT_CLOSED, {
         report_id: opened.id,
-        report_title: opened.title ?? null,
         report_age_hours: reportAgeHours(opened.created_at),
         priority: opened.priority ?? null,
         actionability: opened.actionability ?? null,

@@ -6,11 +6,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { derivePrState } from 'lib/signals/prState'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-import { captureInboxReportAction } from '../inboxAnalytics'
+import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
 import {
     ACTIONABLE_ACTIONABILITY_VALUES,
     INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
@@ -24,11 +25,12 @@ import {
     SignalReport,
 } from '../types'
 import type { SignalReportPriority } from '../types'
-import { DismissalReasonValue, ResolveReasonValue } from '../utils/dismissalReasons'
+import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
+import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
 
@@ -150,6 +152,7 @@ export interface reportListLogicValues {
     hasMore: boolean
     isLoaded: boolean
     listApiParams: any
+    livePrReportIds: string[]
     loadedContext: {
         hasActiveFilters: boolean
         scope: InboxScope
@@ -200,19 +203,18 @@ export interface reportListLogicActions {
     toggleSourceProduct: (source: string) => {
         source: string
     } // inboxFiltersLogic
+    trackReports: (
+        source: string,
+        reportIds: string[]
+    ) => {
+        reportIds: string[]
+        source: string
+    } // prCiStatusLogic
     dismissReport: (
         reportId: string,
-        reason: DismissalReasonValue,
-        note: string
+        dismissal: DismissalFeedback
     ) => {
-        note: string
-        reason:
-            | 'already_fixed'
-            | 'analysis_wrong'
-            | 'other'
-            | 'report_unclear'
-            | 'wontfix_intentional'
-            | 'wontfix_irrelevant'
+        dismissal: DismissalFeedback
         reportId: string
     }
     ensureLoaded: () => {
@@ -281,8 +283,12 @@ export interface reportListLogicActions {
         reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged'
         reportId: string
     }
-    restoreReport: (reportId: string) => {
+    restoreReport: (
+        reportId: string,
+        surface: InboxReportActionSurface
+    ) => {
         reportId: string
+        surface: InboxReportActionSurface
     }
 }
 
@@ -305,6 +311,7 @@ export interface reportListLogicMeta {
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
+        livePrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         loadedContext: (reportsResponse: ReportListResponse | null) => {
@@ -369,15 +376,17 @@ export const reportListLogic = kea<reportListLogicType>([
                 'setFilters',
                 'clearFilters',
             ],
+            prCiStatusLogic,
+            ['trackReports'],
         ],
     })),
 
     actions({
         ensureLoaded: true,
         loadMore: true,
-        dismissReport: (reportId: string, reason: DismissalReasonValue, note: string) => ({ reportId, reason, note }),
+        dismissReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
         resolveReport: (reportId: string, reason: ResolveReasonValue, note: string) => ({ reportId, reason, note }),
-        restoreReport: (reportId: string) => ({ reportId }),
+        restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
     }),
@@ -536,6 +545,26 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): boolean => reportsResponse !== null,
         ],
+        // The loaded rows whose pull request is still in flight, so the pill can say whether CI is
+        // red. A draft counts: it still builds. A merged or closed pull request is left out — its
+        // checks are history, not something to act on.
+        livePrReportIds: [
+            (s) => [s.reports],
+            (reports: SignalReport[]): string[] =>
+                reports
+                    .filter((report) => {
+                        if (!report.implementation_pr_url) {
+                            return false
+                        }
+                        const prState = derivePrState(
+                            report.status,
+                            report.implementation_pr_merged === true,
+                            report.implementation_pr_state
+                        )
+                        return prState === 'open' || prState === 'draft'
+                    })
+                    .map((report) => report.id),
+        ],
         // Total matching the *loaded* results — from the same response, so it can never be stale
         // relative to `reports` the way the separately-loaded badge `count` can (filter/refresh races).
         totalCount: [
@@ -561,6 +590,11 @@ export const reportListLogic = kea<reportListLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        // Announce this section's open pull requests so their CI state is resolved in one batch. Both
+        // loaders report: the first page and each appended page bring rows that need painting. An
+        // empty announcement matters too, because it retires the rows a narrowed filter dropped.
+        loadReportsSuccess: () => actions.trackReports(props.sectionKey, values.livePrReportIds),
+        loadMoreReportsSuccess: () => actions.trackReports(props.sectionKey, values.livePrReportIds),
         // First For-you count for the primary section: if the user has no reports suggested to
         // them, default to Entire project so they don't land on an empty inbox. Only when they haven't
         // picked a scope themselves, and only once the user's uuid has resolved (so the count is
@@ -615,13 +649,12 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.refresh()
             }
         },
-        dismissReport: async ({ reportId, reason, note }) => {
+        dismissReport: async ({ reportId, dismissal }) => {
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, {
                     state: 'suppressed',
-                    dismissal_reason: reason,
-                    ...(note ? { dismissal_note: note } : {}),
+                    ...suppressDismissalPayload(dismissal),
                 })
                 // Reconcile every mounted section against the server so the Dismissed target gains the
                 // row and count, not just this source section (which already dropped it optimistically).
@@ -651,13 +684,13 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         // Restore a suppressed report back to the inbox (transition to `potential`). Optimistically
         // drops it from Dismissed; the report re-enters the pipeline and resurfaces elsewhere.
-        restoreReport: async ({ reportId }) => {
+        restoreReport: async ({ reportId, surface }) => {
             const report = values.reports.find((r) => r.id === reportId)
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, { state: 'potential' })
                 // Fire only after the restore persists, matching ReportDetailActions' fallback path.
-                captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
+                captureInboxReportAction({ report, actionType: 'restore', surface })
                 lemonToast.success('Report restored to inbox')
                 // Restore maps through restore_target_status server-side, so the report lands back in
                 // whichever section its pre-suppression status names (a report suppressed while ready

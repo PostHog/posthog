@@ -12,9 +12,9 @@
  * * `iframe` - Iframe
  * * `recording` - Recording
  */
-export type HeatmapTypeApi = (typeof HeatmapTypeApi)[keyof typeof HeatmapTypeApi]
+export type SavedHeatmapTypeEnumApi = (typeof SavedHeatmapTypeEnumApi)[keyof typeof SavedHeatmapTypeEnumApi]
 
-export const HeatmapTypeApi = {
+export const SavedHeatmapTypeEnumApi = {
     Screenshot: 'screenshot',
     Iframe: 'iframe',
     Recording: 'recording',
@@ -24,10 +24,9 @@ export const HeatmapTypeApi = {
  * * `server` - Server
  * * `toolbar` - Toolbar
  */
-export type HeatmapScreenshotResponseSourceEnumApi =
-    (typeof HeatmapScreenshotResponseSourceEnumApi)[keyof typeof HeatmapScreenshotResponseSourceEnumApi]
+export type SavedHeatmapSourceEnumApi = (typeof SavedHeatmapSourceEnumApi)[keyof typeof SavedHeatmapSourceEnumApi]
 
-export const HeatmapScreenshotResponseSourceEnumApi = {
+export const SavedHeatmapSourceEnumApi = {
     Server: 'server',
     Toolbar: 'toolbar',
 } as const
@@ -37,10 +36,9 @@ export const HeatmapScreenshotResponseSourceEnumApi = {
  * * `completed` - Completed
  * * `failed` - Failed
  */
-export type HeatmapScreenshotResponseStatusEnumApi =
-    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
+export type SavedHeatmapStatusEnumApi = (typeof SavedHeatmapStatusEnumApi)[keyof typeof SavedHeatmapStatusEnumApi]
 
-export const HeatmapScreenshotResponseStatusEnumApi = {
+export const SavedHeatmapStatusEnumApi = {
     Processing: 'processing',
     Completed: 'completed',
     Failed: 'failed',
@@ -137,18 +135,18 @@ export interface HeatmapScreenshotResponseApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
      *
      * * `server` - Server
      * * `toolbar` - Toolbar */
-    readonly source: HeatmapScreenshotResponseSourceEnumApi
+    readonly source: SavedHeatmapSourceEnumApi
     /** Screenshot generation status: 'processing', 'completed', or 'failed'.
      *
      * * `processing` - Processing
      * * `completed` - Completed
      * * `failed` - Failed */
-    readonly status: HeatmapScreenshotResponseStatusEnumApi
+    readonly status: SavedHeatmapStatusEnumApi
     /** Whether at least one rendered image is ready to fetch. */
     readonly has_content: boolean
     /** Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint. */
@@ -250,7 +248,7 @@ export interface SavedHeatmapRequestApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
@@ -283,7 +281,7 @@ export interface PatchedSavedHeatmapRequestApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
@@ -774,9 +772,10 @@ export interface ContentAutopilotSiteDiscoveryResponseApi {
  * * `new_content` - New content
  * * `page_improvement` - Page improvement
  */
-export type ProposalTypeEnumApi = (typeof ProposalTypeEnumApi)[keyof typeof ProposalTypeEnumApi]
+export type ContentAutopilotProposalProposalTypeEnumApi =
+    (typeof ContentAutopilotProposalProposalTypeEnumApi)[keyof typeof ContentAutopilotProposalProposalTypeEnumApi]
 
-export const ProposalTypeEnumApi = {
+export const ContentAutopilotProposalProposalTypeEnumApi = {
     NewContent: 'new_content',
     PageImprovement: 'page_improvement',
 } as const
@@ -788,10 +787,10 @@ export const ProposalTypeEnumApi = {
  * * `exported` - Exported
  * * `failed` - Failed
  */
-export type ContentAutopilotProposalStatusEnumApi =
-    (typeof ContentAutopilotProposalStatusEnumApi)[keyof typeof ContentAutopilotProposalStatusEnumApi]
+export type ContentAutopilotProposalLifecycleStatusEnumApi =
+    (typeof ContentAutopilotProposalLifecycleStatusEnumApi)[keyof typeof ContentAutopilotProposalLifecycleStatusEnumApi]
 
-export const ContentAutopilotProposalStatusEnumApi = {
+export const ContentAutopilotProposalLifecycleStatusEnumApi = {
     Generating: 'generating',
     ReadyForReview: 'ready_for_review',
     Rejected: 'rejected',
@@ -856,8 +855,8 @@ export interface ContentAutopilotValidationReportApi {
 export interface ContentAutopilotProposalListApi {
     readonly id: string
     readonly run_id: string
-    readonly proposal_type: ProposalTypeEnumApi
-    readonly lifecycle_status: ContentAutopilotProposalStatusEnumApi
+    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
+    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
     readonly title: string
     readonly target_query: string
     /** Performance evidence for this proposal. */
@@ -911,7 +910,7 @@ export interface ContentAutopilotProposalApi {
      *
      * * `new_content` - New content
      * * `page_improvement` - Page improvement */
-    readonly proposal_type: ProposalTypeEnumApi
+    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
     /** Review and export lifecycle status.
      *
      * * `generating` - Generating
@@ -919,7 +918,7 @@ export interface ContentAutopilotProposalApi {
      * * `rejected` - Rejected
      * * `exported` - Exported
      * * `failed` - Failed */
-    readonly lifecycle_status: ContentAutopilotProposalStatusEnumApi
+    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
     /** Review title for this proposal. */
     readonly title: string
     /** Primary query or topic targeted by this proposal. */
@@ -983,9 +982,10 @@ export const ContentAutopilotRunRunStatusEnumApi = {
  * * `standard` - Standard
  * * `lower` - Lower
  */
-export type ConfidenceEnumApi = (typeof ConfidenceEnumApi)[keyof typeof ConfidenceEnumApi]
+export type ContentAutopilotSnapshotConfidenceEnumApi =
+    (typeof ContentAutopilotSnapshotConfidenceEnumApi)[keyof typeof ContentAutopilotSnapshotConfidenceEnumApi]
 
-export const ConfidenceEnumApi = {
+export const ContentAutopilotSnapshotConfidenceEnumApi = {
     Standard: 'standard',
     Lower: 'lower',
 } as const
@@ -997,7 +997,7 @@ export interface ContentAutopilotSnapshotApi {
      *
      * * `standard` - Standard
      * * `lower` - Lower */
-    confidence?: ConfidenceEnumApi
+    confidence?: ContentAutopilotSnapshotConfidenceEnumApi
     /** Public sources authorized for this run. */
     source_urls?: string[]
     /** Site paths authorized for this run. */

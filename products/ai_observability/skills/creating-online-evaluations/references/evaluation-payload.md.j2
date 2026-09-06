@@ -12,7 +12,7 @@ schemas below are rendered from the backend Pydantic models at build time, so th
 | `evaluation_type`     | yes            | `"hog"`, `"llm_judge"`, or `"sentiment"`.                                            |
 | `evaluation_config`   | yes            | Shape depends on `evaluation_type` (below).                                           |
 | `output_type`         | yes            | `"boolean"` for `hog`/`llm_judge`; `"sentiment"` for `sentiment`.                    |
-| `output_config`       | no             | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                             |
+| `output_config`       | no             | `{ "allows_na": bool, "true_is_failure": bool }` for boolean; `{}` for sentiment. |
 | `model_configuration` | llm_judge only | Provider + model; key ID optional. Rejected on `hog`/`sentiment`.                     |
 | `target`              | no             | `"generation"` (default), `"trace"`, or `"session"`. Sentiment supports only `"generation"`. |
 | `target_config`       | trace/session only | Settle config discriminated on `strategy` (below); defaults to a 30-minute fixed window for `trace`, and to a 1-hour inactivity window for `session`. |
@@ -81,6 +81,8 @@ Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boo
 ```
 
 `allows_na: true` lets the evaluator return N/A (skip) in addition to pass/fail.
+`true_is_failure: true` treats a raw `true` result as a failure and a raw `false` result as a pass.
+Leave it `false` for the default mapping.
 
 ### sentiment output
 
@@ -92,11 +94,12 @@ Empty object: `{}`.
 | ----------------- | -------- | ------------------------------------------------------------------------------ |
 | `provider`        | yes      | One of `openai`, `anthropic`, `gemini`, `openrouter`, `fireworks`, `azure_openai`, `together_ai`. |
 | `model`           | yes      | Model id, e.g. `gpt-5-mini`. Validate against `llma-evaluation-judge-models`.  |
-| `provider_key_id` | no       | UUID of an `ok`-state key for the same provider. `null` uses the matching active team key. |
+| `provider_key_id` | no       | UUID of an `ok`-state key for the same provider, or `null` to use the active team key. |
 
-`provider` and `model` are required. Pin `provider_key_id` to run on one specific key. Leave it `null` only
-when `llma-evaluation-config-get` shows an `ok`-state active key for the same provider. A disabled draft may
-be saved without a usable key, but it cannot be tested or enabled until a key can be resolved.
+`provider` and `model` are required. Pin `provider_key_id` to run on one specific key, or set it to `null`
+to run on the team's active key — both save a valid draft. To enable an unpinned eval, the active key must
+be `ok` and use the same provider (`llma-evaluation-config-get` shows it). A disabled draft may be saved
+without a usable key, but it cannot be tested or enabled until a key can be resolved.
 
 ## `conditions`
 
@@ -190,7 +193,7 @@ and `item.output` when exact structure matters.
   "evaluation_config": { "prompt": "Return true if the assistant's reply stays on the user's topic, false if it changes subject. Return N/A if the user did not ask a question." },
   "output_type": "boolean",
   "output_config": { "allows_na": true },
-  "model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": "<ok-state key uuid from llma-provider-key-list>" },
+  "model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null },
   "target": "generation",
   "target_config": {},
   "conditions": [{ "id": "default", "rollout_percentage": 100, "properties": [] }],
@@ -198,5 +201,6 @@ and `item.output` when exact structure matters.
 }
 ```
 
-Set `provider_key_id` to `null` only when the team's active key is in the `ok` state and its provider is
-`openai`.
+`provider_key_id: null` runs on the team's active key and always saves a valid draft. Pin it to an
+`ok`-state key uuid from `llma-provider-key-list` to run on one specific key. To enable an unpinned eval,
+the team's active key must be `ok` and its provider `openai`.

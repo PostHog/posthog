@@ -117,6 +117,20 @@ class RepartitionUnpartitionableError(Exception):
     """The table has no column suitable for partitioning — repartition is skipped, not retried."""
 
 
+class RepartitionTooLargeForBudgetError(Exception):
+    """One activity budget already failed to cover this table, and its checkpoint cannot be resumed.
+
+    A rewrite that runs out of budget resumes only while live stays at the Delta version its
+    checkpoint was built against, and the schema's own merge moves that version between runs. The
+    restart that follows re-streams from row 0, with the same budget, over a table that has only
+    grown, so it runs out in the same place and is discarded again on the next run. Three of those
+    spend the attempt cap and the controller abandons the rewrite terminally, having spent a full
+    budget per run to learn nothing. Raised instead of starting that restart, and terminal like
+    `RepartitionUnpartitionableError`: the flag is cleared and the cooldown engaged, so the table is
+    measured again on a later cycle rather than re-streamed on every sync.
+    """
+
+
 class RepartitionBudgetExceededError(Exception):
     """The rewrite ran out of activity budget before it finished streaming the table.
 
@@ -191,10 +205,10 @@ class RepartitionAttemptsExhausted(Exception):
     """Every one of `MAX_REPARTITION_ATTEMPTS` rewrites was charged but none survived to record an
     outcome, so the controller gives up and backs the table off to the daily cooldown.
 
-    Each attempt is charged before the rewrite runs and refunded on a clean stand-down (supersession,
-    cancellation, transient infra), so reaching the cap this way means every attempt was hard-killed
-    mid-run — worker OOM, activity timeout, or an eviction that didn't surface as a cancellation —
-    before it could fail cleanly or checkpoint progress. Terminal, and unlike a caught failure it
+    One attempt is charged per sync run before the rewrite runs, and refunded on a clean stand-down
+    (supersession, cancellation, transient infra), so reaching the cap this way means the rewrite was
+    hard-killed in every one of those runs — worker OOM, activity timeout, or an eviction that didn't
+    surface as a cancellation — before it could fail cleanly or checkpoint progress. Terminal, and unlike a caught failure it
     carries no underlying exception, so the give-up path constructs and captures this to keep the most
     severe repartition outcome visible in error tracking rather than silently abandoned.
     """
@@ -538,8 +552,9 @@ def select_repartition_target(
     one format tier finer. An unpartitioned table gets an auto target, which sizes its bucket count
     the same way so md5 is reachable whatever its keys turn out to be. When no target is chosen the
     reason explains why (reported in metrics so a skipped table is diagnosable): `within_budget`,
-    `datetime_at_finest_tier`, `numerical_cannot_shrink`, `numerical_no_size`, or
-    `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+    `datetime_at_finest_tier` (only when there is no primary key distinct from the partition key to
+    hash — otherwise a datetime table out of tiers falls back to md5), `numerical_cannot_shrink`,
+    `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
     """
     if not partition_bytes:
         return None, "no_partitions"
@@ -580,8 +595,25 @@ def select_repartition_target(
         # no-op'd to `hour` before the ceiling existed) has nothing finer to gain either.
         ceiling_index = DATETIME_FORMAT_TIERS.index(_datetime_tier_ceiling(schema))
         if current_index >= ceiling_index:
-            # Already at the finest usable tier — can't go finer. Caller alerts.
-            return None, "datetime_at_finest_tier"
+            # No finer tier left, yet the table is still over budget. The key itself is skewed — a
+            # backfill that stamped one timestamp across millions of rows puts more than the budget
+            # in a single bucket, and splitting time more finely cannot divide rows that share a
+            # value. md5 escapes that by bucketing on a hash rather than on the value, so partition
+            # size follows the row count. It must hash the PRIMARY KEY, not the datetime partition
+            # key: hashing the skewed column maps every row that shares a timestamp to the same
+            # bucket and reproduces the skew exactly. The cost is time-range pruning at query time,
+            # which an over-budget partition already outweighs by OOMing the merge and stalling the
+            # sync. With no distinct primary key to hash there is nothing better to move to, so the
+            # table stays parked at the finest tier for the caller to alert on.
+            hash_keys = schema.primary_key_columns or []
+            if not hash_keys or set(hash_keys) == set(keys):
+                return None, "datetime_at_finest_tier"
+            return RepartitionTarget(
+                partition_keys=hash_keys,
+                trigger_reason="",
+                partition_mode="md5",
+                partition_count=max(1, math.ceil(total_bytes / target_partition_bytes)),
+            ), "selected"
         return RepartitionTarget(
             partition_keys=keys,
             trigger_reason="",
@@ -1076,6 +1108,20 @@ async def _rewrite_into_temp(
     return rows_written, resolved
 
 
+def _restart_would_run_out_of_budget(checkpoint: dict[str, Any], live_rows: int) -> bool:
+    """Whether re-streaming this table from row 0 would run out of budget the way the last attempt did.
+
+    Only a checkpoint left behind by budget exhaustion says anything about the budget. One written by
+    the periodic saves belongs to an attempt killed at an arbitrary point — a worker OOM ten minutes
+    in — and the rows it covered measure nothing. `rows_written` from a budget-exhausted attempt is
+    that measure, so a live table holding more rows than it cannot be rewritten in one budget either.
+    """
+    if not checkpoint.get("budget_exhausted"):
+        return False
+    covered = int(checkpoint.get("rows_written") or 0)
+    return 0 < covered < live_rows
+
+
 async def repartition_table_in_place(
     table_ref: DeltaTableRef,
     schema: ExternalDataSchema,
@@ -1092,9 +1138,10 @@ async def repartition_table_in_place(
     `repartition_swap` marker (resume re-drives the swap from the intact temp table). On success,
     persists the new partition settings and clears the controller markers in one row-locked write.
     Returns a stats dict for observability. Raises `RepartitionUnpartitionableError` (terminal) if no
-    partition mode applies, and `RepartitionSchemePersistError` if the swap lands but its scheme
-    cannot be saved — the one failure the caller must not shrug off, since the table's data and its
-    settings disagree until a later run finishes that write.
+    partition mode applies, `RepartitionTooLargeForBudgetError` (terminal) if the table needs more
+    than one activity budget and its checkpoint cannot be resumed, and `RepartitionSchemePersistError`
+    if the swap lands but its scheme cannot be saved — the one failure the caller must not shrug off,
+    since the table's data and its settings disagree until a later run finishes that write.
 
     `claim_token` fences out zombie attempts: the temp table is scoped to the token so concurrent
     writers can never share one, and the claim is re-checked before every destructive step — and,
@@ -1237,6 +1284,12 @@ async def repartition_table_in_place(
             checkpoint_version = (rewrite_checkpoint or {}).get("live_version")
             temp_rows = await _valid_delta_row_count(temp_uri, storage_options)
             if temp_rows is None or temp_rows > old_row_count or checkpoint_version != live_version:
+                if _restart_would_run_out_of_budget(rewrite_checkpoint or {}, old_row_count):
+                    raise RepartitionTooLargeForBudgetError(
+                        f"a full activity budget covered {(rewrite_checkpoint or {}).get('rows_written')} of "
+                        f"{old_row_count} rows and the checkpoint cannot be resumed, so re-streaming from row 0 "
+                        f"cannot finish either (schema_id={schema.id})"
+                    )
                 await logger.awarning(
                     f"repartition: rewrite checkpoint is unusable (temp_rows={temp_rows} live={old_row_count} "
                     f"checkpoint_version={checkpoint_version} live_version={live_version}), discarding and "
@@ -1325,6 +1378,10 @@ async def repartition_table_in_place(
                         # Fences the resume: only valid while live stays at this version (see the
                         # resume path). A merge that commits between attempts bumps it and invalidates.
                         "live_version": live_version,
+                        # Set only here, so the rows above measure what one whole budget covers — the
+                        # periodic saves record an arbitrary point instead (see
+                        # `_restart_would_run_out_of_budget`).
+                        "budget_exhausted": True,
                         # Stamped on every checkpoint write, so it moves forward only while the rewrite
                         # keeps advancing. The import gate reads it to decide whether this rewrite is
                         # still live enough to be worth pausing ingestion for.

@@ -72,6 +72,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
     get_task_run_stream_key,
+    get_task_run_stream_watched_key,
 )
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -95,6 +96,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactChartRequestSerializer,
     TaskSerializer,
 )
+from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
@@ -154,10 +156,10 @@ vbMnD1ZQKgL8LHgb02cbTsc=
 -----END PRIVATE KEY-----"""
 
 
-# A discuss-report kickoff prompt: the report URL line the frontend prepends, then the user's question.
+# A discuss-report kickoff prompt: the report URL line the web app prepends, then the user's question.
 _DISCUSS_PROMPT = (
-    "Let's discuss this PostHog Inbox report: "
-    "https://us.posthog.com/project/2/inbox/reports/x\n\nIs this still happening?"
+    "Answer this question about the PostHog Inbox report at "
+    "https://us.posthog.com/project/2/inbox/reports/x:\n\nIs this still happening?"
 )
 
 
@@ -1284,10 +1286,12 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"][0]["latest_run"]["id"], str(latest_run.id))
 
+        # Latest runs must come from one page-scoped DISTINCT ON query, not a correlated
+        # subquery that runs against posthog_task_run for every task row.
         task_run_sql = "\n".join(query["sql"] for query in ctx.captured_queries)
         self.assertIn('FROM "posthog_task_run"', task_run_sql)
-        self.assertIn('LIMIT 1) AS "_latest_run_id"', task_run_sql)
-        self.assertNotIn("DISTINCT ON", task_run_sql)
+        self.assertIn('DISTINCT ON ("posthog_task_run"."task_id")', task_run_sql)
+        self.assertNotIn('AS "_latest_run_id"', task_run_sql)
 
     def test_latest_run_tiebreaks_by_id(self):
         task = self.create_task("Tie-break task")
@@ -1826,8 +1830,9 @@ class TestTaskAPI(BaseTaskAPITest):
             ("no_selection", False, None, "acme/web"),
             # a persisted selection wins over the cascade, even when it names another repo
             ("persisted_repo", True, "acme/api", "acme/api"),
-            # a scout's deliberate no-repo must not fall through to the cascade
-            ("persisted_no_repo", True, None, None),
+            # a scout's no-repo selection is not authoritative for a human "Create PR" click, so it
+            # falls through to the cascade rather than making a task that can never push
+            ("persisted_no_repo", True, None, "acme/web"),
         ]
     )
     def test_create_signal_report_task_resolves_repository_when_none_provided(
@@ -1866,6 +1871,45 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["repository"], expected_repository)
+
+    def test_discussion_from_no_repo_report_stays_repo_less_and_exempt(self):
+        # A "Discuss" kickoff must not resolve a repository, even on a one-repo team with a NO_REPO
+        # selection artefact. A repository-backed report task loses the code-access exemption, so a
+        # caller without Desktop access would 403 on the discussion — the dead-end this path removes.
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-cascade",
+            config={"installation_id": "gh-cascade"},
+            sensitive_config={},
+            repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        report = SignalReport.objects.create(team=self.team)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=RepoSelectionResult(repository=None, reason="test").model_dump_json(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Discuss report",
+                "description": "Let's discuss this report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": "discussion",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.json()["repository"])
+        self.assertTrue(tasks_facade.task_exempt_from_code_access(response.json()["id"], self.team.id))
 
     def test_create_task_with_signal_report_discussion_records_artefact_without_gate_row(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
@@ -1926,16 +1970,19 @@ class TestTaskAPI(BaseTaskAPITest):
         else:
             self.assertFalse(notes.exists())
 
-    def _post_discussion_task(self, report_id, description=_DISCUSS_PROMPT):
+    def _post_discussion_task(self, report_id, description=_DISCUSS_PROMPT, discussion_question=None):
+        data = {
+            "title": "Discuss report",
+            "description": description,
+            "origin_product": "signal_report",
+            "signal_report": str(report_id),
+            "signal_report_task_relationship": "discussion",
+        }
+        if discussion_question is not None:
+            data["signal_report_discussion_question"] = discussion_question
         return self.client.post(
             "/api/projects/@current/tasks/",
-            {
-                "title": "Discuss report",
-                "description": description,
-                "origin_product": "signal_report",
-                "signal_report": str(report_id),
-                "signal_report_task_relationship": "discussion",
-            },
+            data,
             format="json",
         )
 
@@ -2055,6 +2102,25 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(self._discussion_notes().exists())
 
+    @parameterized.expand([("question", "Why now?", True), ("blank", "", False)])
+    def test_explicit_discussion_question_controls_forwarding(self, _name, question, should_forward):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="New report title")
+        response = self._post_discussion_task(
+            report.id,
+            description="Discuss report: Old report title — stale question",
+            discussion_question=question,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        if should_forward:
+            note = self._discussion_notes().get()
+            self.assertIn("Why now?", note.content)
+            self.assertNotIn("stale question", note.content)
+        else:
+            self.assertFalse(self._discussion_notes().exists())
+
     def test_create_task_with_signal_report_accepts_free_form_relationship(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
         from products.signals.backend.task_run_artefacts import signals_task_ids
@@ -2138,24 +2204,41 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            # a live implementation claims the report's one slot
-            ("created_never_run", [], False, status.HTTP_429_TOO_MANY_REQUESTS),
-            ("run_in_progress", [("in_progress", None)], False, status.HTTP_429_TOO_MANY_REQUESTS),
-            ("run_completed", [("completed", None)], False, status.HTTP_429_TOO_MANY_REQUESTS),
+            # a live implementation claims the report's one slot, and the message says it is live
+            ("created_never_run", [], False, status.HTTP_429_TOO_MANY_REQUESTS, "already in progress"),
+            (
+                "run_in_progress",
+                [("in_progress", None)],
+                False,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "already in progress",
+            ),
+            # a shipped PR claims the slot for good, whatever status the run that shipped it ended on
             (
                 "failed_but_pr_shipped",
                 [("failed", "https://github.com/acme/web/pull/1")],
                 False,
                 status.HTTP_429_TOO_MANY_REQUESTS,
+                "already has a pull request",
             ),
-            # only a fully dead prior implementation (or a deleted task) releases the slot
-            ("all_runs_failed", [("failed", None), ("failed", None)], False, status.HTTP_201_CREATED),
-            ("run_cancelled_no_pr", [("cancelled", None)], False, status.HTTP_201_CREATED),
-            ("prior_task_deleted", [("in_progress", None)], True, status.HTTP_201_CREATED),
+            (
+                "completed_and_pr_shipped",
+                [("completed", "https://github.com/acme/web/pull/1")],
+                False,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "already has a pull request",
+            ),
+            # a prior implementation that ended with nothing to show (or a deleted task) releases it.
+            # `completed` counts: the agent stops without a PR when the fix would be wrong, and that
+            # used to lock the report out of ever being tried again.
+            ("all_runs_failed", [("failed", None), ("failed", None)], False, status.HTTP_201_CREATED, None),
+            ("run_cancelled_no_pr", [("cancelled", None)], False, status.HTTP_201_CREATED, None),
+            ("run_completed_no_pr", [("completed", None)], False, status.HTTP_201_CREATED, None),
+            ("prior_task_deleted", [("in_progress", None)], True, status.HTTP_201_CREATED, None),
         ]
     )
     def test_second_implementation_task_per_report_gated_on_prior_state(
-        self, _name, run_specs, prior_deleted, expected_status
+        self, _name, run_specs, prior_deleted, expected_status, expected_detail
     ):
         from products.signals.backend.models import SignalReport
 
@@ -2167,6 +2250,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
             self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
     @parameterized.expand(
@@ -4931,7 +5015,16 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
 class TestTaskSummariesAPI(BaseTaskAPITest):
     SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
-    SUMMARY_FIELDS = {"id", "title", "repository", "created_at", "updated_at", "origin_product", "latest_run"}
+    SUMMARY_FIELDS = {
+        "id",
+        "title",
+        "repository",
+        "created_by_id",
+        "created_at",
+        "updated_at",
+        "origin_product",
+        "latest_run",
+    }
 
     def post_summaries(self, ids):
         return self.client.post(self.SUMMARIES_URL, {"ids": ids}, format="json")
@@ -4991,7 +5084,7 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         [payload] = response.json()["results"]
         self.assertEqual(
             payload["latest_run"],
-            {"status": valid_run.status, "environment": valid_run.environment},
+            {"id": str(valid_run.id), "status": valid_run.status, "environment": valid_run.environment},
         )
 
     @parameterized.expand(
@@ -5018,7 +5111,8 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         [payload] = response.json()["results"]
         self.assertEqual(set(payload.keys()), self.SUMMARY_FIELDS)
-        expected_run = {"status": run.status, "environment": run.environment} if run else None
+        self.assertEqual(payload["created_by_id"], self.user.id)
+        expected_run = {"id": str(run.id), "status": run.status, "environment": run.environment} if run else None
         self.assertEqual(payload["latest_run"], expected_run)
 
     def test_summaries_paginates_large_id_sets(self):
@@ -5395,6 +5489,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "use_modal_vm_sandbox": False,
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
+                "stream_presence_gated": True,
+                "stream_thin_tail": True,
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
@@ -5449,6 +5545,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "use_modal_vm_sandbox": True,
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
+                    "stream_presence_gated": False,
+                    "stream_thin_tail": False,
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
@@ -5507,6 +5605,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
+        assert run.state["stream_presence_gated"] is True
+        assert run.state["stream_thin_tail"] is True
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
@@ -5544,6 +5644,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state_remove_keys": [
                     "github_credential_source",
                     "agent_otel_telemetry_enabled",
+                    "stream_presence_gated",
+                    "stream_thin_tail",
                     "sandbox_id",
                     "use_modal_directory_resume_snapshots",
                     "use_modal_vm_sandbox",
@@ -5579,6 +5681,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
+        assert run.state["stream_presence_gated"] is True  # protected key survives removal
+        assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
@@ -8049,6 +8153,23 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
 
+    def test_stream_token_omits_proxy_url_for_thin_tail_run(self):
+        # Only the Django read leg serves the durable backlog, so a thin-tail run must
+        # never be routed to the agent-proxy even with the proxy flag enabled.
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"stream_thin_tail": True}
+        )
+
+        with (
+            self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
+            patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["stream_base_url"])
+
     def test_stream_token_omits_proxy_url_when_flag_disabled(self):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -8396,7 +8517,15 @@ class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
         }
 
         first = self.client.post(url, {"references": [reference]}, format="json")
+        run.refresh_from_db()
+        task.refresh_from_db()
+        first_run_updated_at = run.updated_at
+        first_task_activity_at = task.last_activity_at
         retry = self.client.post(url, {"references": [reference]}, format="json")
+        run.refresh_from_db()
+        task.refresh_from_db()
+        self.assertEqual(run.updated_at, first_run_updated_at)
+        self.assertEqual(task.last_activity_at, first_task_activity_at)
         second_message = self.client.post(
             url,
             {"references": [{**reference, "source_message_id": "turn-2-message-1"}]},
@@ -9093,6 +9222,250 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         )
         self.assertEqual(data_events[-1]["data"]["notification"]["params"]["message"], "late hello")
         self.assertEqual(events[-1]["event"], "stream-end")
+
+    def _make_thin_tail_run_with_backlog(self) -> tuple[Task, TaskRun]:
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"stream_thin_tail": True},
+        )
+        backlog = [
+            {
+                "type": "notification",
+                "timestamp": "2026-01-01T00:00:01Z",
+                "event_id": "boot1-2",
+                "first_event_id": "boot1-1",
+                "notification": {"jsonrpc": "2.0", "method": "session/update", "params": {}},
+            },
+            {
+                "type": "notification",
+                "timestamp": "2026-01-01T00:00:02Z",
+                "event_id": "boot1-3",
+                "notification": {"jsonrpc": "2.0", "method": "_posthog/console", "params": {}},
+            },
+        ]
+        object_storage.write(run.log_url, "\n".join(json.dumps(entry) for entry in backlog).encode("utf-8"))
+
+        async def _write() -> None:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            for event in [
+                {"type": "notification", "event_id": "boot1-1", "notification": {"method": "chunk"}},
+                {"type": "notification", "event_id": "boot1-3", "notification": {"method": "_posthog/console"}},
+                {"type": "notification", "event_id": "boot1-4", "notification": {"method": "_posthog/live"}},
+                {"type": "notification", "notification": {"method": "_posthog/unstamped"}},
+            ]:
+                await redis_stream.write_event(event)
+            await redis_stream.mark_complete()
+
+        asyncio.run(_write())
+        return task, run
+
+    def test_stream_thin_tail_serves_backlog_then_deduped_tail(self):
+        task, run = self._make_thin_tail_run_with_backlog()
+
+        response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+        events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data_events = [event for event in events if event["event"] is None]
+        self.assertEqual([event["id"] for event in data_events[:2]], ["log-0", "log-1"])
+        self.assertEqual(
+            [event["data"].get("event_id") for event in data_events[2:]],
+            ["boot1-4", None],
+        )
+        self.assertEqual(events[-1]["event"], "stream-end")
+        self.assertEqual(views_api._backlog_inflight_bytes, 0)
+
+    def test_stream_thin_tail_resumes_backlog_from_log_cursor(self):
+        task, run = self._make_thin_tail_run_with_backlog()
+
+        response = self.client.get(self._stream_url(task, run), headers={"last-event-id": "log-0"})
+        events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data_events = [event for event in events if event["event"] is None]
+        self.assertEqual(data_events[0]["id"], "log-1")
+        self.assertNotIn("log-0", [event["id"] for event in data_events])
+        self.assertEqual(
+            [event["data"].get("event_id") for event in data_events[1:]],
+            ["boot1-4", None],
+        )
+
+    @override_settings(TASK_RUN_STREAM_THIN_TAIL_ORIGINS=["user_created"])
+    def test_stream_thin_tail_pinned_at_run_creation_except_pi(self):
+        run = self.create_task().create_run()
+        self.assertIs(run.state["stream_thin_tail"], True)
+
+        # Pi tasks are forced onto the agent-proxy read leg, which has no backlog.
+        pi_run = self.create_task(runtime=Task.Runtime.PI).create_run()
+        self.assertIs(pi_run.state["stream_thin_tail"], False)
+
+    def test_stream_thin_tail_trimmed_redis_cursor_falls_back_to_backlog(self):
+        task, run = self._make_thin_tail_run_with_backlog()
+
+        # A Redis id older than the oldest surviving entry: the resume point was trimmed.
+        response = self.client.get(self._stream_url(task, run), headers={"last-event-id": "0-1"})
+        events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data_events = [event for event in events if event["event"] is None]
+        self.assertEqual([event["id"] for event in data_events[:2]], ["log-0", "log-1"])
+        self.assertEqual(
+            [event["data"].get("event_id") for event in data_events[2:]],
+            ["boot1-4", None],
+        )
+        self.assertEqual(events[-1]["event"], "stream-end")
+
+    def test_stream_thin_tail_out_of_range_log_cursor_replays_in_full(self):
+        task, run = self._make_thin_tail_run_with_backlog()
+
+        response = self.client.get(self._stream_url(task, run), headers={"last-event-id": "log-99"})
+        events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data_events = [event for event in events if event["event"] is None]
+        self.assertEqual([event["id"] for event in data_events[:2]], ["log-0", "log-1"])
+        self.assertEqual(events[-1]["event"], "stream-end")
+
+    def test_stream_thin_tail_rotates_during_backlog_replay(self):
+        task, run = self._make_thin_tail_run_with_backlog()
+
+        # A cap of 0 trips the elapsed check on the first backlog frame; without the
+        # in-loop check a slow replay would hold its stream slot past the cap.
+        with patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0):
+            response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data_events = [event for event in events if event["event"] is None]
+        self.assertEqual([event["id"] for event in data_events], ["log-0"])
+        self.assertEqual(events[-1], {"event": "end", "id": None, "data": {"type": "rotated"}})
+        self.assertEqual(views_api._backlog_inflight_bytes, 0)
+
+    def test_stream_thin_tail_backlog_read_failure_emits_retryable_error(self):
+        task, run = self._make_thin_tail_run_with_backlog()
+
+        with patch(
+            "products.tasks.backend.facade.api.read_task_run_log_content",
+            side_effect=Exception("storage timeout"),
+        ):
+            response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([event["event"] for event in events], ["error"])
+        self.assertEqual(events[0]["data"], {"error": "Backlog unavailable"})
+        self.assertEqual(views_api._backlog_inflight_bytes, 0)
+
+    def test_stream_thin_tail_expired_redis_cursor_replays_backlog_before_drained_end(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"stream_thin_tail": True},
+        )
+        backlog = [
+            {"type": "notification", "event_id": "boot1-1", "notification": {"method": "chunk"}},
+            {"type": "notification", "event_id": "boot1-2", "notification": {"method": "chunk"}},
+        ]
+        object_storage.write(run.log_url, "\n".join(json.dumps(entry) for entry in backlog).encode("utf-8"))
+
+        response = self.client.get(self._stream_url(task, run), headers={"last-event-id": "0-1"})
+        events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([event["event"] for event in events], [None, None, None, "stream-end"])
+        self.assertEqual([event["id"] for event in events[:2]], ["log-0", "log-1"])
+        self.assertEqual(events[2]["data"]["type"], "task_run_state")
+        self.assertEqual(events[-1]["data"], {"status": "complete"})
+
+    @override_settings(TASK_RUN_STREAM_BACKLOG_INFLIGHT_MAX_BYTES=0)
+    def test_stream_thin_tail_backlog_over_replay_budget_emits_retryable_error(self):
+        task, run = self._make_thin_tail_run_with_backlog()
+
+        response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+        events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([event["event"] for event in events], ["error"])
+        self.assertEqual(events[0]["data"], {"error": "Backlog busy"})
+        self.assertEqual(views_api._backlog_inflight_bytes, 0)
+
+    @override_settings(TASK_RUN_STREAM_BACKLOG_MAX_BYTES=1)
+    def test_stream_thin_tail_oversized_backlog_degrades_to_live_window(self):
+        task, run = self._make_thin_tail_run_with_backlog()
+
+        response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+        events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data_events = [event for event in events if event["event"] is None]
+        self.assertNotIn("log-0", [event["id"] for event in data_events])
+        self.assertEqual(
+            [event["data"].get("event_id") for event in data_events],
+            ["boot1-1", "boot1-3", "boot1-4", None],
+        )
+        self.assertEqual(events[-1]["event"], "stream-end")
+
+    def test_stream_terminal_run_with_missing_stream_ends_immediately(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        with (
+            patch.object(TaskRunRedisStream, "exists", new=AsyncMock(return_value=False)),
+            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
+        ):
+            response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([event["event"] for event in events], [None, "stream-end"])
+        self.assertEqual(events[0]["data"]["type"], "task_run_state")
+        self.assertEqual(events[0]["data"]["status"], TaskRun.Status.COMPLETED)
+        self.assertEqual(events[1]["data"], {"status": "complete"})
+
+    @override_settings(TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS=["user_created"])
+    def test_stream_presence_gated_run_reads_missing_stream_instead_of_erroring(self):
+        task = self.create_task()
+        run = task.create_run()
+        self.assertIs(run.state["stream_presence_gated"], True)
+
+        captured: dict = {}
+
+        async def fake_read(
+            redis_stream: TaskRunRedisStream, start_id: str = "0", **kwargs
+        ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive]:
+            captured["start_id"] = start_id
+            yield (
+                "1-1",
+                {
+                    "type": "notification",
+                    "notification": {"jsonrpc": "2.0", "method": "_posthog/console", "params": {}},
+                },
+            )
+
+        with (
+            patch.object(TaskRunRedisStream, "read_stream_entries", fake_read),
+            patch.object(TaskRunRedisStream, "get_latest_stream_id", AsyncMock(return_value="5-5")) as mock_latest,
+            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
+        ):
+            response = self.client.get(self._stream_url(task, run) + "?start=latest")
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([event for event in events if event["event"] == "error"], [])
+        self.assertEqual(captured["start_id"], "0")
+        mock_latest.assert_not_awaited()
+
+        async def _watched() -> bool:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            watched_key = get_task_run_stream_watched_key(get_task_run_stream_key(str(run.id)))
+            return bool(await redis_stream._redis_client.exists(watched_key))
+
+        self.assertTrue(asyncio.run(_watched()))
 
 
 class TestTaskRunRedisStreamKeepalive(TestCase):
@@ -11327,7 +11700,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No active sandbox", response.json()["error"])
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "runtime_unavailable",
+                "code": "sandbox_not_ready",
+                "error": "No active sandbox for this task run",
+            },
+        )
 
     @parameterized.expand(
         [
@@ -13469,6 +13849,34 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # The task-detail endpoint must widen the same way the run endpoint does. Before this,
+    # a channel collaborator could open the run but got 404 on the task, so the shared task
+    # looked deleted. Same conversation-type matrix as the run gate.
+    @parameterized.expand(
+        [
+            ("dm_thread_hidden", "im", status.HTTP_404_NOT_FOUND),
+            ("public_channel_thread_readable", "public_channel", status.HTTP_200_OK),
+            ("unclassified_thread_readable", None, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_task_detail_access_by_conversation_type(
+        self,
+        _case_name: str,
+        conversation_type: str | None,
+        expected_status: int,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        task, _run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type=conversation_type,
+            with_mapping=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+
+        self.assertEqual(response.status_code, expected_status)
 
 
 class TestModelCatalogueAPI(BaseTaskAPITest):

@@ -9,9 +9,9 @@ from rest_framework import status
 from posthog.models import Organization, Team
 from posthog.rate_limit import ContentAutopilotDiscoveryBurstRateThrottle
 
-from products.web_analytics.backend.api.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAG
 from products.web_analytics.backend.models import ContentAutopilotProposal, ContentAutopilotRun
-from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError
+from products.web_analytics.backend.presentation.views.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAG
+from products.web_analytics.backend.public_url_fetch import FetchedPublicUrl, PublicUrlFetchError
 from products.web_analytics.backend.test.content_autopilot_test_utils import (
     create_content_autopilot_profile,
     create_content_autopilot_proposal,
@@ -32,7 +32,7 @@ class TestContentAutopilotAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag_patcher = patch(
-            "products.web_analytics.backend.api.content_autopilot.posthog_feature_flag_enabled",
+            "products.web_analytics.backend.presentation.views.content_autopilot.posthog_feature_flag_enabled",
             return_value=True,
         )
         self.feature_enabled = flag_patcher.start()
@@ -41,8 +41,8 @@ class TestContentAutopilotAPI(APIBaseTest):
     def _profiles_url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_profiles/{suffix}"
 
-    def _runs_url(self, suffix: str = "") -> str:
-        return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_runs/{suffix}"
+    def _runs_url(self, suffix: str = "", *, team_id: int | None = None) -> str:
+        return f"/api/projects/{team_id or self.team.id}/web_analytics_content_autopilot_runs/{suffix}"
 
     def _proposals_url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_proposals/{suffix}"
@@ -130,7 +130,7 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "domain")
 
-    @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
+    @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_returns_editable_onboarding_defaults(self, discover_site: MagicMock) -> None:
         discover_site.return_value = DISCOVERED_SITE
 
@@ -143,7 +143,38 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["source_urls"], ["https://example.com/sitemap.xml"])
 
-    @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_discovered_defaults_create_a_profile_when_the_sitemap_redirects(self, fetch_public_url: MagicMock) -> None:
+        def response_for(url: str, **_kwargs: object) -> FetchedPublicUrl:
+            if url == "https://example.com/sitemap.xml":
+                return FetchedPublicUrl(
+                    status_code=301,
+                    headers={"location": "https://www.example.com/sitemap.xml"},
+                    body=b"",
+                )
+            if url == "https://www.example.com/sitemap.xml":
+                return FetchedPublicUrl(status_code=200, headers={}, body=b"<urlset />")
+            return FetchedPublicUrl(status_code=404, headers={}, body=b"")
+
+        fetch_public_url.side_effect = response_for
+
+        discovered = self.client.post(
+            self._profiles_url("discover/"),
+            {"domain": "https://example.com"},
+            format="json",
+        )
+        created = self.client.post(
+            self._profiles_url(),
+            {**discovered.json(), "brand_rules": ["Use sentence case"]},
+            format="json",
+        )
+
+        self.assertEqual(discovered.status_code, status.HTTP_200_OK, discovered.json())
+        self.assertTrue(discovered.json()["sitemap_detected"])
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.json())
+        self.assertEqual(created.json()["source_urls"], ["https://example.com/sitemap.xml"])
+
+    @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_returns_a_validation_error_for_a_typed_fetch_failure(self, discover_site: MagicMock) -> None:
         discover_site.side_effect = PublicUrlFetchError("transport", "The site could not be inspected safely.")
 
@@ -157,7 +188,7 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(response.json()["attr"], "domain")
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
+    @patch("products.web_analytics.backend.presentation.views.content_autopilot.discover_site")
     def test_discover_is_throttled_for_the_session_authenticated_ui(
         self, discover_site: MagicMock, _rate_limit_enabled: MagicMock
     ) -> None:
@@ -173,11 +204,23 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual(statuses, [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS])
 
-    def test_start_and_cancel_expose_durable_run_transitions(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
+    def _child_environment(self) -> Team:
+        return Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            parent_team=self.team,
+            name="Child environment",
+        )
 
-        started = self.client.post(self._runs_url("start/"), {"profile_id": str(profile.id)}, format="json")
-        canceled = self.client.post(self._runs_url(f"{started.json()['id']}/cancel/"), format="json")
+    @parameterized.expand([("root_project", False), ("child_environment", True)])
+    def test_start_and_cancel_expose_durable_run_transitions(self, _name: str, through_child: bool) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        team_id = self._child_environment().id if through_child else self.team.id
+
+        started = self.client.post(
+            self._runs_url("start/", team_id=team_id), {"profile_id": str(profile.id)}, format="json"
+        )
+        canceled = self.client.post(self._runs_url(f"{started.json()['id']}/cancel/", team_id=team_id), format="json")
 
         self.assertEqual(started.status_code, status.HTTP_202_ACCEPTED, started.json())
         self.assertEqual(started.json()["input_snapshot"]["confidence"], "lower")
@@ -235,6 +278,21 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertNotIn("markdown", edited.json()["content_package"])
         self.assertEqual(rejected.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.REJECTED)
         self.assertEqual(regenerated.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.GENERATING)
+
+    def test_edit_stores_markdown_whitespace_exactly(self) -> None:
+        proposal = self._reviewable_proposal()
+        markdown = "    indented code block\n\n# Reviewed draft\n\nUseful content.\n"
+
+        edited = self.client.post(
+            self._proposals_url(f"{proposal.id}/edit/"),
+            {"proposed_markdown": markdown, "content_package": proposal.content_package},
+            format="json",
+        )
+
+        self.assertEqual(edited.status_code, status.HTTP_200_OK, edited.json())
+        self.assertEqual(edited.json()["proposed_markdown"], markdown)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.proposed_markdown, markdown)
 
     def _reviewable_proposal(self, *, validation_passed: bool = True) -> ContentAutopilotProposal:
         run = create_content_autopilot_run(self.team, create_content_autopilot_profile(self.team))

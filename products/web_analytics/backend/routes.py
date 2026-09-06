@@ -1,11 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
 from products.web_analytics.backend.api import WebAnalyticsViewSet
-from products.web_analytics.backend.api.content_autopilot import (
-    ContentAutopilotProposalViewSet,
-    ContentAutopilotRunViewSet,
-    ContentAutopilotSiteProfileViewSet,
-)
 from products.web_analytics.backend.api.heatmaps_api import (
     HeatmapScreenshotViewSet,
     HeatmapViewSet,
@@ -16,6 +11,11 @@ from products.web_analytics.backend.api.web_analytics_achievements import WebAna
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 from products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions import (
     WebAnalyticsPathCleaningSuggestionViewSet,
+)
+from products.web_analytics.backend.presentation.views.content_autopilot import (
+    ContentAutopilotProposalViewSet,
+    ContentAutopilotRunViewSet,
+    ContentAutopilotSiteProfileViewSet,
 )
 
 

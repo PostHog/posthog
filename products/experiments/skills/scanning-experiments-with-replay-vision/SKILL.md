@@ -96,7 +96,7 @@ Then **preview the prompt before anyone enables it**:
 Then link the user to the scanner (`/project/<project_id>/replay-vision/<scanner_id>`) and let **them** enable it — enabling starts real spend, so that click stays human. Two closing reminders for the user:
 
 - The scanner does **not** stop when the experiment does — disable it at conclusion.
-- A scheduled per-variant summary or Slack alert over the findings is one `vision-actions-create` away, once the observations look trustworthy.
+- For a scheduled summary or a Slack alert over the findings, point the user to the scanner's Scouts and Alerts tabs once the observations look trustworthy.
 
 ## Limits to state, not hide
 
@@ -165,4 +165,4 @@ The check that does settle it is asking the people. A short survey, triggered wh
 
 Two constraints carry over from this skill and matter as much here. Don't name the variant in the survey question, for the same reason the scanner prompt doesn't: the answer stops being evidence about the surface. And prefer asking everyone who completes the flow over targeting one variant, because a popover shown to one variant is a difference between the variants that the experiment is still measuring.
 
-→ See `references/qualitative-feedback.md` in [[diagnosing-experiment-results]]
+→ See [`references/qualitative-feedback.md`](../diagnosing-experiment-results/references/qualitative-feedback.md) in [[diagnosing-experiment-results]]

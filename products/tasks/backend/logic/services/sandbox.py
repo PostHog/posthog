@@ -93,8 +93,9 @@ SELF_DRIVING_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
         # Signals report research + repo selection
         "signal_report",
-        # Headless Signals scouts
+        # Headless Signals scouts, and the headless scan that pre-computes scout suggestions
         "signals_scout",
+        "scout_suggestions",
         # ReviewHog's per-chunk review, blind-spot, and validation sandboxes
         "review_hog",
     }
@@ -233,9 +234,16 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset(
     {"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN", "POSTHOG_TASK_RUN_SESSION_TOKEN"}
 )
+SHELL_ARGUMENT_VALUE_PATTERN = r"'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+"
 SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
     r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
-    r"(?P<value>'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+)"
+    rf"(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
+)
+SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
+    rf"(?P<name>--mcpServers)\s+(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
+)
+SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
+    r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
 )
 
 
@@ -250,7 +258,9 @@ def sandbox_repo_path(repository: str) -> str:
 
 
 def redact_sandbox_command(command: str) -> str:
-    return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
+    redacted = SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
+    redacted = SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN.sub(r"\g<name> <redacted>", redacted)
+    return SENSITIVE_FILE_HEREDOC_PATTERN.sub(r"\g<prefix><redacted>\g<suffix>", redacted)
 
 
 def build_agent_runtime_env_prefix(
@@ -272,6 +282,7 @@ def build_agent_runtime_env_prefix(
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
+    unset_bedrock: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -301,7 +312,15 @@ def build_agent_runtime_env_prefix(
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
     )
-    return f"env {assignments} " if assignments else ""
+    # Route the agent through the PostHog LLM gateway instead of direct Bedrock:
+    # unset the box profile's Bedrock vars so the Claude CLI falls back to the
+    # gateway (ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN). Direct Bedrock from the
+    # box needs AWS Marketplace model access plus SigV4-signing the
+    # x-posthog-property-* headers (which AWS strips), so the gateway path avoids
+    # both and matches the Modal backend.
+    unset_flags = "-u CLAUDE_CODE_USE_BEDROCK -u AWS_CONTAINER_CREDENTIALS_FULL_URI" if unset_bedrock else ""
+    body = f"{unset_flags} {assignments}".strip()
+    return f"env {body} " if body else ""
 
 
 class SandboxBase(ABC):
@@ -309,6 +328,11 @@ class SandboxBase(ABC):
     config: SandboxConfig
     supports_creation_cancellation = False
     creation_timeout_seconds = 300
+    # When True, the agent runtime is launched with the box's Bedrock env unset,
+    # so the Claude CLI routes through the PostHog LLM gateway instead of direct
+    # Bedrock. hogland opts in (see HoglandSandbox); Modal/Docker already use the
+    # gateway.
+    disable_direct_bedrock = False
 
     @staticmethod
     def creation_cancellation_scope(cancel_event: threading.Event) -> AbstractContextManager[None]:
@@ -550,13 +574,16 @@ class SandboxBase(ABC):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
-    ) -> None:
+    ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
         before calling this method.
         """
         ...
+
+    def supports_combined_agent_server_start_and_health(self) -> bool:
+        return False
 
     @abstractmethod
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
@@ -632,7 +659,11 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
-            for source, target in (("totalMs", "server_total"), ("httpReadyMs", "http_ready")):
+            for source, target in (
+                ("totalMs", "server_total"),
+                ("httpReadyMs", "http_ready"),
+                ("launcherToProcessMs", "launcher_to_process"),
+            ):
                 duration = boot.get(source) if isinstance(boot, dict) else None
                 if isinstance(duration, int | float) and not isinstance(duration, bool):
                     phases[target] = max(0, int(duration))
@@ -722,7 +753,16 @@ def wait_for_health_check(
     Runs a bash polling loop inside the sandbox so only one round-trip is
     needed regardless of how many attempts are required.
     """
-    health_script = (
+    health_script = build_health_check_command(port, max_attempts, poll_interval)
+    result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if result.exit_code == 0:
+        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
+        return True
+    return False
+
+
+def build_health_check_command(port: int, max_attempts: int = 60, poll_interval: float = 0.5) -> str:
+    return (
         f"for i in $(seq 1 {max_attempts}); do "
         f"  body=$(curl -s http://localhost:{port}/health); "
         "  status=$?; "
@@ -737,11 +777,10 @@ def wait_for_health_check(
         f"done; "
         f"exit 1"
     )
-    result = execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
-    if result.exit_code == 0:
-        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
-        return True
-    return False
+
+
+def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
+    return max(30, int(max_attempts * poll_interval) + 5)
 
 
 SandboxClass = type[SandboxBase]
