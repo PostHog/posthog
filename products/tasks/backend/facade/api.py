@@ -6040,22 +6040,29 @@ def handoff_task(
         return None
     if task.created_by_id == target_user_id:
         raise TaskHandoffError("That person already owns this task.")
-    target = task.team.all_users_with_access().filter(id=target_user_id).first()
-    if target is None:
-        raise TaskHandoffError("Tasks can only be handed off to someone with access to this project.")
-
     previous_owner_id = task.created_by_id
     actor = User.objects.filter(id=user_id).only("first_name", "email", "distinct_id").first() if user_id else None
     actor_name = ((actor.first_name.strip() or actor.email) if actor else None) or "Someone"
-    target_name = target.first_name.strip() or target.email
+    channel = task.channel
     with transaction.atomic():
+        if channel is not None and channel.channel_type == Channel.ChannelType.PRIVATE:
+            # Channel deletion locks the channel before its tasks. NO KEY UPDATE also
+            # lets a concurrent task move finish its foreign-key check before we lock it.
+            if _locked_visible_channel(channel.id, team_id, user_id, no_key=True) is None:
+                return None
         locked = Task.objects.select_for_update().get(pk=task.pk)
         # Under the lock: two concurrent handoffs settle last-writer-loses
         # instead of double-announcing and rerouting mid-flight.
-        if locked.deleted:
+        if locked.deleted or locked.channel_id != task.channel_id:
             return None
         if locked.created_by_id != previous_owner_id:
             raise TaskHandoffError("Someone else has already handed this task off. Refresh and try again.")
+        if not Task.objects.filter(id=locked.id).filter(task_control_q(user_id)).exists():
+            return None
+        target = locked.team.all_users_with_access().filter(id=target_user_id).first()
+        if target is None:
+            raise TaskHandoffError("Tasks can only be handed off to someone with access to this project.")
+        target_name = target.first_name.strip() or target.email
         if (
             TaskRun.objects.filter(task_id=locked.id, team_id=team_id)
             .exclude(status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
@@ -7943,25 +7950,22 @@ def set_channel_members(
     the channel is not visible, ``"not_private"`` for a public or personal channel,
     ``"invalid_member"`` when a target is not a project member. Removing a member who owns
     tasks leaves those tasks in place; they just lose visibility, Slack-like."""
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return "not_found"
-    if channel.channel_type != Channel.ChannelType.PRIVATE:
-        return "not_private"
-    # Validate only the submitted ids against project access. The creator is added
-    # afterwards, unconditionally: a creator who later loses project access must not
-    # freeze the member set (they cannot be revalidated, but they are always kept).
-    submitted = {*member_ids}
-    accessible = set(channel.team.all_users_with_access().filter(id__in=submitted).values_list("id", flat=True))
-    if accessible != submitted:
-        return "invalid_member"
-    target_ids = set(submitted)
-    if channel.created_by_id is not None:
-        target_ids.add(channel.created_by_id)
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
             return "not_found"
+        if channel.channel_type != Channel.ChannelType.PRIVATE:
+            return "not_private"
+        # Validate only the submitted ids against project access. The creator is added
+        # afterwards, unconditionally: a creator who later loses project access must not
+        # freeze the member set (they cannot be revalidated, but they are always kept).
+        submitted = {*member_ids}
+        accessible = set(channel.team.all_users_with_access().filter(id__in=submitted).values_list("id", flat=True))
+        if accessible != submitted:
+            return "invalid_member"
+        target_ids = set(submitted)
+        if channel.created_by_id is not None:
+            target_ids.add(channel.created_by_id)
         memberships = ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id)
         existing = set(memberships.values_list("user_id", flat=True))
         for member_id in target_ids - existing:
@@ -8096,10 +8100,14 @@ def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) 
     )
 
 
-def _locked_visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
+def _locked_visible_channel(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, no_key: bool = False
+) -> Channel | None:
     # Membership replacements take this same lock. Read visibility in a separate query
     # so its snapshot includes revocations committed while the lock query was waiting.
-    channel = Channel.objects.for_team(team_id).select_for_update().filter(id=channel_id, deleted=False).first()
+    channel = (
+        Channel.objects.for_team(team_id).select_for_update(no_key=no_key).filter(id=channel_id, deleted=False).first()
+    )
     if channel is None:
         return None
     return _visible_channel(channel_id, team_id, user_id)

@@ -128,10 +128,12 @@ extends visibility without adding any permission to `Task`.
   or when a target lacks project access. Removing a member who owns tasks leaves those
   tasks in place; they simply lose visibility.
 
-Channel updates, deletion, membership changes, feed posts, instructions, context-generation
-markers, and stars serialize on the channel row. Each write checks visibility after
+Channel updates, deletion, membership changes, private-space handoffs, feed posts,
+instructions, context-generation markers, and stars serialize on the channel row. Each write checks visibility after
 acquiring the lock, so a pending request cannot write after another request removes
-the caller's membership.
+the caller's membership. Membership replacement validates invitees' project access after
+acquiring the lock. Handoff locks the private channel before the task and rejects a task
+that moved to another channel while the request waited.
 
 ### Task endpoints
 
