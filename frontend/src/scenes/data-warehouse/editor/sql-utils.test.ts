@@ -1,4 +1,9 @@
-import { normalizeIdentifier, parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from './sql-utils'
+import {
+    columnMaxContentLength,
+    normalizeIdentifier,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from './sql-utils'
 
 describe('sql-utils', () => {
     describe('normalizeIdentifier', () => {
@@ -70,6 +75,29 @@ describe('sql-utils', () => {
         it('handles mixed star and named columns', async () => {
             const result = await parseQueryTablesAndColumns('SELECT *, id FROM events')
             expect(result).toEqual({ events: { '*': true, id: true } })
+        })
+    })
+
+    describe('columnMaxContentLength', () => {
+        it('returns the widest cell length in the column', () => {
+            const rows = [['a'], ['abc'], ['ab']]
+            expect(columnMaxContentLength(rows, 0, 0)).toBe(3)
+        })
+
+        it('never returns less than the header length', () => {
+            const rows = [['a'], ['ab']]
+            expect(columnMaxContentLength(rows, 0, 10)).toBe(10)
+        })
+
+        it('treats null and undefined cells as length 0 and stringifies non-strings', () => {
+            const rows = [[null], [undefined], [12345]]
+            expect(columnMaxContentLength(rows, 0, 0)).toBe(5)
+        })
+
+        it('does not throw on result sets near the 50,000-row HogQL cap', () => {
+            const rows = Array.from({ length: 50000 }, () => ['x'])
+            expect(() => columnMaxContentLength(rows, 0, 0)).not.toThrow()
+            expect(columnMaxContentLength(rows, 0, 0)).toBe(1)
         })
     })
 })

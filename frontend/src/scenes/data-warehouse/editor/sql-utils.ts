@@ -62,6 +62,21 @@ export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
     return false
 }
 
+// Returns the widest cell length in a column, including the header. Uses a reduce so a large
+// result set does not spread one argument per row into Math.max, which throws RangeError.
+export const columnMaxContentLength = (rows: any[][], columnIndex: number, headerLength: number): number => {
+    return rows.reduce((max: number, row: any[]) => {
+        const content = row[columnIndex]
+        const length =
+            typeof content === 'string'
+                ? content.length
+                : content === null || content === undefined
+                  ? 0
+                  : content.toString().length
+        return length > max ? length : max
+    }, headerLength)
+}
+
 export const parseQueryTablesAndColumns = async (
     queryInput: string | null
 ): Promise<Record<string, Record<string, boolean>>> => {
