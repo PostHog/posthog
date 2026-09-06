@@ -435,8 +435,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
-        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
+        self,
+        config: MySQLSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
+        # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
+        # `config.using_ssl` inside `connect`.
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
@@ -504,5 +511,8 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         access_method: str,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
+        return self.validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )

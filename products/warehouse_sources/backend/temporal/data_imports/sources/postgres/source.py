@@ -250,6 +250,14 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = (
     "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
 )
 
+# A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
+# fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
+# `require_tls` off is the supported way to reach such a server.
+_SSL_UNSUPPORTED_ERROR = (
+    "Your database doesn't support the encrypted connection PostHog requires. Enable SSL/TLS on "
+    "your database server, or connect through an SSH tunnel instead."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
@@ -1271,6 +1279,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         team_id: int,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -1296,8 +1305,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
+            self.get_schemas(
+                config,
+                team_id,
+                names=[schema_name] if schema_name else None,
+                api_version=api_version,
+                require_ssl=require_ssl,
+            )
         except SSLRequiredError as e:
+            # Real callers only raise this when `require_ssl` is set (see `_connect_to_postgres`),
+            # so the setup-time actionable copy belongs here. A caller that explicitly probed with
+            # `require_ssl=False` and still got this exception (only reachable in tests that mock
+            # the connection directly) keeps the exception's own wording rather than claiming an SSH
+            # tunnel opt-out that was never relevant to the probe just made.
+            if require_ssl:
+                return False, _SSL_UNSUPPORTED_ERROR
             return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
@@ -1329,8 +1351,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         access_method: str,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
+        return self.validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )
 
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
