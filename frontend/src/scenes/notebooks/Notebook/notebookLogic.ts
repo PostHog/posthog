@@ -31,6 +31,7 @@ import {
     tryApplyTextChanges,
 } from 'lib/components/MarkdownNotebook/collaboration'
 import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNotebook/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
@@ -103,7 +104,7 @@ import {
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
-import { buildNotebookOpenedEvent } from './notebookAnalytics'
+import { NOTEBOOK_SIZE_PROPERTY_KEYS, buildNotebookOpenedEvent, buildNotebookSizeProperties } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookKernelInfo } from './notebookKernelInfoLogic'
@@ -349,6 +350,7 @@ export interface notebookLogicValues {
     nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
     nodeLogicsWithChildren: BuiltLogic<notebookNodeLogicType>[]
     notebook: NotebookType | null
+    notebookBlockCount: number
     notebookLoading: boolean
     notebookMissing: boolean
     notebookPresenceParticipants: NotebookPresenceParticipant[]
@@ -426,6 +428,9 @@ export interface notebookLogicActions {
         value: true
     }
     copyMarkdown: () => {
+        value: true
+    }
+    registerNotebookSizeProperties: () => {
         value: true
     }
     disconnectMarkdownUpdateStream: () => {
@@ -689,6 +694,7 @@ export interface notebookLogicMeta {
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
         dependencyGraph: (content: JSONContent) => NotebookDependencyGraph
+        notebookBlockCount: (markdownEditorMarkdown: string) => number
         pythonNodeIndices: (content: JSONContent) => Map<string, number>
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
         duckSqlNodeIndices: (content: JSONContent) => Map<string, number>
@@ -815,6 +821,8 @@ export const notebookLogic = kea<notebookLogicType>([
         exportJSON: true,
         downloadMarkdown: true,
         copyMarkdown: true,
+        /** Refresh the notebook-size super-properties so size-correlated telemetry stays current. */
+        registerNotebookSizeProperties: true,
         registerNodeLogic: (nodeId: string, nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeId, nodeLogic }),
         unregisterNodeLogic: (nodeId: string) => ({ nodeId }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -1442,6 +1450,12 @@ export const notebookLogic = kea<notebookLogicType>([
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
         dependencyGraph: [(s) => [s.content], (content: JSONContent) => buildNotebookDependencyGraph(content)],
+        // Total block count (all cell types), memoized on the markdown so it re-parses only when the
+        // document text changes. Read on the debounced content-change path, not per keystroke.
+        notebookBlockCount: [
+            (s) => [s.markdownEditorMarkdown],
+            (markdownEditorMarkdown: string): number => parseMarkdownNotebook(markdownEditorMarkdown).nodes.length,
+        ],
 
         pythonNodeIndices: [
             (s) => [s.content],
@@ -2030,6 +2044,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     short_id: values.notebook?.short_id,
                     is_markdown: isMarkdownNotebookContent(values.content),
                 })
+                actions.registerNotebookSizeProperties()
             }
 
             if (!values.isLocalOnly && values.localContent && values.content && !values.notebookLoading) {
@@ -2097,6 +2112,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     posthog.capture('notebook opened', openedEvent)
                 }
             }
+            actions.registerNotebookSizeProperties()
         },
         loadNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
@@ -2119,6 +2135,19 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         copyMarkdown: async () => {
             await copyToClipboard(getMarkdownNotebookMarkdown(values.content), 'markdown')
+        },
+
+        registerNotebookSizeProperties: () => {
+            // Register size as super-properties so the existing `react_framerate` and `$web_vitals`
+            // events fired while this notebook is open carry it. `beforeUnmount` unregisters them.
+            const sizeProperties = buildNotebookSizeProperties(values.notebook, values.isShared, {
+                cellCount: values.notebookBlockCount,
+                codeCellCount: values.dependencyGraph.nodes.length,
+                charLength: values.markdownEditorMarkdown.length,
+            })
+            if (sizeProperties) {
+                posthog.register(sizeProperties)
+            }
         },
 
         setEditingNodeEditing: ({ nodeId, editing }) => {
@@ -2218,6 +2247,11 @@ export const notebookLogic = kea<notebookLogicType>([
     }),
 
     beforeUnmount(() => {
+        // Clear the size super-properties so they don't leak onto events on other pages.
+        for (const key of NOTEBOOK_SIZE_PROPERTY_KEYS) {
+            posthog.unregister(key)
+        }
+
         const hashParams = router.values.currentLocation.hashParams
         delete hashParams['🦔']
         router.actions.replace(
