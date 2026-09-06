@@ -9,7 +9,6 @@ import { getCurrentMatches } from "./navigationBridge";
 
 export type AppViewType =
   | "task-detail"
-  | "task-pending"
   | "task-input"
   | "folder-settings"
   | "activity"
@@ -31,12 +30,11 @@ export interface AppView {
   taskId?: string;
   folderId?: string;
   folderRepository?: string;
-  pendingTaskKey?: string;
   taskInputRequestId?: string;
   initialPrompt?: string;
   initialContent?: EditorContent;
   recoveredFromKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   folderRunEnvironment?: "local" | "cloud";
@@ -61,8 +59,6 @@ function deriveFromMatches(matches: Match[]): AppView {
       // their own query hooks (e.g. useTasks) keyed on `taskId`.
       return { type: "task-detail", taskId };
     }
-    case "/tasks/pending/$key":
-      return { type: "task-pending", pendingTaskKey: last.params.key };
     case "/new":
       return { type: "task-input" };
     case "/folders/$folderId":

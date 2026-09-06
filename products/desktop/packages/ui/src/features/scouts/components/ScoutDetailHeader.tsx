@@ -9,7 +9,7 @@ import {
   deriveScoutLifecycle,
   formatNextRun,
   formatRunDuration,
-  formatRunInterval,
+  formatScoutScheduleShort,
   getScoutOrigin,
   nextRunAt,
   runDurationSeconds,
@@ -136,7 +136,7 @@ function ScoutDetailHeading({
     creator ? `${origin} · by ${scoutCreatorDisplayName(creator)}` : origin,
   ];
   if (!config.emit) meta.push("Dry run");
-  meta.push(formatRunInterval(config.run_interval_minutes));
+  meta.push(formatScoutScheduleShort(config));
   if (running) {
     meta.push(
       <span className="text-(--blue-11)">

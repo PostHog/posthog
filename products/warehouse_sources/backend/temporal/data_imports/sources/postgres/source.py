@@ -562,7 +562,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # database host doesn't resolve to an address — a config/DNS issue on their side that
             # retrying won't fix.
             "No address associated with hostname": _DNS_RESOLUTION_ERROR,
-            "Network is unreachable": None,
+            # A resolved-but-unroutable host (ENETUNREACH) — an IPv6-only host PostHog can't reach
+            # over IPv4, or a firewall dropping our egress IPs. Already non-retryable, but the bare
+            # driver text ("connection to server at <host> ... Network is unreachable") gives the
+            # customer nothing to act on and echoes their host/IP back into `latest_error`. Surface
+            # the same actionable guidance the validate path and the Supavisor `:enetunreach` twin
+            # above already use.
+            "Network is unreachable": _HOST_UNREACHABLE_ERROR,
             # `InsufficientPrivilege` is the psycopg exception class name. It only appears once
             # Temporal wraps the activity failure (`ApplicationError` stringifies as
             # "InsufficientPrivilege: ..."), so it matches at the workflow layer but NOT in the
@@ -635,7 +641,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "InvalidObjectDefinition": None,
             "Connection refused": None,
-            "No route to host": None,
+            # EHOSTUNREACH — the routing sibling of "Network is unreachable" above. Same
+            # unroutable-host class (IPv6-only host, or a firewall dropping our IPs), so surface the
+            # same actionable guidance instead of the raw driver text (which echoes the host/IP).
+            "No route to host": _HOST_UNREACHABLE_ERROR,
             # The OS-level TCP connect() timing out (strerror(ETIMEDOUT)) instead of getting an
             # immediate refusal or unreachable-route response. Same connect-time host-reachability
             # class as its two siblings above — usually a non-routable host (e.g. a private RDS
@@ -763,6 +772,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 'connections because hot standby is turned off ("Hot standby mode is disabled"). '
                 "Enable hot_standby on the replica and restart it, or point this source at the primary "
                 "database, then re-enable the sync."
+            ),
+            # SQLSTATE 57P03 with the message "database <name> is not currently accepting connections":
+            # the server is up (it answered with a FATAL) but the target database has datallowconn
+            # turned off, or a managed provider has paused/suspended it (e.g. an inactive Supabase
+            # project). Deterministic until the customer restores it, so a whole-activity retry re-hits
+            # the same refusal — distinct from the transient "the database system is not yet accepting
+            # connections" startup refusal kept retryable in postgres.py (which reads "not yet", not "not
+            # currently"). Match the stable phrase and exclude the volatile database name.
+            "is not currently accepting connections": (
+                "The database you selected to sync isn't accepting new connections right now — this "
+                "usually means it's paused or set to disallow connections (managed providers such as "
+                "Supabase pause inactive projects). Resume or reactivate the database, then re-enable "
+                "the sync."
             ),
             # A single recovery conflict ("conflict with recovery") is transient and retried in-process,
             # so it stays retryable. This abort is only raised once those retries are exhausted — by then
@@ -959,11 +981,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # subset) keeps this in sync as new transient classes are added there — a substring added
         # to one of those tuples without a matching update here would otherwise keep reporting a
         # self-recovering failure to error tracking on every occurrence.
+        #
+        # "conflict with recovery" is the same class again: `get_rows` only applies its in-process
+        # recovery-conflict retry (chunk-shrinking offset/keyset fallback) once it has classified the
+        # connection as a read replica. That classification runs on a setup connection, separate from
+        # the one that serves the read, so a pooled or multi-node reader endpoint can route the two to
+        # different backends and still hit a genuine hot-standby conflict on the read connection while
+        # `using_read_replica` is False. The single-conflict message reaching here (as opposed to the
+        # "kept canceling reads..."/"no key that can resume..." messages above, which are the
+        # exhausted-retry abort and stay non-retryable) is the same self-recovering condition.
         return {
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+            "conflict with recovery",
         }
 
     def reconcile_schema_metadata(
@@ -1523,6 +1555,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
+        table_rebuild_pending = inputs.reset_pipeline or schema.delta_revive_required is not None
 
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
@@ -1549,10 +1582,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 row_filters=inputs.row_filters,
                 # xmin state is read straight off the schema here (the generic `SourceInputs` stays
                 # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
+                # A reset, and a pending corrupt-delta revive, both delete the Delta table before
+                # this read, so the cursor has to go with it: kept, the read covers only the window
+                # since the last run, and the overwrite collapses the table to that slice. The
+                # activity drops the incremental cursor for both cases for the same reason; the xmin
+                # cursor is dropped here because it is read here.
                 is_xmin=schema.is_xmin,
-                xmin_last_value=schema.xmin_last_value,
-                xmin_num_wraparound=schema.xmin_num_wraparound,
+                xmin_last_value=None if table_rebuild_pending else schema.xmin_last_value,
+                xmin_num_wraparound=None if table_rebuild_pending else schema.xmin_num_wraparound,
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
+                activity_attempt=inputs.activity_attempt,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

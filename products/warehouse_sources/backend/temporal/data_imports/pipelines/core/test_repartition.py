@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
+    RepartitionTooLargeForBudgetError,
     _rewrite_into_temp,
     measure_partition_bytes,
     repartition_table_in_place,
@@ -1737,6 +1738,8 @@ class TestRewriteCheckpointResume:
         checkpoint = saved.call_args.kwargs["checkpoint"]
         assert checkpoint["rows_written"] == 1
         assert checkpoint["live_version"] == live.version()
+        # Marks the rows above as what one whole budget covered, which is what says a restart is futile.
+        assert checkpoint["budget_exhausted"] is True
         assert checkpoint["target"]["partition_format"] == "day"
         assert checkpoint["temp_uri"].endswith("__repartitioned_tok")
 
@@ -1824,6 +1827,45 @@ class TestRewriteCheckpointResume:
         purge.assert_awaited_once()  # fresh rebuild sweeps orphans
         assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
         assert rewrite.await_args_list[0].kwargs["skip_rows"] == 0
+
+    def test_refuses_to_restart_a_table_one_budget_already_failed_to_cover(self, tmp_path):
+        # The discarded checkpoint above is only harmless while a restart can finish. Once a full
+        # budget has been spent covering fewer rows than live holds, re-streaming from row 0 runs out
+        # in the same place, so every sync spends a budget to learn nothing and the attempt cap
+        # abandons the table. Stop before the rewrite instead, terminally.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version() + 999,
+                "budget_exhausted": True,
+            },
+        )
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock()) as rewrite,
+        ):
+            with pytest.raises(RepartitionTooLargeForBudgetError):
+                asyncio.run(
+                    repartition_table_in_place(
+                        table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                    )
+                )
+
+        rewrite.assert_not_awaited()
 
 
 class TestClaimFencing:

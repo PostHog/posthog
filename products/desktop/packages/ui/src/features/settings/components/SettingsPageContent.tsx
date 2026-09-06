@@ -14,6 +14,7 @@ import { QuickAskSettings } from "@posthog/ui/features/settings/sections/QuickAs
 import { ShortcutsSettings } from "@posthog/ui/features/settings/sections/ShortcutsSettings";
 import { SignalSourcesSettings } from "@posthog/ui/features/settings/sections/SignalSourcesSettings";
 import { SlackSettings } from "@posthog/ui/features/settings/sections/SlackSettings";
+import { TaskAgentDefaultsSettings } from "@posthog/ui/features/settings/sections/TaskAgentDefaultsSettings";
 import { TerminalSettings } from "@posthog/ui/features/settings/sections/TerminalSettings";
 import { WorkspacesSettings } from "@posthog/ui/features/settings/sections/WorkspacesSettings";
 import { WorktreesSettings } from "@posthog/ui/features/settings/sections/worktrees/WorktreesSettings";
@@ -63,6 +64,7 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
     AgentsSettings,
     SETTINGS_PAGE_LAYOUT.FULL_BLEED,
   ),
+  "task-agent-defaults": defineSettingsPage("Model", TaskAgentDefaultsSettings),
   skills: defineSettingsPage(
     "Skills",
     SkillsView,

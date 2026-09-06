@@ -940,6 +940,17 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    signal_report_discussion_question = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        max_length=4_000,
+        help_text=(
+            "Question to forward to the signal report's scout when creating a discussion task. "
+            "Send an empty string when there is no question. Omit only for older clients that embed "
+            "the question in the task description. Not persisted on the task."
+        ),
+    )
     naming_source = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -1911,6 +1922,7 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
 
 
 class TaskRunSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the latest run.")
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
     environment = serializers.ChoiceField(choices=tasks_facade.TaskRunEnvironment.choices, allow_null=True)
 
@@ -1918,11 +1930,24 @@ class TaskRunSummarySerializer(serializers.Serializer):
 class TaskSummarySerializer(DataclassSerializer):
     """Summary response for a task — reads from a frozen ``TaskSummaryDTO``."""
 
+    created_by_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the user who created the task, or null for system-created tasks.",
+    )
     latest_run = TaskRunSummarySerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = TaskSummaryDTO
-        fields = ["id", "title", "repository", "created_at", "updated_at", "origin_product", "latest_run"]
+        fields = [
+            "id",
+            "title",
+            "repository",
+            "created_by_id",
+            "created_at",
+            "updated_at",
+            "origin_product",
+            "latest_run",
+        ]
 
 
 class TaskListQuerySerializer(serializers.Serializer):

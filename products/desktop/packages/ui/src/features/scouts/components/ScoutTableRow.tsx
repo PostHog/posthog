@@ -14,7 +14,7 @@ import {
   deriveScoutLifecycle,
   formatNextRun,
   formatRunDuration,
-  formatRunInterval,
+  formatScoutScheduleShort,
   nextRunAt,
   prettifyScoutSkillName,
   runDurationSeconds,
@@ -162,7 +162,7 @@ function ScoutTableRowInner({
       <TableCell>
         <div className="flex flex-col gap-0.5 truncate">
           <span className="text-[12.5px] text-gray-12">
-            {formatRunInterval(config.run_interval_minutes)}
+            {formatScoutScheduleShort(config)}
           </span>
           {rollup?.runningRun ? (
             <span className="text-(--blue-11) text-[11px]">running now</span>

@@ -1036,6 +1036,34 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     @parameterized.expand(
         [
+            ("today_by_hour", "dStart", IntervalType.HOUR),
+            ("month_to_date_by_day", "mStart", IntervalType.DAY),
+            ("last_7_days_by_hour", "-7d", IntervalType.HOUR),
+        ]
+    )
+    @freeze_time("2024-05-16T14:20:00Z")
+    def test_compare_window_is_sized_to_the_elapsed_current_period(
+        self, _name: str, date_from: str, interval: IntervalType
+    ) -> None:
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from=date_from),
+                interval=interval,
+                properties=[],
+                compareFilter=CompareFilter(compare=True),
+            ),
+        )
+
+        current = runner.query_date_range
+        previous = runner.query_compare_to_date_range
+        assert previous is not None
+
+        assert previous.date_to() - previous.date_from() == current.date_to() - current.date_from()
+        assert previous.date_to() < current.date_from()
+
+    @parameterized.expand(
+        [
             # (name, hours_delta, explicit_date_to, expected_is_recent)
             ("1_hour_no_explicit_date_to", 1, False, True),
             ("6_hours_no_explicit_date_to", 6, False, True),

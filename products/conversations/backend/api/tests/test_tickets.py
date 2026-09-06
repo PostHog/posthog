@@ -2265,6 +2265,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             "rich_content",
             "author_type",
             "author_name",
+            "author_email",
             "is_private",
             "has_full_email_content",
             "created_at",
@@ -2284,6 +2285,49 @@ class TestTicketMessagesAPI(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
+
+    def test_messages_support_author_uses_full_name(self, mock_on_commit):
+        self.user.first_name = "Jane"
+        self.user.last_name = "Doe"
+        self.user.save()
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="On it",
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["author_name"] == "Jane Doe"
+
+    def test_messages_author_email_only_for_posthog_users(self, mock_on_commit):
+        base = timezone.now()
+        for offset, (content, author_type, author) in enumerate(
+            [
+                ("Hello from customer", "customer", None),
+                ("Hi there!", "support", self.user),
+                ("Summary", "AI", None),
+            ]
+        ):
+            comment = Comment.objects.create(
+                team=self.team,
+                created_by=author,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content=content,
+                item_context={"author_type": author_type, "is_private": False},
+            )
+            Comment.objects.filter(id=comment.id).update(created_at=base + timedelta(seconds=offset))
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()["results"]
+        assert body[0]["author_email"] is None
+        assert body[1]["author_email"] == self.user.email
+        assert body[2]["author_email"] is None
 
     @parameterized.expand(
         [
@@ -2486,7 +2530,7 @@ class TestTicketReplyAPI(APIBaseTest):
         assert body["content"] == "A reply"
         assert body["author_type"] == "support"
         assert body["is_private"] is is_private
-        assert body["author_name"] == (self.user.first_name or self.user.email)
+        assert body["author_name"] == (f"{self.user.first_name} {self.user.last_name}".strip() or self.user.email)
 
         comment = Comment.objects.get(id=body["id"])
         assert comment.created_by == self.user

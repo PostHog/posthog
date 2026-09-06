@@ -13141,8 +13141,15 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         assert [a["value"] for a in response.json()["accounts"]] == ["PostHog/posthog"]
         mock_gh.return_value.list_cached_repositories.assert_called_once_with(search="posthog", limit=100, offset=0)
 
-    @parameterized.expand([(401,), (403,)])
-    def test_gsc_auth_error_returns_actionable_400(self, status_code: int):
+    # A 401 is always a stale connection. A 403 without quota markers means the account can't read
+    # any property, which is a different next step — see `_property_list_http_error`.
+    @parameterized.expand(
+        [
+            (401, "reconnect your google account"),
+            (403, "can't read any search console property"),
+        ]
+    )
+    def test_gsc_auth_error_returns_actionable_400(self, status_code: int, expected_substring: str):
         integration = self._gsc_integration()
         with (
             patch(f"{self._GSC_MODULE}.google_search_console_session"),
@@ -13151,7 +13158,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             response = self.client.get(self._url("GoogleSearchConsole", integration.id))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "reconnect your account" in str(response.json()).lower()
+        assert expected_substring in str(response.json()).lower()
 
     def _google_ads_integration(self) -> Integration:
         return Integration.objects.create(

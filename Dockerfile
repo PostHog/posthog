@@ -150,7 +150,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 
 COPY products/canvas/packages/canvas_builder/ products/canvas/packages/canvas_builder/
 RUN --mount=type=cache,id=npm,target=/root/.npm \
-    npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
+    npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
 
 # The transpiler bundle externalizes @babel/standalone (its only external runtime require — a
 # self-contained 24MB package with no deps). Materialize it as real files inside the transpiler's

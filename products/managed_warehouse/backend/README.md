@@ -59,6 +59,20 @@ The DuckLake copy and registration workflows write data into a DuckLake-managed 
 
 The workflows share the same infrastructure and configuration. Workers running these workflows must be configured explicitly; otherwise copies will fail before they even reach the first activity.
 
+## Managed view translation pass
+
+The `managed-warehouse.translate-views` Temporal workflow performs a best-effort HogQL-to-Trino compilation pass for an existing managed warehouse. It snapshots active views and materialized views for control-plane-enabled teams in the organization, excluding endpoint queries. Each view compiles through the managed-warehouse compiler facade in Django expansion mode, so references to other saved queries and copied warehouse tables resolve to their DuckLake relations. Each result is stored in `ManagedWarehouseViewTranslationResult`; it does not replace the saved query's canonical HogQL, execute SQL, or create Trino objects.
+
+Provisioning does not start this workflow. To run it, add a `Managed warehouse view translation job` row in Django admin and select the provisioned organization. Choose `Entire organization` to snapshot every eligible view, or choose `Selected views` and enter the saved-query UUIDs to test. The admin starts the workflow after the row commits. Only one pending or running job may exist for an organization.
+
+The job ends as completed when every snapshot compiles, completed with errors when individual views fail or become stale, and failed when setup or workflow infrastructure prevents the pass. Individual failures do not stop later views from compiling. A view becomes stale when its definition changes or is removed after the snapshot. The result rows retain the generated Trino SQL, named values, normalized HogQL, and any compilation error for inspection.
+
+To retry specific failures, select failed or stale rows in `Managed warehouse view translation results` and run `Retry selected translations`. The action creates a new selected-view job linked to the original job. Completed jobs and results remain immutable.
+
+The manual trigger is deliberately separate from provisioning. A future provisioning trigger should call the same job starter instead of adding compilation to the provisioning request path.
+
+Data modeling shadow materialization starts only when its feature flag is enabled, the managed warehouse is provisioned, the organization has a ready Trino target, and the saved query has a compiled translation for its current definition. Missing, failed, stale, or empty translations keep the shadow path disabled.
+
 ## Environment variables
 
 The workflow obtains its DuckLake configuration from the following environment variables:
@@ -162,10 +176,10 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
    Run `hogli start` (or `bin/start`) so Postgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-modeling-copy-workflow` feature flag is enabled for the team you plan to use.
 
 2. **Trigger a model materialization from the app**
-   In the PostHog UI, open Data Warehouse → Views, pick (or create) a view, open the Materialization section, enable it if needed, and click **Sync now**. This schedules the `data-modeling-run` workflow for that team/view.
+   In the PostHog UI, open Data Warehouse → Views, pick (or create) a view, open the Materialization section, enable it if needed, and click **Sync now**. This starts a `data-modeling-materialize-view` workflow for that view's DAG node.
 
 3. **Observe the data-modeling workflow**
-   Visit the Temporal UI at `http://localhost:8081/namespaces/default/workflows` and confirm a `data-modeling-run` execution appears. Wait for it to finish successfully.
+   Visit the Temporal UI at `http://localhost:8081/namespaces/default/workflows` and confirm a `materialize-view-{node_id}` execution appears. Wait for it to finish successfully.
 
 4. **Verify the DuckLake copy workflow runs**
    Once the modeling workflow completes it automatically starts `ducklake-copy.data-modeling` as a child run. You should see it listed in the same Temporal UI; wait for the run to complete.

@@ -10,6 +10,7 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
 
 import {
     LOGS_COLUMN_REGISTRY,
@@ -28,13 +29,21 @@ import {
     MESSAGE_MIN_WIDTH,
     MIN_ATTRIBUTE_COLUMN_WIDTH,
     PATTERN_WIDTH,
+    PERSON_WIDTH,
     RESIZER_HANDLE_WIDTH,
+    SESSION_WIDTH,
     SEVERITY_WIDTH,
     TIMESTAMP_WIDTH,
     getMessageStyle,
 } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { VirtualizedTableColumn } from 'products/logs/frontend/components/VirtualizedLogsList/types'
+import {
+    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
+    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
+    logsConfigLogic,
+} from 'products/logs/frontend/logsConfigLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
+import { getDistinctIdWithKey, getSessionIdWithKey } from 'products/logs/frontend/utils'
 
 export const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
@@ -112,6 +121,52 @@ function ControlsHeader({ dataSourceRef }: { dataSourceRef: RefObject<ParsedLogM
     )
 }
 
+type IdentityColumnType = Extract<LogsColumnType, 'person' | 'session'>
+
+const IDENTITY_FALLBACK_KEYS: Record<IdentityColumnType, string[]> = {
+    person: DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
+    session: DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
+}
+
+/**
+ * Person and Session cells. Neither value has a fixed home on the row: it sits under whichever
+ * attribute key the team's logs settings name (falling back to the built-in conventions), so the
+ * key is resolved per row and handed to AttributeCell, which renders it with the same person link
+ * or recording button the matching attribute column shows.
+ */
+function IdentityCell({
+    log,
+    type,
+    width,
+}: {
+    log: ParsedLogMessage
+    type: IdentityColumnType
+    width: number
+}): JSX.Element {
+    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(logsConfigLogic)
+
+    const configuredKeys = type === 'person' ? configuredDistinctIdKeys : configuredSessionIdKeys
+    const resolve = type === 'person' ? getDistinctIdWithKey : getSessionIdWithKey
+    const match = resolve(log.attributes, log.resource_attributes, configuredKeys)
+
+    return (
+        <AttributeCell
+            // A row with no match still needs a key for the cell popover's filter actions: the first
+            // configured key, or the default the settings fall back to before logs_config resolves.
+            attributeKey={match?.key ?? configuredKeys?.[0] ?? IDENTITY_FALLBACK_KEYS[type][0]}
+            cellKey={`identity:${type}`}
+            value={match?.value ?? ''}
+            filterType={
+                match?.source === 'resource_attribute'
+                    ? PropertyFilterType.LogResourceAttribute
+                    : PropertyFilterType.LogAttribute
+            }
+            width={width}
+            timestamp={log.timestamp}
+        />
+    )
+}
+
 function MessageColumnCell({
     log,
     wrapBody,
@@ -171,6 +226,8 @@ export interface ConfiguredColumnRendering {
 const DEFAULT_COLUMN_WIDTHS: Partial<Record<LogsColumnType, number>> = {
     timestamp: TIMESTAMP_WIDTH,
     pattern: PATTERN_WIDTH,
+    person: PERSON_WIDTH,
+    session: SESSION_WIDTH,
 }
 
 /** Read a server-computed column value off the raw row by its canonical alias. */
@@ -305,6 +362,8 @@ export function createConfiguredColumn(params: {
     const width = config.width ?? DEFAULT_COLUMN_WIDTHS[config.type] ?? DEFAULT_ATTRIBUTE_COLUMN_WIDTH
     const totalWidth = width + RESIZER_HANDLE_WIDTH
 
+    const identityType: IdentityColumnType | null =
+        config.type === 'person' || config.type === 'session' ? config.type : null
     const semanticKey = config.type === 'custom' ? (config.name ?? config.expression ?? '') : config.type
     // Columns the server computes (custom, and built-ins like `pattern`) read their value off the
     // aliased result; the rest read it straight off the row.
@@ -318,14 +377,18 @@ export function createConfiguredColumn(params: {
                       </span>
                   </div>
               )
-            : (log: ParsedLogMessage): JSX.Element => (
-                  <AttributeCell
-                      attributeKey={semanticKey}
-                      value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
-                      width={totalWidth}
-                      timestamp={log.timestamp}
-                  />
-              )
+            : identityType
+              ? (log: ParsedLogMessage): JSX.Element => (
+                    <IdentityCell log={log} type={identityType} width={totalWidth} />
+                )
+              : (log: ParsedLogMessage): JSX.Element => (
+                    <AttributeCell
+                        attributeKey={semanticKey}
+                        value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
+                        width={totalWidth}
+                        timestamp={log.timestamp}
+                    />
+                )
 
     return {
         key: `col:${config.id}`,
