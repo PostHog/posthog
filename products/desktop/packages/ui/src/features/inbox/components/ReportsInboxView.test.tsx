@@ -139,7 +139,7 @@ vi.mock(
 );
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToAgents: vi.fn(),
+  navigateToSettings: vi.fn(),
   navigateToInboxReportDetail: mocks.navigateToInboxReportDetail,
 }));
 

@@ -21,7 +21,6 @@ import {
 } from "@posthog/core/scouts/scoutPresentation";
 import { Button, Skeleton, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { Link } from "@tanstack/react-router";
 import { Fragment, type ReactNode } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { useScoutRunNow } from "../hooks/useScoutRunNow";
@@ -42,6 +41,7 @@ export function ScoutDetailHeader({
   onUpdate,
   tab,
   onTabChange,
+  onBack,
 }: {
   config: ScoutConfig | undefined;
   configLoading: boolean;
@@ -50,6 +50,7 @@ export function ScoutDetailHeader({
   onUpdate: (configId: string, updates: ScoutConfigUpdate) => void;
   tab: ScoutDetailTab;
   onTabChange: (tab: ScoutDetailTab) => void;
+  onBack: () => void;
 }) {
   const counts: Partial<Record<ScoutDetailTab, number>> = {
     signals: rollup?.emittedCount,
@@ -57,13 +58,15 @@ export function ScoutDetailHeader({
 
   return (
     <div className="flex shrink-0 cursor-default flex-col gap-3 border-(--gray-5) border-b px-6 pt-4">
-      <Link
-        to="/agents/scouts"
-        className="flex w-fit items-center gap-1 text-[12px] text-gray-10 no-underline hover:text-gray-12"
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-gray-10 hover:text-gray-12"
+        data-attr="scout-detail-back"
       >
         <ArrowLeftIcon size={12} />
         Agents
-      </Link>
+      </button>
 
       {configLoading || !config ? (
         <div className="flex flex-col gap-2">

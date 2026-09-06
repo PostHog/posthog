@@ -1,4 +1,3 @@
-import { RobotIcon } from "@phosphor-icons/react";
 import type { ScoutDetailTab } from "@posthog/core/scouts/scoutDetailTabs";
 import {
   computeScoutRollups,
@@ -8,9 +7,8 @@ import {
 } from "@posthog/core/scouts/scoutPresentation";
 import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import { track } from "@posthog/ui/shell/analytics";
-import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 import { useScoutConfigMutations } from "../hooks/useScoutConfigMutations";
 import { useScoutConfigs } from "../hooks/useScoutConfigs";
@@ -32,23 +30,7 @@ export function ScoutDetailView({
 }) {
   const skillName = scoutSkillNameFromSlug(skillSlug);
   const displayName = prettifyScoutSkillName(skillName);
-  const navigate = useNavigate();
-
-  const headerContent = useMemo(
-    () => (
-      <div className="flex w-full min-w-0 items-center gap-2">
-        <RobotIcon size={12} className="shrink-0 text-gray-10" />
-        <span
-          className="truncate whitespace-nowrap font-medium text-[13px]"
-          title={displayName}
-        >
-          {displayName}
-        </span>
-      </div>
-    ),
-    [displayName],
-  );
-  useSetHeaderContent(headerContent);
+  const { showAgentTab, closeAgent } = useAgentsPageActions();
 
   const {
     data: configs,
@@ -89,12 +71,7 @@ export function ScoutDetailView({
       skill_name: skillName,
       filter: next,
     });
-    void navigate({
-      to: "/agents/scouts/$skillName",
-      params: { skillName: skillSlug },
-      search: (previous) => ({ ...previous, tab: next }),
-      replace: true,
-    });
+    showAgentTab(next);
   };
 
   // Fire the viewed event once per scout, after both queries settle so the
@@ -127,6 +104,7 @@ export function ScoutDetailView({
         onUpdate={updateConfig}
         tab={tab}
         onTabChange={showTab}
+        onBack={closeAgent}
       />
 
       <div className="min-h-0 flex-1 overflow-auto">

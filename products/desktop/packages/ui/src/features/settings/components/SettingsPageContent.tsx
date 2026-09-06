@@ -58,7 +58,11 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
     "Environments",
     EnvironmentsSettings,
   ),
-  agents: defineSettingsPage("Agents", AgentsSettings),
+  agents: defineSettingsPage(
+    "Agents",
+    AgentsSettings,
+    SETTINGS_PAGE_LAYOUT.FULL_BLEED,
+  ),
   skills: defineSettingsPage(
     "Skills",
     SkillsView,

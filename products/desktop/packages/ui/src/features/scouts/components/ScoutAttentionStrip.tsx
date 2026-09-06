@@ -7,7 +7,7 @@ import {
   scoutSkillSlug,
 } from "@posthog/core/scouts/scoutPresentation";
 import { Badge, Button } from "@posthog/quill";
-import { Link } from "@tanstack/react-router";
+import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 
 const MAX_CARDS = 3;
@@ -32,6 +32,7 @@ export function ScoutAttentionStrip({
   items: ScoutAttention[];
   onUpdateConfig: (configId: string, updates: ScoutConfigUpdate) => void;
 }) {
+  const { openAgent } = useAgentsPageActions();
   const shown = items.slice(0, MAX_CARDS);
   const hidden = items.length - shown.length;
 
@@ -52,13 +53,13 @@ export function ScoutAttentionStrip({
               <Icon size={16} className={`mt-0.5 shrink-0 ${iconTone}`} />
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className="flex min-w-0 items-center gap-2">
-                  <Link
-                    to="/agents/scouts/$skillName"
-                    params={{ skillName: slug }}
-                    className="truncate font-medium text-[13px] text-gray-12 no-underline hover:underline"
+                  <button
+                    type="button"
+                    onClick={() => openAgent(slug)}
+                    className="cursor-pointer truncate border-0 bg-transparent p-0 text-left font-medium text-[13px] text-gray-12 hover:underline"
                   >
                     {prettifyScoutSkillName(config.skill_name)}
-                  </Link>
+                  </button>
                   <Badge variant={tone}>{label}</Badge>
                 </div>
                 <p className="line-clamp-2 text-[11.5px] text-gray-10 leading-snug">
@@ -96,13 +97,7 @@ export function ScoutAttentionStrip({
                     type="button"
                     variant="outline"
                     size="xs"
-                    render={
-                      <Link
-                        to="/agents/scouts/$skillName"
-                        params={{ skillName: slug }}
-                        search={{ tab: "activity" }}
-                      />
-                    }
+                    onClick={() => openAgent(slug, { tab: "activity" })}
                     data-attr="scout-attention-open-runs"
                   >
                     {kind === "failing" ? "Open last run" : "Review runs"}

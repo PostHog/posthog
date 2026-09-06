@@ -39,11 +39,11 @@ import {
   TableRow,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { skillUrl } from "@posthog/ui/utils/posthogLinks";
-import { Link, useNavigate } from "@tanstack/react-router";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { useScoutRunNow } from "../hooks/useScoutRunNow";
 import { DryRunBadge } from "./ScoutBadges";
@@ -115,7 +115,7 @@ export function ScoutTableRow({
   measureRef?: (node: HTMLTableRowElement | null) => void;
   index?: number;
 }) {
-  const navigate = useNavigate();
+  const { openAgent } = useAgentsPageActions();
   const { runNow, isStarting } = useScoutRunNow(config, "fleet_list");
   const slug = scoutSkillSlug(config.skill_name);
   const name = prettifyScoutSkillName(config.skill_name);
@@ -144,14 +144,14 @@ export function ScoutTableRow({
           <ScoutNameHoverCard
             config={config}
             trigger={
-              <Link
-                to="/agents/scouts/$skillName"
-                params={{ skillName: slug }}
-                className="truncate font-medium text-[13px] text-gray-12 no-underline hover:underline"
+              <button
+                type="button"
+                onClick={() => openAgent(slug)}
+                className="cursor-pointer truncate border-0 bg-transparent p-0 text-left font-medium text-[13px] text-gray-12 hover:underline"
                 data-attr="scout-row-open"
               >
                 {name}
-              </Link>
+              </button>
             }
           />
           <DryRunBadge config={config} />
@@ -244,13 +244,7 @@ export function ScoutTableRow({
               Run now
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() =>
-                void navigate({
-                  to: "/agents/scouts/$skillName",
-                  params: { skillName: slug },
-                  search: { tab: "settings" },
-                })
-              }
+              onClick={() => openAgent(slug, { tab: "settings" })}
             >
               <GearSixIcon size={13} />
               Settings

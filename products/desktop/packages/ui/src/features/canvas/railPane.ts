@@ -14,7 +14,6 @@ export type NavRailPane =
   | "activity"
   | "canvases"
   | "inbox"
-  | "agents"
   | "command-center"
   | "loops"
   | "context"
@@ -33,7 +32,6 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   activity: "/activity",
   canvases: "/canvases",
   inbox: "/inbox",
-  agents: "/agents",
   "command-center": "/command-center",
   loops: "/loops",
   context: "/spaces/context",
@@ -47,7 +45,6 @@ const CLAIMED: readonly NavRailPane[] = [
   "activity",
   "canvases",
   "inbox",
-  "agents",
   "command-center",
   "loops",
   "context",

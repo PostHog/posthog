@@ -188,21 +188,6 @@ export function navigateToChannelReportDetail(
   });
 }
 
-export function navigateToScoutDetail(
-  skillSlug: string,
-  findingId?: string,
-): void {
-  void getRouterOrNull()?.navigate({
-    to: "/agents/scouts/$skillName",
-    params: { skillName: skillSlug },
-    search: findingId ? { finding: findingId } : {},
-  });
-}
-
-export function navigateToScoutFindings(): void {
-  void getRouterOrNull()?.navigate({ to: "/agents/scouts/findings" });
-}
-
 export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
   void getRouterOrNull()?.navigate({
     to: "/loops",
@@ -224,10 +209,6 @@ export function navigateToLoopDetail(
     search: options?.edit ? { edit: true } : {},
     ignoreBlocker: options?.ignoreBlocker,
   });
-}
-
-export function navigateToAgents(): void {
-  void getRouterOrNull()?.navigate({ to: "/agents" });
 }
 
 export function navigateToArchived(): void {
