@@ -34,6 +34,16 @@
             ],
             "description": "Time bucket size, one of \"day\" or \"week\". Default \"day\"."
         },
+        "limit": {
+            "default": 100,
+            "description": "Series per page.",
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Series to skip.",
+            "type": "number"
+        },
         "start_date": {
             "anyOf": [
                 {
