@@ -451,12 +451,26 @@ tools:
             `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that
             scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
             found over time; to see every scanner's observations for one session, use `vision-observations-list`.
+            Rows are trimmed to keep a page small. `scanner_snapshot.scanner_config.prompt` and
+            `scanner_snapshot.query` are the same on every row, and `model_output.reasoning_segments` restates the
+            flat `reasoning`, so none of the three are on a row. Call `vision-scanners-observations-get` for one
+            observation's full prompt and citation segments, or `vision-scanners-get` for the scanner's current
+            prompt.
+        param_overrides:
+            limit:
+                description: Number of observations to return per page (default 20).
+                default: 20
+        response:
+            exclude:
+                - scanner_snapshot.scanner_config.prompt
+                - scanner_snapshot.query
+                - scanner_result.model_output.reasoning_segments
         agent_note: >
-            Each observation's `_posthogUrl` opens the recording it analysed.
-            `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
-            `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
-            (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
-            someone, deep-link the one or two moments it turns on rather than only describing them.
+            Each observation's `_posthogUrl` opens the recording it analysed. This list carries no citation
+            timestamps. When you report a finding to someone, deep-link the one or two moments it turns on rather
+            than only describing them: read that observation with `vision-scanners-observations-get`, take a `chip`
+            segment's `timestamp_ms` from `scanner_result.model_output.reasoning_segments`, and append
+            `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the recording URL.
         ui_app: vision-observation-list
         url_prefix: /replay
     vision-scanners-observations-retry-create:
