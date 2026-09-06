@@ -2,11 +2,12 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError, NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Experiment } from '~/types'
+import { ConversionRateInputType, Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { runningTimeLogic } from './runningTimeLogic'
@@ -166,6 +167,70 @@ describe('runningTimeLogic', () => {
             // just resync so the tab stops being stale and the estimate recomputes from fresh state.
             expect(lemonToast.error).not.toHaveBeenCalled()
             expect(experimentLogicInstance.values.unmodifiedExperiment?.version).toEqual(9)
+        })
+
+        // A request that never reached the server and a transient gateway (502/503/504) both usually
+        // succeed on a second attempt, so the calculation retries once. The subscription would not
+        // re-fire on the unchanged input, so without the retry one blip blanks the estimate all visit.
+        it.each([
+            ['a request that never reached the server', new NetworkError('offline')],
+            ['a transient gateway status', new ApiError('Service Unavailable', 503)],
+        ])('retries after %s, so one blip does not blank the estimate', async (_name, transientError) => {
+            calculateRunningTimeMock
+                .mockRejectedValueOnce(transientError)
+                .mockResolvedValue({ recommended_sample_size: 2000, recommended_running_time_days: 20 })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['persistRunningTimeEstimate']).toFinishAllListeners()
+
+            expect(calculateRunningTimeMock).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('remainingDays', () => {
+        // A manual draft holds an estimate the user calculated before launch, so the header reads it
+        // instead of "Not calculated". An automatic draft never produces its own estimate: any value it
+        // holds was copied from a source run by duplicate or reset, so it must stay hidden rather than
+        // read as this draft's duration.
+        it.each([
+            [
+                'ignores a source estimate copied onto an automatic draft',
+                { exposure_estimate_config: { conversionRateInputType: ConversionRateInputType.AUTOMATIC } },
+                null,
+                null,
+            ],
+            [
+                'reads the estimate a user calculated on a manual draft',
+                {
+                    exposure_estimate_config: {
+                        conversionRateInputType: ConversionRateInputType.MANUAL,
+                        manualExposureRate: 0,
+                    },
+                },
+                14,
+                3000,
+            ],
+        ])('%s', async (_name, extraCalculation, expectedRemainingDays, expectedSampleSize) => {
+            const draft = {
+                ...experiment,
+                start_date: null,
+                running_time_calculation: {
+                    recommended_running_time: 14,
+                    recommended_sample_size: 3000,
+                    ...extraCalculation,
+                },
+            } as unknown as Experiment
+            experimentLogicInstance.actions.setExperiment(draft)
+            experimentLogicInstance.actions.setUnmodifiedExperiment(draft)
+
+            logic = runningTimeLogic({ experiment: draft })
+            logic.mount()
+
+            expect(logic.values.remainingDays).toEqual(expectedRemainingDays)
+            expect(logic.values.targetSampleSize).toEqual(expectedSampleSize)
         })
     })
 })
