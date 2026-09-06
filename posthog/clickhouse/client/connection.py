@@ -95,8 +95,15 @@ class ClickHouseUser(StrEnum):
     ENDPOINTS = "endpoints"
     BILLING = "billing"
     REPLAY_VISION = "replay_vision"
-    # Session replay surfacing scoring sweep
+    # Session replay surfacing scoring sweep, and the export sweep that reads its scores
     SURFACING_SCORING = "surfacing_scoring"
+    EXPERIMENTS = "experiments"
+    LOGS = "logs"
+    HEALTH_CHECKS = "health_checks"
+    # Shared user for background jobs. A Temporal query that names no user lands here, so it cannot
+    # spend DEFAULT's slots next to customer-facing queries. Small jobs that do not earn their own
+    # user can also name it, but a job with real ClickHouse load should get a dedicated one.
+    BACKGROUND = "background"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"

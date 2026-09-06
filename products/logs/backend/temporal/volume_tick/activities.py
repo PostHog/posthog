@@ -7,7 +7,7 @@ import structlog
 import temporalio.activity
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
@@ -104,6 +104,7 @@ def count_teams_with_logs(begin: datetime, end: datetime, shard: int) -> TeamsWi
             {"begin": begin, "end": end, "shards": BUCKET_MINUTES, "shard": shard},
             workload=Workload.LOGS,
             settings=_DISCOVERY_QUERY_SETTINGS,
+            ch_user=ClickHouseUser.LOGS,
         )
     return TeamsWithLogs(total=int(rows[0][0]), due_in_shard=int(rows[0][1]))
 

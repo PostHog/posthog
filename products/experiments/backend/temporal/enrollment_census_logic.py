@@ -14,6 +14,7 @@ from django.db import IntegrityError, transaction
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
@@ -163,6 +164,7 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
             "hard_failure_codes": HARD_FAILURE_CODES,
             "min_direct_reads": MIN_DIRECT_READS,
         },
+        ch_user=ClickHouseUser.EXPERIMENTS,
     )
     return [
         TeamDirectScanStats(
