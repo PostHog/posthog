@@ -3,6 +3,19 @@
 All events are sent via `toolbarPosthogJS`, the toolbar's internal PostHog instance,
 unless noted otherwise. Events go to PostHog's internal project (prod) or `localhost:8000` (dev).
 
+## What the toolbar never captures
+
+The toolbar runs inside our customers' sites, so the host page is their data, not ours.
+`toolbarPosthogJS.ts` turns off every posthog-js feature that describes the host page:
+autocapture, pageviews, page leaves, web vitals, dead clicks, heatmaps, surveys, product tours,
+and exception autocapture. Session recording stays off until someone starts a product tour.
+
+Those options fall back to the internal project's remote config when unset, so the project
+settings could switch them back on. A `before_send` guard therefore drops the events too:
+`$autocapture`, `$copy_autocapture`, `$dead_click`, `$pageleave`, `$pageview`, `$rageclick`,
+`$web_vitals`, `$$heatmap`, and any `$exception` without a `toolbar_context` property. Report
+toolbar failures with `captureToolbarException`, which adds that property.
+
 ## Lifecycle
 
 ### `toolbar loaded`

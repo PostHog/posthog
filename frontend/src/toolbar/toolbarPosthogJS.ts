@@ -1,4 +1,4 @@
-import posthog from 'posthog-js'
+import posthog, { CaptureResult } from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { FeatureFlagKey } from 'lib/constants'
@@ -8,6 +8,35 @@ const DEFAULT_API_KEY = 'sTMFPsFhdP1Ssg'
 const runningOnPosthog = !!window.POSTHOG_APP_CONTEXT
 const apiKey = runningOnPosthog ? window.JS_POSTHOG_API_KEY : DEFAULT_API_KEY
 const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://internal-j.posthog.com'
+
+// Events posthog-js collects about the page it runs on. For the toolbar that page belongs to a
+// customer, so our internal project must not receive any of them.
+const HOST_PAGE_CAPTURE_EVENTS = new Set([
+    '$autocapture',
+    '$copy_autocapture',
+    '$dead_click',
+    '$pageleave',
+    '$pageview',
+    '$rageclick',
+    '$web_vitals',
+    '$$heatmap',
+])
+
+// The init options below fall back to remote config when unset, so the internal project's settings
+// could switch host page capture back on. This drops the events whatever the server says.
+function dropHostPageCapture(event: CaptureResult | null): CaptureResult | null {
+    if (!event) {
+        return event
+    }
+    if (HOST_PAGE_CAPTURE_EVENTS.has(event.event)) {
+        return null
+    }
+    // captureToolbarException tags the toolbar's own failures. Anything else is host page code.
+    if (event.event === '$exception' && !event.properties?.toolbar_context) {
+        return null
+    }
+    return event
+}
 
 const initResult = posthog.init(
     apiKey || DEFAULT_API_KEY,
@@ -20,10 +49,15 @@ const initResult = posthog.init(
             featureFlags: {},
         },
         autocapture: false,
-        // The toolbar runs on customer pages and must not install global exception handlers.
+        // The toolbar runs on customer pages and must not collect anything about them. Each of
+        // these is enabled by the internal project's remote config when left unset.
         capture_exceptions: false,
+        capture_performance: false,
+        capture_heatmaps: false,
+        capture_dead_clicks: false,
         capture_pageview: false,
         capture_pageleave: false,
+        before_send: dropHostPageCapture,
         disable_surveys: true,
         disable_scroll_properties: true,
         disable_product_tours: true,
