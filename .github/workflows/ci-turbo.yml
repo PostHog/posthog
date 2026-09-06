@@ -25,12 +25,6 @@ jobs:
                   # Just fetch the current commit/PR head
                   fetch-depth: 1
 
-            - name: Detect architecture
-              if: ${{ runner.os == 'Linux' || runner.os == 'macOS' }}
-              run: |
-                  ARCH=$(uname -m)
-                  echo "ARCH=$ARCH" >> $GITHUB_ENV
-
             # Conditionally fetch the base branch so Turborepo can compare against it
             - name: Fetch base branch
               run: |
@@ -49,25 +43,36 @@ jobs:
                     echo "TURBO_SCM_BASE=master" >> $GITHUB_ENV
                   fi
 
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Turbo Affected
-              run: |
-                  bin/turbo build --affected --dry-run
+            # Turbo only, not the workspace. The dry run builds the task graph
+            # from the package manifests, turbo.json and the lockfile. It runs no
+            # task, so it never reads node_modules. The root install this
+            # replaces pulled the whole toolchain — Playwright, Parcel, the
+            # TypeScript preview — for a step that finishes in about a second,
+            # and it became the slowest part of PR housekeeping whenever the
+            # pnpm store cache restored only part of the store.
+            #
+            # The version comes from package.json, so a bump there cannot leave
+            # this job on an older Turbo than the workspace pins. Turbo warns
+            # that it found no local install. That warning is expected here.
+            - name: Install turbo
               env:
-                  NODE_OPTIONS: --max-old-space-size=8192
+                  # Keep a registry blip from failing the job.
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
+              # Installed under RUNNER_TEMP, which is always writable, rather
+              # than into the workspace, where a node_modules directory would
+              # change what Turbo hashes.
+              run: |
+                  version="$(jq -re '.devDependencies.turbo | ltrimstr("^")' package.json)"
+                  npm install --prefix "$RUNNER_TEMP/turbo" --no-audit --no-fund --no-save "turbo@$version"
+                  echo "$RUNNER_TEMP/turbo/node_modules/.bin" >> "$GITHUB_PATH"
+
+            # Turbo ships a prebuilt binary, and this job runs no package
+            # script, so the runner's own Node is enough to start it. That
+            # removes setup-node, and with it the app token that served only
+            # setup-node's version-manifest lookups.
+            - name: Turbo Affected
+              run: turbo build --affected --dry-run
+              env:
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
