@@ -557,6 +557,56 @@ describe('calculateInputCost()', () => {
             expectCostToBeCloseTo(result, 0.002)
         })
 
+        it.each([
+            {
+                name: 'prices inclusive cache reads and writes at distinct rates',
+                inputTokens: 1000,
+                exclusive: false,
+                cacheWriteRate: 0.00000125,
+                expected: 0.000895,
+            },
+            {
+                name: 'adds cache buckets to explicitly exclusive input',
+                inputTokens: 500,
+                exclusive: true,
+                cacheWriteRate: 0.00000125,
+                expected: 0.000895,
+            },
+            {
+                name: 'falls back to the prompt rate for cache writes',
+                inputTokens: 1000,
+                exclusive: false,
+                cacheWriteRate: undefined,
+                expected: 0.00082,
+            },
+            {
+                name: 'preserves an explicit zero cache-write rate',
+                inputTokens: 1000,
+                exclusive: false,
+                cacheWriteRate: 0,
+                expected: 0.00052,
+            },
+        ])('$name', ({ inputTokens, exclusive, cacheWriteRate, expected }) => {
+            const model = createTestModel({
+                model: 'gpt-4o',
+                provider: 'openai',
+                cost: {
+                    prompt_token: 0.000001,
+                    completion_token: 0.000002,
+                    cache_read_token: 0.0000001,
+                    ...(cacheWriteRate !== undefined && { cache_write_token: cacheWriteRate }),
+                },
+            })
+            const event = createOpenAITestEvent(inputTokens, 200, {
+                $ai_cache_creation_input_tokens: 300,
+                $ai_cache_reporting_exclusive: exclusive,
+            })
+
+            const result = calculateInputCost(event, model)
+
+            expectCostToBeCloseTo(result, expected)
+        })
+
         it('uses 0.5x multiplier fallback when cache_read_token not defined', () => {
             const modelWithoutCacheRead = createTestModel({
                 model: 'gpt-4',

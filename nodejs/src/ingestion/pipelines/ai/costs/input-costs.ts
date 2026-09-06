@@ -230,7 +230,10 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         return bigDecimal.add(bigDecimal.add(totalCacheCost, uncachedCost), modalityInputCost)
     }
 
-    const baseRegularTokens = exclusive ? inputTokens : bigDecimal.subtract(inputTokens, cachedTextTokens)
+    const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
+    const baseRegularTokens = exclusive
+        ? inputTokens
+        : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), cacheWriteTokens)
     const regularTextTokens = clampTextTokens(
         bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageInputTokens),
         hasModalityTokens
@@ -256,7 +259,9 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, multiplier), cachedTextTokens)
     }
 
+    const cacheWriteRate = cost.cost.cache_write_token ?? cost.cost.prompt_token
+    const cacheWriteCost = bigDecimal.multiply(cacheWriteRate, cacheWriteTokens)
     const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTextTokens)
 
-    return bigDecimal.add(bigDecimal.add(cacheReadCost, regularCost), modalityInputCost)
+    return bigDecimal.add(bigDecimal.add(bigDecimal.add(cacheReadCost, cacheWriteCost), regularCost), modalityInputCost)
 }
