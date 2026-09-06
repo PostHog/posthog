@@ -305,6 +305,31 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     )
 
 
+def clamp_target_to_bounds(team_id: int, saved_query_id: str | uuid.UUID, desired: timedelta) -> timedelta | None:
+    """Fit a desired refresh cadence into the cadences a saved query's node(s) actually allow.
+
+    A managed view asks for one cadence (revenue analytics wants 12 hours), but a slow upstream
+    source can push that below the node's floor, where the target is unsatisfiable. Coarsen it to
+    the floor bucket then — the source's own cadence, the freshest the view can meaningfully run —
+    or keep `desired` when it already fits. A consumer that later needs it fresher pulls the
+    effective cadence finer on its own, so this is a floor on staleness, not a hard cap.
+
+    Returns None when no cadence is satisfiable (crossed bounds) or no DAG node carries the query,
+    so the caller can skip scheduling instead of writing a target the validator would reject.
+    """
+    result = saved_query_target_bounds(team_id, saved_query_id)
+    if result is None:
+        return None
+    allowed = result.bounds.allowed  # ascending by cadence, so [0] is freshest and [-1] slowest
+    if not allowed:
+        return None
+    if desired < allowed[0]:
+        return allowed[0]
+    if desired > allowed[-1]:
+        return allowed[-1]
+    return desired
+
+
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
     """The DAG's schedulable nodes: everything that carries a live saved query (not a source
     table, not a soft-deleted query). The one definition of "what gets a freshness target"."""
