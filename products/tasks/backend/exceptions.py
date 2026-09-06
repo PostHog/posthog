@@ -143,6 +143,17 @@ class SandboxMissingRepositoryError(ProcessTaskFatalError):
     pass
 
 
+class SandboxMissingAgentServerError(ProcessTaskFatalError):
+    """The sandbox booted without the agent-server install the launcher runs from ``/scripts``.
+
+    A broken image or a bad golden-snapshot restore leaves the directory absent, so the launch
+    shell exits before the server starts. No retry can install it, so fail immediately and name
+    the condition rather than surface the raw shell stderr.
+    """
+
+    pass
+
+
 class SandboxNotRunningError(SandboxExecutionError):
     """Sandbox is not in a running state."""
 
