@@ -218,6 +218,12 @@ body.is-resizing-column {
         }
     }
 
+    > colgroup > col.LemonTable__toggle {
+        // A fixed layout gives a column with no declared width only the space that is left over, and
+        // the toggle cell has no text to size itself from. Reserve the icon button and the padding.
+        width: calc(1.5rem + var(--row-horizontal-padding) * 3 + var(--row-ribbon-width, 0px));
+    }
+
     > thead,
     > tbody {
         > tr {
