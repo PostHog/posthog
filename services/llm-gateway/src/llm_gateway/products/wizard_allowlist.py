@@ -13,6 +13,7 @@ import json
 from typing import Any, Final
 
 import structlog
+from litellm.litellm_core_utils.reasoning_effort_utils import reasoning_effort_from_thinking_budget
 
 from llm_gateway.api.handler import effort_from_output_config, effort_from_reasoning, effort_from_reasoning_effort
 from llm_gateway.bedrock import get_bedrock_model_access_candidates, get_bedrock_region_name
@@ -78,6 +79,17 @@ async def resolve_allowlist() -> Allowlist:
     return parse_allowlist(get_settings().wizard_model_allowlist) or {}
 
 
+def _effort_from_thinking_budget(request_data: dict[str, Any]) -> str | None:
+    """Anthropic ``thinking: {"type": "enabled", "budget_tokens": N}`` bucketed the way the
+    backends translate it, so a budget cannot buy reasoning the effort policy refuses. Adaptive
+    and disabled thinking carry no budget and declare nothing."""
+    thinking = request_data.get("thinking")
+    if not isinstance(thinking, dict) or thinking.get("type") != "enabled":
+        return None
+    budget = thinking.get("budget_tokens")
+    return reasoning_effort_from_thinking_budget(budget if isinstance(budget, int) else 0)
+
+
 def request_efforts(request_data: dict[str, Any] | None) -> frozenset[str]:
     """Every effort the body declares across the API shapes the gateway serves, lowercased.
     Empty means the request carries none."""
@@ -89,6 +101,7 @@ def request_efforts(request_data: dict[str, Any] | None) -> frozenset[str]:
             effort_from_output_config(request_data),
             effort_from_reasoning_effort(request_data),
             effort_from_reasoning(request_data),
+            _effort_from_thinking_budget(request_data),
         )
         if effort is not None
     }

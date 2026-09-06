@@ -56,6 +56,25 @@ class TestRequestEfforts:
         assert request_efforts({"model": "claude-haiku-4-5"}) == frozenset()
         assert request_efforts(None) == frozenset()
 
+    @pytest.mark.parametrize(
+        ("thinking", "want"),
+        [
+            ({"type": "enabled", "budget_tokens": 100_000}, frozenset({"high"})),
+            ({"type": "enabled", "budget_tokens": 1024}, frozenset({"low"})),
+            ({"type": "enabled"}, frozenset({"minimal"})),
+            ({"type": "adaptive"}, frozenset()),
+            ({"type": "disabled"}, frozenset()),
+        ],
+    )
+    def test_thinking_budget_counts_as_effort(self, thinking: dict, want: frozenset[str]) -> None:
+        # A budget is the other way to buy reasoning; left unread, a 100k budget on a
+        # no-effort model would pass as "none".
+        assert request_efforts({"thinking": thinking}) == want
+
+    def test_budget_and_explicit_effort_both_count(self) -> None:
+        body = {"output_config": {"effort": "high"}, "thinking": {"type": "enabled", "budget_tokens": 1024}}
+        assert request_efforts(body) == frozenset({"high", "low"})
+
 
 class TestCheckWizardModelAccess:
     @pytest.mark.parametrize(
@@ -84,6 +103,7 @@ class TestCheckWizardModelAccess:
             ("gpt-5.6-sol", frozenset(), "Effort 'none'"),
             # Two shapes declaring different efforts: both must be listed.
             ("gpt-5.6-terra", frozenset({"low", "xhigh"}), "Effort 'low, xhigh'"),
+            ("claude-haiku-4-5", frozenset({"minimal"}), "Effort 'minimal'"),
         ],
     )
     def test_everything_else_is_refused(self, model: str, efforts: frozenset[str], fragment: str) -> None:
