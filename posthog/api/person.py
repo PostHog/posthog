@@ -1700,7 +1700,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Build point-in-time properties using the pre-fetched distinct_ids
             tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY, team_id=self.team_id)
             point_in_time_properties = build_person_properties_at_time(
-                team_id=self.team_id,
+                team=self.team,
                 timestamp=timestamp,
                 distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,
