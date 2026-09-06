@@ -7,7 +7,9 @@ from datetime import timedelta
 import pytest
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import include, path
 from django.utils import timezone
 
@@ -140,6 +142,21 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 2)  # Both current_team_annotation and other_team_annotation
+
+    def test_team_lookup_leaves_large_organization_columns_out_of_the_join(self):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/projects/{self.team.id}/foos/")
+        self.assertEqual(response.status_code, 200)
+
+        team_lookups = [
+            query["sql"]
+            for query in queries.captured_queries
+            if '"posthog_organization"."is_ai_data_processing_approved"' in query["sql"]
+            and '"posthog_team"' in query["sql"]
+        ]
+        self.assertTrue(team_lookups)
+        for sql in team_lookups:
+            self.assertNotIn("available_product_features", sql)
 
     def test_organization_nested_filtering(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/foos/")

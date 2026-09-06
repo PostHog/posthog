@@ -158,6 +158,16 @@ def default_is_ai_training_opted_in():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
+# Columns that hold large values. The API request path loads an organization through
+# `Team.organization` and reads small columns from it, so it defers these. Django still loads a
+# deferred column on first access, at the cost of one extra query.
+LARGE_ATTRS = (
+    "available_product_features",
+    "usage",
+    "customer_trust_scores",
+)
+
+
 class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [

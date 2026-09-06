@@ -26,7 +26,7 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
-from posthog.models.organization import Organization
+from posthog.models.organization import LARGE_ATTRS, Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.team import Team
@@ -51,6 +51,15 @@ if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
+
+
+def _team_queryset() -> QuerySet[Team]:
+    """Team with its organization, for `get_team_query_tags` and the permission classes.
+
+    Those read a few small organization columns. The large ones stay out of the join, because the
+    organization row is wide enough to keep them in TOAST storage.
+    """
+    return Team.objects.select_related("organization").defer(*(f"organization__{attr}" for attr in LARGE_ATTRS))
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -455,7 +464,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if team_from_token := self._get_team_from_request():
             team = team_from_token
         elif self._is_project_view:
-            team = Team.objects.select_related("organization").get(
+            team = _team_queryset().get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
         elif self.param_derived_from_user_current_team == "team_id":
@@ -464,7 +473,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             team = user.team
         else:
             try:
-                team = Team.objects.select_related("organization").get(id=self.team_id)
+                team = _team_queryset().get(id=self.team_id)
             except (Team.DoesNotExist, ValueError):
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
