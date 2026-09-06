@@ -39,9 +39,11 @@ const PREAMBLE_CONTEXT_ITEM: AttachedContextItem = {
         'The user has the PostHog tracing (APM, OpenTelemetry spans) viewer open. Load the ' +
         `${EXPLORING_APM_TRACES_SKILL} skill before your first tool call; it covers the span fields and ` +
         'attributes you filter on. Act through the tracing MCP tools (the exec `apm-*` commands plus ' +
-        'query-apm-spans: query-apm-spans, apm-trace-get, apm-spans-aggregate, apm-spans-count, ' +
-        'apm-attribute-breakdown, apm-attributes-list, apm-services-list, and the rest). Do not search for ' +
-        'tools; use the exec `info <tool>` command when you need a full input schema.',
+        'query-apm-spans: query-apm-spans, apm-trace-get, apm-spans-aggregate, apm-spans-tree, ' +
+        'apm-spans-duration-histogram, apm-spans-latency-heatmap, apm-spans-sparkline, apm-spans-count, ' +
+        'apm-attribute-breakdown, apm-attributes-list, apm-services-list, and the rest). Answer latency and ' +
+        'volume questions with an aggregate tool rather than by listing spans. Do not search for tools; use ' +
+        'the exec `info <tool>` command when you need a full input schema.',
 }
 
 const SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {

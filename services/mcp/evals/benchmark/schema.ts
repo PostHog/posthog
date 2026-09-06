@@ -27,6 +27,7 @@ export const TASK_CATEGORIES = [
     'mcp-analytics',
     'metrics',
     'data-catalog',
+    'tracing',
 ] as const
 
 export const BenchmarkProbeSchema = z.object({

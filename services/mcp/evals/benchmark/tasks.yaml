@@ -418,3 +418,42 @@ tasks:
           tool: execute-sql
           args:
               query: "SELECT name, status, is_drifted FROM system.information_schema.metrics WHERE name ILIKE '%churn%' OR description ILIKE '%churn%'"
+
+    # --- tracing (APM) ------------------------------------------------------
+    # Tool-selection tasks: the failure these guard against is answering a
+    # latency question by listing raw spans instead of calling an aggregate.
+    # acceptable_tools stays limited to discovery pre-flights, so naming a
+    # different aggregate still counts as a tool-selection miss.
+    - id: tracing-latency-distribution
+      category: tracing
+      intent: 'Is the slow tail on our api-gateway requests a few outliers or a real second population?'
+      expected_tools: [apm-spans-duration-histogram]
+      acceptable_tools: [apm-services-list]
+      success_criteria: >
+          Reports the shape of the distribution across every request in the window from bucketed trace counts,
+          rather than describing a handful of individual spans.
+
+    - id: tracing-slowdown-onset
+      category: tracing
+      intent: 'Our checkout service got slower sometime yesterday. When did it start, and did the whole distribution move?'
+      expected_tools: [apm-spans-latency-heatmap]
+      acceptable_tools: [apm-services-list]
+      success_criteria: >
+          Identifies when the slow population appeared and says whether the whole distribution shifted or a
+          second slow band appeared, using latency-over-time buckets rather than a list of slow spans.
+
+    - id: tracing-where-time-goes
+      category: tracing
+      intent: 'Where is the time going inside our POST /api/orders endpoint? Which downstream call dominates?'
+      expected_tools: [apm-spans-tree]
+      acceptable_tools: [apm-services-list]
+      success_criteria: >
+          Ranks the downstream child operations by their share of total duration across many traces, and
+          separates a child that is slow per call from one that merely runs many times per parent.
+
+    - id: tracing-slowest-operations
+      category: tracing
+      intent: 'Rank our traced endpoints by p95 latency this week — which ones are the worst offenders?'
+      expected_tools: [apm-spans-aggregate]
+      acceptable_tools: [apm-services-list]
+      success_criteria: 'Returns per-operation p95 latency ranked worst first, not a list of individual spans.'

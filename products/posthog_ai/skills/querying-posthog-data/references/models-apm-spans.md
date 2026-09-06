@@ -4,7 +4,7 @@ The `posthog.trace_spans` table holds OpenTelemetry span data from instrumented 
 
 **Namespacing:** Reference this table as `posthog.trace_spans`, not bare `trace_spans` — it's registered under the `posthog.` namespace in the HogQL database (see `posthog/hogql/database/database.py`). The same applies to `posthog.trace_attributes`. Bare names fail with "Unknown table" at HogQL compile time. (Asymmetric with `logs`, which is registered at root level — `logs` works without a prefix.)
 
-**Prefer the typed tools when they fit:** `posthog:query-apm-spans` for span listing with structured filters, `posthog:apm-trace-get` for full-trace fetches, `posthog:apm-spans-aggregate` / `posthog:apm-spans-tree` for aggregations. Reach for HogQL when you need cross-signal joins (with `logs` or `posthog.metrics` by `trace_id`), exemplar lookups, or aggregations the typed tools don't expose.
+**Prefer the typed tools when they fit:** `posthog:query-apm-spans` for span listing with structured filters, `posthog:apm-trace-get` for full-trace fetches, `posthog:apm-spans-aggregate` / `posthog:apm-spans-tree` for aggregations, and `posthog:apm-spans-duration-histogram` / `posthog:apm-spans-latency-heatmap` / `posthog:apm-spans-sparkline` for latency shape, onset, and volume over time. Reach for HogQL when you need cross-signal joins (with `logs` or `posthog.metrics` by `trace_id`), exemplar lookups, or aggregations the typed tools don't expose.
 
 ## `posthog.trace_spans`
 
