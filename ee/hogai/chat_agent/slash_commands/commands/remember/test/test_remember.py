@@ -35,6 +35,11 @@ class TestRememberCommand(BaseTest):
         result = self.command.get_memory_content(state)
         self.assertEqual(result, "test fact")
 
+    def test_get_memory_content_with_surrounding_whitespace(self):
+        state = AssistantState(messages=[HumanMessage(content="  /remember My orders table is the source of truth ")])
+        result = self.command.get_memory_content(state)
+        self.assertEqual(result, "My orders table is the source of truth")
+
     def test_get_memory_content_non_remember_message(self):
         """Test that non-remember messages return None."""
         state = AssistantState(messages=[HumanMessage(content="Hello world")])
@@ -63,6 +68,16 @@ class TestRememberCommand(BaseTest):
 
         core_memory = await sync_to_async(CoreMemory.objects.get)(team=self.team)
         self.assertIn("Test fact to remember", core_memory.text)
+
+    @pytest.mark.asyncio
+    async def test_execute_stores_command_sent_with_surrounding_whitespace(self):
+        state = AssistantState(messages=[HumanMessage(content=" /remember The orders table is the source of truth")])
+        config = RunnableConfig(configurable={"thread_id": "test-thread"})
+
+        await self.command.execute(config, state)
+
+        core_memory = await sync_to_async(CoreMemory.objects.get)(team=self.team)
+        self.assertIn("The orders table is the source of truth", core_memory.text)
 
     @pytest.mark.asyncio
     async def test_execute_without_content_returns_help(self):

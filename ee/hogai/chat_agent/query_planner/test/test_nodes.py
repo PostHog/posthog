@@ -23,6 +23,7 @@ from posthog.schema import (
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 from ee.hogai.chat_agent.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
@@ -44,6 +45,28 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def _get_node(self):
         return QueryPlannerNode(self.team, self.user)
+
+    def test_schema_marks_data_warehouse_tables(self):
+        credential = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="http://example.com/orders.parquet",
+            columns={"id": {"hogql": "IntegerDatabaseField", "valid": True, "clickhouse": "Int64"}},
+        )
+
+        node = self._get_node()
+        history = node._construct_messages(
+            AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
+        )
+        schema_prompt = history[0].prompt[1].template
+
+        self.assertIn("Table `orders` (data warehouse table) with fields:", schema_prompt)
+        self.assertIn("Table `events` with fields:", schema_prompt)
 
     def test_agent_reconstructs_conversation(self):
         node = self._get_node()
