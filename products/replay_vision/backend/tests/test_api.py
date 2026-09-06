@@ -915,6 +915,25 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertIsNone(resp.json()["experiment_targeting"])
 
+    def test_draft_experiment_targeting_saves_without_an_estimate_error(self) -> None:
+        # The create wizard makes a scanner next to a fresh draft, so the exposed population cannot
+        # resolve yet. The real estimate call runs here, because that is what must stay quiet.
+        self.refresh_estimate_patcher.stop()
+        try:
+            with patch("products.replay_vision.backend.api.scanners.logger") as mock_logger:
+                resp = self.client.post(
+                    self.scanners_url,
+                    data=self._create_payload("draft-target", experiment_targeting=self.targeting),
+                    format="json",
+                )
+        finally:
+            self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["experiment_targeting"], self.targeting)
+        self.assertIsNone(resp.json()["estimated_monthly_observations"])
+        mock_logger.exception.assert_not_called()
+
     @parameterized.expand(
         [
             ("missing_experiment", {"variant": "test"}),

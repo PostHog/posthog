@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import FilterLogicalOperator, RecordingsQuery
@@ -370,6 +371,14 @@ class TestRefreshScannerEstimateActivity:
                 refresh_scanner_estimate_activity(
                     RefreshScannerEstimateInputs(scanner_id=scanner.id, team_id=scanner.team_id)
                 )
+
+    def test_reports_an_unresolvable_experiment_as_not_refreshed(self) -> None:
+        scanner = _make_scanner()
+        with patch(_ACTIVITY_HELPER, side_effect=DRFValidationError("This experiment hasn't launched")):
+            refreshed = refresh_scanner_estimate_activity(
+                RefreshScannerEstimateInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+        assert refreshed is False
 
 
 @pytest.mark.django_db(transaction=True)
