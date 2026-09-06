@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     metrics_consts::{
-        ISSUE_FAILED, V2_BATCH_ROWS_DEDUPED, V2_BATCH_ROWS_DROPPED_FK, V2_EVENT_DEFS_BATCH_ATTEMPT,
+        ISSUE_FAILED, V2_BATCH_REORDERED, V2_BATCH_ROWS_DROPPED_FK, V2_EVENT_DEFS_BATCH_ATTEMPT,
         V2_EVENT_DEFS_BATCH_CACHE_TIME, V2_EVENT_DEFS_BATCH_ROWS_AFFECTED,
         V2_EVENT_DEFS_BATCH_SIZE, V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_REMOVED,
         V2_EVENT_PROPS_BATCH_ATTEMPT, V2_EVENT_PROPS_BATCH_CACHE_TIME,
@@ -108,28 +108,35 @@ impl EventPropertiesBatch {
         self.len() == 0
     }
 
-    // Orders the rows by the unique key of the target table and drops duplicate keys. Rows
-    // arrive in event order, so an unordered batch touches random leaves of a very large index,
-    // for the read-before-write probe and for the INSERT that follows. The key mirrors the
-    // index expression (COALESCE(project_id, team_id), event, property); project_id stands in
-    // for the COALESCE because it is never null here. Two rows with that key map to one table
-    // row, so a duplicate can only add a probe and an insert that does nothing. The dropped
-    // copy keeps its shared dedup cache entry: the copy that stays owns the same table row, and
-    // it is the one that uncaches and rewrites if the batch fails. `retain_rows` and
-    // `remove_rows_for_fk` hold the order, so one sort serves every retry.
-    pub fn sort_and_dedupe(&mut self) {
+    // Orders the rows by the unique key of the target table, so the read-before-write probe
+    // and the INSERT that follows walk the index in order. `update_consumer_loop` already sorts
+    // the whole update batch, but on `(team_id, project_id, event, property)`, which matches the
+    // index expression (COALESCE(project_id, team_id), event, property) only while a project has
+    // one environment. Extra environments of one project hold unrelated team ids, so their rows
+    // land far apart in that order while they share one stretch of the index. An ordered batch
+    // returns before it touches anything, which is the common case, so the reorder costs its
+    // allocations only where the two orders differ.
+    //
+    // `team_id` closes the key. Rows that agree on the index key are one table row, and
+    // ON CONFLICT DO NOTHING keeps the copy in the first array position, so the tiebreaker holds
+    // the lowest team id there. That is the environment the upstream sort already put first.
+    // `retain_rows` and `remove_rows_for_fk` hold the order, so one sort serves every retry.
+    pub fn sort_for_write(&mut self) {
         let key = |i: usize| {
             (
                 self.project_ids[i],
                 self.event_names[i].as_str(),
                 self.property_names[i].as_str(),
+                self.team_ids[i],
             )
         };
+        if (1..self.len()).all(|i| key(i - 1) <= key(i)) {
+            return;
+        }
+        metrics::counter!(V2_BATCH_REORDERED, &[("table", "eventprops")]).increment(1);
+
         let mut order: Vec<usize> = (0..self.len()).collect();
         order.sort_unstable_by(|&a, &b| key(a).cmp(&key(b)));
-        order.dedup_by(|&mut a, &mut b| key(a) == key(b));
-
-        let deduped = self.len() - order.len();
         self.team_ids = order.iter().map(|&i| self.team_ids[i]).collect();
         self.project_ids = order.iter().map(|&i| self.project_ids[i]).collect();
         self.event_names = order.iter().map(|&i| self.event_names[i].clone()).collect();
@@ -138,11 +145,6 @@ impl EventPropertiesBatch {
             .map(|&i| self.property_names[i].clone())
             .collect();
         self.cached = order.iter().map(|&i| self.cached[i].clone()).collect();
-
-        if deduped > 0 {
-            metrics::counter!(V2_BATCH_ROWS_DEDUPED, &[("table", "eventprops")])
-                .increment(deduped as u64);
-        }
     }
 
     pub fn uncache_batch(&self, cache: &Arc<Cache>) {
@@ -604,7 +606,7 @@ async fn filter_and_write_event_properties(
     read_budget: Duration,
 ) -> Result<(), sqlx::Error> {
     // One order for both database calls: the reader probe below and the INSERT it feeds.
-    batch.sort_and_dedupe();
+    batch.sort_for_write();
     if let Some(rp) = read_pool {
         crate::read_filter::filter_event_properties(rp, &mut batch, read_budget).await;
     }
@@ -1092,34 +1094,34 @@ mod tests {
         }
     }
 
-    // The probe and the INSERT read the parallel vecs positionally through UNNEST, so the
-    // sort must hold every vec (including `cached`) aligned while it orders rows by the unique
-    // key and drops duplicate keys.
+    // The probe and the INSERT read the parallel vecs positionally through UNNEST, so the sort
+    // must hold every vec (including `cached`) aligned. The two teams of one project also pin the
+    // tiebreaker: they are one table row, and ON CONFLICT DO NOTHING keeps the first of them, so
+    // a sort that left their order open would store an arbitrary environment's team_id.
     #[test]
-    fn sort_and_dedupe_orders_by_unique_key_and_keeps_vecs_aligned() {
+    fn sort_for_write_orders_by_unique_key_and_keeps_vecs_aligned() {
         let mut batch = EventPropertiesBatch::new(100);
         let out_of_order = [
             EventProperty {
-                team_id: 2,
+                team_id: 20,
                 project_id: 20,
                 event: "click".to_string(),
                 property: "b".to_string(),
             },
             EventProperty {
-                team_id: 1,
+                team_id: 77,
+                project_id: 10,
+                event: "$pageview".to_string(),
+                property: "a".to_string(),
+            },
+            EventProperty {
+                team_id: 10,
                 project_id: 10,
                 event: "$pageview".to_string(),
                 property: "z".to_string(),
             },
             EventProperty {
-                team_id: 1,
-                project_id: 10,
-                event: "$pageview".to_string(),
-                property: "a".to_string(),
-            },
-            // Same unique key as the row above, from a second team in the same project.
-            EventProperty {
-                team_id: 3,
+                team_id: 10,
                 project_id: 10,
                 event: "$pageview".to_string(),
                 property: "a".to_string(),
@@ -1129,22 +1131,33 @@ mod tests {
             batch.append(ep);
         }
 
-        batch.sort_and_dedupe();
+        batch.sort_for_write();
 
-        assert_eq!(batch.project_ids, vec![10, 10, 20]);
-        assert_eq!(batch.event_names, vec!["$pageview", "$pageview", "click"]);
-        assert_eq!(batch.property_names, vec!["a", "z", "b"]);
-        assert_eq!(batch.team_ids, vec![1, 1, 2]);
+        assert_eq!(batch.project_ids, vec![10, 10, 10, 20]);
+        assert_eq!(
+            batch.event_names,
+            vec!["$pageview", "$pageview", "$pageview", "click"]
+        );
+        assert_eq!(batch.property_names, vec!["a", "a", "z", "b"]);
+        assert_eq!(batch.team_ids, vec![10, 77, 10, 20]);
 
-        let cached_props: Vec<String> = batch
+        let cached_rows: Vec<(i32, String)> = batch
             .cached
             .iter()
             .map(|u| match u {
-                Update::EventProperty(ep) => ep.property.clone(),
+                Update::EventProperty(ep) => (ep.team_id, ep.property.clone()),
                 _ => unreachable!(),
             })
             .collect();
-        assert_eq!(cached_props, vec!["a", "z", "b"]);
+        assert_eq!(
+            cached_rows,
+            vec![
+                (10, "a".to_string()),
+                (77, "a".to_string()),
+                (10, "z".to_string()),
+                (20, "b".to_string()),
+            ]
+        );
     }
 
     // UNNEST pads mismatched input arrays with NULLs instead of erroring, so a desync
