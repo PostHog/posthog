@@ -32,6 +32,10 @@
       "types": "./dist/extensions/auto-publish/index.d.ts",
       "import": "./dist/extensions/auto-publish/index.js"
     },
+    "./extensions/benjamin-guidance": {
+      "types": "./dist/extensions/benjamin-guidance/index.d.ts",
+      "import": "./dist/extensions/benjamin-guidance/index.js"
+    },
     "./extensions/hog-branding": {
       "types": "./dist/extensions/hog-branding/index.d.ts",
       "import": "./dist/extensions/hog-branding/index.js"

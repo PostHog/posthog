@@ -313,6 +313,7 @@ jobs:
                   pnpm --filter @posthog/shared run build
                   pnpm --filter @posthog/git run build
                   pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
 
             - name: Download native codex binary
               # Non-fatal at the STEP so a failure surfaces as the fail-loud binary guard

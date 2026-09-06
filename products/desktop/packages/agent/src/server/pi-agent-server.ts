@@ -5,6 +5,10 @@ import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import {
+  BENJAMIN_UPSTREAM_COMMIT,
+  isBenjaminEnabled,
+} from "@posthog/harness/extensions/benjamin-guidance";
+import {
   type AgentConversationEvent,
   type AgentTurnUsage,
   MCP_TOOL_PERMISSION_OPTIONS,
@@ -728,6 +732,9 @@ export class PiAgentServer {
     this.sessionInitMs = Date.now() - startedAt;
     await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
       status: "in_progress",
+      ...(isBenjaminEnabled() && {
+        state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
+      }),
     });
     this.broadcast({
       type: "pi_run_started",
