@@ -193,11 +193,15 @@ export function createDebouncedStorage(
  * (defaultSize), so debouncing the write keeps live resize instant while
  * collapsing a drag's ~60 synchronous localStorage writes into one.
  */
+// A debounced flush can fire after the surrounding window is gone (a test's
+// jsdom realm tears down before the trailing timer runs). Reach `window`
+// through `globalThis` so a late write is a no-op instead of a ReferenceError.
 const panelLayoutStorage: StateStorage = createDebouncedStorage(
   {
-    getItem: (key) => window.localStorage.getItem(key),
-    setItem: (key, value) => window.localStorage.setItem(key, value),
-    removeItem: (key) => window.localStorage.removeItem(key),
+    getItem: (key) => globalThis.window?.localStorage.getItem(key) ?? null,
+    setItem: (key, value) =>
+      globalThis.window?.localStorage.setItem(key, value),
+    removeItem: (key) => globalThis.window?.localStorage.removeItem(key),
   },
   PANEL_PERSIST_DEBOUNCE_MS,
 );

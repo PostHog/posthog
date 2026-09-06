@@ -55,6 +55,19 @@ vi.mock("electron-log/renderer", () => {
 
 vi.mock("@main/utils/logger");
 
+// The real `electron` package resolves to the installed Electron binary and
+// tries to download it on import when it is missing, which is flaky in CI and
+// fails the whole test file. Main-process modules import `electron` at load
+// time, so provide a default mock; test files that need specific behavior
+// override this with their own `vi.mock("electron", ...)`.
+vi.mock("electron", () => ({
+  app: {
+    getAppPath: vi.fn(() => "/mock/app"),
+    getFileIcon: vi.fn(),
+    isPackaged: false,
+  },
+}));
+
 // Suppress act() warnings from Radix UI async updates in tests,
 // we don't care about them.
 const originalError = console.error;
