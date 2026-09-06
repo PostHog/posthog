@@ -1487,6 +1487,77 @@ async fn parked_state(pool: &PgPool, op_id: Uuid) -> (bool, Option<String>) {
 }
 
 #[tokio::test]
+async fn a_merge_drops_cohort_rows_the_target_already_holds() {
+    // One row per (cohort_id, person_id) is a unique index, so a source
+    // membership the target — or an earlier source — already carries cannot
+    // move onto the target. It is dropped instead, and the merge still runs.
+    let h = MergeHarness::new().await;
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("cohort-collide-target")
+        .await;
+    let source_a = h
+        .ctx
+        .insert_person_with_distinct_id("cohort-collide-source-a")
+        .await;
+    let source_b = h
+        .ctx
+        .insert_person_with_distinct_id("cohort-collide-source-b")
+        .await;
+
+    // Cohort 5100 is held by all three; cohort 5101 by both sources only.
+    let seeded = [
+        (5100_i64, target),
+        (5100, source_a),
+        (5100, source_b),
+        (5101, source_a),
+        (5101, source_b),
+    ];
+    for (cohort_id, person_id) in seeded {
+        sqlx::query("INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES ($1, $2)")
+            .bind(cohort_id)
+            .bind(person_id)
+            .execute(&h.ctx.pool)
+            .await
+            .expect("seed cohort row");
+    }
+
+    let request = merge_request(
+        "cohort-collide-target",
+        &["cohort-collide-source-a", "cohort-collide-source-b"],
+    );
+    let outcome = h
+        .execute(Uuid::now_v7(), &request)
+        .await
+        .expect("merge completes");
+    assert!(!outcome.aborted);
+
+    let people = vec![target, source_a, source_b];
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        r#"
+        SELECT cohort_id::bigint, person_id FROM posthog_cohortpeople
+        WHERE person_id = ANY($1) ORDER BY cohort_id
+        "#,
+    )
+    .bind(&people)
+    .fetch_all(&h.ctx.pool)
+    .await
+    .expect("read cohort rows");
+    assert_eq!(
+        rows,
+        vec![(5100, target), (5101, target)],
+        "the target holds each cohort exactly once, and the sources hold none"
+    );
+
+    sqlx::query("DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)")
+        .bind(&people)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("clear cohort rows");
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn merge_works_on_a_configured_person_table() {
     // Runs the whole merge saga against personhog_person_tmp — a leftover
     // hardcoded posthog_person in any of the interpolated queries would

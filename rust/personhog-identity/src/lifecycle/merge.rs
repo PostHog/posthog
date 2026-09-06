@@ -1637,10 +1637,12 @@ async fn record_moved_mappings(
     Ok(())
 }
 
-/// Cohort membership moves wholesale. The table has no unique
-/// constraint, so a target already in a cohort ends up with duplicate
-/// rows — deliberately matching the production merge path, whose
-/// recalculation heals the rare duplicate.
+/// Cohort membership moves, minus the rows that would collide. The unique
+/// (cohort_id, person_id) index rejects a second row for the same pair, so a
+/// source row for a cohort the target already holds — or that another source
+/// already carries into the merge — is dropped instead of moved. The target
+/// keeps its membership either way, and the source person is a tombstone, so
+/// nothing survives the merge that would need the dropped row.
 async fn move_cohort_membership(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
@@ -1654,8 +1656,30 @@ async fn move_cohort_membership(
     if tables.person != "posthog_person" {
         return Ok(());
     }
+    // The two data-modifying parts touch disjoint rows, which a shared snapshot of
+    // `colliding` guarantees; a sub-statement cannot see what its sibling wrote.
     sqlx::query!(
-        "UPDATE posthog_cohortpeople SET person_id = $2 WHERE person_id = ANY($1)",
+        r#"
+        WITH colliding AS (
+            SELECT cp.id
+            FROM posthog_cohortpeople cp
+            WHERE cp.person_id = ANY($1)
+              AND EXISTS (
+                  SELECT 1 FROM posthog_cohortpeople other
+                  WHERE other.cohort_id = cp.cohort_id
+                    AND other.id <> cp.id
+                    AND (
+                        other.person_id = $2
+                        OR (other.person_id = ANY($1) AND other.id < cp.id)
+                    )
+              )
+        ),
+        dropped AS (
+            DELETE FROM posthog_cohortpeople WHERE id IN (SELECT id FROM colliding)
+        )
+        UPDATE posthog_cohortpeople SET person_id = $2
+        WHERE person_id = ANY($1) AND id NOT IN (SELECT id FROM colliding)
+        "#,
         sources,
         target,
     )
