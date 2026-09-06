@@ -983,10 +983,6 @@ tools:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
         hidden: true
-    clickhouse:logs:init:
-        bin_script: clickhouse-logs-init
-        description: Initialize ClickHouse logs schema (temporary, pre-migration)
-        hidden: true
     clickhouse:multinode:start:
         cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
         description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification
