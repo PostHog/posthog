@@ -6,9 +6,11 @@ Two routes wrap these handlers with different authentication: the public externa
 by config presence (#82564), so the two must behave identically.
 """
 
+import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.db.models.functions import Substr
 from django.utils import timezone
 
 from rest_framework import serializers, status
@@ -24,7 +26,8 @@ from posthog.models.tag import tagify
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Priority, Status
+from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
 
@@ -119,8 +122,141 @@ def workflow_trigger_from_request(request: Request) -> Trigger | None:
     return Trigger(job_type="hog_flow", job_id=hog_flow_id, payload={})
 
 
-def handle_ticket_get(team: Team, ticket_id: str | uuid.UUID) -> Response:
-    """Fetch a ticket's data for an already-authenticated team."""
+# The CDP worker spreads this whole response into workflow variables and rejects the step once
+# their combined size passes 5KB, so this preview has to stay small enough to be a rounding
+# error against that budget. The bound counts UTF-8 bytes rather than characters so that
+# multibyte text cannot quietly cost several times its length. The worker measures the budget
+# after JSON encoding, which escapes quotes, newlines and control characters, so a quote-heavy
+# message can still cost roughly twice the figure below.
+FIRST_MESSAGE_PREVIEW_BYTES = 200
+
+# How far down the thread to look for a message with something quotable in it. Bounded so a
+# ticket that opens with a run of attachments cannot turn this into a scan of the whole thread.
+FIRST_MESSAGE_CANDIDATES = 5
+
+# Attachments arrive as markdown appended to the message body, and an inbound email carrying
+# only a screenshot has no other text at all. A truncated image URL identifies nothing, so drop
+# image markdown outright and keep only the label of a file or link. The label stops at a
+# bracket, so a run of unclosed ones cannot restart a walk of the rest of the window at every
+# one. That costs no stripping ability: sanitize_attachment_filename removes brackets from
+# every inbound filename, so a label we render ourselves never holds one.
+_IMAGE_MARKDOWN = re.compile(r"!\[[^\[\]]*\]\([^)]*\)")
+_LINK_MARKDOWN = re.compile(r"\[([^\[\]]*)\]\([^)]*\)")
+
+# How much of a message body those regexes are allowed to scan. They are linear on ordinary
+# prose, but a crafted run of `![](` still rescans the remaining window for a closing bracket
+# and parenthesis at every one, and an inbound email may carry 50,000 characters of them. This
+# ceiling is an order of magnitude wider than the preview it feeds.
+FIRST_MESSAGE_SCAN_CHARS = 2000
+
+# The database fetches one character more than the scan window, never the whole body. The extra
+# character is what lets `_quotable_text` still tell a cut body from a whole one: a body at or
+# under the scan window comes back untouched, and only a longer one comes back at this length,
+# which is strictly greater than the window. Fetch exactly the window and that test can no
+# longer fire. Keep this one above FIRST_MESSAGE_SCAN_CHARS.
+FIRST_MESSAGE_DB_FETCH_CHARS = FIRST_MESSAGE_SCAN_CHARS + 1
+
+# Taking that window can cut an attachment in half, and a fragment like `![shot.png](/uploaded`
+# no longer matches the patterns above, so it would survive into the preview. This drops the
+# unterminated construct a cut leaves behind. The run cannot cross a bracket, so a closed
+# bracket with text after it is left alone and a log line pasted as "[2026-01-01] ERROR ..."
+# survives. A window ending on the bracket itself still matches, which is why the caller
+# applies this only when the body was long enough to be cut.
+_PARTIAL_MARKDOWN_TAIL = re.compile(r"!?\[[^\[\]]*(?:\](?:\([^)]*)?)?$")
+
+# The support widget stores the customer's message as markdown, so it backslash-escapes the
+# customer's own punctuation (a typed "(yet)" is stored as "\(yet\)"). The preview is quoted back
+# to the customer as prose, often in an email that does not render markdown, so those backslashes
+# would show. Reverse the escaping. This is the inverse of the widget editor's escapeMarkdown, and
+# matches the same character set the outbound Slack formatter unescapes (posthog/comment/formatting.py).
+_MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
+
+
+def _quotable_text(content: str, *, unescape_markdown: bool) -> str:
+    window = content[:FIRST_MESSAGE_SCAN_CHARS]
+    # Only a window that actually cut the body can hold a severed construct. Applying this to a
+    # whole short message would eat a trailing bracket the customer meant to type.
+    if len(content) > FIRST_MESSAGE_SCAN_CHARS:
+        window = _PARTIAL_MARKDOWN_TAIL.sub("", window)
+    text = _LINK_MARKDOWN.sub(r"\1", _IMAGE_MARKDOWN.sub("", window))
+    # Only the widget editor escapes the customer's punctuation on the way in (its escapeMarkdown),
+    # so only a widget message is unescaped here. Email, Slack, Teams and imports store the text as
+    # typed, where a backslash is the customer's own and must survive into the preview.
+    if unescape_markdown:
+        text = _MARKDOWN_ESCAPE.sub(r"\1", text)
+    return " ".join(text.split())
+
+
+def _truncate_bytes(text: str, max_bytes: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    # Slicing encoded bytes can land inside a character, so errors="ignore" drops the partial
+    # trailing one. That can also expose the joiner of a split emoji sequence, which renders as
+    # a dangling glyph, so strip any joiner the cut left at the end.
+    truncated = encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip("‍")
+    # The message was longer than the budget, so end it with an ellipsis to show it was cut.
+    # Replacing the last three characters keeps the result within max_bytes: dropping three
+    # characters frees at least three bytes and "..." adds exactly three.
+    return (truncated[:-3] if len(truncated) > 3 else "") + "..."
+
+
+def _first_customer_message_text(team_id: int, ticket_id: str, *, unescape_markdown: bool) -> str | None:
+    """
+    Preview of what the customer first asked, so a workflow can remind them which ticket it
+    is writing about on channels that carry no email subject.
+
+    Only the customer's own messages qualify, because a ticket can open with a team message
+    such as an agent composing outbound mail or a teammate's Slack post that seeded the
+    ticket, and quoting that back to the customer as "what you asked us" would be wrong.
+
+    author_type must say "customer" explicitly. Display code elsewhere treats a missing value
+    as the customer's, but a wrong guess here is emailed out, so an unlabelled message is left
+    out and the workflow renders no reminder instead.
+
+    unescape_markdown is on only for a widget ticket, whose editor markdown-escapes the customer's
+    punctuation. Other channels store the text as typed and must keep their backslashes.
+    """
+    candidates = (
+        visible_ticket_messages(team_id, ticket_id)
+        .filter(item_context__author_type="customer")
+        .exclude(content__isnull=True)
+        .exclude(content="")
+        # Fetch only the scan window plus one character, so a 50,000-character email never
+        # crosses the wire in full. The preview keeps the same value it would from the whole
+        # body: the strip and truncation below never look past the window anyway.
+        .annotate(content_preview=Substr("content", 1, FIRST_MESSAGE_DB_FETCH_CHARS))
+        # Zendesk-imported messages carry second-resolution timestamps, so created_at alone can
+        # tie. Tie-breaking on id keeps the preview stable from one call to the next.
+        .order_by("created_at", "id")
+        .values_list("content_preview", flat=True)[:FIRST_MESSAGE_CANDIDATES]
+    )
+    for content in candidates:
+        quotable = _quotable_text(content or "", unescape_markdown=unescape_markdown)
+        if quotable:
+            return _truncate_bytes(quotable, FIRST_MESSAGE_PREVIEW_BYTES) or None
+    return None
+
+
+def wants_first_customer_message_text(request: Request) -> bool:
+    """True when the caller opted into first_customer_message_text with ?include_...=true.
+
+    The CDP async function only appends the parameter when the workflow enabled it, so it
+    arrives as the literal "true" or not at all. Parsing both routes the same way keeps them
+    identical.
+    """
+    return request.query_params.get("include_first_customer_message_text", "").lower() == "true"
+
+
+def handle_ticket_get(
+    team: Team, ticket_id: str | uuid.UUID, *, include_first_customer_message_text: bool = False
+) -> Response:
+    """Fetch a ticket's data for an already-authenticated team.
+
+    first_customer_message_text is opt-in: it runs an extra query, so a caller that does not ask
+    for it (the default) pays nothing and gets the response shape it always got. Only the CSAT
+    workflows request it.
+    """
     if error := validate_ticket_id(ticket_id):
         return error
 
@@ -148,36 +284,41 @@ def handle_ticket_get(team: Team, ticket_id: str | uuid.UUID) -> Response:
     # APIViews without scope_object), so the schema-drift risk behind the rule cannot occur,
     # and the wire shape must stay identical to the legacy external route while the worker
     # migrates between them (a serializer would re-format datetimes).
-    return Response(  # nosemgrep: api-response-must-match-schema
-        {
-            "id": str(ticket.id),
-            "number": ticket.ticket_number,
-            "status": ticket.status,
-            "priority": ticket.priority,
-            "channel_source": ticket.channel_source,
-            "channel_detail": ticket.channel_detail,
-            "distinct_id": ticket.distinct_id,
-            "created_at": ticket.created_at.isoformat(),
-            "updated_at": ticket.updated_at.isoformat(),
-            "message_count": ticket.message_count,
-            "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
-            "last_message_text": ticket.last_message_text,
-            "unread_team_count": ticket.unread_team_count,
-            "unread_customer_count": ticket.unread_customer_count,
-            "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
-            "snoozed_until": ticket.snoozed_until.isoformat() if ticket.snoozed_until else None,
-            "assignee": assignee,
-            "url": session_context.get("current_url"),
-            "slack_channel_id": ticket.slack_channel_id,
-            "slack_thread_ts": ticket.slack_thread_ts,
-            "slack_team_id": ticket.slack_team_id,
-            "email_subject": ticket.email_subject,
-            "email_from": ticket.email_from,
-            "email_to": ticket.email_config.from_email if ticket.email_config else None,
-            "cc_participants": ticket.cc_participants,
-            "tags": tags,
-        }
-    )
+    payload = {
+        "id": str(ticket.id),
+        "number": ticket.ticket_number,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "channel_source": ticket.channel_source,
+        "channel_detail": ticket.channel_detail,
+        "distinct_id": ticket.distinct_id,
+        "created_at": ticket.created_at.isoformat(),
+        "updated_at": ticket.updated_at.isoformat(),
+        "message_count": ticket.message_count,
+        "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
+        "last_message_text": ticket.last_message_text,
+        "unread_team_count": ticket.unread_team_count,
+        "unread_customer_count": ticket.unread_customer_count,
+        "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+        "snoozed_until": ticket.snoozed_until.isoformat() if ticket.snoozed_until else None,
+        "assignee": assignee,
+        "url": session_context.get("current_url"),
+        "slack_channel_id": ticket.slack_channel_id,
+        "slack_thread_ts": ticket.slack_thread_ts,
+        "slack_team_id": ticket.slack_team_id,
+        "email_subject": ticket.email_subject,
+        "email_from": ticket.email_from,
+        "email_to": ticket.email_config.from_email if ticket.email_config else None,
+        "cc_participants": ticket.cc_participants,
+        "tags": tags,
+    }
+
+    if include_first_customer_message_text:
+        payload["first_customer_message_text"] = _first_customer_message_text(
+            team.id, str(ticket.id), unescape_markdown=ticket.channel_source == Channel.WIDGET
+        )
+
+    return Response(payload)  # nosemgrep: api-response-must-match-schema
 
 
 def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID) -> Response:

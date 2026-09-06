@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.jwt import PosthogJwtAudience
+from posthog.models import Comment
 from posthog.models.utils import generate_random_token_secret
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
@@ -59,6 +60,20 @@ class TestInternalTicketAPI(BaseTest):
         self.assertEqual(data["id"], str(self.ticket.id))
         self.assertEqual(data["status"], "new")
         self.assertEqual(data["distinct_id"], "user-int-123")
+
+    def test_get_returns_first_customer_message_text_when_opted_in(self):
+        # The field is shared with the external route but gated behind a query param, so confirm
+        # the JWT route reads that param and returns the preview through the same handler.
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="How do I export my data?",
+            item_context={"author_type": "customer"},
+        )
+        response = self.client.get(self.url, {"include_first_customer_message_text": "true"}, **self._headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["first_customer_message_text"], "How do I export my data?")
 
     def test_patch_updates_ticket(self):
         response = self.client.patch(
