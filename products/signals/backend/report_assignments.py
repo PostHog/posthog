@@ -411,24 +411,58 @@ def update_assignments_for_pull_request(
     pr_number: int,
     pr_state: str,
 ) -> int:
-    """Apply a scoped GitHub webhook state to every report linked to the PR."""
+    from products.signals.backend.implementation_pr import (
+        fetch_implementation_pr_state_for_reports,
+        report_ids_for_implementation_pr,
+    )
+
     if not team_ids:
         return 0
     normalized_repository = repository.lower()
+    report_ids = [
+        report_id
+        for team_id in team_ids
+        for report_id in report_ids_for_implementation_pr(team_id=team_id, repository=repository, pr_number=pr_number)
+    ]
     updated = 0
     with transaction.atomic():
-        assignments = list(
-            SignalReportAssignment.all_teams.select_for_update()
-            .select_related("report")
-            .filter(report__team_id__in=team_ids, repository=normalized_repository, pr_number=pr_number)
+        reports = list(
+            # nosemgrep: idor-lookup-without-team - The verified webhook installation scopes this cross-team lookup through team_id__in.
+            SignalReport.objects.select_for_update().filter(team_id__in=team_ids, id__in=report_ids).order_by("id")
         )
-        for assignment in assignments:
+        assignments = {
+            assignment.report_id: assignment
+            for assignment in SignalReportAssignment.all_teams.select_for_update().filter(
+                team_id__in=team_ids, report_id__in=report_ids
+            )
+        }
+        prs = fetch_implementation_pr_state_for_reports([str(report.id) for report in reports])
+        for report in reports:
+            pr = prs.get(str(report.id))
+            parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url) if pr else None
+            if (
+                pr is None
+                or parsed is None
+                or parsed.repository.lower() != normalized_repository
+                or parsed.number != pr_number
+            ):
+                continue
+            assignment = assignments.get(report.id)
+            if assignment is None:
+                assignment = SignalReportAssignment(team_id=report.team_id, report_id=report.id)
+                if pr.task_id:
+                    _set_actor(assignment, ArtefactAttribution.from_task(pr.task_id))
+            missing_pr = not assignment.pr_url
+            if missing_pr:
+                assignment.pr_url = pr.url
+                assignment.repository = normalized_repository
+                assignment.pr_number = pr_number
             merged = pr_state == SignalReportAssignment.PrState.MERGED
             changed = assignment.pr_state != pr_state or assignment.pr_merged != merged
             assignment.pr_state = pr_state
             assignment.pr_merged = merged
-            if changed:
-                assignment.save(update_fields=["pr_state", "pr_merged", "updated_at"])
-            _apply_pr_report_state(assignment.report, pr_state)
+            if changed or missing_pr or assignment._state.adding:
+                assignment.save()
+            _apply_pr_report_state(report, pr_state)
             updated += 1
     return updated
