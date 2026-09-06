@@ -58,6 +58,7 @@ BEDROCK_MODELS = BEDROCK_MODEL_IDS
 
 # OAuth application IDs per region
 POSTHOG_CODE_PRODUCT = "posthog_code"
+WIZARD_PRODUCT = "wizard"
 POSTHOG_CODE_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
 POSTHOG_CODE_EU_APP_ID = "019a3067-5be7-0000-33c7-c6743eb59a79"
 POSTHOG_CODE_DEV_APP_ID = "019ebb47-c750-0000-e1ea-723a6ff112d3"
@@ -201,6 +202,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=None,
     ),
+    # Models are not pinned here: the wizard's exact (model, effort) allowlist is enforced by
+    # products/wizard_allowlist.py from a flag payload, so it can follow wizard releases
+    # without a gateway deploy.
     "wizard": ProductConfig(
         allowed_application_ids=frozenset({WIZARD_US_APP_ID, WIZARD_EU_APP_ID}),
         allowed_models=None,

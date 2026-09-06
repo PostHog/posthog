@@ -14,6 +14,7 @@ GLM_MODAL_FLAG = "tasks-glm-modal-inference"
 GLM_BASETEN_FLAG = "tasks-glm-baseten-inference"
 
 _flag_cache: TTLCache[tuple[str, str], bool] = TTLCache(maxsize=10_000, ttl=60)
+_payload_cache: TTLCache[tuple[str, str], object] = TTLCache(maxsize=1_000, ttl=60)
 # Global per-flag backoff so an evaluation outage doesn't stack one blocking roundtrip per new user.
 _flag_unavailable_cache: TTLCache[str, bool] = TTLCache(maxsize=100, ttl=5)
 _client: Posthog | None = None
@@ -81,3 +82,33 @@ async def evaluate_flags(flag_keys: list[str], distinct_id: str) -> dict[str, bo
 async def evaluate_flag(flag_key: str, distinct_id: str) -> bool | None:
     """None when evaluation is unavailable, so callers can apply their default."""
     return (await evaluate_flags([flag_key], distinct_id))[flag_key]
+
+
+async def evaluate_flag_payload(flag_key: str, distinct_id: str) -> object | None:
+    """The flag's payload for `distinct_id`, or None when the flag is off, has no payload, or
+    evaluation is unavailable. Callers treat every None the same way: apply their default."""
+    cache_key = (flag_key, distinct_id)
+    if cache_key in _payload_cache:
+        return _payload_cache[cache_key]
+    if flag_key in _flag_unavailable_cache:
+        return None
+
+    client = _get_client()
+    if client is None:
+        return None
+
+    try:
+        payload = await asyncio.to_thread(
+            client.get_feature_flag_payload, flag_key, distinct_id, send_feature_flag_events=False
+        )
+    except Exception as exc:
+        logger.warning("flag_payload_evaluation_failed", flag=flag_key, error=str(exc))
+        _flag_unavailable_cache[flag_key] = True
+        return None
+
+    if payload is None:
+        # Off or payload-less: a definitive answer worth caching, unlike an outage.
+        _payload_cache[cache_key] = None
+        return None
+    _payload_cache[cache_key] = payload
+    return payload

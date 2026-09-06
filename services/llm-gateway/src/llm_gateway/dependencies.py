@@ -22,12 +22,14 @@ from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     INTERNAL_RUN_SCOPE,
     POSTHOG_CODE_PRODUCT,
+    WIZARD_PRODUCT,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
     get_required_model_flag,
     resolve_product_alias,
 )
+from llm_gateway.products.wizard_allowlist import check_wizard_model_access, request_efforts, resolve_allowlist
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext, is_usage_unlimited
@@ -159,8 +161,43 @@ async def enforce_product_access(
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
 
+    await enforce_wizard_model_allowlist(request, user, product, model, provider)
     await enforce_desktop_access(request, user, product)
     return user
+
+
+async def enforce_wizard_model_allowlist(
+    request: Request, user: AuthenticatedUser, product: str, model: str | None, provider: str | None
+) -> None:
+    """Refuse a wizard request whose (model, effort) pair the allowlist does not name.
+
+    Staff are not exempt: the point is that a wizard credential reaches nothing but the wizard's
+    own models, whoever holds it. model=None is left to route validation, which 422s it.
+    """
+    if product != WIZARD_PRODUCT or model is None:
+        return
+    efforts = request_efforts(await get_request_json(request))
+    allowed, reason = check_wizard_model_access(model, efforts, await resolve_allowlist(), provider=provider)
+    if allowed:
+        return
+    logger.warning(
+        "wizard_model_blocked",
+        user_id=user.user_id,
+        team_id=user.team_id,
+        model=model,
+        efforts=sorted(efforts),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": {
+                "message": f"{reason} (rate_limit)",
+                "type": "permission_error",
+                "code": "model_gate",
+                "reason": "wizard_model_not_allowed",
+            }
+        },
+    )
 
 
 async def enforce_desktop_access(request: Request, user: AuthenticatedUser, product: str) -> None:
