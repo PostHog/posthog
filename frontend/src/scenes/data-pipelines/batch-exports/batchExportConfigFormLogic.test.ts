@@ -567,6 +567,45 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
+    describe('submit failure names the blocking fields', () => {
+        // A blocked submit used to be silent: kea-forms reddened the fields but the toast, and the
+        // scroll to the first error, were missing. Table ID is now seeded, so it must not appear.
+        it('toasts the empty required fields and leaves the seeded Table ID out', async () => {
+            await initLogic({ service: 'BigQuery', id: null })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'submitConfigurationFailure'])
+
+            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('Dataset ID'))
+            expect(lemonToast.error).not.toHaveBeenCalledWith(expect.stringContaining('Table ID'))
+        })
+
+        // A filled-but-invalid field carries a format error, not a "required" one. The toast must show
+        // that message verbatim, not tell the person to fill a field they already filled.
+        it('toasts a destination format error verbatim, not a required-field prompt', async () => {
+            await initLogic({ service: 'AwsS3', id: null })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                bucket_name: 'MyBucket',
+                region: 'us-east-1',
+                prefix: 'test/',
+                integration_id: 31,
+                file_format: 'Parquet',
+                interval: 'hour',
+                name: 'Test Export',
+                model: 'events',
+            })
+
+            logic.actions.submitConfiguration()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Bucket name must be lowercase')
+            expect(lemonToast.error).not.toHaveBeenCalledWith(expect.stringContaining('Fill in the required fields'))
+        })
+    })
+
     describe('S3 bucket name validation', () => {
         it.each([
             { bucket: 'MyBucket', error: 'Bucket name must be lowercase' },
@@ -943,7 +982,8 @@ describe('batchExportConfigFormLogic', () => {
             },
             {
                 service: 'BigQuery',
-                expected: { destination: 'BigQuery', paused: true, model: 'events' },
+                // table_id is seeded so the field holds what its "events" placeholder implies.
+                expected: { destination: 'BigQuery', paused: true, model: 'events', table_id: 'events' },
             },
         ])('returns correct defaults for $service', ({ service, expected }) => {
             const config = getDefaultConfiguration(service)
