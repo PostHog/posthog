@@ -12,6 +12,7 @@ import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { ToolbarParams } from '~/types'
 
 import { listActionsAPIResponse } from './__mocks__/list-actions-response'
+import { listFieldNotesAPIResponse } from './__mocks__/list-field-notes-response'
 import { listHeatmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-response'
 import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
 import { listExperimentsAPIResponse } from './__mocks__/list-web-experiments-response'
@@ -101,6 +102,7 @@ const meta: Meta<StoryArgs> = {
                 '/api/heatmap/': { results: [] },
                 '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
                 '/api/projects/@current/actions/': listActionsAPIResponse,
+                '/api/projects/@current/field_notes/': listFieldNotesAPIResponse,
                 '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
                 '/api/environments/@current/web_vitals/': listWebVitalsAPIResponse,
                 '/api/users/@me/hedgehog_config/': {},
@@ -162,6 +164,10 @@ export const EventsDebuggerEmpty: Story = {
     args: { menu: 'debugger' },
 }
 
+export const FieldNotes: Story = {
+    args: { menu: 'field-notes' },
+}
+
 export const Experiments: Story = {
     args: { menu: 'experiments' },
 }
@@ -212,4 +218,8 @@ export const EventsDebuggerEmptyDark: Story = {
 
 export const WebVitalsDark: Story = {
     args: { theme: 'dark', menu: 'web-vitals' },
+}
+
+export const FieldNotesDark: Story = {
+    args: { theme: 'dark', menu: 'field-notes' },
 }
