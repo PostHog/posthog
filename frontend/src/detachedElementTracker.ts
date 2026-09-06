@@ -66,7 +66,9 @@ export function shouldCaptureDetachedElements(currentCount: number, previousCoun
 }
 
 export function mapToTopN(map: Map<string, number>, limit: number): Record<string, number> {
-    const entries = Array.from(map.entries())
+    // Keys are typed as strings, but the analyzer can emit an undefined key for an
+    // element with an empty component stack. Coerce so the comparator cannot throw.
+    const entries = Array.from(map.entries(), ([key, count]): [string, number] => [String(key), count])
     entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     const result: Record<string, number> = {}
     for (let i = 0; i < Math.min(entries.length, limit); i++) {
