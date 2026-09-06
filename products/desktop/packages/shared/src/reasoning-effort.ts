@@ -59,12 +59,17 @@ export function getReasoningEffortOptions(
   const normalizedModelId = modelId.toLowerCase();
   const supportsXhigh =
     normalizedModelId.includes("gpt-5.5") ||
-    normalizedModelId.includes("gpt-5.6");
+    normalizedModelId.includes("gpt-5.6") ||
+    normalizedModelId.includes("gpt-6-astra");
 
   if (supportsXhigh) {
     options.push({ value: "xhigh", name: "Extra High" });
   }
-  if (adapter === "codex" && normalizedModelId.includes("gpt-5.6")) {
+  if (
+    adapter === "codex" &&
+    (normalizedModelId.includes("gpt-5.6") ||
+      normalizedModelId.includes("gpt-6-astra"))
+  ) {
     options.push({ value: "max", name: "Max" });
   }
 

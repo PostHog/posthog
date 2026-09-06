@@ -103,6 +103,15 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     }
 )
 
+MODELS_AVAILABLE_TO_ALL_PRODUCTS: Final[frozenset[str]] = frozenset({"gpt-6-astra"})
+
+
+def get_effective_allowed_models(config: ProductConfig) -> frozenset[str] | None:
+    if config.allowed_models is None:
+        return None
+    return config.allowed_models | MODELS_AVAILABLE_TO_ALL_PRODUCTS
+
+
 # Models reserved for specific products must stay restricted even when a product otherwise allows
 # every model (`allowed_models=None`). This is an authorization boundary, not merely a
 # model-registry advertising filter; the registry also derives its advertising from it so the two
@@ -564,9 +573,10 @@ def check_product_access(
     if model and is_model_restricted_for_product(model, resolved_product):
         return False, f"Model '{model}' not allowed for product '{product}'"
 
-    if model and config.allowed_models is not None:
+    allowed_models = get_effective_allowed_models(config)
+    if model and allowed_models is not None:
         if not _model_matches_product_allowlist(
-            model, config.allowed_models, provider=provider, settings=settings, exact=config.exact_model_match
+            model, allowed_models, provider=provider, settings=settings, exact=config.exact_model_match
         ):
             return False, f"Model '{model}' not allowed for product '{product}'"
 

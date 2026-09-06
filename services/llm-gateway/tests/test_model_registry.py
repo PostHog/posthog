@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.products.config import PRODUCTS
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import (
@@ -22,6 +23,12 @@ PROVIDER_ENV_VARS = [
 ]
 
 MOCK_COST_DATA: dict[str, ModelCost] = {
+    "gpt-6-astra": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 922000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
     "gpt-4o": {
         "litellm_provider": "openai",
         "max_input_tokens": 128000,
@@ -426,6 +433,10 @@ class TestModelMatchesAllowlist:
 
 
 class TestIsModelAvailable:
+    def test_gpt_6_astra_is_available_to_every_product(self):
+        for product in PRODUCTS:
+            assert is_model_available("gpt-6-astra", product) is True
+
     @pytest.mark.parametrize(
         "model_id,product,expected",
         [

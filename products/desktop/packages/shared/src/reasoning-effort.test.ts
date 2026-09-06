@@ -5,6 +5,7 @@ describe("isSupportedReasoningEffort", () => {
   it.each([
     ["codex", "gpt-5.5", "xhigh", true],
     ["codex", "gpt-5.6-sol", "max", true],
+    ["codex", "gpt-6-astra", "max", true],
     ["codex", "gpt-5.4", "max", false],
     ["claude", "claude-opus-4-8", "xhigh", true],
     ["claude", "claude-sonnet-4-6", "xhigh", false],
