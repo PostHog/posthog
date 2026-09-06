@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { inboxReportDetailUrl, inboxTabRedirectPath } from './inboxReportUrls'
+import { inboxReportDetailUrl, inboxTabRedirectPath, resolveInboxTabAlias } from './inboxReportUrls'
 
 describe('inbox report urls', () => {
     describe('inboxReportDetailUrl', () => {
@@ -20,7 +20,7 @@ describe('inbox report urls', () => {
     })
 
     // Slack notifications and bookmarks carry whichever tab segments were live when they were
-    // written, and the flag can flip between visits, so each layout redirects the other's segments.
+    // written, so the redesign redirects the segments it replaced.
     describe('inboxTabRedirectPath', () => {
         it.each<[string | undefined, string | null]>([
             // The three old report lists are sections of one list now, so they all land on it.
@@ -28,7 +28,8 @@ describe('inbox report urls', () => {
             ['archived', urls.inbox('reports')],
             ['not-actionable', urls.inbox('reports')],
             ['runs', urls.inboxRuns()],
-            ['config', urls.inbox('settings')],
+            // The settings pair is resolved as an alias instead, so neither segment redirects.
+            ['config', null],
             // Live segments and bare report ids are left for their own route handlers.
             ['reports', null],
             ['scouts', null],
@@ -40,7 +41,7 @@ describe('inbox report urls', () => {
         })
 
         it.each<[string | undefined, string | null]>([
-            ['settings', urls.inbox('config')],
+            ['settings', null],
             ['pulls', null],
             ['config', null],
             ['runs', null],
@@ -49,6 +50,23 @@ describe('inbox report urls', () => {
             [undefined, null],
         ])('with the flag off maps %s', (tab, path) => {
             expect(inboxTabRedirectPath(tab, false)).toBe(path)
+        })
+    })
+
+    // Both settings segments stay live under both layouts. Neither redirects, so the flag settling
+    // mid-load cannot bounce the user between `/inbox/config` and `/inbox/settings`.
+    describe('resolveInboxTabAlias', () => {
+        it.each<[string | undefined, boolean, string | undefined]>([
+            ['config', true, 'settings'],
+            ['settings', true, 'settings'],
+            ['settings', false, 'config'],
+            ['config', false, 'config'],
+            ['reports', true, 'reports'],
+            ['pulls', false, 'pulls'],
+            ['0198a1b2-report-id', true, '0198a1b2-report-id'],
+            [undefined, true, undefined],
+        ])('maps %s for redesign=%p to %s', (tab, redesign, expected) => {
+            expect(resolveInboxTabAlias(tab, redesign)).toBe(expected)
         })
     })
 })

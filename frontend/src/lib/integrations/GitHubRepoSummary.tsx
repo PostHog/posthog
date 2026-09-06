@@ -1,7 +1,12 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { IconBranch } from 'lib/lemon-ui/icons'
+
+// The repository tooltip lists names inline; cap how many so a selected-scope installation with
+// hundreds of repositories can't paint a tooltip taller than the viewport. The popup bounds its
+// width, not its height, and a hover tooltip cannot scroll.
+const REPO_TOOLTIP_LIMIT = 20
 
 function manageInstallationUrl(installationId: string, accountType?: string, accountName?: string): string {
     return accountType === 'Organization' && accountName
@@ -33,20 +38,28 @@ export function GitHubRepoSummary({
      * Setup URL callback can be dispatched to the right team/personal handler. */
     onBeforeManage?: (installationId: string) => Promise<void> | void
 }): JSX.Element {
-    const manageButton = installationId ? (
+    // One opener for both controls. It seeds the server-side callback state (best-effort) before
+    // opening the GitHub installation page, so the eventual Setup URL callback is routed to the right
+    // team/personal handler. Both controls call this, so neither can reach GitHub with the state
+    // unseeded.
+    const openInstallation = installationId
+        ? async (): Promise<void> => {
+              try {
+                  await onBeforeManage?.(installationId)
+              } catch {
+                  // Failing to seed state is non-fatal — the server falls back to UserIntegration
+                  // membership detection. We surface the GitHub page either way.
+              }
+              window.open(manageInstallationUrl(installationId, accountType, accountName), '_blank')
+          }
+        : null
+
+    const manageButton = openInstallation ? (
         <LemonButton
             size="xsmall"
             type="secondary"
             icon={<IconGear />}
-            onClick={async () => {
-                try {
-                    await onBeforeManage?.(installationId)
-                } catch {
-                    // Failing to seed state is non-fatal — the server falls back to UserIntegration
-                    // membership detection. We surface the GitHub page either way.
-                }
-                window.open(manageInstallationUrl(installationId, accountType, accountName), '_blank')
-            }}
+            onClick={openInstallation}
             tooltip={repoNames.length > 0 ? 'Manage repository access on GitHub' : 'Configure repository access'}
         />
     ) : null
@@ -79,14 +92,34 @@ export function GitHubRepoSummary({
             repositorySelection === 'selected'
                 ? `${repoNames.length} selected ${noun}`
                 : `${repoNames.length} ${noun} accessible`
+        const hiddenCount = repoNames.length - 3
+        // The overflow count reads as a link and opens the GitHub page that controls repository
+        // access (its tooltip lists the accessible repositories, capped by REPO_TOOLTIP_LIMIT). It
+        // routes through `openInstallation` as a link-styled button, not a bare anchor, so a modifier
+        // or middle click can't reach GitHub before the callback state is seeded.
+        const tooltipRepoNames =
+            repoNames.length > REPO_TOOLTIP_LIMIT
+                ? `${repoNames.slice(0, REPO_TOOLTIP_LIMIT).join(', ')}, and ${repoNames.length - REPO_TOOLTIP_LIMIT} more`
+                : repoNames.join(', ')
+        const overflow =
+            hiddenCount > 0 ? (
+                <>
+                    {' '}
+                    <Tooltip title={tooltipRepoNames}>
+                        {openInstallation ? (
+                            <Link onClick={openInstallation}>and {hiddenCount} more</Link>
+                        ) : (
+                            <span>and {hiddenCount} more</span>
+                        )}
+                    </Tooltip>
+                </>
+            ) : null
         return (
             <div className="flex items-center gap-2 min-h-5">
                 <div className="text-xs text-muted">
                     <IconBranch className="inline mr-1 text-sm" />
-                    {countLabel}:{' '}
-                    {repoNames.length <= 3
-                        ? repoNames.join(', ')
-                        : `${repoNames.slice(0, 3).join(', ')} and ${repoNames.length - 3} more`}
+                    {countLabel}: {repoNames.slice(0, 3).join(', ')}
+                    {overflow}
                 </div>
                 {manageButton}
             </div>

@@ -136,7 +136,6 @@ describe('inboxSceneLogic routing', () => {
     it.each<[string, string, string]>([
         ['/inbox/pulls', urls.inbox('reports'), 'reports'],
         ['/inbox/archived', urls.inbox('reports'), 'reports'],
-        ['/inbox/config', urls.inbox('settings'), 'settings'],
         ['/inbox/runs', urls.inboxRuns(), 'scouts'],
         ['/inbox/pulls/report-1', urls.inboxReport('reports', 'report-1'), 'reports'],
     ])('under the redesign %s lands on %s', (path, expectedPath, expectedTab) => {
@@ -147,7 +146,6 @@ describe('inboxSceneLogic routing', () => {
     })
 
     it.each<[string, string, string]>([
-        ['/inbox/settings', urls.inbox('config'), 'config'],
         ['/inbox/scouts/runs', urls.inbox('runs'), 'runs'],
         ['/inbox/reports/triage', urls.inbox('reports'), 'reports'],
         ['/inbox/pulls', urls.inbox('pulls'), 'pulls'],
@@ -172,7 +170,7 @@ describe('inboxSceneLogic routing', () => {
     // routed again for the new layout, so its surface opens rather than a tab body that renders nothing.
     it.each<[boolean, string, string, string]>([
         [false, '/inbox/runs', urls.inboxRuns(), 'scouts'],
-        [true, '/inbox/settings', urls.inbox('config'), 'config'],
+        [true, '/inbox/scouts/runs', urls.inbox('runs'), 'runs'],
     ])('a mid-session flag flip (from redesign=%p) re-routes %s to %s', (initial, path, expectedPath, expectedTab) => {
         mountWithRedesign(initial)
         router.actions.push(path)
@@ -202,7 +200,6 @@ describe('inboxSceneLogic routing', () => {
         ['/inbox/reports/triage', true, urls.inboxTriage(), (values) => values.isTriageOpen],
         ['/inbox/scouts/runs', true, urls.inboxRuns(), (values) => values.isRunsOpen],
         ['/inbox/pulls', true, urls.inbox('reports'), (values) => values.activeTab === 'reports'],
-        ['/inbox/settings', false, urls.inbox('config'), (values) => values.activeTab === 'config'],
     ])('before flags resolve %s is held, then routed for redesign=%p to %s', (path, redesign, expectedPath, opened) => {
         mountBeforeFlagsResolve(!redesign)
         router.actions.push(path)
@@ -213,6 +210,38 @@ describe('inboxSceneLogic routing', () => {
         })
         expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
         expect(opened(logic.values)).toBe(true)
+    })
+
+    // `/inbox/config` and `/inbox/settings` name one surface, one segment per layout. Both stay live
+    // under both layouts, so a link written under either one opens the settings surface and stays on
+    // the segment it arrived on — resolving the alias must not rewrite the URL to the other segment.
+    it.each<[string, boolean, string]>([
+        ['/inbox/config', true, 'settings'],
+        ['/inbox/config', false, 'config'],
+        ['/inbox/settings', true, 'settings'],
+        ['/inbox/settings', false, 'config'],
+    ])('%s opens the settings surface for redesign=%p and holds the URL', (path, redesign, expectedTab) => {
+        mountWithRedesign(redesign)
+        router.actions.push(path)
+        expect(logic.values.activeTab).toBe(expectedTab)
+        expect(router.values.location.pathname.endsWith(path)).toBe(true)
+    })
+
+    // The flag answers from local storage before the server answers it, and posthog-js can resolve it
+    // more than once per visit. Each answer used to redirect the settings segment to the other one,
+    // which bounced the user between the two URLs.
+    it('holds the URL while the redesign flag settles on the settings surface', () => {
+        mountBeforeFlagsResolve(true)
+        router.actions.push('/inbox/config')
+        const paths = [router.values.location.pathname]
+        for (const redesign of [false, true, false]) {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+                [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
+            })
+            paths.push(router.values.location.pathname)
+        }
+        expect(new Set(paths).size).toBe(1)
+        expect(logic.values.activeTab).toBe('config')
     })
 
     // A held report deep-link still opens the report under the persisted layout, so the page is not
