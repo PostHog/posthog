@@ -1,0 +1,11 @@
+{% extends "email/base.html" %}
+{% block heading %}A project left your organization{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        <strong>{{ project_name }}</strong> was moved out of <strong>{{ source_organization_name }}</strong> and into <strong>{{ target_organization_name }}</strong>{% if moved_by_email %} by <a href="mailto:{{ moved_by_email }}">{{ moved_by_email }}</a>{% endif %}.
+    </p>
+    <p>
+        The project and its data are safe under the new organization. Members of {{ source_organization_name }} can no longer see it. If you did not expect this, reach out to the person who moved it, or contact PostHog support.
+    </p>
+{% endblock %}

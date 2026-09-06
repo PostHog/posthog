@@ -41,6 +41,7 @@ from posthog.tasks.email import (
     send_new_ticket_notification,
     send_password_reset,
     send_posthog_ai_access_request,
+    send_project_moved,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_wizard_pr_ready_email,
@@ -147,6 +148,53 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_send_project_moved_notifies_admins_except_mover(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        source_org, mover = create_org_team_and_user("2022-01-02 00:00:00", "mover@posthog.com")
+        admin = User.objects.create_and_join(
+            organization=source_org, email="admin@posthog.com", password=None, level=OrganizationMembership.Level.ADMIN
+        )
+        User.objects.create_and_join(
+            organization=source_org,
+            email="member@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        send_project_moved(
+            project_name="Analytics",
+            source_organization_id=str(source_org.id),
+            target_organization_name="New Home",
+            moved_by_user_id=mover.pk,
+        )
+
+        assert len(mocked_email_messages) == 1
+        # The mover already knows and members can't act on it; only the other admins are told
+        recipients = {r["raw_email"] for r in mocked_email_messages[0].to}
+        assert recipients == {admin.email}
+
+    def test_send_project_moved_sanitizes_name_in_subject(self, MockEmailMessage: MagicMock) -> None:
+        # A project name with an embedded newline would inject a raw email header and, on the SMTP
+        # path, suppress the whole notification. Verify the name degrades to a safe fallback.
+        mock_email_messages(MockEmailMessage)
+
+        source_org, mover = create_org_team_and_user("2022-01-02 00:00:00", "mover@posthog.com")
+        User.objects.create_and_join(
+            organization=source_org, email="admin@posthog.com", password=None, level=OrganizationMembership.Level.ADMIN
+        )
+
+        send_project_moved(
+            project_name="Analytics\nInjected",
+            source_organization_id=str(source_org.id),
+            target_organization_name="New Home",
+            moved_by_user_id=mover.pk,
+        )
+
+        subject = MockEmailMessage.call_args.kwargs["subject"]
+        assert "\n" not in subject
+        assert subject.startswith("your project was moved out of")
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
@@ -2178,7 +2226,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2209,7 +2256,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_ignores_duckgres_shadow(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2243,7 +2289,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_shows_clickhouse_error_not_newer_shadow(
         self, MockEmailMessage: MagicMock
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2278,7 +2323,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "duckgres boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # View that would trigger an email (scheduled + recent failed job), but user hasn't opted in.
@@ -2300,7 +2344,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2376,7 +2419,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2435,7 +2477,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_immediate_email_respects_immediate_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = notification_settings
@@ -2549,7 +2590,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_respects_daily_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = notification_settings
