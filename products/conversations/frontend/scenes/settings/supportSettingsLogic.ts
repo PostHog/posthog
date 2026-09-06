@@ -1,3 +1,4 @@
+import { JSONContent } from '@tiptap/core'
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -12,6 +13,7 @@ import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
+import { serializeToPlainText } from '../../components/Editor'
 import { TicketChannel } from '../../types'
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
@@ -79,7 +81,7 @@ export interface supportSettingsLogicValues {
     }[]
     githubReposLoading: boolean
     githubSelectedRepos: string[]
-    greetingInputValue: string | null
+    greetingIsEmpty: boolean
     identificationFormDescriptionValue: string | null
     identificationFormTitleValue: string | null
     isAddingDomain: boolean
@@ -364,8 +366,8 @@ export interface supportSettingsLogicActions {
         editingIndex: number | null
         value: string
     }
-    saveGreetingText: () => {
-        value: true
+    saveGreetingText: (richContent: JSONContent | null) => {
+        richContent: JSONContent | null
     }
     saveIdentificationFormDescription: () => {
         value: true
@@ -436,8 +438,8 @@ export interface supportSettingsLogicActions {
     setGithubRepos: (repos: string[]) => {
         repos: string[]
     }
-    setGreetingInputValue: (value: string | null) => {
-        value: string | null
+    setGreetingIsEmpty: (isEmpty: boolean) => {
+        isEmpty: boolean
     }
     setIdentificationFormDescriptionValue: (value: string | null) => {
         value: string | null
@@ -591,8 +593,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         removeDomain: (index: number) => ({ index }),
         startEditDomain: (index: number) => ({ index }),
         cancelDomainEdit: true,
-        setGreetingInputValue: (value: string | null) => ({ value }),
-        saveGreetingText: true,
+        setGreetingIsEmpty: (isEmpty: boolean) => ({ isEmpty }),
+        saveGreetingText: (richContent: JSONContent | null) => ({ richContent }),
         // Identification form settings
         setIdentificationFormTitleValue: (value: string | null) => ({ value }),
         saveIdentificationFormTitle: true,
@@ -714,10 +716,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setIsAddingDomain: () => '',
             },
         ],
-        greetingInputValue: [
-            null as string | null,
+        greetingIsEmpty: [
+            true as boolean,
             {
-                setGreetingInputValue: (_, { value }) => value,
+                setGreetingIsEmpty: (_, { isEmpty }) => isEmpty,
             },
         ],
         identificationFormTitleValue: [
@@ -1229,15 +1231,23 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setEditingDomainIndex(index)
             actions.setDomainInputValue(values.conversationsDomains[index])
         },
-        saveGreetingText: () => {
-            const trimmedValue = values.greetingInputValue?.trim()
-            if (!trimmedValue) {
+        saveGreetingText: ({ richContent }) => {
+            if (!richContent) {
                 return
             }
+            // A whitespace-only document renders no visible greeting: it serializes to an empty
+            // fallback while the rich key stays a non-empty doc, so the two published greetings
+            // would disagree. Treat it as no greeting and skip the save, like the sibling savers.
+            const greetingText = serializeToPlainText(richContent)
+            if (!greetingText) {
+                return
+            }
+            // Store the plain-text form too, so a widget that predates the rich key still shows the greeting.
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    widget_greeting_text: trimmedValue,
+                    widget_greeting_rich_content: richContent,
+                    widget_greeting_text: greetingText,
                 },
             })
         },
@@ -1643,7 +1653,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
         },
         updateCurrentTeamSuccess: ({ payload }) => {
-            actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
             actions.setPlaceholderTextValue(null)

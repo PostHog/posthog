@@ -1,4 +1,6 @@
+import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import {
     LemonBanner,
@@ -12,19 +14,38 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { SupportEditor, serializeToPlainText } from '../../components/Editor'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
+/** Wrap plain greeting text in a TipTap doc so the rich editor can seed from a team that has no rich greeting yet. */
+function greetingTextToRichContent(text: string): JSONContent {
+    return {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }],
+    }
+}
+
+/**
+ * A greeting is blank when it has no visible text. TipTap's own emptiness check counts a lone space
+ * or hard break as content, which would leave Save enabled for a greeting that publishes nothing, so
+ * match the saver and judge emptiness by the plain-text fallback instead.
+ */
+function isGreetingBlank(editor: RichContentEditorType | null): boolean {
+    return !editor || !serializeToPlainText(editor.getJSON())
+}
+
 export function WidgetSection(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const {
         generateNewToken,
         setWidgetEnabledLoading,
-        setGreetingInputValue,
+        setGreetingIsEmpty,
         saveGreetingText,
         setIdentificationFormTitleValue,
         saveIdentificationFormTitle,
@@ -35,11 +56,13 @@ export function WidgetSection(): JSX.Element {
     } = useActions(supportSettingsLogic)
     const {
         widgetEnabledLoading,
-        greetingInputValue,
+        greetingIsEmpty,
         identificationFormTitleValue,
         identificationFormDescriptionValue,
         placeholderTextValue,
     } = useValues(supportSettingsLogic)
+
+    const greetingEditorRef = useRef<RichContentEditorType | null>(null)
 
     return (
         <SceneSection
@@ -141,25 +164,43 @@ export function WidgetSection(): JSX.Element {
                                     />
                                 </div>
                                 <LemonDivider />
-                                <div className="flex items-center gap-4 py-2 justify-between">
-                                    <label className="w-40 shrink-0 font-medium">Greeting message</label>
-                                    <div className="flex gap-2 flex-1">
-                                        <LemonInput
-                                            value={
-                                                greetingInputValue ??
-                                                currentTeam?.conversations_settings?.widget_greeting_text ??
-                                                'Hey, how can I help you today?'
-                                            }
+                                <div className="flex flex-col gap-2 py-2">
+                                    <div>
+                                        <label className="font-medium">Greeting message</label>
+                                        <p className="text-xs text-muted-alt mb-2">
+                                            Shown when the widget opens. Add a link to point visitors to your FAQ or
+                                            docs.
+                                        </p>
+                                    </div>
+                                    {currentTeam && (
+                                        <SupportEditor
+                                            key={currentTeam.id}
                                             placeholder="Enter greeting message"
-                                            onChange={setGreetingInputValue}
-                                            fullWidth
+                                            disableMentions
+                                            initialContent={
+                                                currentTeam.conversations_settings?.widget_greeting_rich_content ??
+                                                greetingTextToRichContent(
+                                                    currentTeam.conversations_settings?.widget_greeting_text ??
+                                                        'Hey, how can I help you today?'
+                                                )
+                                            }
+                                            onCreate={(editor) => {
+                                                greetingEditorRef.current = editor
+                                                setGreetingIsEmpty(isGreetingBlank(editor))
+                                            }}
+                                            onUpdate={() =>
+                                                setGreetingIsEmpty(isGreetingBlank(greetingEditorRef.current))
+                                            }
                                         />
+                                    )}
+                                    <div className="flex justify-end">
                                         <LemonButton
                                             type="primary"
-                                            onClick={saveGreetingText}
-                                            disabledReason={
-                                                !greetingInputValue ? 'Enter a greeting message' : undefined
+                                            onClick={() =>
+                                                saveGreetingText(greetingEditorRef.current?.getJSON() ?? null)
                                             }
+                                            loading={currentTeamLoading}
+                                            disabledReason={greetingIsEmpty ? 'Enter a greeting message' : undefined}
                                         >
                                             Save
                                         </LemonButton>
