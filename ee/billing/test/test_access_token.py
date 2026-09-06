@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import cast
 
 from posthog.test.base import APIBaseTest
 
@@ -7,6 +8,7 @@ from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 
 from posthog.api.id_jag import get_allowed_resources
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -16,7 +18,9 @@ from ee.billing.grants import EffectiveBillingGrants
 from ee.models import License
 
 _PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
-_PUBLIC_KEY = serialization.load_pem_private_key(_PRIVATE_KEY_PEM.encode(), password=None).public_key()
+_PUBLIC_KEY = cast(
+    RSAPublicKey, serialization.load_pem_private_key(_PRIVATE_KEY_PEM.encode(), password=None).public_key()
+)
 SITE = "https://us.posthog.test"
 BILLING = "https://billing.posthog.test"
 

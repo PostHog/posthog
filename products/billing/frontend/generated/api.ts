@@ -17,13 +17,28 @@ import type {
     BillingAlertsEventsListParams,
     BillingAlertsListParams,
     BillingApi,
+    BillingFeaturesApi,
+    BillingForecastApi,
+    BillingInvoicesApi,
+    BillingInvoicesListParams,
+    BillingLimitsApi,
     BillingOverviewResponseApi,
     BillingPeriodResponseApi,
+    BillingProductApi,
+    BillingProductsApi,
+    BillingProductsListParams,
+    BillingProductsRetrieveParams,
     BillingSpendRetrieveParams,
+    BillingSpendSummaryApi,
+    BillingSpendTimeseriesRetrieveParams,
+    BillingSubscriptionApi,
     BillingTimeSeriesResponseApi,
     BillingUsageRetrieveParams,
+    BillingUsageSummaryApi,
+    BillingUsageTimeseriesRetrieveParams,
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
+    PaginatedBillingTimeSeriesPointListApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
 } from './api.schemas'
@@ -520,4 +535,348 @@ export const billingAlertsEventsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getBillingFeaturesRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/features/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get the features the organization's plans include
+ */
+export const billingFeaturesRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingFeaturesApi> => {
+    return apiMutator<BillingFeaturesApi>(getBillingFeaturesRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingForecastRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/forecast/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get the forecast for the rest of the billing period
+ */
+export const billingForecastRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingForecastApi> => {
+    return apiMutator<BillingForecastApi>(getBillingForecastRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingInvoicesListUrl = (organizationId: string, params?: BillingInvoicesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/invoices/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/invoices/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary List the organization's invoices
+ */
+export const billingInvoicesList = async (
+    organizationId: string,
+    params?: BillingInvoicesListParams,
+    options?: RequestInit
+): Promise<BillingInvoicesApi> => {
+    return apiMutator<BillingInvoicesApi>(getBillingInvoicesListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingInvoicesContentRetrieveUrl = (organizationId: string, invoiceId: string) => {
+    return `/api/organizations/${organizationId}/billing/invoices/${invoiceId}/content/`
+}
+
+/**
+ * The invoice document, streamed from the billing provider by PostHog under the same access
+ * check as the list. The provider's own link never reaches the client.
+ * @summary Download an invoice as PDF
+ */
+export const billingInvoicesContentRetrieve = async (
+    organizationId: string,
+    invoiceId: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingInvoicesContentRetrieveUrl(organizationId, invoiceId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingLimitsRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/limits/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get the organization's spend limits
+ */
+export const billingLimitsRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingLimitsApi> => {
+    return apiMutator<BillingLimitsApi>(getBillingLimitsRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProductsListUrl = (organizationId: string, params?: BillingProductsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/products/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/products/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary List the organization's products
+ */
+export const billingProductsList = async (
+    organizationId: string,
+    params?: BillingProductsListParams,
+    options?: RequestInit
+): Promise<BillingProductsApi> => {
+    return apiMutator<BillingProductsApi>(getBillingProductsListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProductsRetrieveUrl = (
+    organizationId: string,
+    productKey: string,
+    params?: BillingProductsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/products/${productKey}/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/products/${productKey}/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get one product
+ */
+export const billingProductsRetrieve = async (
+    organizationId: string,
+    productKey: string,
+    params?: BillingProductsRetrieveParams,
+    options?: RequestInit
+): Promise<BillingProductApi> => {
+    return apiMutator<BillingProductApi>(getBillingProductsRetrieveUrl(organizationId, productKey, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingSpendSummaryRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/spend/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get spend so far this billing period
+ */
+export const billingSpendSummaryRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingSpendSummaryApi> => {
+    return apiMutator<BillingSpendSummaryApi>(getBillingSpendSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingSpendTimeseriesRetrieveUrl = (
+    organizationId: string,
+    params?: BillingSpendTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/spend/timeseries/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/spend/timeseries/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Spend over time
+ */
+export const billingSpendTimeseriesRetrieve = async (
+    organizationId: string,
+    params?: BillingSpendTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedBillingTimeSeriesPointListApi> => {
+    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+        getBillingSpendTimeseriesRetrieveUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getBillingSubscriptionRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/subscription/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get the organization's subscription
+ */
+export const billingSubscriptionRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingSubscriptionApi> => {
+    return apiMutator<BillingSubscriptionApi>(getBillingSubscriptionRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageSummaryRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/usage/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get usage so far this billing period
+ */
+export const billingUsageSummaryRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingUsageSummaryApi> => {
+    return apiMutator<BillingUsageSummaryApi>(getBillingUsageSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageTimeseriesRetrieveUrl = (
+    organizationId: string,
+    params?: BillingUsageTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/usage/timeseries/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/usage/timeseries/`
+}
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Usage over time
+ */
+export const billingUsageTimeseriesRetrieve = async (
+    organizationId: string,
+    params?: BillingUsageTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedBillingTimeSeriesPointListApi> => {
+    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+        getBillingUsageTimeseriesRetrieveUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

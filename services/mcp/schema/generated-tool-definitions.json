@@ -936,12 +936,87 @@
         },
         "feature_flag": "billing-alerts"
     },
+    "billing-features-get": {
+        "description": "The product features the organization's plans include, with any overrides applied. The cheapest read in the billing API, readable by any member. Use it to check whether a feature such as group analytics or white-labelling is available before suggesting it.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get available features",
+        "title": "Get available features",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-forecast-get": {
+        "description": "Projected usage and amounts for the rest of the billing period, with and without the spend limit, per product, add-on and tier, with the four projected totals. Needs full billing access. Use it for \"what will this month cost\"; for what has accrued so far call billing-spend-summary-get.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get the forecast for this billing period",
+        "title": "Get the forecast for this billing period",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-limits-get": {
+        "description": "Per product, the spend limit for the current period, a limit deferred to the next period because it was set below current spend, spend so far, and whether the limit is reached. Needs full billing access. Use it for \"am I over my spend limit\"; the quota limiting state PostHog applies is on billing-usage-summary-get.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get spend limits",
+        "title": "Get spend limits",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
     "billing-overview-get": {
         "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get billing overview",
         "title": "Get billing overview",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-product-get": {
+        "description": "One product by key, for example product_analytics or session_replay, with its add-ons, price schedule and subscribed state. Same fields as billing-products-list for a single product. Readable by any member.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get one product",
+        "title": "Get one product",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-products-list": {
+        "description": "Every product and add-on with its features, price schedule, allocation, current plan and subscribed state. Catalog only: usage, spend and forecast live on their own tools. Pass include_plans=true to add each entry's plan list, which is most of the payload; leave it off unless the question is about plans. Readable by any member.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "List products",
+        "title": "List products",
         "required_scopes": ["billing:read"],
         "annotations": {
             "destructiveHint": false,
@@ -966,12 +1041,57 @@
         },
         "feature_flag": "billing-mcp-read-tools"
     },
+    "billing-spend-summary-get": {
+        "description": "Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with the two totals. Needs usage read access: owners always, admins when owner-only billing is off, or members when the member read flag is on. Use it for \"what have we spent so far this month\"; for the projection to the end of the period call billing-forecast-get, for history call billing-spend-get.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get spend this billing period",
+        "title": "Get spend this billing period",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-subscription-get": {
+        "description": "The organization's subscription: plan, subscription flag and level, billing period, trial, discounts, startup program labels and billing provider. One small read, readable by any member. Use it to answer \"what plan is this organization on\", \"when does the billing period end\" or \"is there an active trial\". For usage against limits call billing-usage-summary-get; for the product catalog call billing-products-list; for feature access call billing-features-get.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get subscription",
+        "title": "Get subscription",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
     "billing-usage-get": {
         "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing access; for cost (spend) breakdowns call billing-spend-get.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get usage breakdown",
         "title": "Get usage breakdown",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-usage-summary-get": {
+        "description": "Usage so far this billing period: per usage key the usage, the limit in effect, today's usage where PostHog tracks it and whether the resource is being limited right now, and per product and add-on the current usage, limit, ratio and over-limit flag. Quantities only, with the date the usage was reported through. Readable by any member. Use it for \"am I near my events limit\" or \"is ingestion being limited\"; for amounts call billing-overview-get, for history call billing-usage-get.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get usage this billing period",
+        "title": "Get usage this billing period",
         "required_scopes": ["billing:read"],
         "annotations": {
             "destructiveHint": false,

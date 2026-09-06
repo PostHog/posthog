@@ -13626,6 +13626,138 @@ export namespace Schemas {
     }
 
     /**
+     * * `product` - Product
+     * * `addon` - Addon
+     */
+    export type CatalogKindEnum = typeof CatalogKindEnum[keyof typeof CatalogKindEnum];
+
+
+    export const CatalogKindEnum = {
+      Product: 'product',
+      Addon: 'addon',
+    } as const;
+
+    export interface PriceTier {
+      flat_amount_usd: string;
+      unit_amount_usd: string;
+      /** @nullable */
+      up_to: number | null;
+    }
+
+    export interface ProductFeature {
+      key: string;
+      name: string;
+      description: string;
+      /** @nullable */
+      unit?: string | null;
+      /** @nullable */
+      limit?: number | null;
+      /** @nullable */
+      note?: string | null;
+      is_plan_default?: boolean;
+      /** @nullable */
+      entitlement_only?: boolean | null;
+      /** @nullable */
+      category?: string | null;
+    }
+
+    export interface ProductPlan {
+      product_key: string;
+      plan_key: string;
+      name: string;
+      description: string;
+      /** @nullable */
+      image_url: string | null;
+      /** @nullable */
+      docs_url: string | null;
+      /** @nullable */
+      note: string | null;
+      /** @nullable */
+      unit: string | null;
+      flat_rate: boolean;
+      /** @nullable */
+      tiers: PriceTier[] | null;
+      /** @nullable */
+      free_allocation: number | null;
+      features: ProductFeature[];
+      /** @nullable */
+      included_if: string | null;
+      /** @nullable */
+      contact_support: boolean | null;
+      /** @nullable */
+      unit_amount_usd: string | null;
+      current_plan: boolean;
+      /** @nullable */
+      initial_billing_limit?: number | null;
+    }
+
+    export interface ProductBaseFeature {
+      key: string;
+      name: string;
+      description: string;
+      images?: unknown;
+      /** @nullable */
+      icon_key?: string | null;
+      /** @nullable */
+      type?: string | null;
+      /** @nullable */
+      category?: string | null;
+    }
+
+    export interface ProductTrialConfig {
+      length: number;
+    }
+
+    export interface BillingAddon {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      name: string;
+      description: string;
+      /** @nullable */
+      price_description: string | null;
+      /** @nullable */
+      icon_key: string | null;
+      /** @nullable */
+      image_url: string | null;
+      /** @nullable */
+      docs_url: string | null;
+      /** @nullable */
+      subscribed: boolean | null;
+      inclusion_only: boolean;
+      /** @nullable */
+      contact_support: boolean | null;
+      /** @nullable */
+      legacy_product: boolean | null;
+      /** @nullable */
+      free_allocation: number | null;
+      /** @nullable */
+      usage_limit: number | null;
+      /** @nullable */
+      unit: string | null;
+      /** @nullable */
+      display_unit: string | null;
+      /** @nullable */
+      display_decimals: number | null;
+      /** @nullable */
+      display_divisor: number | null;
+      tiered: boolean;
+      /** @nullable */
+      unit_amount_usd: string | null;
+      /** @nullable */
+      tiers: PriceTier[] | null;
+      plans?: ProductPlan[];
+      features: ProductBaseFeature[];
+      trial: ProductTrialConfig | null;
+      included_with_main_product: boolean;
+      /** @nullable */
+      included_if: string | null;
+      /** @nullable */
+      default_unit_amount_usd: string | null;
+    }
+
+    /**
      * * `check` - Check
      * * `firing` - Firing
      * * `resolved` - Resolved
@@ -14017,6 +14149,140 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
+    export interface BillingFeatures {
+      available_product_features: ProductFeature[];
+    }
+
+    /**
+     * * `month` - month
+     * * `year` - year
+     */
+    export type BillingPeriodIntervalEnum = typeof BillingPeriodIntervalEnum[keyof typeof BillingPeriodIntervalEnum];
+
+
+    export const BillingPeriodIntervalEnum = {
+      Month: 'month',
+      Year: 'year',
+    } as const;
+
+    export interface BillingPeriod {
+      current_period_start: string;
+      current_period_end: string;
+      interval: BillingPeriodIntervalEnum;
+    }
+
+    export interface TierForecast {
+      /** @nullable */
+      up_to: number | null;
+      /** @nullable */
+      projected_usage: number | null;
+      /** @nullable */
+      projected_amount_usd: string | null;
+    }
+
+    export interface ForecastItem {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      /** @nullable */
+      projected_usage: number | null;
+      /** @nullable */
+      projected_amount_usd: string | null;
+      /** @nullable */
+      projected_amount_usd_with_limit?: string | null;
+      /** @nullable */
+      tier_forecast: TierForecast[] | null;
+    }
+
+    export interface ProductForecast {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      /** @nullable */
+      projected_usage: number | null;
+      /** @nullable */
+      projected_amount_usd: string | null;
+      /** @nullable */
+      projected_amount_usd_with_limit?: string | null;
+      /** @nullable */
+      tier_forecast: TierForecast[] | null;
+      addons: ForecastItem[];
+    }
+
+    export interface BillingForecast {
+      billing_period: BillingPeriod | null;
+      /** @nullable */
+      projected_total_amount_usd: string | null;
+      /** @nullable */
+      projected_total_amount_usd_with_limit: string | null;
+      /** @nullable */
+      projected_total_amount_usd_after_discount: string | null;
+      /** @nullable */
+      projected_total_amount_usd_with_limit_after_discount: string | null;
+      products: ProductForecast[];
+      computed_at: string;
+    }
+
+    /**
+     * * `open` - open
+     * * `paid` - paid
+     * * `uncollectible` - uncollectible
+     * * `void` - void
+     */
+    export type BillingInvoiceStatusEnum = typeof BillingInvoiceStatusEnum[keyof typeof BillingInvoiceStatusEnum];
+
+
+    export const BillingInvoiceStatusEnum = {
+      Open: 'open',
+      Paid: 'paid',
+      Uncollectible: 'uncollectible',
+      Void: 'void',
+    } as const;
+
+    export interface BillingInvoice {
+      id: string;
+      /** @nullable */
+      number: string | null;
+      status: BillingInvoiceStatusEnum;
+      /** @nullable */
+      currency: string | null;
+      subtotal: string;
+      total: string;
+      amount_due: string;
+      amount_paid: string;
+      period_start: string;
+      period_end: string;
+      /** @nullable */
+      created: string | null;
+      /** @nullable */
+      due_date: string | null;
+    }
+
+    export interface BillingInvoices {
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+      results: BillingInvoice[];
+    }
+
+    export interface ProductLimit {
+      key: string;
+      /** @nullable */
+      limit_usd: number | null;
+      /** @nullable */
+      next_period_limit_usd: number | null;
+      /** @nullable */
+      spend_usd: string | null;
+      reached: boolean;
+    }
+
+    export interface BillingLimits {
+      results: ProductLimit[];
+    }
+
     export type BillingOverviewResponseProductsItem = {[key: string]: unknown};
 
     export interface BillingOverviewResponse {
@@ -14082,6 +14348,158 @@ export namespace Schemas {
       current_period_end: string | null;
     }
 
+    export interface BillingProduct {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      name: string;
+      description: string;
+      /** @nullable */
+      price_description: string | null;
+      /** @nullable */
+      icon_key: string | null;
+      /** @nullable */
+      image_url: string | null;
+      /** @nullable */
+      docs_url: string | null;
+      /** @nullable */
+      subscribed: boolean | null;
+      inclusion_only: boolean;
+      /** @nullable */
+      contact_support: boolean | null;
+      /** @nullable */
+      legacy_product: boolean | null;
+      /** @nullable */
+      free_allocation: number | null;
+      /** @nullable */
+      usage_limit: number | null;
+      /** @nullable */
+      unit: string | null;
+      /** @nullable */
+      display_unit: string | null;
+      /** @nullable */
+      display_decimals: number | null;
+      /** @nullable */
+      display_divisor: number | null;
+      tiered: boolean;
+      /** @nullable */
+      unit_amount_usd: string | null;
+      /** @nullable */
+      tiers: PriceTier[] | null;
+      plans?: ProductPlan[];
+      features: ProductBaseFeature[];
+      trial: ProductTrialConfig | null;
+      /** @nullable */
+      headline: string | null;
+      /** @nullable */
+      screenshot_url: string | null;
+      addons: BillingAddon[];
+    }
+
+    export interface BillingProducts {
+      results: BillingProduct[];
+    }
+
+    /**
+     * * `stripe` - stripe
+     * * `vercel` - vercel
+     */
+    export type BillingProviderEnum = typeof BillingProviderEnum[keyof typeof BillingProviderEnum];
+
+
+    export const BillingProviderEnum = {
+      Stripe: 'stripe',
+      Vercel: 'vercel',
+    } as const;
+
+    export interface TierSpend {
+      /** @nullable */
+      up_to: number | null;
+      /** @nullable */
+      current_amount_usd: string | null;
+    }
+
+    export interface SpendItem {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      /** @nullable */
+      current_amount_usd: string | null;
+      /** @nullable */
+      current_amount_usd_before_addons?: string | null;
+      /** @nullable */
+      tier_spend: TierSpend[] | null;
+    }
+
+    export interface ProductSpend {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      /** @nullable */
+      current_amount_usd: string | null;
+      /** @nullable */
+      current_amount_usd_before_addons?: string | null;
+      /** @nullable */
+      tier_spend: TierSpend[] | null;
+      addons: SpendItem[];
+    }
+
+    export interface BillingSpendSummary {
+      billing_period: BillingPeriod | null;
+      /** @nullable */
+      usage_reported_through: string | null;
+      /** @nullable */
+      current_total_amount_usd: string | null;
+      /** @nullable */
+      current_total_amount_usd_after_discount: string | null;
+      products: ProductSpend[];
+    }
+
+    export interface Trial {
+      type: string;
+      status: string;
+      target: string;
+      /** @nullable */
+      expires_at: string | null;
+    }
+
+    export interface License {
+      plan: string;
+    }
+
+    export interface BillingSubscription {
+      /** @nullable */
+      customer_id: string | null;
+      has_active_subscription: boolean;
+      /** @nullable */
+      subscription_level: string | null;
+      /** @nullable */
+      billing_plan: string | null;
+      billing_provider: BillingProviderEnum | null;
+      deactivated: boolean;
+      is_annual_plan_customer: boolean;
+      billing_period: BillingPeriod | null;
+      trial: Trial | null;
+      /** @nullable */
+      free_trial_until: string | null;
+      /** @nullable */
+      discount_percent: number | null;
+      /** @nullable */
+      discount_amount_usd: string | null;
+      /** @nullable */
+      amount_off_expires_at: string | null;
+      /** @nullable */
+      startup_program_label: string | null;
+      /** @nullable */
+      startup_program_label_previous: string | null;
+      billing_portal_url: string;
+      invoices_url?: string;
+      license: License;
+    }
+
     /**
      * * `type` - type
      * * `team` - team
@@ -14112,6 +14530,63 @@ export namespace Schemas {
       results: BillingTimeSeriesPoint[];
       team_id_options?: number[];
       next?: string;
+    }
+
+    export interface UsageKeySummary {
+      usage_key: string;
+      /** @nullable */
+      usage: number | null;
+      /** @nullable */
+      limit: number | null;
+      /** @nullable */
+      todays_usage?: number | null;
+      /** @nullable */
+      quota_limited_until: string | null;
+      /** @nullable */
+      quota_limiting_suspended_until: string | null;
+    }
+
+    export interface TierUsage {
+      /** @nullable */
+      up_to: number | null;
+      current_usage: number;
+    }
+
+    export interface UsageItem {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      current_usage: number;
+      /** @nullable */
+      usage_limit: number | null;
+      has_exceeded_limit: boolean;
+      usage_ratio: number;
+      /** @nullable */
+      tier_usage: TierUsage[] | null;
+    }
+
+    export interface ProductUsage {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      current_usage: number;
+      /** @nullable */
+      usage_limit: number | null;
+      has_exceeded_limit: boolean;
+      usage_ratio: number;
+      /** @nullable */
+      tier_usage: TierUsage[] | null;
+      addons: UsageItem[];
+    }
+
+    export interface BillingUsageSummary {
+      billing_period: BillingPeriod | null;
+      /** @nullable */
+      usage_reported_through: string | null;
+      usage_summary: UsageKeySummary[];
+      products: ProductUsage[];
     }
 
     /**
@@ -54970,6 +55445,15 @@ export namespace Schemas {
       results: BillingAlertEvent[];
     }
 
+    export interface PaginatedBillingTimeSeriesPointList {
+      count: number;
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+      results: BillingTimeSeriesPoint[];
+    }
+
     export interface PaginatedBriefConfigList {
       count: number;
       /** @nullable */
@@ -91769,6 +92253,130 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type BillingInvoicesListParams = {
+    /**
+     * The cursor from a previous page.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * Invoices per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Only invoices in this state.
+     *
+     * * `open` - open
+     * * `paid` - paid
+     * * `uncollectible` - uncollectible
+     * * `void` - void
+     * @minLength 1
+     */
+    status?: BillingInvoicesListStatus;
+    };
+
+    export type BillingInvoicesListStatus = typeof BillingInvoicesListStatus[keyof typeof BillingInvoicesListStatus];
+
+
+    export const BillingInvoicesListStatus = {
+      Open: 'open',
+      Paid: 'paid',
+      Uncollectible: 'uncollectible',
+      Void: 'void',
+    } as const;
+
+    export type BillingProductsListParams = {
+    /**
+     * Add the `plans` list to each product and add-on. Most of the payload.
+     */
+    include_plans?: boolean;
+    };
+
+    export type BillingProductsRetrieveParams = {
+    /**
+     * Add the `plans` list to each product and add-on. Most of the payload.
+     */
+    include_plans?: boolean;
+    };
+
+    export type BillingSpendTimeseriesRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Series per page.
+     */
+    limit?: number;
+    /**
+     * Series to skip.
+     */
+    offset?: number;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingUsageTimeseriesRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Series per page.
+     */
+    limit?: number;
+    /**
+     * Series to skip.
+     */
+    offset?: number;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
     };
 
     export type CimdVerificationTokensListParams = {

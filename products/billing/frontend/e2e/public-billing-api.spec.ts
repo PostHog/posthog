@@ -78,7 +78,8 @@ test.describe('Organization billing API', () => {
         test('invoice parameters are validated before billing is asked', async ({ request, playwrightSetup }) => {
             const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
             const get = billing(request, workspace.organization_id, workspace.personal_api_key)
-            for (const params of [{ limit: 'abc' }, { limit: 0 }, { status: 'draft' }]) {
+            const bad: Record<string, string | number>[] = [{ limit: 'abc' }, { limit: 0 }, { status: 'draft' }]
+            for (const params of bad) {
                 expect((await get('invoices/', params)).status(), JSON.stringify(params)).toBe(400)
             }
             expect((await get('invoices/', { cursor: 'nonsense' })).status()).toBe(400)

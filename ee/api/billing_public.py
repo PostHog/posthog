@@ -567,7 +567,10 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         operation_id="billing_products_retrieve",
         summary="Get one product",
-        parameters=[INCLUDE_PLANS],
+        parameters=[
+            OpenApiParameter("product_key", str, OpenApiParameter.PATH, description="The product's key."),
+            INCLUDE_PLANS,
+        ],
         responses={200: OpenApiResponse(response=BillingProductSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path=r"products/(?P<product_key>[^/.]+)")
@@ -673,6 +676,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @extend_schema(
         operation_id="billing_invoices_content_retrieve",
+        parameters=[OpenApiParameter("invoice_id", str, OpenApiParameter.PATH, description="The invoice's id.")],
         summary="Download an invoice as PDF",
         responses={(200, "application/pdf"): OpenApiResponse(response=bytes)},
     )

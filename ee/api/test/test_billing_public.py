@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,7 @@ from ee.api.test.base import APILicensedTest
 PERIOD_START = int(datetime(2026, 9, 1, tzinfo=UTC).timestamp())
 PERIOD_END = int(datetime(2026, 10, 1, tzinfo=UTC).timestamp())
 
-SUBSCRIPTION = {
+SUBSCRIPTION: dict[str, Any] = {
     "status": "ok",
     "customer_id": 42,
     "has_subscription": True,
@@ -35,7 +36,7 @@ SUBSCRIPTION = {
     "startup_program_label_previous": None,
 }
 
-USAGE = {
+USAGE: dict[str, Any] = {
     "status": "ok",
     "customer_id": 42,
     "billing_period": {"current_period_start": PERIOD_START, "current_period_end": PERIOD_END, "interval": "month"},
@@ -59,7 +60,7 @@ USAGE = {
     ],
 }
 
-PRODUCTS = {
+PRODUCTS: dict[str, Any] = {
     "status": "ok",
     "customer_id": 42,
     "products": [{"kind": "product", "key": "product_analytics", "name": "Product analytics", "addons": []}],
@@ -195,7 +196,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         mock_get.assert_not_called()
 
 
-SPEND = {
+SPEND: dict[str, Any] = {
     "status": "ok",
     "customer_id": 42,
     "billing_period": {"current_period_start": PERIOD_START, "current_period_end": PERIOD_END, "interval": "month"},
@@ -205,7 +206,7 @@ SPEND = {
     "products": [],
 }
 FORECAST = {**SPEND, "projected_total_amount_usd": "480.00", "computed_at": PERIOD_START}
-SERIES = {
+SERIES: dict[str, Any] = {
     "status": "ok",
     "customer_id": 42,
     "results": [{"id": i, "label": f"s{i}", "data": [1.0], "dates": ["2026-09-01"]} for i in range(3)],
@@ -293,7 +294,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-INVOICES = {
+INVOICES: dict[str, Any] = {
     "status": "ok",
     "customer_id": 42,
     "next": "bz0x",
@@ -315,7 +316,7 @@ INVOICES = {
         }
     ],
 }
-LIMITS = {
+LIMITS: dict[str, Any] = {
     "status": "ok",
     "customer_id": 42,
     "results": [
@@ -372,7 +373,7 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertEqual(response["Content-Disposition"], 'attachment; filename="in_1.pdf"')
-        body = response.streaming_content.__aiter__()
+        body = cast(Any, response).streaming_content.__aiter__()
         first = await body.__anext__()
         self.assertEqual((first, read_from_provider), (b"%PDF-1.4", [b"%PDF-1.4"]))
         self.assertEqual(first + b"".join([chunk async for chunk in body]), b"%PDF-1.4...")

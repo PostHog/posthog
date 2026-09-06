@@ -3,15 +3,146 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Endpoint to fetch spend data (proxy to billing service).
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get the features the organization's plans include
  */
-export const BillingSpendRetrieveQueryParams = () => zod.object({
+export const BillingFeaturesRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get the forecast for the rest of the billing period
+ */
+export const BillingForecastRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get the organization's spend limits
+ */
+export const BillingLimitsRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary List the organization's products
+ */
+export const BillingProductsListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const billingProductsListQueryIncludePlansDefault = false
+
+export const BillingProductsListQueryParams = () => zod.object({
+    include_plans: zod
+        .boolean()
+        .default(billingProductsListQueryIncludePlansDefault)
+        .describe('Add the `plans` list to each product and add-on. Most of the payload.'),
+})
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get one product
+ */
+export const BillingProductsRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+    product_key: zod.string().describe("The product's key."),
+})
+
+export const billingProductsRetrieveQueryIncludePlansDefault = false
+
+export const BillingProductsRetrieveQueryParams = () => zod.object({
+    include_plans: zod
+        .boolean()
+        .default(billingProductsRetrieveQueryIncludePlansDefault)
+        .describe('Add the `plans` list to each product and add-on. Most of the payload.'),
+})
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get spend so far this billing period
+ */
+export const BillingSpendSummaryRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Spend over time
+ */
+export const BillingSpendTimeseriesRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const billingSpendTimeseriesRetrieveQueryLimitDefault = 100
+export const billingSpendTimeseriesRetrieveQueryOffsetDefault = 0
+
+export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
     breakdowns: zod
         .string()
         .nullish()
@@ -20,6 +151,8 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
         ),
     end_date: zod.string().nullish(),
     interval: zod.string().nullish(),
+    limit: zod.number().default(billingSpendTimeseriesRetrieveQueryLimitDefault).describe('Series per page.'),
+    offset: zod.number().default(billingSpendTimeseriesRetrieveQueryOffsetDefault).describe('Series to skip.'),
     start_date: zod.string().nullish(),
     team_ids: zod
         .string()
@@ -35,7 +168,58 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
         ),
 })
 
-export const BillingUsageRetrieveQueryParams = () => zod.object({
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get the organization's subscription
+ */
+export const BillingSubscriptionRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Get usage so far this billing period
+ */
+export const BillingUsageSummaryRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
+ * @summary Usage over time
+ */
+export const BillingUsageTimeseriesRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const billingUsageTimeseriesRetrieveQueryLimitDefault = 100
+export const billingUsageTimeseriesRetrieveQueryOffsetDefault = 0
+
+export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
     breakdowns: zod
         .string()
         .nullish()
@@ -44,6 +228,8 @@ export const BillingUsageRetrieveQueryParams = () => zod.object({
         ),
     end_date: zod.string().nullish(),
     interval: zod.string().nullish(),
+    limit: zod.number().default(billingUsageTimeseriesRetrieveQueryLimitDefault).describe('Series per page.'),
+    offset: zod.number().default(billingUsageTimeseriesRetrieveQueryOffsetDefault).describe('Series to skip.'),
     start_date: zod.string().nullish(),
     team_ids: zod
         .string()
