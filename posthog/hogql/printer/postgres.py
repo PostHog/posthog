@@ -25,6 +25,16 @@ from posthog.uuidt import UUIDT
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
 _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# ClickHouse-only window function names, and the Postgres native function each one maps onto.
+# The two engines disagree at a partition boundary when the call gives no explicit default argument.
+# ClickHouse returns the value type's default, such as 0 for a non-nullable integer, and Postgres
+# returns NULL. The native lag/lead spellings agree on NULL, because the ClickHouse rewrite in
+# BasePrinter wraps the value in toNullable.
+_CLICKHOUSE_WINDOW_FUNCTION_NATIVE_NAMES_LOWER: dict[str, str] = {
+    "laginframe": "lag",
+    "leadinframe": "lead",
+}
+
 
 class PostgresPrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
@@ -82,7 +92,38 @@ class PostgresPrinter(BasePrinter):
         self, identifier: str, exprs: list[str], cloned_node: ast.WindowFunction
     ) -> str:
         # Postgres's native lag/lead already has the semantics we want; skip the ClickHouse-style rewrite.
-        return identifier
+        # HogQL also accepts the ClickHouse names, so map those back onto the native ones.
+        native_name = _CLICKHOUSE_WINDOW_FUNCTION_NATIVE_NAMES_LOWER.get(cloned_node.name.lower())
+        if native_name is None:
+            return identifier
+        # The ClickHouse names read only the rows inside the frame, so a frame here carries meaning that
+        # the native function drops. Refuse instead of returning rows the frame excludes.
+        window_expr = self._window_expression(cloned_node)
+        if window_expr is not None and window_expr.frame_method:
+            raise QueryError(
+                f"{cloned_node.name} with an explicit window frame is not supported "
+                f"{self._dialect_error_suffix()}, because {self.DIALECT_LABEL} ignores the window frame "
+                f"for {native_name}. Remove the window frame."
+            )
+        # An ordered window with no explicit frame resolves to a ClickHouse frame that ends at the current
+        # row, so a lookahead reads no row there while the native lead reads the next one.
+        if native_name == "lead" and window_expr is not None and window_expr.order_by:
+            raise QueryError(
+                f"{cloned_node.name} over an ordered window is not supported "
+                f"{self._dialect_error_suffix()}. The window frame ends at the current row, so there is "
+                f"no row ahead to read. Use {native_name} to read the next row."
+            )
+        return native_name
+
+    def _window_expression(self, node: ast.WindowFunction) -> ast.WindowExpr | None:
+        if node.over_expr is not None:
+            return node.over_expr
+        if node.over_identifier is None:
+            return None
+        select = self._last_select()
+        if select is None or select.window_exprs is None:
+            return None
+        return select.window_exprs.get(node.over_identifier)
 
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return f"{limit_str} %"
