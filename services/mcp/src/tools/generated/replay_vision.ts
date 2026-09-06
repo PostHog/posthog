@@ -584,7 +584,7 @@ const visionScannersObservationsList = (): ToolBase<
                     },
                     '/replay'
                 ),
-                "Each observation's `_posthogUrl` opens the recording it analysed. This list carries no citation timestamps. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them: read that observation with `vision-scanners-observations-get`, take a `chip` segment's `timestamp_ms` from `scanner_result.model_output.reasoning_segments`, and append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the recording URL.\n"
+                "Each observation's `_posthogUrl` opens the recording it analysed. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them: read that observation with `vision-scanners-observations-get`, take a `chip` segment's `timestamp_ms` from its citation segments, and append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the recording URL. The citation segments are `scanner_result.model_output.summary_segments` on a summarizer observation, and `scanner_result.model_output.reasoning_segments` on a monitor, classifier, or scorer one.\n"
             )
         },
     })
