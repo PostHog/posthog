@@ -957,7 +957,15 @@ class CustomPropertyDefinitionViewSet(
         data = serializer.validated_data
         # Person and group targets are both gated behind the warehouse-person-properties rollout flag.
         if data.target_type in ("person", "group") and not api.person_properties_flag_enabled(self.team_id):
-            raise ValidationError({"target_type": "Person/group properties from warehouse data are not enabled yet."})
+            raise ValidationError(
+                {
+                    "target_type": (
+                        "Warehouse person and group properties are in a staged rollout, and this project "
+                        "does not have access yet. Contact PostHog support to request access. Person property "
+                        "sync works on its own and does not need the group analytics add-on."
+                    )
+                }
+            )
         if data.target_type == _GROUP_TARGET_TYPE:
             _assert_group_scope(request, write=True)
         try:
