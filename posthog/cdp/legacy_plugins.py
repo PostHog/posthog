@@ -6,7 +6,8 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
     plugin = plugin_config["plugin"]
     # Attempts to find a related HogFunctionTemplate for the plugin config
 
-    plugin_id = plugin.url.replace("inline://", "").replace("https://github.com/PostHog/", "")
+    # Drop any ?private_token=... query string, which the codebase treats as secret.
+    plugin_id = plugin.url.split("?")[0].replace("inline://", "").replace("https://github.com/PostHog/", "")
 
     # Inline plugins are named slightly differently so we fix it here
     if plugin_id == "semver-flattener":
@@ -14,9 +15,9 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
     if plugin_id == "user-agent":
         plugin_id = "user-agent-plugin"
 
-    template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
-
-    if not template:
+    try:
+        template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
+    except HogFunctionTemplate.DoesNotExist:
         raise Exception(f"Template not found for plugin {plugin_id}")
 
     inputs = {}
