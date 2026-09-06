@@ -13,6 +13,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
+    PersonsOnEventsMode,
 )
 
 from posthog.hogql import ast
@@ -60,6 +61,7 @@ from posthog.hogql.printer.access_control import build_access_control_warning
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.person_lookup_rewrite import rewrite_person_lookups
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
@@ -67,9 +69,10 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries, tags_context
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -116,6 +119,7 @@ class HogQLQueryExecutor:
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
+    person_lookup_rewritten: bool = False
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -219,6 +223,28 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
+        # Direct connections can expose their own `events` table, and this transform
+        # matches `events` by unresolved name, so it must only run on the native schema.
+        # In the no-override mode `person.id` matches raw event rows, so a merged-away
+        # person's history is reachable there but absent from persons; skip that mode.
+        if (
+            self.connection_id is None
+            and self.query_modifiers.personsOnEventsMode
+            != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        ):
+            with self.timings.measure("person_lookup_rewrite"):
+                # Fail open: a bug in the pass must cost the optimization, not the query.
+                try:
+                    transformed_node, rewrote = rewrite_person_lookups(self.select_query)
+                except Exception as e:
+                    capture_exception(e)
+                else:
+                    if isinstance(transformed_node, ast.SelectQuery) or isinstance(
+                        transformed_node, ast.SelectSetQuery
+                    ):
+                        self.select_query = transformed_node
+                        self.person_lookup_rewritten = rewrote
+
         if self.query_modifiers.usePreaggregatedTableTransforms:
             with self.timings.measure("preaggregated_table_transforms"):
                 assert self.hogql_context is not None
@@ -784,12 +810,15 @@ class HogQLQueryExecutor:
                 )
 
             try:
-                try:
-                    self.results, self.types = run_clickhouse_query()
-                except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
-                    # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
-                    sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
-                    self.results, self.types = run_clickhouse_query()
+                # Scoped to this execution so the tag cannot leak onto later queries in the
+                # same request or task context.
+                with tags_context(person_lookup_rewrite=1 if self.person_lookup_rewritten else None):
+                    try:
+                        self.results, self.types = run_clickhouse_query()
+                    except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
+                        # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
+                        sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
+                        self.results, self.types = run_clickhouse_query()
             except Exception as e:
                 if self.debug:
                     self.results = []
@@ -801,7 +830,10 @@ class HogQLQueryExecutor:
                     raise
 
         if self.debug and self.error is None:
-            with self.timings.measure("explain"):
+            with (
+                self.timings.measure("explain"),
+                tags_context(person_lookup_rewrite=1 if self.person_lookup_rewritten else None),
+            ):
                 # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
                 explain_results = sync_execute(
                     f"EXPLAIN {self.clickhouse_sql}",
