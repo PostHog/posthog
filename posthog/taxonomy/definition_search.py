@@ -1,9 +1,10 @@
 from typing import Literal
 
-from django.core.cache import cache
 from django.db import connections
 
 from opentelemetry import trace
+
+from posthog.utils import get_safe_cache, safe_cache_set
 
 DefinitionTable = Literal["posthog_eventdefinition", "posthog_propertydefinition"]
 SearchPlan = Literal["project_scan", "trigram"]
@@ -32,7 +33,8 @@ def search_plan(table: DefinitionTable, project_id: int, db_alias: str) -> Searc
 
 def _cached_search_plan(table: DefinitionTable, project_id: int, db_alias: str) -> SearchPlan:
     cache_key = f"taxonomy_search_plan:{table}:{project_id}"
-    cached = cache.get(cache_key)
+    # A cache outage must only cost the count query, never the search itself.
+    cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
 
@@ -44,5 +46,5 @@ def _cached_search_plan(table: DefinitionTable, project_id: int, db_alias: str) 
         definition_count = cursor.fetchone()[0]
 
     plan: SearchPlan = "trigram" if definition_count > PROJECT_SCAN_MAX_DEFINITIONS else "project_scan"
-    cache.set(cache_key, plan, SEARCH_PLAN_CACHE_SECONDS)
+    safe_cache_set(cache_key, plan, SEARCH_PLAN_CACHE_SECONDS)
     return plan
