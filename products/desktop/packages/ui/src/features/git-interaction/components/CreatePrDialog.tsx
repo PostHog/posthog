@@ -6,13 +6,14 @@ import {
 import { buildCreatePrFlowErrorPrompt } from "@posthog/core/git-interaction/errorPrompts";
 import {
   Button,
-  Checkbox,
   Dialog,
-  Flex,
-  Text,
-  TextArea,
-  TextField,
-} from "@radix-ui/themes";
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
+import { Checkbox, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
 import { StepList, type StepStatus } from "../../../primitives/StepList";
 import { useGitInteractionStore } from "../state/gitInteractionStore";
 import type { CreatePrStep } from "../types";
@@ -105,198 +106,206 @@ export function CreatePrDialog({
   steps.push({ id: "creating-pr", label: "Create pull request" });
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth="500px" size="1">
-        <Flex direction="column" gap="3">
-          <Flex align="center" gap="2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(500px,calc(100vw-32px))] max-w-[500px] sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <GitPullRequest size={ICON_SIZE} />
-            <Text className="font-medium text-sm">
-              {isExecuting ? "Creating PR..." : "Create PR"}
-            </Text>
-          </Flex>
-
-          {!isExecuting && (
-            <>
-              {store.createPrNeedsBranch && (
-                <Flex direction="column" gap="1">
-                  <Text color="gray" className="text-[13px]">
-                    Branch
-                  </Text>
-                  <TextField.Root
-                    value={store.branchName}
-                    onChange={(e) => actions.setBranchName(e.target.value)}
-                    placeholder="branch-name"
-                    size="1"
-                    autoFocus
-                  />
-                  {currentBranch && (
+            {isExecuting ? "Creating PR..." : "Create PR"}
+          </DialogTitle>
+        </DialogHeader>
+        {!isExecuting && (
+          <>
+            <DialogBody>
+              <Flex direction="column" gap="3">
+                {store.createPrNeedsBranch && (
+                  <Flex direction="column" gap="1">
                     <Text color="gray" className="text-[13px]">
-                      from {currentBranch}
+                      Branch
                     </Text>
-                  )}
-                </Flex>
-              )}
+                    <TextField.Root
+                      value={store.branchName}
+                      onChange={(e) => actions.setBranchName(e.target.value)}
+                      placeholder="branch-name"
+                      size="1"
+                      autoFocus
+                    />
+                    {currentBranch && (
+                      <Text color="gray" className="text-[13px]">
+                        from {currentBranch}
+                      </Text>
+                    )}
+                  </Flex>
+                )}
 
-              {store.createPrNeedsCommit && (
+                {store.createPrNeedsCommit && (
+                  <Flex direction="column" gap="1">
+                    <Flex align="center" justify="between">
+                      <Text color="gray" className="text-[13px]">
+                        Commit message
+                      </Text>
+                      <Flex align="center" gap="2">
+                        <Text color="gray" className="text-[13px]">
+                          {formatFileCountLabel(
+                            !!(showCommitAllToggle && !commitAll),
+                            stagedFileCount ?? 0,
+                            diffStats.filesChanged,
+                          )}
+                        </Text>
+                        <Text color="green" className="text-[13px]">
+                          +{diffStats.linesAdded}
+                        </Text>
+                        <Text color="red" className="text-[13px]">
+                          -{diffStats.linesRemoved}
+                        </Text>
+                        <GenerateButton
+                          onClick={onGenerateCommitMessage}
+                          isGenerating={store.isGeneratingCommitMessage}
+                        />
+                      </Flex>
+                    </Flex>
+                    <TextArea
+                      value={store.commitMessage}
+                      onChange={(e) => actions.setCommitMessage(e.target.value)}
+                      placeholder="Leave empty to generate"
+                      size="1"
+                      rows={1}
+                      disabled={store.isGeneratingCommitMessage}
+                      autoFocus={!store.createPrNeedsBranch}
+                    />
+                    {showCommitAllToggle && onCommitAllChange && (
+                      <CommitAllToggle
+                        checked={commitAll}
+                        onChange={onCommitAllChange}
+                      />
+                    )}
+                  </Flex>
+                )}
+
                 <Flex direction="column" gap="1">
                   <Flex align="center" justify="between">
                     <Text color="gray" className="text-[13px]">
-                      Commit message
+                      PR title
                     </Text>
-                    <Flex align="center" gap="2">
-                      <Text color="gray" className="text-[13px]">
-                        {formatFileCountLabel(
-                          !!(showCommitAllToggle && !commitAll),
-                          stagedFileCount ?? 0,
-                          diffStats.filesChanged,
-                        )}
-                      </Text>
-                      <Text color="green" className="text-[13px]">
-                        +{diffStats.linesAdded}
-                      </Text>
-                      <Text color="red" className="text-[13px]">
-                        -{diffStats.linesRemoved}
-                      </Text>
-                      <GenerateButton
-                        onClick={onGenerateCommitMessage}
-                        isGenerating={store.isGeneratingCommitMessage}
-                      />
-                    </Flex>
+                    <GenerateButton
+                      onClick={onGeneratePr}
+                      isGenerating={store.isGeneratingPr}
+                    />
                   </Flex>
-                  <TextArea
-                    value={store.commitMessage}
-                    onChange={(e) => actions.setCommitMessage(e.target.value)}
+                  <TextField.Root
+                    value={store.prTitle}
+                    onChange={(e) => actions.setPrTitle(e.target.value)}
                     placeholder="Leave empty to generate"
                     size="1"
-                    rows={1}
-                    disabled={store.isGeneratingCommitMessage}
-                    autoFocus={!store.createPrNeedsBranch}
-                  />
-                  {showCommitAllToggle && onCommitAllChange && (
-                    <CommitAllToggle
-                      checked={commitAll}
-                      onChange={onCommitAllChange}
-                    />
-                  )}
-                </Flex>
-              )}
-
-              <Flex direction="column" gap="1">
-                <Flex align="center" justify="between">
-                  <Text color="gray" className="text-[13px]">
-                    PR title
-                  </Text>
-                  <GenerateButton
-                    onClick={onGeneratePr}
-                    isGenerating={store.isGeneratingPr}
-                  />
-                </Flex>
-                <TextField.Root
-                  value={store.prTitle}
-                  onChange={(e) => actions.setPrTitle(e.target.value)}
-                  placeholder="Leave empty to generate"
-                  size="1"
-                  disabled={store.isGeneratingPr}
-                  autoFocus={
-                    !store.createPrNeedsBranch && !store.createPrNeedsCommit
-                  }
-                />
-              </Flex>
-
-              <Flex direction="column" gap="1">
-                <Text color="gray" className="text-[13px]">
-                  Description
-                </Text>
-                <TextArea
-                  value={store.prBody}
-                  onChange={(e) => actions.setPrBody(e.target.value)}
-                  placeholder="Leave empty to generate"
-                  size="1"
-                  rows={4}
-                  disabled={store.isGeneratingPr}
-                />
-              </Flex>
-
-              <Text as="label" color="gray" className="text-[13px]">
-                <Flex gap="2" align="center">
-                  <Checkbox
-                    size="1"
-                    checked={store.createPrDraft}
-                    onCheckedChange={(checked) =>
-                      actions.setCreatePrDraft(checked === true)
+                    disabled={store.isGeneratingPr}
+                    autoFocus={
+                      !store.createPrNeedsBranch && !store.createPrNeedsCommit
                     }
                   />
-                  Create as draft
                 </Flex>
-              </Text>
 
-              {store.createPrError && (
-                <ErrorContainer error={store.createPrError} />
-              )}
+                <Flex direction="column" gap="1">
+                  <Text color="gray" className="text-[13px]">
+                    Description
+                  </Text>
+                  <TextArea
+                    value={store.prBody}
+                    onChange={(e) => actions.setPrBody(e.target.value)}
+                    placeholder="Leave empty to generate"
+                    size="1"
+                    rows={4}
+                    disabled={store.isGeneratingPr}
+                  />
+                </Flex>
 
-              <Flex gap="2" justify="end">
-                <Dialog.Close>
-                  <Button size="1" variant="soft" color="gray">
-                    Cancel
-                  </Button>
-                </Dialog.Close>
-                <Button
-                  size="1"
-                  disabled={isSubmitting}
-                  loading={isSubmitting}
-                  onClick={onSubmit}
-                >
-                  Create PR
-                </Button>
-              </Flex>
-            </>
-          )}
+                <Text as="label" color="gray" className="text-[13px]">
+                  <Flex gap="2" align="center">
+                    <Checkbox
+                      size="1"
+                      checked={store.createPrDraft}
+                      onCheckedChange={(checked) =>
+                        actions.setCreatePrDraft(checked === true)
+                      }
+                    />
+                    Create as draft
+                  </Flex>
+                </Text>
 
-          {isExecuting && (
-            <>
-              <StepList
-                steps={steps.map((s) => ({
-                  key: s.id,
-                  label: s.label,
-                  status: resolveStepStatus(
-                    s.id,
-                    step,
-                    store.createPrFailedStep,
-                  ),
-                }))}
-                gap="3"
-              />
-
-              {step === "error" && store.createPrError && (
-                <ErrorContainer
-                  error={store.createPrError}
-                  onFixWithAgent={
-                    canFixWithAgent
-                      ? () => {
-                          fixWithAgent(store.createPrError ?? "");
-                          actions.closeCreatePr();
-                        }
-                      : undefined
-                  }
-                />
-              )}
-
-              <Flex gap="2" justify="end">
-                <Dialog.Close>
-                  <Button size="1" variant="soft" color="gray">
-                    {step === "error" ? "Close" : "Cancel"}
-                  </Button>
-                </Dialog.Close>
-                {step === "error" && (
-                  <Button size="1" onClick={onSubmit}>
-                    Retry
-                  </Button>
+                {store.createPrError && (
+                  <ErrorContainer error={store.createPrError} />
                 )}
               </Flex>
-            </>
-          )}
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={isSubmitting}
+                loading={isSubmitting}
+                onClick={onSubmit}
+              >
+                Create PR
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {isExecuting && (
+          <>
+            <DialogBody>
+              <Flex direction="column" gap="3">
+                <StepList
+                  steps={steps.map((s) => ({
+                    key: s.id,
+                    label: s.label,
+                    status: resolveStepStatus(
+                      s.id,
+                      step,
+                      store.createPrFailedStep,
+                    ),
+                  }))}
+                  gap="3"
+                />
+
+                {step === "error" && store.createPrError && (
+                  <ErrorContainer
+                    error={store.createPrError}
+                    onFixWithAgent={
+                      canFixWithAgent
+                        ? () => {
+                            fixWithAgent(store.createPrError ?? "");
+                            actions.closeCreatePr();
+                          }
+                        : undefined
+                    }
+                  />
+                )}
+              </Flex>
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenChange(false)}
+              >
+                {step === "error" ? "Close" : "Cancel"}
+              </Button>
+              {step === "error" && (
+                <Button variant="primary" size="sm" onClick={onSubmit}>
+                  Retry
+                </Button>
+              )}
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
