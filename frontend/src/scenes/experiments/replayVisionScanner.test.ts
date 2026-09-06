@@ -2,6 +2,8 @@ import { type ExperimentExposureCriteria, NodeKind } from '~/queries/schema/sche
 import type { Experiment } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+import { prefillScannerForExperiment } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
+import type { ReplayScanner } from 'products/replay_vision/frontend/replay_scanners/types'
 
 import { experimentScannerBody, experimentScannerPrompt } from './replayVisionScanner'
 
@@ -74,5 +76,21 @@ describe('replayVisionScanner', () => {
                 })
             }
         )
+
+        // The two entry points build different scanners on purpose: this one is a fixed classifier,
+        // and the Recordings tab hands the person the scanner wizard. The population is the part
+        // that must stay identical, because both feed the same server-derived exposure filter.
+        it('builds the same population as the scanner wizard prefill', () => {
+            const experiment: Experiment = { ...NEW_EXPERIMENT, id: 123, name: 'Checkout redesign' }
+            const prefilled = prefillScannerForExperiment({ name: 'Frustration score' } as ReplayScanner, {
+                experiment,
+                variantKey: null,
+            })
+
+            const body = experimentScannerBody(experiment)
+
+            expect(body.experiment_targeting).toEqual(prefilled.experiment_targeting)
+            expect(body.query).toEqual(prefilled.query)
+        })
     })
 })
