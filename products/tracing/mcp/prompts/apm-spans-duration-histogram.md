@@ -6,7 +6,7 @@ Use it for:
 - "How many requests took longer than 1 second?"
 - "Is the long tail a handful of outliers or a real second mode?"
 
-One call reads the whole population. Do not estimate the distribution by listing spans with `query-apm-spans` — that result is capped and sorted, so it shows the tail, not the shape.
+One call reads the whole population. Rows are capped at the top 10 services per duration bucket, so summing `count` undercounts a bucket that more than ten services land in; filter `serviceNames` to ten or fewer services for an exact total. Do not estimate the distribution by listing spans with `query-apm-spans` — that result is capped and sorted, so it shows the tail, not the shape.
 
 Sibling tools: for when the distribution changed use `apm-spans-latency-heatmap`; for p50/p95 per operation use `apm-spans-aggregate`; for counts over time use `apm-spans-sparkline`; for where the time goes inside one operation use `apm-spans-tree`.
 
