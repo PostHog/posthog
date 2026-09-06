@@ -36,6 +36,8 @@ export function EventsScene(): JSX.Element {
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
+                    // A live-data explorer over captured events, so it keeps the hidden ones selectable.
+                    includeHiddenEvents: true,
                 }}
             />
         </SceneContent>

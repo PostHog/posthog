@@ -38,6 +38,8 @@ export function AddEventButton({
                     }}
                     allowNonCapturedEvents
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.CustomEvents, TaxonomicFilterGroupType.Events]}
+                    // Configures client-side SDK triggers rather than saving a query, so hidden events stay selectable.
+                    includeHiddenEvents
                 />
             }
             visible={popoverOpen}

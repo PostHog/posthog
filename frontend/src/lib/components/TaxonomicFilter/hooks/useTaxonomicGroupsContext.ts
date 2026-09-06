@@ -49,6 +49,8 @@ export interface UseTaxonomicGroupsContextInput {
     metadataSource?: AnyDataNode
     suggestedFiltersLabel?: string
     excludedProperties?: ExcludedProperties
+    /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
+    includeHiddenEvents?: boolean
     propertyAllowList?: AllowedProperties
     selectedProperties?: SelectedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
@@ -153,6 +155,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             // `Record<string, boolean | string | undefined>` the
             // taxonomic-groups builder accepts.
             featureFlags: featureFlags as unknown as BuildTaxonomicGroupsContext['featureFlags'],
+            includeHiddenEvents: input.includeHiddenEvents,
         }
     }, [
         currentTeam,
@@ -175,6 +178,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         input.metadataSource,
         input.suggestedFiltersLabel,
         input.excludedProperties,
+        input.includeHiddenEvents,
         input.propertyAllowList,
         input.maxContextOptions,
         input.hideBehavioralCohorts,
