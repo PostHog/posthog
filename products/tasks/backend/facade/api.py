@@ -7804,7 +7804,12 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
     """Every space the requester can see, by name. ``starred`` reflects the requester's
     stars. Creates nothing, which is what lets a caller gate on a space existing."""
     channels = list(
-        _team_channels(team_id).select_related("created_by").filter(Channel.visible_to_q(user_id)).order_by("name")
+        _team_channels(team_id)
+        .select_related("created_by")
+        .filter(Channel.visible_to_q(user_id))
+        # id is the tiebreaker: private names are not unique, so equal names would otherwise
+        # have no stable order across paginated requests.
+        .order_by("name", "id")
     )
     starred_ids: set = (
         set(ChannelStar.objects.filter(team_id=team_id, user_id=user_id).values_list("channel_id", flat=True))
@@ -7943,13 +7948,25 @@ def set_channel_members(
         return "not_found"
     if channel.channel_type != Channel.ChannelType.PRIVATE:
         return "not_private"
-    target_ids = {*member_ids}
+    # Validate only the submitted ids against project access. The creator is added
+    # afterwards, unconditionally: a creator who later loses project access must not
+    # freeze the member set (they cannot be revalidated, but they are always kept).
+    submitted = {*member_ids}
+    accessible = set(channel.team.all_users_with_access().filter(id__in=submitted).values_list("id", flat=True))
+    if accessible != submitted:
+        return "invalid_member"
+    target_ids = set(submitted)
     if channel.created_by_id is not None:
         target_ids.add(channel.created_by_id)
-    accessible = set(channel.team.all_users_with_access().filter(id__in=target_ids).values_list("id", flat=True))
-    if accessible != target_ids:
-        return "invalid_member"
     with transaction.atomic():
+        # Lock the channel row so concurrent replacements serialize, then re-check the actor
+        # is still a member. Without this, a member removed by a racing PUT could re-add
+        # themselves from an in-flight request.
+        Channel.objects.select_for_update().filter(id=channel.id, team_id=team_id).first()
+        if channel.created_by_id != user_id and not (
+            ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id, user_id=user_id).exists()
+        ):
+            return "not_found"
         memberships = ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id)
         existing = set(memberships.values_list("user_id", flat=True))
         for member_id in target_ids - existing:
@@ -7974,7 +7991,9 @@ def update_channel(
     auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
 ) -> contracts.ChannelDTO | str:
     """Update a visible channel."""
-    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
+    # Visibility-gated load: a private space is not visible (and so not updatable) to a
+    # non-member, exactly like a personal space to a non-owner.
+    channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:
@@ -8011,7 +8030,10 @@ def update_channel(
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
     """Soft-delete an empty public channel. Archived tasks do not count as content."""
-    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
+    # Visibility-gated load: a private space is not visible (and so not deletable) to a
+    # non-member. The locked re-read below re-confirms existence, not visibility — a caller
+    # who is not a member is already rejected here, before the transaction.
+    channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:

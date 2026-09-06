@@ -1306,24 +1306,15 @@ export interface PaginatedChannelInstructionsDTOListApi {
     results: ChannelInstructionsDTOApi[]
 }
 
-export interface PaginatedTaskUserBasicInfoListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskUserBasicInfoApi[]
-}
-
 /**
  * Request body for replacing a private channel's member set.
  */
 export interface ChannelMembersWriteApi {
     /**
-     * The full set of member user ids. The creator is always kept, so removing them has no effect. Every id must be a project member.
+     * The full set of member user ids. Required — send an explicit empty list to clear members. The creator is always kept, so removing them has no effect. Every id must be a project member.
      * @maxItems 100
      */
-    user_ids?: number[]
+    user_ids: number[]
 }
 
 /**

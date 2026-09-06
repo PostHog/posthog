@@ -139,8 +139,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
         summary="List channels",
         description=(
-            "All live public channels plus the requester's personal #me channel when it exists, "
-            "sorted by name. Listing does not provision; call provision_defaults to create the "
+            "Every space the requester can see: all live public channels, the requester's "
+            "personal #me channel when it exists, and any private channel they are a member of. "
+            "Sorted by name. Listing does not provision; call provision_defaults to create the "
             "default channels. Send `limit` (with `offset`) for one page and a `count`/`next` "
             "envelope; without `limit` the response is the full array of channels."
         ),
@@ -478,7 +479,11 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "read as an empty list. 404 when the channel is not visible to the requester."
         ),
     )
-    @action(methods=["GET"], detail=True)
+    # pagination_class=None so the member responses are typed as a bare array, not the
+    # LimitOffset envelope the viewset default would otherwise advertise. The mapped PUT
+    # shares this action's initkwargs, so one setting covers both verbs. Both handlers
+    # always return the full list.
+    @action(methods=["GET"], detail=True, pagination_class=None)
     def members(self, request, pk=None, **kwargs):
         members = tasks_facade.list_channel_members(pk, self.team_id, self._user_id())
         if members is None:

@@ -2231,11 +2231,15 @@ class ChannelMembersWriteSerializer(serializers.Serializer):
 
     user_ids = serializers.ListField(
         child=serializers.IntegerField(),
-        default=list,
+        # Required (no default): this endpoint replaces the whole set, so an omitted field
+        # would silently clear every non-creator member. An explicit [] stays valid for a
+        # deliberate clear.
+        allow_empty=True,
         max_length=CHANNEL_MEMBERS_MAX,
         help_text=(
-            "The full set of member user ids. The creator is always kept, so removing them has "
-            "no effect. Every id must be a project member."
+            "The full set of member user ids. Required — send an explicit empty list to clear "
+            "members. The creator is always kept, so removing them has no effect. Every id must "
+            "be a project member."
         ),
     )
 

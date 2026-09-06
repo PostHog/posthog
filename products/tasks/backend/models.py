@@ -210,13 +210,13 @@ class Channel(TeamScopedRootMixin):
             visible_q |= models.Q(
                 **{
                     f"{prefix}channel_type": cls.ChannelType.PRIVATE,
-                    # unscoped() is safe here: the outer query is already team-scoped and joins
-                    # on channel id, so a membership in another team can never match a channel
-                    # row. An id__in subquery (not a join) works for every relation prefix and
-                    # needs no distinct().
-                    f"{prefix}id__in": ChannelMembership.objects.unscoped()
-                    .filter(user_id=user_id)
-                    .values("channel_id"),
+                    # A membership join, not an id__in subquery. A nested subquery mis-binds an
+                    # OuterRef caller — the thread-message push query passes OuterRef("id") for
+                    # the user — to the immediately enclosing query rather than the user query.
+                    # The (channel, user) unique constraint keeps this join to at most one row
+                    # per channel, so it needs no distinct(), and the outer query is already
+                    # team-scoped, so a membership in another team can never match a channel row.
+                    f"{prefix}memberships__user_id": user_id,
                 }
             )
         return models.Q(**{f"{prefix}deleted": False}) & visible_q

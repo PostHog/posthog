@@ -470,6 +470,55 @@ class ChannelsAPITestCase(TestCase):
             ChannelMembership.objects.unscoped().filter(channel_id=channel_id, user_id=outsider.id).exists()
         )
 
+    def test_a_non_member_cannot_patch_or_delete_a_private_channel(self):
+        channel_id = self._create_private_channel()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        self.assertEqual(
+            other_client.patch(f"{self._channels_url()}{channel_id}/", {"name": "hijack"}).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            other_client.delete(f"{self._channels_url()}{channel_id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        # The write never landed: a member still sees the space under its original name.
+        listed = {c["id"]: c["name"] for c in self.client.get(self._channels_url()).json()}
+        self.assertEqual(listed.get(channel_id), "squad")
+        # A member can still rename it, so the gate does not over-block.
+        renamed = self.client.patch(f"{self._channels_url()}{channel_id}/", {"name": "squad-2"})
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
+
+    def test_setting_members_requires_the_user_ids_field(self):
+        channel_id = self._create_private_channel(member_ids=[self.other_user.id])["id"]
+        members_url = f"{self._channels_url()}{channel_id}/members/"
+        # An omitted field is rejected rather than silently clearing every non-creator member.
+        self.assertEqual(self.client.put(members_url, {}, format="json").status_code, status.HTTP_400_BAD_REQUEST)
+        # An explicit empty list is a deliberate clear.
+        response = self.client.put(members_url, {"user_ids": []}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual({m["id"] for m in response.json()}, {self.user.id})
+
+    def test_members_can_be_managed_after_the_creator_leaves_the_project(self):
+        creator = User.objects.create_user(email="creator@example.com", first_name="Cara", password="password")
+        self.organization.members.add(creator)
+        OrganizationMembership.objects.filter(user=creator, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        creator_client = APIClient()
+        creator_client.force_authenticate(creator)
+        channel_id = self._create_private_channel(member_ids=[self.user.id], client=creator_client)["id"]
+
+        # The creator leaves the organization, so they no longer have project access.
+        OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
+
+        # A remaining member can still edit the set; the departed creator is kept, not revalidated.
+        response = self.client.put(
+            f"{self._channels_url()}{channel_id}/members/", {"user_ids": [self.other_user.id]}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual({m["id"] for m in response.json()}, {creator.id, self.other_user.id})
+
     def test_deleting_github_integration_clears_channel_repositories(self):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
         channel = Channel.objects.for_team(self.team.id).create(

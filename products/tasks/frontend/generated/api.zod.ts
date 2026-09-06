@@ -1072,9 +1072,8 @@ export const TaskChannelsMembersUpdateBody = /* @__PURE__ */ zod
         user_ids: zod
             .array(zod.number())
             .max(taskChannelsMembersUpdateBodyUserIdsMax)
-            .optional()
             .describe(
-                'The full set of member user ids. The creator is always kept, so removing them has no effect. Every id must be a project member.'
+                'The full set of member user ids. Required — send an explicit empty list to clear members. The creator is always kept, so removing them has no effect. Every id must be a project member.'
             ),
     })
     .describe("Request body for replacing a private channel's member set.")

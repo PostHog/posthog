@@ -17176,10 +17176,10 @@ export namespace Schemas {
      */
     export interface ChannelMembersWrite {
       /**
-         * The full set of member user ids. The creator is always kept, so removing them has no effect. Every id must be a project member.
+         * The full set of member user ids. Required — send an explicit empty list to clear members. The creator is always kept, so removing them has no effect. Every id must be a project member.
          * @maxItems 100
          */
-      user_ids?: number[];
+      user_ids: number[];
     }
 
     /**
@@ -59621,15 +59621,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaskThreadMessageDTO[];
-    }
-
-    export interface PaginatedTaskUserBasicInfoList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskUserBasicInfo[];
     }
 
     /**

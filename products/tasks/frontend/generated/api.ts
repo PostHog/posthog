@@ -49,7 +49,6 @@ import type {
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
-    PaginatedTaskUserBasicInfoListApi,
     PatchedChannelInstructionsWriteApi,
     PatchedChannelUpdateApi,
     PatchedLoopWriteApi,
@@ -134,6 +133,7 @@ import type {
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
     TaskUsageResponseApi,
+    TaskUserBasicInfoApi,
     TaskWriteApi,
     TasksAIRunPreferencesApi,
     TasksCommentsListParams,
@@ -786,7 +786,7 @@ export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsL
 }
 
 /**
- * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels. Send `limit` (with `offset`) for one page and a `count`/`next` envelope; without `limit` the response is the full array of channels.
+ * Every space the requester can see: all live public channels, the requester's personal #me channel when it exists, and any private channel they are a member of. Sorted by name. Listing does not provision; call provision_defaults to create the default channels. Send `limit` (with `offset`) for one page and a `count`/`next` envelope; without `limit` the response is the full array of channels.
  * @summary List channels
  */
 export const taskChannelsList = async (
@@ -1115,8 +1115,8 @@ export const taskChannelsMembersRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<PaginatedTaskUserBasicInfoListApi> => {
-    return apiMutator<PaginatedTaskUserBasicInfoListApi>(getTaskChannelsMembersRetrieveUrl(projectId, id), {
+): Promise<TaskUserBasicInfoApi[]> => {
+    return apiMutator<TaskUserBasicInfoApi[]>(getTaskChannelsMembersRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -1133,10 +1133,10 @@ export const getTaskChannelsMembersUpdateUrl = (projectId: string, id: string) =
 export const taskChannelsMembersUpdate = async (
     projectId: string,
     id: string,
-    channelMembersWriteApi?: ChannelMembersWriteApi,
+    channelMembersWriteApi: ChannelMembersWriteApi,
     options?: RequestInit
-): Promise<PaginatedTaskUserBasicInfoListApi> => {
-    return apiMutator<PaginatedTaskUserBasicInfoListApi>(getTaskChannelsMembersUpdateUrl(projectId, id), {
+): Promise<TaskUserBasicInfoApi[]> => {
+    return apiMutator<TaskUserBasicInfoApi[]>(getTaskChannelsMembersUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

@@ -108,8 +108,9 @@ extends visibility without adding any permission to `Task`.
 
 ### `/api/projects/{id}/task_channels/`
 
-- `GET /` — list channels: all live public channels plus the requester's
-  personal `#me` channel when it exists. Listing does not provision; call
+- `GET /` — list channels: every space the requester can see — all live public
+  channels, the requester's personal `#me` channel when it exists, and any private
+  channel they are a member of. Listing does not provision; call
   `provision_defaults` to create the default channels. Paging is opt-in:
   `?limit=&offset=` returns one page in a `count`/`next`/`previous` envelope,
   and a request without `limit` returns every channel as a plain array.
