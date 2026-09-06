@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/cohorts/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CohortsAddPersonsToStaticCohortPartialUpdateSchema = () => {
@@ -77,7 +77,23 @@ const cohortsCreate = (): ToolBase<ReturnType<typeof CohortsCreateSchema>, WithP
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+            const filtered = omitResponseFields(result, [
+                'filters.properties.values.*.values.*.bytecode',
+                'filters.properties.values.*.values.*.bytecode_error',
+                'filters.properties.values.*.values.*.conditionHash',
+                'filters.properties.values.*.bytecode',
+                'filters.properties.values.*.bytecode_error',
+                'filters.properties.values.*.conditionHash',
+                'created_by.uuid',
+                'created_by.distinct_id',
+                'created_by.first_name',
+                'created_by.last_name',
+                'created_by.email',
+                'created_by.is_email_verified',
+                'created_by.hedgehog_config',
+                'created_by.role_at_organization',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/cohorts/${filtered.id}`)
         },
     })
 
@@ -175,7 +191,23 @@ const cohortsPartialUpdate = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+            const filtered = omitResponseFields(result, [
+                'filters.properties.values.*.values.*.bytecode',
+                'filters.properties.values.*.values.*.bytecode_error',
+                'filters.properties.values.*.values.*.conditionHash',
+                'filters.properties.values.*.bytecode',
+                'filters.properties.values.*.bytecode_error',
+                'filters.properties.values.*.conditionHash',
+                'created_by.uuid',
+                'created_by.distinct_id',
+                'created_by.first_name',
+                'created_by.last_name',
+                'created_by.email',
+                'created_by.is_email_verified',
+                'created_by.hedgehog_config',
+                'created_by.role_at_organization',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/cohorts/${filtered.id}`)
         },
     })
 
@@ -203,6 +235,14 @@ const cohortsRetrieve = (): ToolBase<ReturnType<typeof CohortsRetrieveSchema>, W
                 'filters.properties.values.*.bytecode',
                 'filters.properties.values.*.bytecode_error',
                 'filters.properties.values.*.conditionHash',
+                'created_by.uuid',
+                'created_by.distinct_id',
+                'created_by.first_name',
+                'created_by.last_name',
+                'created_by.email',
+                'created_by.is_email_verified',
+                'created_by.hedgehog_config',
+                'created_by.role_at_organization',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/cohorts/${filtered.id}`)
         },
