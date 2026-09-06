@@ -805,6 +805,18 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
             "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)",
         )
 
+    def test_all_time_preaggregated_range_includes_the_first_hour(self):
+        first_event = datetime(2023, 11, 1, 12, 34, tzinfo=UTC)
+        runner = MagicMock()
+        runner.query = WebOverviewQuery(dateRange=DateRange(date_from="all"), properties=[])
+        runner.query_date_range.date_from.return_value = first_event
+        runner.query_date_range.date_to.return_value = datetime(2023, 11, 30, 23, 59, tzinfo=UTC)
+        runner.query_compare_to_date_range = None
+
+        period_filters = WebOverviewPreAggregatedQueryBuilder(runner).get_date_ranges()
+
+        assert period_filters.current_period.exprs[0].right.value == datetime(2023, 11, 1, 12, tzinfo=UTC)
+
     @freeze_time("2023-12-15T12:00:00Z")
     def test_cannot_use_preaggregated_tables_with_unsupported_properties(self):
         query = WebOverviewQuery(
