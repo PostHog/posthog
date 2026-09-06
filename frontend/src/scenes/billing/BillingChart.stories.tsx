@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { dayjs } from 'lib/dayjs'
 
-import { BillingLineGraph, type BillingSeriesType } from './BillingLineGraph'
+import { BillingChart, type BillingSeriesType } from './BillingChart'
 
 const DATES = Array.from({ length: 30 }, (_, i) => dayjs.utc('2024-02-15').add(i, 'day').format('YYYY-MM-DD'))
 
@@ -20,13 +20,13 @@ const SERIES: BillingSeriesType[] = [
     seriesFrom(2, 'Feature flags', 90_000, 30_000),
 ]
 
-const meta: Meta<typeof BillingLineGraph> = {
-    title: 'Scenes-Other/Billing/BillingLineGraph',
-    component: BillingLineGraph,
+const meta: Meta<typeof BillingChart> = {
+    title: 'Scenes-Other/Billing/BillingChart',
+    component: BillingChart,
     parameters: { layout: 'padded' },
     // The chart sizes itself from its container via ResizeObserver, so the wrapper needs a definite
-    // width — the snapshot runtime shrink-wraps the story root, which squeezes the plot to a few
-    // hundred pixels and drops most of the x-axis ticks.
+    // width. The snapshot runtime shrink-wraps the story root, which would squeeze the plot to a few
+    // hundred pixels and drop most of the x-axis ticks.
     decorators: [
         (Story) => (
             <div className="w-[960px]">
@@ -40,11 +40,12 @@ const meta: Meta<typeof BillingLineGraph> = {
 }
 export default meta
 
-type Story = StoryObj<typeof BillingLineGraph>
+type Story = StoryObj<typeof BillingChart>
 
 /**
- * Only two stories, both with a marker: a screenshot's one advantage over BillingLineGraph.test.tsx
- * is showing whether the label clears the plot and survives the wrapper's `overflow: hidden`.
+ * Two stories with a marker: a screenshot's one advantage over BillingChart.test.tsx is showing
+ * whether the label clears the plot and survives the wrapper's `overflow: hidden`. A third shows
+ * the cumulative line, which is drawn on canvas and so invisible to the DOM tests.
  */
 export const WithBillingPeriodMarker: Story = {
     args: { billingPeriodMarkers: [{ date: dayjs.utc('2024-03-01') }] },
@@ -53,4 +54,12 @@ export const WithBillingPeriodMarker: Story = {
 /** A period starting on the first plotted bucket, where the label overhangs the y-axis edge. */
 export const WithMarkerAtRangeStart: Story = {
     args: { billingPeriodMarkers: [{ date: dayjs.utc(DATES[0]) }] },
+}
+
+export const WithCumulativeLine: Story = {
+    args: {
+        chartType: 'bar',
+        cumulativeLabel: 'Cumulative total',
+        billingPeriodMarkers: [{ date: dayjs.utc('2024-03-01') }],
+    },
 }

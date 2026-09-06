@@ -27,6 +27,7 @@ import {
     isUsageAtOrOverLimit,
     projectUsage,
     summarizeUsage,
+    selectionCoversEveryProject,
 } from './billing-utils'
 
 describe('summarizeUsage', () => {
@@ -766,5 +767,31 @@ describe('isMemberUsageSpendReadAccessEnabled', () => {
         { case: 'neither flag is present', featureFlags: {}, expected: false },
     ])('returns $expected when $case', ({ featureFlags, expected }) => {
         expect(isMemberUsageSpendReadAccessEnabled(featureFlags)).toBe(expected)
+    })
+})
+
+describe('selectionCoversEveryProject', () => {
+    const options = [{ key: '1' }, { key: '2' }, { key: '3' }]
+
+    it('treats selecting every project as no filter', () => {
+        expect(selectionCoversEveryProject([1, 2, 3], options)).toBe(true)
+    })
+
+    it('keeps a partial selection as a filter', () => {
+        expect(selectionCoversEveryProject([1, 2], options)).toBe(false)
+    })
+
+    it('keeps an empty selection alone, since that already means every project', () => {
+        expect(selectionCoversEveryProject([], options)).toBe(false)
+        expect(selectionCoversEveryProject(undefined, options)).toBe(false)
+    })
+
+    it('does not claim coverage before the project list has loaded', () => {
+        expect(selectionCoversEveryProject([1, 2, 3], [])).toBe(false)
+    })
+
+    it('covers a deleted project that still appears as an option', () => {
+        // The options include projects that have usage but no longer exist.
+        expect(selectionCoversEveryProject([1, 2, 3, 99], [...options, { key: '99' }])).toBe(true)
     })
 })
