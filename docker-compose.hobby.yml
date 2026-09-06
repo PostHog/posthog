@@ -632,7 +632,8 @@ services:
                     clickhouse_person_distinct_id \
                     clickhouse_app_metrics2 \
                     log_entries \
-                    clickhouse_tophog"
+                    clickhouse_tophog \
+                    session_recording_snapshot_item_events"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created successfully"
@@ -645,6 +646,15 @@ services:
                         fi
                     fi
                 done
+                # The replay snapshot topic is a transport buffer a healthy consumer drains within
+                # seconds. Bound it so a stalled ingestion-sessionreplay can't grow it until the
+                # disk fills and takes the broker — and everything on it — down.
+                if rpk topic alter-config session_recording_snapshot_item_events --brokers kafka:9092 \
+                    --set retention.ms=86400000 --set retention.bytes=53687091200; then
+                    echo "Applied retention caps to session_recording_snapshot_item_events"
+                else
+                    echo "Failed to apply retention caps to session_recording_snapshot_item_events"
+                fi
                 echo "Final topic list:"
                 rpk topic list --brokers kafka:9092
                 echo "Topics ready"
