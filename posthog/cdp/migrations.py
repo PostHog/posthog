@@ -81,6 +81,9 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 "team": team,
                 "get_team": (lambda t=team: t),
                 "is_create": True,
+                # The plugin templates this migrates from are deprecated, which the serializer
+                # otherwise blocks on create.
+                "allow_deprecated_template": True,
             }
 
             template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
