@@ -99,9 +99,13 @@ and, like all observations, runs at most once per `(scanner, session)`.
 
 ### Cite moments, not just sessions
 
-`scanner_result.model_output.reasoning_segments` is the same prose as `reasoning`, pre-split into `text` segments and `chip` segments.
+An observation's citation segments are the same prose as its flat text, pre-split into `text` segments and `chip` segments.
+The field is `scanner_result.model_output.summary_segments` on a summarizer, and `scanner_result.model_output.reasoning_segments` on a monitor, classifier, or scorer.
 Each chip carries a `timestamp_ms`: the recording-relative offset of the moment the model is pointing at.
 That's what makes a finding checkable — it turns "the user hit a paywall" into a link that opens on the paywall.
+
+`vision-scanners-observations-list` leaves the segments off its rows to keep a page small, so read the observation you want to cite with `vision-scanners-observations-get` first.
+`vision-observations-list` and `vision-observations-retrieve` still return them, so a session-scoped page needs no extra call.
 
 The observation's `_posthogUrl` is its recording; append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to seek there.
 
