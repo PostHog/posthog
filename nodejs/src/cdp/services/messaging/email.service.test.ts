@@ -788,6 +788,65 @@ describe('EmailService', () => {
                 expect(result.metrics).toEqual([])
             })
 
+            // A per-workflow pause holds one workflow's email while the rest of the project keeps
+            // sending. Same choke point as the team switch above, so no upstream route bypasses it.
+            it('does not call SES while the workflow is paused and records email_paused', async () => {
+                invocation.hogFunction.metadata = {
+                    email_sending_paused_at: '2026-01-01T00:00:00Z',
+                    email_sending_paused_reason: 'Spam complaints reached 2% of the 400 emails sent.',
+                }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
+                expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+                expect(result.logs.map((l) => l.message).join(' ')).toContain('Spam complaints reached 2%')
+                // Flags the skip so the flow-level billing gate charges nothing for a send that never sent.
+                expect(result.skipped).toBe(true)
+            })
+
+            it('tells a staff-paused workflow to contact support instead of the resume button', async () => {
+                invocation.hogFunction.metadata = {
+                    email_sending_paused_at: '2026-01-01T00:00:00Z',
+                    email_sending_paused_reason:
+                        "PostHog staff paused this workflow's email to protect delivery for everyone.",
+                    email_sending_paused_by: 'staff',
+                }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                const messages = result.logs.map((l) => l.message).join(' ')
+                expect(messages).toContain('Contact support')
+                expect(messages).not.toContain('Resume it from the workflow page')
+            })
+
+            it('blocks editor test sends while the workflow is paused without recording metrics', async () => {
+                invocation.hogFunction.metadata = { email_sending_paused_at: '2026-01-01T00:00:00Z' }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation, true)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics).toEqual([])
+            })
+
+            it('sends once the workflow pause is cleared', async () => {
+                invocation.hogFunction.metadata = {
+                    email_sending_paused_at: null,
+                    email_sending_paused_reason: null,
+                }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
+            })
+
             const setProviderTenantStatus = async (status: string): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
