@@ -260,7 +260,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
         sql = self._select("select count() from events", context=context)
         assert f"toIntervalMonth({months})" in sql
-        assert "greater(events.timestamp, minus(now" in sql
+        assert "greaterOrEquals(events.timestamp, minus(toStartOfMonth(now" in sql
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):
@@ -275,7 +275,7 @@ class TestPrinter(BaseTest):
         self.team.event_retention_months = 12
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
         sql = self._select("select count() from persons", context=context)
-        assert "greater(events.timestamp, minus(now" not in sql
+        assert "greaterOrEquals(events.timestamp, minus(toStartOfMonth(now" not in sql
         assert "toIntervalMonth(12)" not in sql
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)

@@ -148,7 +148,7 @@ from posthog.hogql_queries.validation.validation import (
 from posthog.models import Team, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
-from posthog.models.team.event_retention import events_retention_months_for_team
+from posthog.models.team.event_retention import events_retention_floor_date, events_retention_months_for_team
 from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
@@ -2623,7 +2623,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
         retention_months = events_retention_months_for_team(self.team, self.team.pk)
         if retention_months is not None:
-            payload["events_retention_floor_months"] = retention_months
+            payload["events_retention_floor_from"] = events_retention_floor_date(
+                self.team, retention_months
+            ).isoformat()
 
         return payload
 

@@ -1,5 +1,6 @@
 from typing import cast
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -33,6 +34,7 @@ class TestParseEventsFeatureToMonths:
         assert parse_events_feature_to_months(cast(ProductFeature | None, feature)) == expected
 
 
+@freeze_time("2026-09-01")
 class TestReconcileOrganizationEventsRetention(BaseTest):
     def _set_retention_feature(self, limit: int, unit: str) -> None:
         Organization.objects.filter(pk=self.organization.pk).update(
@@ -57,6 +59,24 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
         Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
 
         assert reconcile_organization_events_retention(self.organization) == 0
+
+    @freeze_time("2026-09-15")
+    def test_shorter_window_waits_for_the_first_of_the_month(self) -> None:
+        Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
+        self._set_retention_feature(1, "year")
+
+        assert reconcile_organization_events_retention(self.organization) == 0
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 84
+
+    @freeze_time("2026-09-15")
+    def test_longer_window_applies_immediately(self) -> None:
+        Team.objects.filter(pk=self.team.pk).update(event_retention_months=12)
+        self._set_retention_feature(7, "years")
+
+        assert reconcile_organization_events_retention(self.organization) == 1
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 84
 
     def test_reconciles_from_persisted_entitlement_not_snapshot(self) -> None:
         Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)

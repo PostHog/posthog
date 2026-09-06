@@ -37,6 +37,24 @@ describe('exceedsRetention', () => {
             false,
         ],
         ['a resolved range past the window warns', insightViz('-3y'), undefined, '2023-06-15', RETENTION_MONTHS, true],
+        // The floor sits on the 1st of the month: 2025-06-10 is inside the window on 2026-06-15 even though it is
+        // more than 12 months old.
+        [
+            'a resolved range after the 1st of the boundary month is fine',
+            insightViz('-13m'),
+            undefined,
+            '2025-06-10',
+            RETENTION_MONTHS,
+            false,
+        ],
+        [
+            'a resolved range before the boundary month warns',
+            insightViz('-13m'),
+            undefined,
+            '2025-05-20',
+            RETENTION_MONTHS,
+            true,
+        ],
         ['no resolved range yet stays quiet', insightViz('-3y'), undefined, undefined, RETENTION_MONTHS, false],
         // "All time" resolves to the earliest event the floored query can see, so the resolved range never reaches
         // past the window; the requested range has to carry the warning.
