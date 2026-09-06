@@ -181,6 +181,11 @@ function ExpandedWidget({
         userId: user?.id ?? null,
         buildHash: selectedBuildHash,
     })
+    const cleanReviewHasNoCapabilities =
+        selectedSecurityReview?.severity === 'none' &&
+        activeFrameNames.length === 0 &&
+        Object.values(activePermissions).every((permissionEnabled) => !permissionEnabled)
+    const requiresVerification = !widgetTrust.buildTrusted && !cleanReviewHasNoCapabilities
     const trustControls = (variant: 'gate' | 'toolbar'): JSX.Element => (
         <NotebookWidgetTrustControls
             buildHash={selectedBuildHash}
@@ -216,7 +221,7 @@ function ExpandedWidget({
     }
 
     if (selectedArtifactUrl && selectedVersionId && selectedBuildHash && currentTeamId) {
-        if (!widgetTrust.buildTrusted) {
+        if (requiresVerification) {
             return (
                 <>
                     {trustControls('gate')}
