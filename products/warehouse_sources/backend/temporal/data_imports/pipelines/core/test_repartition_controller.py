@@ -432,14 +432,13 @@ class TestCoarsenTrigger:
         )
 
     def _detect_over_fragmented(
-        self, team, schema: ExternalDataSchema, *, coarsen_enabled: bool = True, buckets: list[str] | None = None
+        self, team, schema: ExternalDataSchema, *, buckets: list[str] | None = None
     ) -> MagicMock:
         with tempfile.TemporaryDirectory() as d:
             delta = _write_partitioned_delta(f"{d}/t", buckets or [str(bucket) for bucket in range(16)])
             with (
                 patch.object(ctrl, "target_partition_bytes", return_value=10**12),
                 patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
-                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=coarsen_enabled),
                 patch.object(ctrl, "capture_repartition_event") as capture,
             ):
                 self._detect(team, schema, delta)
@@ -483,8 +482,6 @@ class TestCoarsenTrigger:
             # A layout that was just rewritten hasn't had a chance to prove itself; undoing it within
             # the day is how the two directions would start handing the table back and forth.
             "fresh_layout",
-            # Enrolment is per-schema, like the finer path's.
-            "flag_disabled",
         ],
     )
     def test_does_not_coarsen_when_a_guard_applies(self, team, case):
@@ -494,7 +491,7 @@ class TestCoarsenTrigger:
         if case == "recent_oom":
             self._record_oom(schema)
 
-        self._detect_over_fragmented(team, schema, coarsen_enabled=case != "flag_disabled")
+        self._detect_over_fragmented(team, schema)
 
         assert schema.repartition_pending is None
 
@@ -554,7 +551,6 @@ class TestCoarsenTrigger:
         [
             ("unexplained_oom", "oom_within_free_window"),
             ("fresh_layout", "layout_too_young"),
-            ("flag_disabled", "flag_disabled"),
         ],
     )
     def test_declining_to_coarsen_records_which_gate_stopped_it(self, team, case, expected_reason):
@@ -567,18 +563,18 @@ class TestCoarsenTrigger:
             self._record_oom(schema, days_ago=10)
 
         with patch.object(ctrl, "DELTA_COARSEN_DECLINE_TOTAL") as decline_metric:
-            self._detect_over_fragmented(team, schema, coarsen_enabled=case != "flag_disabled")
+            self._detect_over_fragmented(team, schema)
 
         assert decline_metric.labels.call_args.kwargs == {"reason": expected_reason}
 
     def test_operator_nomination_overrides_the_policy_gates(self, team):
         # The backlog of already-over-split tables is blocked by the OOM-free gate, because the signal
         # that over-split them keeps firing. A nomination is how an operator gets past that, so it has
-        # to work with OOM history present, the flag off, and a layout younger than the age gate.
+        # to work with OOM history present and a layout younger than the age gate.
         schema = self._fragmented_schema(team, last_repartition_at=_days_ago_iso(0), coarsen_requested=_NOMINATION)
         self._record_oom(schema)
 
-        self._detect_over_fragmented(team, schema, coarsen_enabled=False)
+        self._detect_over_fragmented(team, schema)
 
         pending = schema.repartition_pending
         assert pending is not None
@@ -593,7 +589,7 @@ class TestCoarsenTrigger:
         schema = self._fragmented_schema(team, coarsen_requested=_NOMINATION)
 
         with patch.object(ExternalDataSchema, "set_repartition_pending", side_effect=RuntimeError("pooler dropped")):
-            self._detect_over_fragmented(team, schema, coarsen_enabled=False)
+            self._detect_over_fragmented(team, schema)
 
         assert schema.repartition_pending is None
         assert schema.coarsen_requested is not None, "a failed staging must not consume the nomination"
@@ -611,7 +607,7 @@ class TestCoarsenTrigger:
         )
         buckets = [f"2024-01-01T{hour:02d}" for hour in range(15)] + ["1970-01"]
 
-        self._detect_over_fragmented(team, schema, coarsen_enabled=False, buckets=buckets)
+        self._detect_over_fragmented(team, schema, buckets=buckets)
 
         assert schema.repartition_pending is None
         assert schema.coarsen_requested is None
@@ -1072,9 +1068,6 @@ class TestRepartitionActivity:
             patch.object(repartition_table, "capture_repartition_event") as capture,
             patch.object(repartition_table, "capture_exception") as capture_exception,
             patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
-            # A coarsening trigger answers to the coarsen flag, not the repartition one; without this the
-            # activity releases the queued rewrite before reaching the give-up.
-            patch.object(repartition_table, "is_auto_coarsen_enabled", return_value=True),
         ):
             ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
 
