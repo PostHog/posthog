@@ -485,6 +485,9 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            # Same as web and worker: Temporal activities that resolve group types go
+            # through personhog too.
+            PERSONHOG_ADDR: 'personhog-router:50052'
         depends_on:
             - db
             - redis7
