@@ -138,6 +138,23 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "forbidden_inline_script",
             ),
             (
+                "platform_token_in_stylesheet",
+                project(files={CANVAS_COMPONENT_PATH: CODE, "src/styles.css": ":root { --muted: #5d5a52; }"}),
+                "platform_token_redeclared",
+            ),
+            (
+                "platform_token_in_inline_style",
+                project(files={CANVAS_COMPONENT_PATH: CODE + "const css = `html.dark { --background:#141416 }`;"}),
+                "platform_token_redeclared",
+            ),
+            (
+                "platform_token_in_entry_html",
+                project(
+                    files={CANVAS_ENTRY_HTML: '<style>\n:root {\n  --muted: #5d5a52;\n}\n</style><div id="root"></div>'}
+                ),
+                "platform_token_redeclared",
+            ),
+            (
                 "file_too_large",
                 project(files={CANVAS_COMPONENT_PATH: "a" * (MAX_FILE_BYTES + 1)}),
                 "file_too_large",
@@ -192,6 +209,25 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         )
         diagnostics = validate_source_project(candidate)
         self.assertNotIn("capability_missing_state", [d["code"] for d in diagnostics])
+
+    @parameterized.expand(
+        [
+            (
+                "prefixed_and_suffixed_names",
+                "src/styles.css",
+                ":root { --doc-muted: #5d5a52; --muted-foreground: #444; } .lead { color: var(--muted); }",
+            ),
+            ("comment_mentioning_token", CANVAS_COMPONENT_PATH, CODE + "// --muted: legacy name, do not use\n"),
+            (
+                "prose_mentioning_token",
+                CANVAS_COMPONENT_PATH,
+                CODE + 'const hint = "Rename --muted: it is reserved";\n',
+            ),
+        ]
+    )
+    def test_platform_token_uses_and_mentions_pass(self, _name: str, path: str, content: str) -> None:
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE, path: content})
+        self.assertEqual(validate_source_project(candidate), [])
 
     def test_direct_network_calls_warn_but_stay_publishable(self):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE + "fetch(dynamicUrl);"})

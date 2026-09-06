@@ -69,7 +69,9 @@ Diagnostics carry `severity`, a stable `code`, a `message`, and (for file-specif
   `invalid_path`, `capability_missing_insight` / `capability_missing_capture_event` /
   `capability_missing_inline_queries` / `capability_missing_agent_requests` /
   `capability_missing_network_origin`,
-  `dependency_not_admitted` / `dependency_version_mismatch`, and path/size violations.
+  `dependency_not_admitted` / `dependency_version_mismatch`, `platform_token_redeclared` (a CSS
+  variable named like a Quill token that the platform stylesheet sets on every element, so the
+  value never applies; prefix your own variables), and path/size violations.
 - `warning` diagnostics don't block, but heed them: `network_fetch` / `network_xhr` mean the code
   reaches for the network directly. Declare the exact HTTPS origin or use the `ph` bridge.
 
