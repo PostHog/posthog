@@ -13,7 +13,7 @@ Before a user has set a product up, its scene should show a setup empty state: t
 
 1. A scene declares `emptyState` on its `SceneExport`. The app shell (`frontend/src/scenes/App.tsx`) wraps the scene in `ProductEmptyStateGate` — the scene component itself contains **no** empty-state branching.
 2. The gate mounts the product's **detection logic**, which pushes a normalized status into `productSetupStatusLogic({ productKey })` — the app-wide single read point for "is product X set up?".
-3. The gate renders the setup empty state for `needs-setup` / `waiting-for-data`, and the scene untouched for `has-data`. While `loading` it shows the standard scene-level spinner — the one shared loading treatment. **Never add a product-specific loading fallback.**
+3. The gate renders the setup empty state for `needs-setup` / `no-events` / `waiting-for-data`, and the scene untouched for `has-data`. While `loading` it shows the standard scene-level spinner — the one shared loading treatment. **Never add a product-specific loading fallback.**
 4. Statuses are **preloaded at app boot**: `productSetupPreloadLogic` (mounted in `App.tsx`) answers every manifest-declared probe (each product's `setupProbe`, aggregated into `productSetupProbes`) with one combined event-count query on idle, so by the time a user opens the scene the status is usually already known and the spinner never shows. The product's in-scene detection stays the fresher source of truth.
 5. Users can **skip** by default. Skip is local-only (localStorage, keyed team + product, never backend-persisted); detection keeps polling, and a slim "Set up" banner stays visible until data lands. Creation-first products whose gated scene is just an empty list can set `skippable: false` on the config to drop the escape hatch — the primary action is the only next step anyway.
 
@@ -57,7 +57,7 @@ listeners(({ actions, values }) => ({
 })),
 ```
 
-Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the empty dashboard), `unknown` (detection failed with no earlier answer - the gate fails open to the scene), `needs-setup`, `waiting-for-data` (optional middle state: instrumented but no traffic yet), `has-data`. Binary products simply never emit `waiting-for-data`. **Your detection logic must handle its failure path** - a query that fails forever must not leave the status `loading`. Statuses are stamped with the team they were detected for, so project switches automatically reset to `loading`.
+Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the empty dashboard), `unknown` (detection failed with no earlier answer - the gate fails open to the scene), `needs-setup`, `no-events` (optional: the product is on, but the project has never ingested an event, so the SDK is what to fix), `waiting-for-data` (optional middle state: instrumented but no traffic yet), `has-data`. Binary products simply never emit `waiting-for-data`. **Your detection logic must handle its failure path** - a query that fails forever must not leave the status `loading`. Statuses are stamped with the team they were detected for, so project switches automatically reset to `loading`.
 
 ### 2. Create the config
 
@@ -69,7 +69,7 @@ Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the
 - **`featureFlag`**: set it when the scene is already flag-gated (so the scene's own gate keeps handling flag-off) or to roll the empty state out gradually.
 - **Scene modules that serve more than one surface**: `scenes` narrows where the gate applies, and omitting it gates everything the module serves. A plain scene id covers that whole scene (web analytics gates only `Scene.WebAnalyticsWebVitals`). When one scene id serves several tabs, pass `{ scene, tabs }` and list every value of the `tab` route param you gate, including `undefined` for the URL with no tab segment - `products/workflows/frontend/emptyState/workflowsEmptyState.tsx` gates its workflow list while channels, opt-outs, suppression, and reputation stay reachable with no workflows yet. Gating the scene instead would take those tabs down with it.
 - **Hedgehog**: a `pngHoggie(...)`-wrapped module — import only inside the product chunk (eager-graph guard: `frontend/bin/check-eager-graph.mjs`). Never hardcode image URLs (e.g. Cloudinary) — `@posthog/brand` assets only.
-- **`text` is keyed by mode**: provide the `needs-setup` base; add a `waiting-for-data` entry only if your product has that middle state (missing fields fall back to the base). Sentence case, benefit-first, no AI tells (see "User-facing copy" in `CLAUDE.md`).
+- **`text` is keyed by mode**: provide the `needs-setup` base; add a `waiting-for-data` or `no-events` entry only if your product has that state (missing fields fall back to the base). Sentence case, benefit-first, no AI tells (see "User-facing copy" in `CLAUDE.md`).
 - **Key `wizard` by mode when the install command stops applying**: a product whose `waiting-for-data` means "events are flowing, a scheduled job hasn't run yet" has nothing left to install, so pass `wizard: { 'needs-setup': { slug } }` and the terminal, the manual link, and the hint leave the waiting screen (clusters). Leave it flat when re-running setup still makes sense there (MCP analytics: "Instrumenting another server?").
 - **Key `primaryAction` by mode when it only fits one**: a one-click opt-in ("Enable session recording") is done once the status is `waiting-for-data`, and clicking it again re-sends the same team update. Pass `primaryAction: { 'needs-setup': { ... } }` and the button, along with the `hint` that introduces it, leaves the waiting screen. A single flat action still covers both modes - keep that when it reads correctly either way (support's "Open support settings").
 - **Product header**: the gate keeps the product header (name, description, icon) above the empty state automatically, sourced from the scene's `SceneConfig` in your product manifest — make sure your manifest's scene entry has `name`, `description`, and `iconType` set.
@@ -124,7 +124,7 @@ Add one story per mode to `lib/components/ProductEmptyState/ProductEmptyState.st
 
 ## QA checklist
 
-Add `?empty_state=1` to the scene URL to pull up the setup screen on a project that already has data - it overrides detection and a local skip, and `?empty_state=waiting-for-data` gives you the other mode. Check the list below through that param rather than emptying a project.
+Add `?empty_state=1` to the scene URL to pull up the setup screen on a project that already has data - it overrides detection and a local skip, and `?empty_state=waiting-for-data` or `?empty_state=no-events` gives you the other modes. Check the list below through that param rather than emptying a project.
 
 - Dark mode, reduced motion (`prefers-reduced-motion`), self-hosted (no wizard terminal).
 - Loading never flashes the real scene or the empty dashboard.

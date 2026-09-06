@@ -14,11 +14,18 @@ import type { AccessControlLevel, AccessControlResourceType } from '~/types'
  *
  * `unknown` means detection failed and no earlier answer exists - surfaces must
  * fail open (render the real product, never a spinner or the setup screen).
+ *
+ * `no-events` means the product itself is on, but the project has never ingested
+ * an event, so waiting cannot help - the SDK is the thing to fix.
  */
-export type ProductSetupStatus = 'loading' | 'unknown' | 'needs-setup' | 'waiting-for-data' | 'has-data'
+export type ProductSetupStatus = 'loading' | 'unknown' | 'needs-setup' | 'no-events' | 'waiting-for-data' | 'has-data'
 
-/** The two empty-state variants. `waiting-for-data` is for products with an "installed but no traffic yet" middle state. */
-export type ProductEmptyStateMode = 'needs-setup' | 'waiting-for-data'
+/**
+ * The empty-state variants. `waiting-for-data` is for products with an "installed
+ * but no traffic yet" middle state, `no-events` for the narrower case where nothing
+ * at all reaches the project.
+ */
+export type ProductEmptyStateMode = 'needs-setup' | 'no-events' | 'waiting-for-data'
 
 export interface ProductEmptyStateText {
     /** Sentence case, benefit-first, e.g. "Know how agents actually use your tools" */

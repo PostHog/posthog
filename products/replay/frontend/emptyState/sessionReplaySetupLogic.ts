@@ -6,10 +6,11 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 /**
- * Setup detection for the session replay empty state. Three-state: recordings
- * exist → has-data; recording opt-in without recordings yet → waiting-for-data;
- * neither → needs-setup. No has-data cache: recordings expire with retention,
- * so a positive answer is not permanent.
+ * Setup detection for the session replay empty state. Recordings exist → has-data;
+ * recording is on but the project never ingested an event → no-events, because
+ * waiting cannot help until the SDK reaches PostHog; recording on without
+ * recordings yet → waiting-for-data; recording off → needs-setup. No has-data
+ * cache: recordings expire with retention, so a positive answer is not permanent.
  */
 export const sessionReplaySetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.SESSION_REPLAY,
@@ -19,9 +20,22 @@ export const sessionReplaySetupLogic = createSetupDetectionLogic({
         if (response.results.length > 0) {
             return 'has-data'
         }
-        return teamLogic.findMounted()?.values.currentTeam?.session_recording_opt_in
-            ? 'waiting-for-data'
-            : 'needs-setup'
+        const mountedTeamLogic = teamLogic.findMounted()
+        const currentTeam = mountedTeamLogic?.values.currentTeam
+        if (!currentTeam?.session_recording_opt_in) {
+            return 'needs-setup'
+        }
+        // Only an explicit `false` counts: the flag is absent from some team payloads, and
+        // reading that as "no events" would tell a working project its SDK is broken.
+        if (currentTeam.ingested_event !== false) {
+            return 'waiting-for-data'
+        }
+        // The server sets `ingested_event`, and nothing else refreshes the team while this
+        // screen stays open, so the value the page booted with can be stale. Re-read the team
+        // before we send anyone to check an installation that now works. Only a project that
+        // has sent nothing pays for the extra request, and the first event ends it.
+        await mountedTeamLogic?.asyncActions.loadCurrentTeam()
+        return mountedTeamLogic?.values.currentTeam?.ingested_event === false ? 'no-events' : 'waiting-for-data'
     },
     pollIntervalMs: 20000,
     // Enabling recording (from this empty state or settings) must flip the
