@@ -89,7 +89,7 @@ function ScrollDepthMouseInfo({
 }): JSX.Element | null {
     const { heatmapElements, rawHeatmapLoading } = useValues(heatmapDataLogic({ context, exportToken }))
 
-    const { y: mouseY } = useMousePosition()
+    const mouseY = useMousePosition()?.y
 
     if (!mouseY) {
         return null

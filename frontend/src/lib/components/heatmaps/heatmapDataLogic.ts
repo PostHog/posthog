@@ -13,6 +13,7 @@ import {
     HeatmapFixedPositionMode,
     HeatmapJsData,
     HeatmapJsDataPoint,
+    HeatmapKind,
 } from 'lib/components/heatmaps/types'
 import {
     DEFAULT_HEATMAP_FILTERS,
@@ -37,6 +38,20 @@ const UNBOUNDED_HEATMAP_LIMIT = 0
 // Limit canvas height to prevent browser freezing with heatmap.js
 // Large canvases (e.g., 24000px) cause heatmap.js to block the main thread
 export const MAX_HEATMAP_HEIGHT = 8000
+
+export const HEATMAP_LOADING_DEBOUNCE_MS = 200
+
+export const HEATMAP_TYPES: Record<HeatmapKind, { label: string; noun: string }> = {
+    click: { label: 'Clicks', noun: 'click' },
+    rageclick: { label: 'Rageclicks', noun: 'rageclick' },
+    deadclick: { label: 'Dead clicks', noun: 'dead click' },
+    mousemove: { label: 'Mouse moves', noun: 'mouse move' },
+    scrolldepth: { label: 'Scroll depth', noun: 'scroll depth' },
+}
+
+export const HEATMAP_TYPE_OPTIONS: LemonSelectOption<HeatmapKind>[] = (Object.keys(HEATMAP_TYPES) as HeatmapKind[]).map(
+    (value) => ({ value, label: HEATMAP_TYPES[value].label })
+)
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -163,7 +178,7 @@ export interface heatmapDataLogicValues {
     heatmapFilters: HeatmapFilters
     heatmapFixedPositionMode: HeatmapFixedPositionMode
     heatmapJsData: HeatmapJsData
-    heatmapTooltipLabel: string
+    heatmapTooltipNoun: string
     heatmapTooltipSuppressed: boolean
     heightOverride: number
     href: string | null
@@ -307,7 +322,7 @@ export interface heatmapDataLogicMeta {
             min: number
         }
         widthOverride: (windowWidthOverride: number | null) => number
-        heatmapTooltipLabel: (heatmapFilters: HeatmapFilters) => string
+        heatmapTooltipNoun: (heatmapFilters: HeatmapFilters) => string
         heatmapEmpty: (rawHeatmap: HeatmapResponseType | null, rawHeatmapLoading: boolean) => boolean
         maxYFromEvents: (heatmapElements: HeatmapElement[]) => number
         heightOverride: (maxYFromEvents: number, windowHeight: number) => number
@@ -604,13 +619,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             (windowWidthOverride: number | null): number => windowWidthOverride ?? DEFAULT_HEATMAP_WIDTH,
         ],
 
-        heatmapTooltipLabel: [
+        heatmapTooltipNoun: [
             (s) => [s.heatmapFilters],
             (heatmapFilters: HeatmapFilters) => {
                 if (heatmapFilters.aggregation === 'unique_visitors') {
-                    return 'visitors'
+                    return 'visitor'
                 }
-                return heatmapFilters.type + 's'
+                return HEATMAP_TYPES[heatmapFilters.type ?? 'click'].noun
             },
         ],
 
