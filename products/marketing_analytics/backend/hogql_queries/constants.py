@@ -760,3 +760,10 @@ def to_marketing_analytics_data(
         changeFromPreviousPct=change_from_previous_pct,
         hasComparison=has_comparison,
     )
+
+
+# Spill the GROUP BY to disk past this much memory. Deliberately far below the shared
+# MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY (22 GiB): these queries peak around 1.5 GiB, so a threshold above
+# their peak never fires, and one above the per-query memory limit could never fire at all.
+# `test_spill_threshold_is_reachable` locks that relationship.
+MARKETING_SPILL_AFTER_BYTES = 512 * 1024 * 1024
