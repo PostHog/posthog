@@ -78,7 +78,7 @@ function buildBaseProperties(
               }
             : {}),
         mcp_runtime: 'hono',
-        mcp_vendor_client: clientIdentity.mcpVendorClient,
+        $mcp_vendor_client: clientIdentity.mcpVendorClient,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }
@@ -450,7 +450,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
                 $mcp_region: props.region,
                 $mcp_auth_method: classifyAuthMethod(props.apiToken),
                 mcp_runtime: 'hono',
-                mcp_vendor_client: props.mcpVendorClient,
+                $mcp_vendor_client: props.mcpVendorClient,
                 $mcp_auth_failure_reason: failure.reason,
                 ...(failure.status ? { $mcp_auth_status: failure.status } : {}),
                 ...(failure.missingScope ? { $mcp_missing_scope: failure.missingScope } : {}),

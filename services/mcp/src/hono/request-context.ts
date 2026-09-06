@@ -237,7 +237,7 @@ export class RequestContext {
             $mcp_mode: requestContext.mode,
             $mcp_region: requestContext.region,
             mcp_runtime: 'hono',
-            mcp_vendor_client: requestContext.mcpVendorClient,
+            $mcp_vendor_client: requestContext.mcpVendorClient,
             ...buildMCPSessionAnalyticsProperties(sessionContext),
         }
     }
