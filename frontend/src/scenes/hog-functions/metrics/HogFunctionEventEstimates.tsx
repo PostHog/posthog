@@ -17,7 +17,7 @@ import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfi
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
 export function HogFunctionEventEstimates(): JSX.Element | null {
-    const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList, type, configuration } =
+    const { sparkline, sparklineLoading, eventsDataTableNode, showEventsList, type, configuration, useMapping } =
         useValues(hogFunctionConfigurationLogic)
 
     const { setShowEventsList } = useActions(hogFunctionConfigurationLogic)
@@ -34,6 +34,22 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
     }
 
     const insightUrl = urls.insightNew({ type: InsightType.SQL, query: dataTableNode })
+    const matchCount = sparkline?.count ?? 0
+    const matchCountDescription = useMapping ? (
+        <>
+            At least one mapping matched{' '}
+            <strong>
+                {matchCount} event{matchCount !== 1 ? 's' : ''}
+            </strong>
+        </>
+    ) : (
+        <>
+            This {type} would have triggered{' '}
+            <strong>
+                {matchCount} time{matchCount !== 1 ? 's' : ''}
+            </strong>
+        </>
+    )
 
     const canvasContent = {
         type: 'doc',
@@ -51,25 +67,22 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
 
     return (
         <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
-            <LemonLabel>Matching events</LemonLabel>
+            <LemonLabel>{useMapping ? 'Matching events across all mappings' : 'Matching events'}</LemonLabel>
+            {useMapping ? (
+                <p className="text-sm text-secondary">
+                    This preview includes each event that matches at least one mapping. A matcher on one mapping does
+                    not filter the other mappings.
+                </p>
+            ) : null}
             {sparkline && !sparklineLoading ? (
                 <>
                     {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL && type !== 'transformation' ? (
                         <LemonBanner type="warning">
-                            <b>Warning:</b> This destination would have triggered{' '}
-                            <strong>
-                                {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                            </strong>{' '}
-                            in the last 7 days. Consider the impact of this function on your destination.
+                            <b>Warning:</b> {matchCountDescription} in the last 7 days. Consider the impact of this
+                            function on your destination.
                         </LemonBanner>
                     ) : (
-                        <p>
-                            This {type} would have triggered{' '}
-                            <strong>
-                                {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                            </strong>{' '}
-                            in the last 7 days.
-                        </p>
+                        <p>{matchCountDescription} in the last 7 days.</p>
                     )}
 
                     {hasMasking && <p>The estimate does not take into account trigger options.</p>}

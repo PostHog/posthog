@@ -1618,8 +1618,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                const allPossibleEventFilters = configuration.filters?.events ?? []
-                const allPossibleActionFilters = configuration.filters?.actions ?? []
+                // Keep selector evaluation pure. Mapping filters are combined for the preview only;
+                // they must never leak into the global filters rendered and saved by the form.
+                const allPossibleEventFilters = [...(configuration.filters?.events ?? [])]
+                const allPossibleActionFilters = [...(configuration.filters?.actions ?? [])]
 
                 if (Array.isArray(configuration.mappings)) {
                     for (const mapping of configuration.mappings) {

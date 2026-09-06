@@ -294,6 +294,31 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('mapping preview filters', () => {
+        it('combines mapping matchers without mutating global filters', async () => {
+            const globalFilters: CyclotronJobFiltersType = {
+                events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+            }
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: globalFilters,
+                mapping_templates: [
+                    {
+                        name: 'Purchase',
+                        include_by_default: true,
+                        filters: { actions: [{ id: '42', name: 'Purchased', type: 'actions' }] },
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(JSON.stringify(logic.values.matchingFilters)).toContain('matchesAction(42)')
+            expect(logic.values.configuration.filters).toEqual(globalFilters)
+        })
+    })
+
     describe('loading a missing function', () => {
         beforeEach(() => {
             initKeaTests()
