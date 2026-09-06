@@ -2837,6 +2837,113 @@ class TestJobLifecycleCounters(BaseTest):
             == 1.0
         )
 
+    def test_finalize_job_does_not_recreate_a_row_that_is_gone(self):
+        """`save()` here UPDATEs and falls back to an INSERT, bringing the row back with the
+        status and expiry this executor was about to write. The filtered UPDATE must not."""
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="a" * 64,
+            time_range_start=datetime(2024, 4, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 4, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        PreaggregationJob.objects.filter(id=job.id).delete()
+        job.status = PreaggregationJob.Status.READY
+        job.computed_at = django_timezone.now()
+
+        wrote = LazyComputationExecutor()._finalize_job(job, ["status", "computed_at", "expires_at"])
+
+        assert wrote is False
+        assert not PreaggregationJob.objects.filter(id=job.id).exists()
+
+    def test_finalize_job_writes_when_the_row_is_still_pending(self):
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="b" * 64,
+            time_range_start=datetime(2024, 4, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 4, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        job.status = PreaggregationJob.Status.READY
+        job.computed_at = django_timezone.now()
+
+        wrote = LazyComputationExecutor()._finalize_job(job, ["status", "computed_at", "expires_at"])
+
+        assert wrote is True
+        job.refresh_from_db()
+        assert job.status == PreaggregationJob.Status.READY
+
+    def test_a_job_deleted_mid_insert_counts_as_abandoned_not_ready(self):
+        """The counter is documented as jobs that reached a terminal status. A row deleted
+        while its insert was in flight reached none, so it must not land on `ready`."""
+        deleted: list = []
+
+        def delete_the_first_job_mid_insert(team, job):
+            if not deleted:
+                deleted.append(job.id)
+                PreaggregationJob.objects.filter(id=job.id).delete()
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.LAZY_COMPUTATION_JOBS_FINISHED_TOTAL"
+        ) as counter:
+            LazyComputationExecutor().execute(
+                team=self.team,
+                query_info=self._query_info(),
+                start=datetime(2024, 4, 1, tzinfo=UTC),
+                end=datetime(2024, 4, 2, tzinfo=UTC),
+                run_insert=delete_the_first_job_mid_insert,
+            )
+
+        outcomes = [call.kwargs["outcome"] for call in counter.labels.call_args_list]
+        assert outcomes[0] == "abandoned"
+        assert "ready" in outcomes[1:]
+
+    def test_an_abandoned_job_is_not_announced_as_ready(self):
+        """The notification means "this job reached a terminal status". A row deleted
+        mid-insert reached none, so nothing should be broadcast for it."""
+        deleted: list = []
+
+        def delete_the_first_job_mid_insert(team, job):
+            if not deleted:
+                deleted.append(job.id)
+                PreaggregationJob.objects.filter(id=job.id).delete()
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.publish_job_completion"
+        ) as publish:
+            LazyComputationExecutor().execute(
+                team=self.team,
+                query_info=self._query_info(),
+                start=datetime(2024, 4, 1, tzinfo=UTC),
+                end=datetime(2024, 4, 2, tzinfo=UTC),
+                run_insert=delete_the_first_job_mid_insert,
+            )
+
+        announced = [call.args[0] for call in publish.call_args_list]
+        assert deleted[0] not in announced
+        assert announced, "the surviving job should still be announced"
+
+    def test_finalize_job_advances_updated_at(self):
+        """`QuerySet.update()` skips `pre_save`, so the model's `auto_now` never fires —
+        without an explicit stamp the column freezes at creation time."""
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="c" * 64,
+            time_range_start=datetime(2024, 4, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 4, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        created_updated_at = job.updated_at
+        job.status = PreaggregationJob.Status.READY
+
+        assert LazyComputationExecutor()._finalize_job(job, ["status"]) is True
+
+        job.refresh_from_db()
+        assert job.updated_at > created_updated_at
+
     def test_partial_hit_increments_created_partial_hit(self):
         """When the requested range partially overlaps a pre-existing READY job,
         the executor only creates the missing-window job — and that job belongs
