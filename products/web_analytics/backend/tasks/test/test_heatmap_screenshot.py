@@ -54,7 +54,8 @@ def _make_response(
     resp.status_code = status
     resp.content = _jpeg() if content is None else content
     resp.text = text
-    resp.headers = {"content-type": content_type}
+    # A completed navigation always carries X-Response-Code, so a healthy render includes it by default.
+    resp.headers = {"content-type": content_type, "x-response-code": "200"}
     return resp
 
 
@@ -106,6 +107,26 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert "429" in (heatmap.exception or "")
         assert "example.com" in (heatmap.exception or "")
         assert not HeatmapSnapshot.objects.filter(heatmap=heatmap).exists()
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_a_partial_render_fails_the_heatmap_instead_of_being_stored(self, mock_requests: MagicMock) -> None:
+        # bestAttempt returns a valid JPEG of a page still loading, with no x-response-code header. Without
+        # the completeness gate this looked like a healthy heatmap and the user was shown a broken, often
+        # unstyled, capture as the finished background.
+        resp = _make_response(_jpeg(b"partial"))
+        resp.headers = {"content-type": "image/jpeg"}  # x-response-code omitted: navigation never finished
+        mock_requests.post.return_value = resp
+
+        heatmap = self._make_heatmap()
+        with self.assertRaises(BrowserlessTransientError):
+            generate_heatmap_screenshot(heatmap.id)
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.FAILED
+        assert "incomplete" in (heatmap.exception or "")
+        assert not HeatmapSnapshot.objects.filter(heatmap=heatmap).exists()
+        assert self.captured_events[-1]["properties"]["failure_type"] == "partial_render"
 
     @parameterized.expand([("blocking_on", True), ("blocking_off", False)])
     @override_settings(**BROWSERLESS_SETTINGS, HEATMAP_BROWSERLESS_BLOCK_ADS=False)
@@ -270,7 +291,6 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         [
             ("rate_limited", {"x-response-code": "429"}, 429),
             ("healthy", {"x-response-code": "200"}, 200),
-            ("header_absent", {}, None),
             ("header_unparseable", {"x-response-code": "nope"}, None),
         ]
     )
@@ -484,6 +504,7 @@ class TestClassifyFailure(SimpleTestCase):
         [
             ("soft_time_limit", SoftTimeLimitExceeded(), "soft_time_limit"),
             ("not_configured", BrowserlessPermanentError("x", cause="not_configured"), "not_configured"),
+            ("partial_render", BrowserlessTransientError("x", cause="partial_render"), "partial_render"),
             ("oversized", BrowserlessPermanentError("x", cause="oversized"), "validation_error"),
             ("empty_body", BrowserlessTransientError("x", cause="empty_body"), "validation_error"),
             ("non_image", BrowserlessTransientError("x", cause="non_image"), "validation_error"),
