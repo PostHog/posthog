@@ -1675,10 +1675,12 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
         scrollToProduct: ({ productType }) => {
-            let element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
-            if (element == null) {
-                element = document.querySelector(`[data-attr="billing-product-${productType}"]`)
-            }
+            // Boost, Scale, and Enterprise render as addon cards inside the platform product.
+            // Fall back to that product so the click always lands somewhere visible.
+            const element =
+                document.querySelector(`[data-attr="billing-product-addon-${productType}"]`) ??
+                document.querySelector(`[data-attr="billing-product-${productType}"]`) ??
+                document.querySelector('[data-attr="billing-product-platform_and_support"]')
             element?.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center',
