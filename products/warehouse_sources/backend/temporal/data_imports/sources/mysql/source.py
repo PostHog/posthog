@@ -444,7 +444,9 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # A pasted URL or connection string in the host field otherwise fails DNS resolution with a
         # misleading "check the spelling" message that echoes the raw value back (which can embed
         # credentials). Catch it early with an actionable message that never reflects the input.
-        if "://" in config.host:
+        # A scheme-less paste ("db.example.com/mydb", "user:secret@db.example.com") has no "://",
+        # so match the path and userinfo separators — neither is legal in a hostname anyway.
+        if "/" in config.host or "@" in config.host:
             return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
