@@ -234,6 +234,17 @@ function normalizeOpenIntervalValue(value: unknown, fallback: number): number {
     return Number.isFinite(numericValue) && numericValue > 0 && numericValue < 1 ? numericValue : fallback
 }
 
+function hasStrictBayesianIntervalBounds(intervalLevel: number): boolean {
+    const lowerBound = (1 - intervalLevel) / 2
+    const upperBound = 1 - lowerBound
+    return lowerBound > 0 && lowerBound < upperBound && upperBound < 1
+}
+
+function normalizeBayesianCiLevel(value: unknown): number {
+    const intervalLevel = normalizeOpenIntervalValue(value, DEFAULT_BAYESIAN_CI_LEVEL)
+    return hasStrictBayesianIntervalBounds(intervalLevel) ? intervalLevel : DEFAULT_BAYESIAN_CI_LEVEL
+}
+
 function getExperimentStatsMethod(experiment: Pick<Experiment, 'stats_config'>): ExperimentStatsMethod {
     return getStatsConfig(experiment).method === ExperimentStatsMethod.Frequentist
         ? ExperimentStatsMethod.Frequentist
@@ -253,7 +264,7 @@ export function getExperimentIntervalLevel(
         return 1 - normalizeOpenIntervalValue(frequentistConfig.alpha, DEFAULT_FREQUENTIST_ALPHA)
     }
     const bayesianConfig = getNestedStatsConfig(experiment, 'bayesian')
-    return normalizeOpenIntervalValue(bayesianConfig.ci_level, DEFAULT_BAYESIAN_CI_LEVEL)
+    return normalizeBayesianCiLevel(bayesianConfig.ci_level)
 }
 
 export function getExperimentIntervalLevelPercentage(

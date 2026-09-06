@@ -7,17 +7,23 @@ from parameterized import parameterized
 
 from posthog.schema import (
     EventsNode,
+    ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentStatsBase,
+    ExperimentTrendsQuery,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
+    FunnelsQuery,
+    TrendsQuery,
 )
 
+from products.experiments.backend.hogql_queries.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from products.experiments.backend.hogql_queries.funnels_statistics_v2 import calculate_credible_intervals_v2
 from products.experiments.backend.hogql_queries.trends_statistics_v2_continuous import (
     calculate_credible_intervals_v2_continuous,
@@ -55,6 +61,31 @@ class TestStatsConfig(APIBaseTest):
             sum=sum_val,
             sum_squares=sum_squares,
             number_of_samples=samples,
+        )
+
+    def create_feature_flag(self, key: str = "test-flag") -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            name=f"Test flag: {key}",
+            key=key,
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+
+    def create_experiment(self, stats_config: dict | None = None) -> Experiment:
+        return Experiment.objects.create(
+            name="test-experiment",
+            team=self.team,
+            feature_flag=self.create_feature_flag(),
+            stats_config=stats_config,
         )
 
     @parameterized.expand(
@@ -253,6 +284,7 @@ class TestStatsConfig(APIBaseTest):
             ("nan", {"bayesian": {"ci_level": math.nan}}),
             ("infinity", {"bayesian": {"ci_level": math.inf}}),
             ("negative_infinity", {"bayesian": {"ci_level": -math.inf}}),
+            ("derived_upper_endpoint", {"bayesian": {"ci_level": 0.9999999999999999}}),
             ("not_a_number", {"bayesian": {"ci_level": "not-a-number"}}),
             ("bayesian_none", {"bayesian": None}),
             ("bayesian_list", {"bayesian": []}),
@@ -275,6 +307,7 @@ class TestStatsConfig(APIBaseTest):
             ("zero", {"bayesian": {"ci_level": 0}}),
             ("one", {"bayesian": {"ci_level": 1}}),
             ("above_range", {"bayesian": {"ci_level": 1.5}}),
+            ("derived_upper_endpoint", {"bayesian": {"ci_level": 0.9999999999999999}}),
             ("malformed_bayesian", {"bayesian": []}),
         ]
     )
@@ -283,6 +316,41 @@ class TestStatsConfig(APIBaseTest):
 
         self.assertAlmostEqual(lower, 0.025)
         self.assertAlmostEqual(upper, 0.975)
+
+    def test_legacy_funnels_cache_payload_includes_bayesian_ci_level(self) -> None:
+        experiment = self.create_experiment({"bayesian": {"ci_level": 0.9}})
+        query = ExperimentFunnelsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentFunnelsQuery",
+            funnels_query=FunnelsQuery(series=[EventsNode(event="$pageview"), EventsNode(event="purchase")]),
+        )
+
+        payload_90 = ExperimentFunnelsQueryRunner(query=query, team=self.team).get_cache_payload()
+        experiment.stats_config = {"bayesian": {"ci_level": 0.99}}
+        experiment.save(update_fields=["stats_config"])
+        payload_99 = ExperimentFunnelsQueryRunner(query=query, team=self.team).get_cache_payload()
+
+        self.assertEqual(payload_90["bayesian_ci_level"], 0.9)
+        self.assertEqual(payload_99["bayesian_ci_level"], 0.99)
+        self.assertEqual(payload_90 | {"bayesian_ci_level": 0.99}, payload_99)
+
+    def test_legacy_trends_cache_payload_includes_bayesian_ci_level(self) -> None:
+        experiment = self.create_experiment({"bayesian": {"ci_level": 0.9}})
+        query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=TrendsQuery(series=[EventsNode(event="$pageview")]),
+            exposure_query=None,
+        )
+
+        payload_90 = ExperimentTrendsQueryRunner(query=query, team=self.team).get_cache_payload()
+        experiment.stats_config = {"bayesian": {"ci_level": 0.99}}
+        experiment.save(update_fields=["stats_config"])
+        payload_99 = ExperimentTrendsQueryRunner(query=query, team=self.team).get_cache_payload()
+
+        self.assertEqual(payload_90["bayesian_ci_level"], 0.9)
+        self.assertEqual(payload_99["bayesian_ci_level"], 0.99)
+        self.assertEqual(payload_90 | {"bayesian_ci_level": 0.99}, payload_99)
 
     @parameterized.expand(
         [

@@ -129,16 +129,26 @@ def _validate_open_numeric_range(value: Any, min_val: float, max_val: float, def
     return default
 
 
+def _get_interval_bounds_for_level(ci_level: float) -> tuple[float, float]:
+    tail_probability = (1 - ci_level) / 2
+    return tail_probability, 1 - tail_probability
+
+
+def _has_strict_interval_bounds(ci_level: float) -> bool:
+    lower_bound, upper_bound = _get_interval_bounds_for_level(ci_level)
+    return 0.0 < lower_bound < upper_bound < 1.0
+
+
 def get_bayesian_ci_level(stats_config: Mapping[str, Any] | None = None) -> float:
     bayesian_config = _get_bayesian_config(stats_config)
-    return _validate_open_numeric_range(
+    ci_level = _validate_open_numeric_range(
         bayesian_config.get("ci_level", DEFAULT_BAYESIAN_CI_LEVEL), 0.0, 1.0, DEFAULT_BAYESIAN_CI_LEVEL
     )
+    return ci_level if _has_strict_interval_bounds(ci_level) else DEFAULT_BAYESIAN_CI_LEVEL
 
 
 def get_bayesian_interval_bounds(stats_config: Mapping[str, Any] | None = None) -> tuple[float, float]:
-    tail_probability = (1 - get_bayesian_ci_level(stats_config)) / 2
-    return tail_probability, 1 - tail_probability
+    return _get_interval_bounds_for_level(get_bayesian_ci_level(stats_config))
 
 
 def sanitize_non_finite(value: Any) -> Any:

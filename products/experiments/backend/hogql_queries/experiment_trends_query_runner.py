@@ -49,7 +49,7 @@ from products.experiments.backend.hogql_queries.trends_statistics_v2_count impor
     calculate_probabilities_v2_count,
 )
 from products.experiments.backend.hogql_queries.types import ExperimentMetricType
-from products.experiments.backend.hogql_queries.utils import get_bayesian_interval_bounds
+from products.experiments.backend.hogql_queries.utils import get_bayesian_ci_level, get_bayesian_interval_bounds
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -420,6 +420,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if last_refresh is None:
             return None
         return last_refresh + timedelta(hours=24)
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        payload["bayesian_ci_level"] = get_bayesian_ci_level(self.experiment.stats_config)
+        return payload
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         if not last_refresh:

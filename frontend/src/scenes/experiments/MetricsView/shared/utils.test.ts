@@ -220,6 +220,11 @@ describe('getExperimentIntervalLevelPercentage', () => {
             expected: '95%',
         },
         {
+            label: 'Bayesian derived endpoint bounds',
+            stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.9999999999999999 } },
+            expected: '95%',
+        },
+        {
             label: 'Bayesian null config',
             stats_config: {
                 method: ExperimentStatsMethod.Bayesian,
