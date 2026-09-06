@@ -653,6 +653,69 @@ IS_INCREASE_BAD_MAPPING = {
 }
 
 
+# Scalar result value after list unwrapping and numeric coercion.
+NormalizedValue = Optional[Union[float, int, str]]
+
+
+def _unwrap_and_clean(raw: Optional[Union[float, str, list[float], list[str]]]) -> NormalizedValue:
+    """Take the first element of a list value and drop NaN numbers."""
+    if isinstance(raw, list):
+        raw = raw[0] if len(raw) > 0 else None
+    if isinstance(raw, int | float) and math.isnan(raw):
+        return None
+    return raw
+
+
+def _classify_column(key: str) -> tuple[str, bool]:
+    """Return the (kind, isIncreaseBad) pair for a result column."""
+    for base_column in MarketingAnalyticsBaseColumns:
+        if key == base_column.value:
+            return (
+                COLUMN_KIND_MAPPING.get(base_column, "unit"),
+                IS_INCREASE_BAD_MAPPING.get(base_column, False),
+            )
+    if key.startswith(MarketingAnalyticsConstants.COST_PER):
+        # Cost per conversion - higher is bad.
+        return "currency", True
+    # Regular conversion goal - more conversions is good.
+    return "unit", False
+
+
+def _is_string_column(key: str) -> bool:
+    """String columns (IDs, names, and drill-down grouping aliases) keep their string value.
+
+    ID columns hold platform identifiers (Meta ad IDs are 17-digit numbers) and must NOT be
+    coerced to int — the frontend formats numbers in compact form ("120000T").
+    """
+    return key in DRILL_DOWN_STRING_COLUMN_ALIASES or key in {
+        MarketingAnalyticsBaseColumns.ID.value,
+        MarketingAnalyticsBaseColumns.AD_GROUP_ID.value,
+        MarketingAnalyticsBaseColumns.AD_ID.value,
+    }
+
+
+def _coerce_numeric(value: NormalizedValue) -> NormalizedValue:
+    """Convert a numeric column's string value to int or float, or None if it does not parse."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return float(value) if "." in value else int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _change_from_previous_pct(value: NormalizedValue, previous: NormalizedValue) -> Optional[int]:
+    """Percent change from previous to value, with sentinels for a zero baseline."""
+    if not (isinstance(value, int | float) and isinstance(previous, int | float)):
+        return None
+    if previous != 0:
+        return round(100 * (value - previous) / previous)
+    if value == 0:
+        return 0
+    # From zero to a non-zero value: use a sentinel to represent infinite change.
+    return int(InfinityValue.NUMBER_999999) if value > 0 else int(InfinityValue.NUMBER__999999)
+
+
 def to_marketing_analytics_data(
     key: str,
     value: Optional[Union[float, str, list[float], list[str]]],
@@ -663,100 +726,21 @@ def to_marketing_analytics_data(
     Transform tuple data to WebAnalyticsItemBase format.
     Similar to web_overview.to_data() but for marketing analytics.
     """
-    # Handle list values (from tuple queries)
-    if isinstance(value, list):
-        value = value[0] if len(value) > 0 else None
-    if isinstance(previous, list):
-        previous = previous[0] if len(previous) > 0 else None
+    normalized_value = _unwrap_and_clean(value)
+    normalized_previous = _unwrap_and_clean(previous)
 
-    # Handle NaN values (only for numeric types)
-    if value is not None and isinstance(value, int | float) and math.isnan(value):
-        value = None
-    if previous is not None and isinstance(previous, int | float) and math.isnan(previous):
-        previous = None
+    kind, is_increase_bad = _classify_column(key)
 
-    # Determine kind and isIncreaseBad based on column type
-    kind = "unit"  # Default
-    is_increase_bad = False  # Default
-
-    # Check if it's a base column
-    for base_column in MarketingAnalyticsBaseColumns:
-        if key == base_column.value:
-            kind = COLUMN_KIND_MAPPING.get(base_column, "unit")
-            is_increase_bad = IS_INCREASE_BAD_MAPPING.get(base_column, False)
-            break
-    else:
-        # Check if it's a conversion goal or cost per conversion
-        if key.startswith(MarketingAnalyticsConstants.COST_PER):
-            kind = "currency"
-            is_increase_bad = True  # Cost per conversion - higher is bad
-        else:
-            # Regular conversion goal
-            kind = "unit"
-            is_increase_bad = False  # More conversions is good
-
-    # For string columns (IDs, names, and drill-down grouping aliases), preserve the string
-    # values. ID columns hold platform identifiers (Meta ad IDs are 17-digit numbers) and
-    # must NOT be coerced to int — the frontend formats numbers in compact form ("120000T").
-    string_columns = DRILL_DOWN_STRING_COLUMN_ALIASES | {
-        MarketingAnalyticsBaseColumns.ID.value,
-        MarketingAnalyticsBaseColumns.AD_GROUP_ID.value,
-        MarketingAnalyticsBaseColumns.AD_ID.value,
-    }
-    if kind == "unit" and key in string_columns:
-        # String columns - no numeric processing needed
-        pass
-    else:
-        # For numeric columns, try to convert strings to numbers
-        if isinstance(value, str):
-            try:
-                value = float(value) if "." in value else int(value)
-            except (ValueError, TypeError):
-                value = None
-        if isinstance(previous, str):
-            try:
-                previous = float(previous) if "." in previous else int(previous)
-            except (ValueError, TypeError):
-                previous = None
-
-    # Handle percentage conversion for CTR
-    if kind == "percentage":
-        # CTR is already calculated as percentage in the query (multiplied by 100)
-        # No additional conversion needed
-        pass
-
-    # Calculate change percentage (only for numeric values)
-    change_from_previous_pct = None
-    if (
-        value is not None
-        and previous is not None
-        and isinstance(value, int | float)
-        and isinstance(previous, int | float)
-    ):
-        try:
-            if previous == 0:
-                # Handle special cases when previous is 0
-                if value == 0:
-                    # Both are 0: no change
-                    change_from_previous_pct = 0
-                elif value > 0:
-                    # From 0 to positive: use special large number to represent infinite growth
-                    change_from_previous_pct = int(InfinityValue.NUMBER_999999)
-                else:
-                    # From 0 to negative: use special large negative number to represent infinite decrease
-                    change_from_previous_pct = int(InfinityValue.NUMBER__999999)
-            else:
-                # Normal case: previous != 0
-                change_from_previous_pct = round(100 * (value - previous) / previous)
-        except (ValueError, ZeroDivisionError):
-            pass
+    if not (kind == "unit" and _is_string_column(key)):
+        normalized_value = _coerce_numeric(normalized_value)
+        normalized_previous = _coerce_numeric(normalized_previous)
 
     return MarketingAnalyticsItem(
         key=key,
         kind=WebAnalyticsItemKind(kind),
         isIncreaseBad=is_increase_bad,
-        value=value,
-        previous=previous,
-        changeFromPreviousPct=change_from_previous_pct,
+        value=normalized_value,
+        previous=normalized_previous,
+        changeFromPreviousPct=_change_from_previous_pct(normalized_value, normalized_previous),
         hasComparison=has_comparison,
     )
