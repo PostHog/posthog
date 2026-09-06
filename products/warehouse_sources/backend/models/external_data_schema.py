@@ -1496,9 +1496,13 @@ def sync_old_schemas_with_new_schemas(
                 s.soft_delete()
                 deleted_schemas.append(schema)
             else:
-                s.should_sync = False
-                s.status = ExternalDataSchema.Status.COMPLETED
-                s.save()
+                # update_should_sync (not a plain save) so a schema this branch disables also
+                # gets its Temporal schedule paused — otherwise the schedule keeps firing and
+                # every tick creates a job that fails against a table discovery no longer offers.
+                updated = update_should_sync(schema_id=str(s.id), team_id=team_id, should_sync=False)
+                if updated is not None:
+                    updated.status = ExternalDataSchema.Status.COMPLETED
+                    updated.save(update_fields=["status", "updated_at"])
 
     return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 

@@ -155,17 +155,24 @@ class TestSchemaDiscoveryReconcile(BaseTest):
             team_id=self.team.pk, source_id=source.pk, name="leads", should_sync=True
         )
 
-        sync_result = sync_old_schemas_with_new_schemas(
-            {"contacts": None},
-            source_id=str(source.pk),
-            team_id=self.team.pk,
-        )
+        with (
+            patch("products.data_warehouse.backend.facade.api.external_data_workflow_exists", return_value=True),
+            patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule") as mock_pause,
+        ):
+            sync_result = sync_old_schemas_with_new_schemas(
+                {"contacts": None},
+                source_id=str(source.pk),
+                team_id=self.team.pk,
+            )
 
         enabled_unsynced.refresh_from_db()
         assert sync_result.deleted == []
         assert enabled_unsynced.deleted is False
         assert enabled_unsynced.should_sync is False
         assert enabled_unsynced.status == ExternalDataSchema.Status.COMPLETED
+        # Regression: this branch used to flip should_sync with a plain save(), leaving the
+        # Temporal schedule running so it kept firing against a table discovery no longer offers.
+        mock_pause.assert_called_once_with(str(enabled_unsynced.id))
 
 
 class TestSchemaNameMatchesAutoSyncPatterns(SimpleTestCase):
