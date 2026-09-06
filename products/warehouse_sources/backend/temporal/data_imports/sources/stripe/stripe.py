@@ -1211,6 +1211,10 @@ def stripe_source(
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
+    #
+    # The hints stay the same on every API version. The canonical schema reads these columns by
+    # name, and a field pointing outside the synced columns fails every query on the table, so a
+    # version that stopped sending one still needs the column written (as NULL).
     table_name = f"stripe_{endpoint.lower()}"
     column_mapping = get_dlt_mapping_for_external_table(table_name) if table_name in external_tables else {}
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
@@ -1598,14 +1602,16 @@ def create_webhook(
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
 
 
-def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookDeletionResult:
+def delete_webhook(
+    api_key: str, stripe_account_id: str | None, webhook_url: str, *, api_version: str
+) -> WebhookDeletionResult:
     logger = LOGGER.bind()
 
     try:
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=api_version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -1636,7 +1642,7 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
 
 
 def update_webhook_events(
-    api_key: str, stripe_account_id: str | None, webhook_url: str, desired_events: list[str]
+    api_key: str, stripe_account_id: str | None, webhook_url: str, desired_events: list[str], *, api_version: str
 ) -> WebhookSyncResult:
     """Add `desired_events` to the matching Stripe endpoint, writing only on drift.
     A 403 (missing webhook write scope) returns a failure result rather than raising, so
@@ -1650,7 +1656,7 @@ def update_webhook_events(
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=api_version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -1693,12 +1699,14 @@ def update_webhook_events(
         return WebhookSyncResult(success=False, error=f"Failed to update webhook events automatically: {error_str}")
 
 
-def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webhook_url: str) -> ExternalWebhookInfo:
+def get_external_webhook_info(
+    api_key: str, stripe_account_id: str | None, webhook_url: str, *, api_version: str
+) -> ExternalWebhookInfo:
     try:
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=api_version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),

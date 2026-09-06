@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_DAHLIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -109,8 +110,8 @@ class StripeSource(
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
-    supported_versions = (STRIPE_API_VERSION_ACACIA,)
-    default_version = STRIPE_API_VERSION_ACACIA
+    supported_versions = (STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_DAHLIA)
+    default_version = STRIPE_API_VERSION_DAHLIA
     api_docs_url = "https://docs.stripe.com/changelog"
 
     @property
@@ -269,6 +270,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "401 Client Error: Unauthorized for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "403 Client Error: Forbidden for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
+            # Stripe rejects a Stripe-Version header it no longer serves. The pin is stored on the
+            # source, so every retry sends the same rejected version.
+            "Invalid Stripe API version": "Stripe no longer serves the API version this source is pinned to. Pick a supported version on the schema's configuration page, then try again.",
             "Invalid API Key provided": None,
             # Stripe rejects the request when the restricted key has an IP allowlist that doesn't
             # include PostHog's egress IPs. This is a customer-side key configuration that retrying
@@ -522,19 +526,29 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     ) -> WebhookSyncResult:
         api_key = self._get_api_key(config, team_id)
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
-        return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)
+        return update_webhook_events(
+            api_key,
+            config.stripe_account_id,
+            webhook_url,
+            desired_events,
+            api_version=self.resolve_api_version(api_version),
+        )
 
     def get_external_webhook_info(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
         api_key = self._get_api_key(config, team_id)
-        return get_external_webhook_info(api_key, config.stripe_account_id, webhook_url)
+        return get_external_webhook_info(
+            api_key, config.stripe_account_id, webhook_url, api_version=self.resolve_api_version(api_version)
+        )
 
     def delete_webhook(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookDeletionResult:
         api_key = self._get_api_key(config, team_id)
-        return delete_webhook(api_key, config.stripe_account_id, webhook_url)
+        return delete_webhook(
+            api_key, config.stripe_account_id, webhook_url, api_version=self.resolve_api_version(api_version)
+        )
 
     def source_for_pipeline(
         self,
