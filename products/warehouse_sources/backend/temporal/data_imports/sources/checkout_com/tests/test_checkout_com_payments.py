@@ -6,6 +6,7 @@ from unittest import mock
 
 import pyarrow as pa
 import requests
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -35,6 +36,9 @@ SESSION_PATCH = (
 )
 
 NOW = "2024-03-01T00:00:00Z"
+# Stored watermark for the budget tests. A payment stamped with exactly this value is the
+# boundary row the search re-reads every run, because the range starts at the watermark.
+BUDGET_WATERMARK = "2024-02-28T00:00:00Z"
 
 
 class _FakeResponse:
@@ -374,14 +378,90 @@ class TestPaymentActionsFanout:
         with pytest.raises(CheckoutComSyncBudgetExceeded) as excinfo:
             _collect_rows(response, collected)
 
-        # Returning here reported the schema Completed over a range holding no rows, so the
-        # gap was invisible. Rows found before the cut-off still land, the interrupted window
-        # is not checkpointed, and the run fails so the gap surfaces as latest_error.
+        # A full-refresh run cannot commit a partial slice, so it raises: returning would
+        # report the schema Completed over a range holding no rows and the gap would be
+        # invisible. The interrupted window is not checkpointed.
         assert [row["id"] for row in collected] == ["act_1"]
         assert len(session.lookups) == 1
         assert manager.saved_states == []
-        # The source classifies this as retryable by matching the marker in the message.
+        # The source classifies this as retryable by matching the marker in the message,
+        # and the message states the lag rather than the internal budget.
         assert SYNC_BUDGET_EXCEEDED_MARKER in str(excinfo.value)
+        assert "behind" in str(excinfo.value)
+        assert "budget" not in str(excinfo.value)
+
+    @mock.patch(LOOKUP_BUDGET_PATCH, 1)
+    @mock.patch(SESSION_PATCH)
+    def test_incremental_budget_run_commits_its_prefix_instead_of_raising(self, mock_make_session):
+        # The regression this guards: raising here discards every staged batch and the staged
+        # watermark, so a backlogged incremental table burned its whole budget each run and
+        # committed nothing, falling further behind every day.
+        session = _FakeSession(
+            search_responses=[
+                _search_page(
+                    [
+                        _payment("pay_1", "2024-02-29T06:00:00Z"),
+                        _payment("pay_2", "2024-02-29T18:00:00Z"),
+                    ]
+                )
+            ],
+            lookup_responses=[_FakeResponse(json_data={"items": [{"id": "act_1"}]})],
+        )
+        mock_make_session.side_effect = [session]
+        logger = mock.MagicMock()
+
+        rows = _rows(
+            _source(
+                "payment_actions",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=BUDGET_WATERMARK,
+                logger=logger,
+            )
+        )
+
+        # The prefix lands (no raise), so the pipeline finalizes it and promotes the watermark.
+        assert [row["id"] for row in rows] == ["act_1"]
+        assert len(session.lookups) == 1
+        warning = logger.warning.call_args[0][0]
+        assert "behind" in warning
+
+    @parameterized.expand(
+        [
+            # Nothing landed, so there is no value to promote the watermark to.
+            ("no rows landed", "2024-02-29T06:00:00Z", {"items": []}),
+            # The only row is the boundary payment the watermark already covers. Counting it
+            # as progress would promote the watermark to where it already sat, so every
+            # scheduled run would re-cover this range forever while reporting success.
+            ("only rows at the watermark", BUDGET_WATERMARK, {"items": [{"id": "act_1"}]}),
+        ]
+    )
+    @mock.patch(LOOKUP_BUDGET_PATCH, 1)
+    @mock.patch(SESSION_PATCH)
+    def test_incremental_budget_run_that_cannot_advance_the_watermark_raises(
+        self, _name, first_requested_on, lookup_payload, mock_make_session
+    ):
+        # Ending cleanly here would report Completed while the table stayed where it was,
+        # so the run must stay a failure and retry.
+        session = _FakeSession(
+            search_responses=[
+                _search_page(
+                    [
+                        _payment("pay_1", first_requested_on),
+                        _payment("pay_2", "2024-02-29T18:00:00Z"),
+                    ]
+                )
+            ],
+            lookup_responses=[_FakeResponse(json_data=lookup_payload)],
+        )
+        mock_make_session.side_effect = [session]
+
+        response = _source(
+            "payment_actions",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=BUDGET_WATERMARK,
+        )
+        with pytest.raises(CheckoutComSyncBudgetExceeded):
+            _rows(response)
 
 
 @freeze_time(NOW)
