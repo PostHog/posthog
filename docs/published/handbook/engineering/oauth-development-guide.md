@@ -325,11 +325,41 @@ print(tokens)
 ## Endpoints
 
 - **Authorization**: `/oauth/authorize/`
+- **Pushed Authorization Request (PAR)**: `/oauth/par/`
 - **Token Exchange**: `/oauth/token/`
 - **Token Introspection**: `/oauth/introspect/`
 - **User Info**: `/oauth/userinfo/`
 - **JWKS (Public Keys)**: `/oauth/.well-known/jwks.json`
 - **OpenID Configuration**: `/oauth/.well-known/openid-configuration/`
+
+## Pushed Authorization Requests (PAR)
+
+The authorization URL carries every requested scope in the `scope` query parameter.
+For clients that request many scopes this makes the URL long and awkward to copy/paste.
+
+Pushed Authorization Requests ([RFC 9126](https://www.rfc-editor.org/rfc/rfc9126)) solve this.
+Instead of putting the parameters in the browser URL, the client POSTs them to `/oauth/par/` first:
+
+```bash
+curl -X POST http://localhost:8010/oauth/par/ \
+    -d "client_id=your_client_id" \
+    -d "redirect_uri=https://app.example.com/oauth/callback" \
+    -d "response_type=code" \
+    -d "code_challenge=..." \
+    -d "code_challenge_method=S256" \
+    -d "scope=openid insight:read dashboard:read ..."
+# → { "request_uri": "urn:ietf:params:oauth:request_uri:...", "expires_in": 90 }
+```
+
+The client then starts the browser flow with just `client_id` and the returned `request_uri`:
+
+```text
+GET /oauth/authorize/?client_id=your_client_id&request_uri=urn:ietf:params:oauth:request_uri:...
+```
+
+The authorization endpoint rehydrates the pushed parameters and validates them exactly as a normal request.
+Confidential clients must authenticate the push with their `client_secret`; public (PKCE) clients push with `client_id` alone.
+The `request_uri` is short-lived and is advertised via `pushed_authorization_request_endpoint` in the authorization server metadata (`/.well-known/oauth-authorization-server`).
 
 ## Token Introspection
 
