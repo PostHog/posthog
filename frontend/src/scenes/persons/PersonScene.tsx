@@ -55,7 +55,7 @@ import { ComposeTicketButton } from 'products/conversations/frontend/components/
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
-import { asDisplay, pickBestPersonDistinctId } from './person-utils'
+import { asDisplay, findCaseVariantDistinctIds, pickBestPersonDistinctId } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
 import { PersonEmailsTab } from './PersonEmailsTab'
 import { PersonLogsTab } from './PersonLogsTab'
@@ -536,6 +536,8 @@ const PersonFeatureFlagsTab = memo(function PersonFeatureFlagsTab({
     setDistinctId: (distinctId: string) => void
 }): JSX.Element {
     const selectedDistinctId = distinctId || primaryDistinctId
+    const caseVariantsById = findCaseVariantDistinctIds(person.distinct_ids)
+    const selectedCaseVariants = selectedDistinctId ? caseVariantsById.get(selectedDistinctId) : undefined
     return (
         <>
             <div className="flex deprecated-space-x-2 items-center mb-2">
@@ -562,13 +564,37 @@ const PersonFeatureFlagsTab = memo(function PersonFeatureFlagsTab({
                     onChange={(value) => value && setDistinctId(value)}
                     options={person.distinct_ids.map((distinct_id) => ({
                         label: distinct_id,
+                        labelInMenu: caseVariantsById.has(distinct_id) ? (
+                            <span className="flex items-center gap-2">
+                                {distinct_id}
+                                <LemonTag type="warning">Case variant</LemonTag>
+                            </span>
+                        ) : undefined,
                         value: distinct_id,
                     }))}
                     data-attr="person-feature-flags-select"
                 />
                 {selectedDistinctId && <LaunchToolbarButton distinctId={selectedDistinctId} />}
             </div>
+            {caseVariantsById.size > 0 && (
+                <LemonBanner type="warning" className="mb-2">
+                    {selectedCaseVariants?.length ? (
+                        <>
+                            Other distinct IDs differ from the selected one only by letter case:{' '}
+                            <span className="ph-no-capture">{selectedCaseVariants.join(', ')}</span>.
+                        </>
+                    ) : (
+                        <>Some of this person's distinct IDs differ from each other only by letter case.</>
+                    )}{' '}
+                    PostHog hashes a distinct ID exactly as written, so a percentage rollout can give each of these IDs
+                    a different value. Select each ID to see the value it gets.
+                </LemonBanner>
+            )}
             <LemonDivider className="mb-4" />
+            <p className="text-secondary">
+                These values apply to the selected distinct ID. The same person can get different values for another of
+                their IDs.
+            </p>
             <RelatedFeatureFlags distinctId={selectedDistinctId} />
         </>
     )
