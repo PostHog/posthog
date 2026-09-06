@@ -15,7 +15,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
     const shiftPressed = useShiftKeyPressed()
     const mouseY = useMousePosition()?.y
 
-    if (!mouseY) {
+    if (mouseY === undefined) {
         return null
     }
 

@@ -2,16 +2,14 @@ import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useActions, useValues } from 'kea'
 import { MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { HEATMAP_LOADING_DEBOUNCE_MS, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapAreaPoint } from 'lib/components/heatmaps/types'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
-import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 
 import { HeatmapEventsPanel } from './HeatmapEventsPanel'
+import { HeatmapLoadingInfo } from './HeatmapLoadingInfo'
 import { ScrollDepthCanvas } from './ScrollDepthCanvas'
 import { MousePosition, useMousePosition } from './useMousePosition'
 import { useScrollSync } from './useScrollSync'
@@ -36,35 +34,8 @@ function heatmapValueAt(
     try {
         return heatmapJs?.getValueAt(position)
     } catch {
-        // heatmap.js throws reading its canvas if it was created while the container had
-        // zero height (IndexSizeError in Chromium, raw NS_ERROR_FAILURE in Firefox);
-        // this runs on every mouse move, so swallow rather than crash the scene
         return undefined
     }
-}
-
-function HeatmapLoadingInfo({
-    context,
-    exportToken,
-}: {
-    context: 'in-app' | 'toolbar'
-    exportToken?: string
-}): JSX.Element | null {
-    const { rawHeatmapLoading } = useValues(heatmapDataLogic({ context, exportToken }))
-    const loading = useDebouncedValue(rawHeatmapLoading, HEATMAP_LOADING_DEBOUNCE_MS)
-
-    if (!loading || context === 'toolbar' || exportToken || inStorybook() || inStorybookTestRunner()) {
-        return null
-    }
-
-    return (
-        <div className="absolute inset-0 z-20 flex items-start justify-center pointer-events-none">
-            <div className={cn(INFO_BOX_CLASSES, 'flex items-center gap-2 mt-8 px-3 py-2')}>
-                <Spinner />
-                Loading heatmap data
-            </div>
-        </div>
-    )
 }
 
 function HeatmapMouseInfo({

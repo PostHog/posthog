@@ -625,7 +625,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 if (heatmapFilters.aggregation === 'unique_visitors') {
                     return 'visitor'
                 }
-                return HEATMAP_TYPES[heatmapFilters.type ?? 'click'].noun
+                return (HEATMAP_TYPES[heatmapFilters.type ?? 'click'] ?? HEATMAP_TYPES.click).noun
             },
         ],
 

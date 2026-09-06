@@ -91,7 +91,7 @@ function ScrollDepthMouseInfo({
 
     const mouseY = useMousePosition()?.y
 
-    if (!mouseY) {
+    if (mouseY === undefined) {
         return null
     }
 
