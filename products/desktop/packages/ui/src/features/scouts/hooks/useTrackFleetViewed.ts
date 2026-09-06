@@ -4,17 +4,27 @@ import type { ScoutFleetSyncOutcome } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useRef } from "react";
+import { useAuthStateValue } from "../../auth/store";
 
 export function useTrackFleetViewed(
-  configs: ScoutConfig[],
+  configs: ScoutConfig[] | undefined,
   syncOutcome: ScoutFleetSyncOutcome | null,
+  ready = true,
 ) {
-  const tracked = useRef(false);
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const tracked = useRef<number | null>(null);
   useEffect(() => {
     // Wait for the sync to settle, so a fleet the sync is about to change is
     // never reported against an outcome the request has not reached yet.
-    if (tracked.current || syncOutcome === null) return;
-    tracked.current = true;
+    if (
+      !projectId ||
+      tracked.current === projectId ||
+      syncOutcome === null ||
+      !ready ||
+      !configs
+    )
+      return;
+    tracked.current = projectId;
     track(ANALYTICS_EVENTS.SCOUT_FLEET_VIEWED, {
       scout_count: configs.length,
       enabled_count: configs.filter((config) => config.enabled).length,
@@ -25,5 +35,5 @@ export function useTrackFleetViewed(
       is_empty: configs.length === 0,
       sync_outcome: syncOutcome,
     });
-  }, [configs, syncOutcome]);
+  }, [configs, syncOutcome, ready, projectId]);
 }

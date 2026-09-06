@@ -22,7 +22,7 @@ export function ScoutRunsList({
       </div>
     );
   }
-  if (error) {
+  if (error && runs.length === 0) {
     return (
       <p className="text-(--red-11) text-[12.5px]">
         Couldn&apos;t load runs for this agent. The agent API may be unavailable

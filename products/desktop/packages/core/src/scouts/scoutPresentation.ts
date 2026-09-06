@@ -109,7 +109,7 @@ function systemPausedExplanation(
 ): string {
   switch (reason) {
     case "ignored":
-      return "PostHog paused this agent because nobody acted on its signals. Switch it back on to resume.";
+      return "PostHog paused this agent because nobody acted on its signals. Switch it back on to resume. It can pause again if nobody acts on its signals. Enable Never pause for inactivity to prevent inactivity pauses.";
     case "no_output":
       return "PostHog paused this agent because it stopped sending signals. Switch it back on to resume.";
     case "repeated_failures":
@@ -182,7 +182,7 @@ export interface ScoutHealthNotice {
   /** The one config change that clears the notice, when there is one. */
   action: "resume" | "keep_running" | null;
   /** Where to look for the cause. */
-  link: "signals" | "activity" | null;
+  link: "output" | "activity" | null;
 }
 
 /**
@@ -198,10 +198,10 @@ export function scoutHealthNotice(
     switch (lifecycle.reason) {
       case "ignored":
         return {
-          text: "PostHog paused this agent because nobody acted on its signals.",
+          text: "PostHog paused this agent because nobody acted on its signals. Resume starts a new grace period. Enable Never pause for inactivity to prevent another inactivity pause.",
           tone: "destructive",
           action: "resume",
-          link: "signals",
+          link: "output",
         };
       case "no_output":
         return {
@@ -234,7 +234,7 @@ export function scoutHealthNotice(
         text: "Nobody acted on its signals. PostHog pauses this agent soon.",
         tone: "warning",
         action: canExempt ? "keep_running" : null,
-        link: "signals",
+        link: "output",
       };
     case "no_output":
       return {
@@ -486,10 +486,35 @@ export type ScoutRunOutcome =
   | "queued"
   | "unknown";
 
+export function scoutRunOutputCount(run: ScoutRun): number {
+  return (run.emitted_count ?? 0) + scoutRunReports(run).length;
+}
+
+export function scoutRunReports(
+  run: ScoutRun,
+): { id: string; action: "created" | "updated" }[] {
+  const created = new Set(run.emitted_report_ids ?? []);
+  const updated = new Set(run.edited_report_ids ?? []);
+  return [
+    ...[...created].map((id) => ({ id, action: "created" as const })),
+    ...[...updated]
+      .filter((id) => !created.has(id))
+      .map((id) => ({ id, action: "updated" as const })),
+  ];
+}
+
+export function hasPendingScoutRun(rollup: ScoutRollup | undefined): boolean {
+  return (
+    rollup?.runs.some((run) =>
+      ["running", "queued"].includes(normalizeRunStatus(run.status)),
+    ) ?? false
+  );
+}
+
 export function deriveRunOutcome(run: ScoutRun, now: Date): ScoutRunOutcome {
   const status = normalizeRunStatus(run.status);
   if (status === "completed") {
-    return (run.emitted_count ?? 0) > 0 ? "emitted" : "quiet";
+    return scoutRunOutputCount(run) > 0 ? "emitted" : "quiet";
   }
   if (status === "failed") {
     return deriveRunFailureKind(run, now) === "timed_out"
@@ -504,11 +529,11 @@ export function deriveRunOutcome(run: ScoutRun, now: Date): ScoutRunOutcome {
 export function scoutRunOutcomeLabel(run: ScoutRun, now: Date): string {
   switch (deriveRunOutcome(run, now)) {
     case "emitted": {
-      const count = run.emitted_count ?? 0;
-      return `${count} signal${count === 1 ? "" : "s"}`;
+      const count = scoutRunOutputCount(run);
+      return `${count} output${count === 1 ? "" : "s"}`;
     }
     case "quiet":
-      return "no signals";
+      return "no output";
     case "error":
       return "failed";
     case "timed_out":
@@ -535,9 +560,9 @@ export function runMatchesFilter(
     case "all":
       return true;
     case "emitted":
-      return (run.emitted_count ?? 0) > 0;
+      return scoutRunOutputCount(run) > 0;
     case "quiet":
-      return status === "completed" && (run.emitted_count ?? 0) === 0;
+      return status === "completed" && scoutRunOutputCount(run) === 0;
     case "failed":
       return status === "failed";
   }
@@ -586,7 +611,7 @@ export function computeScoutRollups(
     const status = normalizeRunStatus(run.status);
     if (status === "completed") rollup.completedCount += 1;
     if (status === "failed") rollup.failedCount += 1;
-    rollup.emittedCount += run.emitted_count ?? 0;
+    rollup.emittedCount += scoutRunOutputCount(run);
     rollup.runs.push(run);
     const startedAt = run.started_at ? new Date(run.started_at).getTime() : 0;
     const latestStartedAt = rollup.latestRun?.started_at
@@ -627,6 +652,7 @@ export interface FleetSummary {
 export function computeFleetSummary(
   configs: ScoutConfig[],
   rollups: Map<string, ScoutRollup>,
+  now: Date = new Date(),
 ): FleetSummary {
   let runningCount = 0;
   let emittedCount = 0;
@@ -635,13 +661,17 @@ export function computeFleetSummary(
   let runCount = 0;
   let emittedRunCount = 0;
   for (const rollup of rollups.values()) {
-    if (rollup.runningRun) runningCount += 1;
+    if (
+      rollup.runningRun &&
+      deriveRunOutcome(rollup.runningRun, now) === "running"
+    )
+      runningCount += 1;
     emittedCount += rollup.emittedCount;
     completedCount += rollup.completedCount;
     failedCount += rollup.failedCount;
     runCount += rollup.runCount;
     for (const run of rollup.runs) {
-      if ((run.emitted_count ?? 0) > 0) emittedRunCount += 1;
+      if (scoutRunOutputCount(run) > 0) emittedRunCount += 1;
     }
   }
   const lifecycles = configs.map(deriveScoutLifecycle);
@@ -976,9 +1006,13 @@ export function sortConfigsForDisplay(configs: ScoutConfig[]): ScoutConfig[] {
     .map((entry) => entry.config);
 }
 
-/** When the coordinator is next due to dispatch this scout; null when it never ran or is off. */
-export function nextRunAt(config: ScoutConfig): Date | null {
-  if (!config.enabled || !config.last_run_at) return null;
+// Cron times need the project timezone, which this response does not include.
+export function nextRunAt(
+  config: ScoutConfig,
+  now: Date = new Date(),
+): Date | null {
+  if (!config.enabled || config.run_cron_schedule) return null;
+  if (!config.last_run_at) return now;
   const last = new Date(config.last_run_at).getTime();
   if (Number.isNaN(last)) return null;
   return new Date(last + config.run_interval_minutes * 60 * 1000);
@@ -1013,12 +1047,15 @@ export function summarizeRunWindow(
   const parts = [plural(rollup.runCount, "run")];
   const finished = rollup.completedCount + rollup.failedCount;
   if (rollup.failedCount > 0) parts.push(`${rollup.failedCount} failed`);
-  else if (finished > 0) parts.push("all finished");
-  if (rollup.runningRun) parts.push("1 running now");
+  else if (finished === rollup.runCount) parts.push("all finished");
+  const runningCount = rollup.runs.filter(
+    (run) => deriveRunOutcome(run, now) === "running",
+  ).length;
+  if (runningCount > 0) parts.push(`${runningCount} running now`);
   parts.push(
     rollup.emittedCount > 0
-      ? plural(rollup.emittedCount, "signal")
-      : "no signals",
+      ? plural(rollup.emittedCount, "output")
+      : "no output",
   );
   const median = formatRunDuration(medianRunDurationSeconds(rollup.runs, now));
   if (median) parts.push(`about ${median} each`);
@@ -1089,11 +1126,10 @@ export function listScoutsNeedingAttention(
       latestRun !== null && normalizeRunStatus(latestRun.status) === "failed";
     if (
       config.enabled &&
-      latestRun &&
-      latestFailed &&
+      (!latestRun || latestFailed) &&
       streak >= FAILING_STREAK
     ) {
-      const kind = deriveRunFailureKind(latestRun, now);
+      const kind = latestRun ? deriveRunFailureKind(latestRun, now) : null;
       out.push({
         kind: "failing",
         config,

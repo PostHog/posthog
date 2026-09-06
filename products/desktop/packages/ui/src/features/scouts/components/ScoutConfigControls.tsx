@@ -172,7 +172,7 @@ export function ScoutConfigForm({
         title="Schedule"
         help={
           next
-            ? `Next run ${next}. Changing the schedule takes effect after that run.`
+            ? `Next run ${next}. A schedule change applies immediately.`
             : "A rolling cadence, a set time each day or week, or a cron expression."
         }
       >
@@ -268,7 +268,7 @@ export function ScoutConfigForm({
       {lifecycle.autoPauseExempt !== null ? (
         <SettingBlock
           title="Auto-pause"
-          help="PostHog pauses agents that stay quiet or whose signals nobody acts on. Repeated failures pause an agent either way."
+          help="PostHog can pause agents when nobody acts on their signals. Silence alone does not cause a pause. Repeated failures can pause an agent in either mode."
         >
           <div className="flex items-center justify-between gap-4 rounded-(--radius-md) border border-border bg-(--color-panel-solid) px-3.5 py-3">
             <span className="flex min-w-0 flex-col">

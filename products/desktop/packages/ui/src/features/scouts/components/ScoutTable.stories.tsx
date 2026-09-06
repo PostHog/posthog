@@ -92,7 +92,7 @@ function run(overrides: Partial<ScoutRun> & { skill_name: string }): ScoutRun {
     completed_at: "2026-07-09T06:34:00Z",
     task_id: null,
     task_run_id: null,
-    task_url: null,
+    task_url: "/project/1/tasks/example-task?runId=example-run",
     summary: "Nothing worth sending this time.",
     emitted_count: 0,
     emitted_finding_ids: [],

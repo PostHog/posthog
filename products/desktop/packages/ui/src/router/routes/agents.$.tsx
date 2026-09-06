@@ -3,14 +3,15 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 
 // The agents pages became the Agents settings page, which has one URL for all
 // of its tabs. Old hrefs still arrive from deep links, notifications and
-// restored history, so each one opens the tab or the agent it named.
+// restored history. Findings links open Self-driving; other links open the
+// tab or the agent they named.
 export const Route = createFileRoute("/agents/$")({
   beforeLoad: ({ params, location }) => {
     const rest = (params._splat ?? "").replace(/^scouts\/?/, "");
     const actions = agentsPageActions();
 
     if (rest === "findings") {
-      actions.showTab("signals");
+      throw redirect({ to: "/inbox", replace: true });
     } else if (rest === "scratchpad") {
       actions.showTab("memory");
     } else if (rest) {

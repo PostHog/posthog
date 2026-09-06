@@ -108,7 +108,8 @@ export function ScoutAttentionStrip({
       {hidden > 0 ? (
         <p className="text-[11.5px] text-gray-10">
           {hidden} more agent{hidden === 1 ? "" : "s"} need
-          {hidden === 1 ? "s" : ""} attention. They are at the top of the table.
+          {hidden === 1 ? "s" : ""} attention. Select All and clear the table
+          filters to find them.
         </p>
       ) : null}
     </div>

@@ -2,21 +2,27 @@ import {
   type AgentsTab,
   useAgentsPageActions,
 } from "@posthog/ui/features/agents/agentsPageStore";
-import { CountedTabStrip } from "@posthog/ui/primitives/CountedTabStrip";
+import { leaveSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { TabStrip } from "@posthog/ui/primitives/TabStrip";
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 const TABS: readonly { key: AgentsTab; label: string }[] = [
   { key: "agents", label: "Agents" },
-  { key: "signals", label: "Signals" },
   { key: "memory", label: "Memory" },
   { key: "setup", label: "Setup" },
 ];
 
-const TAB_DESCRIPTION: Record<AgentsTab, string> = {
-  agents:
-    "Scheduled agents that watch this project and send what they find to Self-driving.",
-  signals:
-    "Everything your agents surfaced recently, newest first, with the Self-driving report each one fed into.",
+const TAB_DESCRIPTION: Record<AgentsTab, ReactNode> = {
+  agents: (
+    <>
+      Scheduled agents that watch this project and write reports in{" "}
+      <Link to="/inbox" onClick={leaveSettings} className="underline">
+        Self-driving
+      </Link>
+      .
+    </>
+  ),
   memory:
     "Notes your agents keep about this project as they scan it: what they classified, ruled out, or named.",
   setup:
@@ -26,29 +32,24 @@ const TAB_DESCRIPTION: Record<AgentsTab, string> = {
 /** Page chrome shared by the tabs of the Agents settings page. */
 export function AgentsTabLayout({
   tab,
-  count,
   actions,
   fill = false,
   children,
 }: {
   tab: AgentsTab;
-  /** How many things this tab holds, shown beside its label. */
-  count?: number;
   actions?: ReactNode;
   /** The tab owns the height and scrolls its own list, as the agent table does. */
   fill?: boolean;
   children: ReactNode;
 }) {
   const { showTab } = useAgentsPageActions();
-  const counts: Partial<Record<AgentsTab, number>> = { [tab]: count };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-end gap-3 border-(--gray-5) border-b px-6">
-        <CountedTabStrip
+        <TabStrip
           tabs={TABS}
           value={tab}
-          counts={counts}
           onValueChange={showTab}
           dataAttrPrefix="agents-tab"
           className="min-w-0 flex-1 overflow-x-auto"

@@ -15,6 +15,7 @@ import {
   formatNextRun,
   formatRunDuration,
   formatScoutScheduleShort,
+  hasPendingScoutRun,
   nextRunAt,
   prettifyScoutSkillName,
   runDurationSeconds,
@@ -24,7 +25,6 @@ import {
   scoutRunOutcomeLabel,
   scoutSkillSlug,
 } from "@posthog/core/scouts/scoutPresentation";
-import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
 import {
   Avatar,
   AvatarFallback,
@@ -53,7 +53,7 @@ import { ScoutEnabledSwitch } from "./ScoutConfigControls";
 import { ScoutLifecycleBadge } from "./ScoutLifecycleBadges";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
 
-const ROW_BOXES = 24;
+const ROW_BOXES = 18;
 const PLACEHOLDER_BOXES = Array.from({ length: 14 }, (_, index) => index);
 
 /** Holds the run column's ground while the run history is on its way. */
@@ -81,7 +81,10 @@ function statusDotClass(
   now: Date,
 ): string {
   const lifecycle = deriveScoutLifecycle(config);
-  if (rollup?.runningRun) {
+  if (
+    rollup?.runningRun &&
+    deriveRunOutcome(rollup.runningRun, now) === "running"
+  ) {
     return "bg-(--blue-9) shadow-[0_0_0_3px_var(--blue-a4)]";
   }
   if (lifecycle.isSystemPaused) return "border-[1.5px] border-(--amber-9)";
@@ -90,7 +93,8 @@ function statusDotClass(
   const latest = rollup?.latestRun;
   if (latest) {
     const outcome = deriveRunOutcome(latest, now);
-    if (outcome === "error" || outcome === "timed_out") return "bg-(--red-9)";
+    if (outcome === "error" || outcome === "timed_out" || outcome === "stuck")
+      return "bg-(--red-9)";
   }
   return "bg-(--green-9)";
 }
@@ -125,7 +129,7 @@ function ScoutTableRowInner({
   const latestDuration = latest
     ? formatRunDuration(runDurationSeconds(latest, now))
     : "";
-  const next = formatNextRun(nextRunAt(config), now);
+  const next = formatNextRun(nextRunAt(config, now), now);
   const cloudSkillUrl = skillUrl(config.skill_name);
   const dimmed =
     !config.enabled && !deriveScoutLifecycle(config).isSystemPaused;
@@ -147,8 +151,10 @@ function ScoutTableRowInner({
             onOpen={() => openAgent(slug)}
             dataAttr="scout-row-open"
           />
-          <DryRunBadge config={config} />
-          <ScoutLifecycleBadge config={config} />
+          <span className="sr-only @xl:not-sr-only @xl:contents">
+            <DryRunBadge config={config} />
+            <ScoutLifecycleBadge config={config} />
+          </span>
           {creator ? (
             <Tooltip content={`Created by ${scoutCreatorDisplayName(creator)}`}>
               <Avatar size="xs" className="ml-auto shrink-0">
@@ -164,7 +170,8 @@ function ScoutTableRowInner({
           <span className="text-[12.5px] text-gray-12">
             {formatScoutScheduleShort(config)}
           </span>
-          {rollup?.runningRun ? (
+          {rollup?.runningRun &&
+          deriveRunOutcome(rollup.runningRun, now) === "running" ? (
             <span className="text-(--blue-11) text-[11px]">running now</span>
           ) : next ? (
             <span className="text-[11px] text-gray-10">next {next}</span>
@@ -172,19 +179,19 @@ function ScoutTableRowInner({
         </div>
       </TableCell>
 
-      <TableCell>
+      <TableCell className="@4xl:table-cell hidden overflow-hidden">
         {rollup && rollup.runs.length > 0 ? (
           <ScoutRunBoxes runs={rollup.runs} max={ROW_BOXES} />
         ) : runsPending ? (
           <RunBoxesPlaceholder />
         ) : (
-          <span className="text-[11px] text-gray-8">
-            No runs in the {SCOUT_RUNS_WINDOW_LABEL}
+          <span className="text-[11px] text-gray-11">
+            No recent runs loaded
           </span>
         )}
       </TableCell>
 
-      <TableCell>
+      <TableCell className="@2xl:table-cell hidden">
         {latest ? (
           <div className="flex flex-col gap-0.5 truncate">
             <RelativeTimestamp
@@ -202,10 +209,15 @@ function ScoutTableRowInner({
               {latestDuration ? ` · ${latestDuration}` : ""}
             </span>
           </div>
+        ) : config.last_run_at ? (
+          <RelativeTimestamp
+            timestamp={config.last_run_at}
+            className="text-[12.5px] text-gray-12"
+          />
         ) : runsPending ? (
           <Skeleton className="h-4 w-24" />
         ) : (
-          <span className="text-[11px] text-gray-8">—</span>
+          <span className="text-[11px] text-gray-11">—</span>
         )}
       </TableCell>
 
@@ -230,7 +242,7 @@ function ScoutTableRowInner({
           />
           <DropdownMenuContent align="end">
             <DropdownMenuItem
-              disabled={isStarting || !config.enabled}
+              disabled={isStarting || hasPendingScoutRun(rollup)}
               onClick={() => void runNow()}
             >
               <PlayIcon size={13} />

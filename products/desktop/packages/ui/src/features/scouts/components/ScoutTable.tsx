@@ -64,16 +64,27 @@ export function ScoutTable({
       stickyHeader
       fullWidth
       tableClassName="table-fixed"
-      className="h-full rounded-(--radius-md) border border-border bg-(--color-panel-solid)"
+      className="@container h-full rounded-(--radius-md) border border-border bg-(--color-panel-solid)"
     >
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className="w-[30rem]">Agent</TableHead>
-          <TableHead className="w-36">Schedule</TableHead>
-          <TableHead>Recent runs</TableHead>
-          <TableHead className="w-44">Last run</TableHead>
-          <TableHead className="w-14" />
-          <TableHead className="w-10" />
+          {/* Percentages per breakpoint. A `table-fixed` column with no width
+              of its own takes every spare pixel, and a hidden column keeps its
+              share, so each set has to add up to 100 on its own. */}
+          <TableHead className="@2xl:w-[44%] @4xl:w-[32%] w-[66%]">
+            Agent
+          </TableHead>
+          <TableHead className="@2xl:w-[16%] @4xl:w-[13%] w-[22%]">
+            Schedule
+          </TableHead>
+          <TableHead className="@4xl:table-cell hidden @4xl:w-[27%]">
+            Recent runs
+          </TableHead>
+          <TableHead className="@2xl:table-cell hidden @2xl:w-[28%] @4xl:w-[18%]">
+            Last run
+          </TableHead>
+          <TableHead className="@4xl:w-[6%] w-[7%]" />
+          <TableHead className="@4xl:w-[4%] w-[5%]" />
         </TableRow>
       </TableHeader>
       <TableBody>

@@ -11,6 +11,7 @@ import {
   formatRunDuration,
   formatScoutScheduleShort,
   getScoutOrigin,
+  hasPendingScoutRun,
   nextRunAt,
   runDurationSeconds,
   type ScoutRollup,
@@ -19,8 +20,8 @@ import {
   scoutSummarySentence,
 } from "@posthog/core/scouts/scoutPresentation";
 import { Button, Skeleton } from "@posthog/quill";
-import { CountedTabStrip } from "@posthog/ui/primitives/CountedTabStrip";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import { TabStrip } from "@posthog/ui/primitives/TabStrip";
 import { Fragment, type ReactNode } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { useScoutRunNow } from "../hooks/useScoutRunNow";
@@ -31,7 +32,7 @@ import { ScoutHealthBanner } from "./ScoutLifecycleBadges";
 
 const TAB_LABEL: Record<ScoutDetailTab, string> = {
   activity: "Activity",
-  signals: "Signals",
+  output: "Output",
   settings: "Settings",
 };
 
@@ -60,10 +61,6 @@ export function ScoutDetailHeader({
   onTabChange: (tab: ScoutDetailTab) => void;
   onBack: () => void;
 }) {
-  const counts: Partial<Record<ScoutDetailTab, number>> = {
-    signals: rollup?.emittedCount,
-  };
-
   return (
     <div className="flex shrink-0 cursor-default flex-col gap-3 border-(--gray-5) border-b px-6 pt-4">
       <button
@@ -93,10 +90,9 @@ export function ScoutDetailHeader({
         />
       )}
 
-      <CountedTabStrip
+      <TabStrip
         tabs={TABS}
         value={tab}
-        counts={counts}
         onValueChange={onTabChange}
         dataAttrPrefix="scout-tab"
         className="-mb-px min-w-0 overflow-x-auto"
@@ -124,8 +120,12 @@ function ScoutDetailHeading({
   const creator = creators?.get(config.skill_name);
   const summary = scoutSummarySentence(config.description);
   const latest = rollup?.latestRun ?? null;
-  const running = rollup?.runningRun ?? null;
-  const next = formatNextRun(nextRunAt(config), now);
+  const pendingRun = rollup?.runningRun;
+  const running =
+    pendingRun && deriveRunOutcome(pendingRun, now) === "running"
+      ? pendingRun
+      : null;
+  const next = formatNextRun(nextRunAt(config, now), now);
   const latestDuration = latest
     ? formatRunDuration(runDurationSeconds(latest, now))
     : "";
@@ -159,7 +159,13 @@ function ScoutDetailHeading({
       </>,
     );
   } else {
-    meta.push(config.enabled ? "Not scheduled yet" : "Switched off");
+    meta.push(
+      !config.enabled
+        ? "Switched off"
+        : config.run_cron_schedule
+          ? "Uses the project timezone"
+          : "Next run time is unavailable",
+    );
   }
   if (latest && latestOutcome !== "running") {
     meta.push(
@@ -212,7 +218,7 @@ function ScoutDetailHeading({
             variant="outline"
             size="sm"
             onClick={() => void runNow()}
-            disabled={isStarting || !config.enabled || Boolean(running)}
+            disabled={isStarting || hasPendingScoutRun(rollup)}
             data-attr="scout-run-now"
           >
             <PlayIcon size={13} />

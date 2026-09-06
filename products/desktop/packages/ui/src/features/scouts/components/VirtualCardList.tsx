@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, useLayoutEffect, useRef } from "react";
 
 const OVERSCAN = 6;
 
@@ -14,6 +14,7 @@ export function VirtualCardList<T>({
   renderItem,
   estimateSize,
   gap = 8,
+  resetKey,
 }: {
   items: T[];
   getKey: (item: T, index: number) => string;
@@ -21,6 +22,7 @@ export function VirtualCardList<T>({
   /** First guess at a card's height; each card measures itself once it renders. */
   estimateSize: number;
   gap?: number;
+  resetKey?: string;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -34,6 +36,10 @@ export function VirtualCardList<T>({
     overscan: OVERSCAN,
     gap,
   });
+
+  useLayoutEffect(() => {
+    if (resetKey !== undefined) virtualizer.scrollToOffset(0);
+  }, [resetKey, virtualizer]);
 
   return (
     <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto">

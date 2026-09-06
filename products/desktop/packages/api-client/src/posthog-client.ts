@@ -606,8 +606,20 @@ export interface ScoutSuggestionSet {
   items: ScoutSuggestionItem[];
 }
 
+export interface ScoutOutputSummary {
+  count: number;
+  scout_count: number;
+  authored_report_count: number;
+  edited_report_count: number;
+  run_count: number;
+  latest_at: string | null;
+}
+
 export interface ScoutRun {
   run_id: string;
+  created_at?: string;
+  emitted_report_ids?: string[];
+  edited_report_ids?: string[];
   skill_name: string;
   skill_version: number;
   /** TaskRun-derived status, e.g. "completed" | "failed" | "in_progress" | "queued". */
@@ -664,6 +676,7 @@ export interface ScoutScratchpadEntry {
 }
 
 export interface ScoutRunsQueryParams {
+  skill_name?: string;
   date_from?: string;
   date_to?: string;
   text?: string;
@@ -2386,14 +2399,21 @@ export class PostHogAPIClient {
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(body),
-      },
-    });
+    const response = await this.api.fetcher
+      .fetch({
+        method: "post",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(body),
+        },
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiRequestError) {
+          throw new ScoutRequestError(error.status, subPath, readDetail(error));
+        }
+        throw error;
+      });
     if (!response.ok) {
       throw new ScoutRequestError(
         response.status,
@@ -2502,6 +2522,7 @@ export class PostHogAPIClient {
       projectId,
       "runs/",
       {
+        skill_name: params?.skill_name,
         date_from: params?.date_from,
         date_to: params?.date_to,
         text: params?.text,
@@ -2510,6 +2531,22 @@ export class PostHogAPIClient {
       },
     );
     return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  async listRecentScoutRuns(projectId: number): Promise<ScoutRun[]> {
+    return await this.scoutGet<ScoutRun[]>(
+      projectId,
+      "runs/recent-per-scout/",
+      { per_scout_limit: 18 },
+    );
+  }
+
+  async getScoutOutputSummary(projectId: number): Promise<ScoutOutputSummary> {
+    return await this.scoutGet<ScoutOutputSummary>(
+      projectId,
+      "runs/findings/summary/",
+      { window_hours: 72 },
+    );
   }
 
   async getScoutRun(projectId: number, runId: string): Promise<ScoutRun> {

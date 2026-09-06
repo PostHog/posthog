@@ -6,6 +6,8 @@ import {
   normalizeRunStatus,
   runDurationSeconds,
   type ScoutRunOutcome,
+  scoutRunOutcomeLabel,
+  scoutRunOutputCount,
   scoutSummarySentence,
 } from "@posthog/core/scouts/scoutPresentation";
 import { Badge } from "@posthog/quill";
@@ -15,6 +17,7 @@ import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { track } from "@posthog/ui/shell/analytics";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { useState } from "react";
+import { ScoutRunReportLinks } from "./ScoutRunReportLinks";
 import { ScoutTaskRunLink } from "./ScoutTaskRunLink";
 
 const OUTCOME_DOT: Record<ScoutRunOutcome, string> = {
@@ -45,7 +48,7 @@ export function ScoutRunListItem({
   const status = normalizeRunStatus(run.status);
   const outcome = deriveRunOutcome(run, now);
   const duration = formatRunDuration(runDurationSeconds(run, now));
-  const emitted = run.emitted_count ?? 0;
+  const emitted = scoutRunOutputCount(run);
   const title = scoutSummarySentence(run.summary);
 
   return (
@@ -96,6 +99,11 @@ export function ScoutRunListItem({
             · running past the deadline
           </span>
         ) : null}
+        {["running", "queued", "unknown"].includes(outcome) ? (
+          <span className="shrink-0 text-[11.5px] text-gray-11">
+            {scoutRunOutcomeLabel(run, now)}
+          </span>
+        ) : null}
         {!expanded && title ? (
           <span className="min-w-0 flex-1 truncate pl-1 text-[12px] text-gray-11">
             {title}
@@ -105,7 +113,7 @@ export function ScoutRunListItem({
         )}
         {emitted > 0 ? (
           <Badge variant="info" className="shrink-0">
-            {emitted} signal{emitted === 1 ? "" : "s"}
+            {emitted} output{emitted === 1 ? "" : "s"}
           </Badge>
         ) : status === "completed" ? (
           <span className="shrink-0 text-[11.5px] text-gray-9">quiet</span>
@@ -114,7 +122,10 @@ export function ScoutRunListItem({
       {expanded ? (
         run.summary ? (
           <div className="mt-2 text-pretty break-words pl-[21px] text-[12.5px] text-gray-11 leading-snug [&_code]:text-[11px] [&_p:last-child]:mb-0 [&_p]:mb-1 [&_pre]:text-[11px]">
-            <MarkdownRenderer content={run.summary} />
+            <MarkdownRenderer
+              content={run.summary}
+              componentsOverride={{ img: ({ alt }) => <span>{alt}</span> }}
+            />
           </div>
         ) : status === "failed" ? (
           <p className="mt-2 pl-[21px] text-[12.5px] text-gray-10 italic leading-snug">
@@ -122,6 +133,11 @@ export function ScoutRunListItem({
             in PostHog is the only diagnostic.
           </p>
         ) : null
+      ) : null}
+      {expanded ? (
+        <div className="mt-2 pl-[21px]">
+          <ScoutRunReportLinks run={run} />
+        </div>
       ) : null}
       {expanded && taskRunUrl ? (
         <div className="mt-2 flex justify-end border-(--gray-4) border-t pt-2 text-[11px] text-gray-10">

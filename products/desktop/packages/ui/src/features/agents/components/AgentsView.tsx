@@ -10,14 +10,11 @@ import { ConfigureAgentsSection } from "@posthog/ui/features/inbox/components/Co
 import { FleetOverviewButton } from "@posthog/ui/features/scouts/components/FleetOverviewButton";
 import { NewAgentDialog } from "@posthog/ui/features/scouts/components/NewAgentDialog";
 import { ScoutDetailView } from "@posthog/ui/features/scouts/components/ScoutDetailView";
-import { ScoutFindingsView } from "@posthog/ui/features/scouts/components/ScoutFindingsView";
 import { ScoutsFleetView } from "@posthog/ui/features/scouts/components/ScoutsFleetView";
 import { ScratchpadView } from "@posthog/ui/features/scouts/components/ScratchpadView";
-import { useScoutConfigs } from "@posthog/ui/features/scouts/hooks/useScoutConfigs";
-import { useScoutFindings } from "@posthog/ui/features/scouts/hooks/useScoutFindings";
-import { useScoutScratchpad } from "@posthog/ui/features/scouts/hooks/useScoutScratchpad";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AgentsTabLayout } from "./AgentsTabLayout";
 
 /** The Agents settings page: the fleet, what it found, and what it connects to. */
@@ -26,9 +23,21 @@ export function AgentsView() {
   const agent = useOpenAgent();
   const { showTab } = useAgentsPageActions();
 
-  // Leaving settings unmounts the page. Send it back to the fleet then, so
-  // opening Agents again does not resume inside whatever was open last.
-  useEffect(() => () => showTab("agents"), [showTab]);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // StrictMode mounts again before this check. A real exit resets only this tab.
+      queueMicrotask(() => {
+        if (
+          !mounted.current &&
+          getRouterOrNull()?.state.location.pathname !== "/settings/agents"
+        )
+          showTab("agents");
+      });
+    };
+  }, [showTab]);
 
   if (agent) {
     return (
@@ -40,7 +49,6 @@ export function AgentsView() {
     );
   }
 
-  if (tab === "signals") return <SignalsTab />;
   if (tab === "memory") return <MemoryTab />;
   if (tab === "setup") return <SetupTab />;
   return <FleetTab />;
@@ -48,7 +56,6 @@ export function AgentsView() {
 
 function FleetTab() {
   const [newAgent, setNewAgent] = useState<{ brief: string } | null>(null);
-  const { data: configs } = useScoutConfigs();
 
   const openNewAgent = (brief = "") => {
     track(ANALYTICS_EVENTS.SCOUT_ACTION, {
@@ -62,7 +69,6 @@ function FleetTab() {
     <AgentsTabLayout
       tab="agents"
       fill
-      count={configs?.length}
       actions={
         <>
           <FleetOverviewButton />
@@ -92,19 +98,9 @@ function FleetTab() {
   );
 }
 
-function SignalsTab() {
-  const { rows } = useScoutFindings();
-  return (
-    <AgentsTabLayout tab="signals" fill count={rows.length}>
-      <ScoutFindingsView />
-    </AgentsTabLayout>
-  );
-}
-
 function MemoryTab() {
-  const { data: entries } = useScoutScratchpad();
   return (
-    <AgentsTabLayout tab="memory" fill count={entries?.length}>
+    <AgentsTabLayout tab="memory" fill>
       <ScratchpadView />
     </AgentsTabLayout>
   );

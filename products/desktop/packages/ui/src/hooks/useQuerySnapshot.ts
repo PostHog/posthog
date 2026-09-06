@@ -2,50 +2,44 @@ import { useEffect } from "react";
 
 const PREFIX = "posthog.query-snapshot.v1.";
 
-/** A snapshot must beat a round trip. One this large no longer would. */
-const MAX_CHARS = 2_000_000;
+const MAX_SNAPSHOTS = 12;
+const snapshots = new Map<string, unknown>();
 
 /**
- * The answer a query gave last time, kept on disk. A page seeds its query with
- * it to paint content on the first frame, then refreshes behind that content.
- * The snapshot is an optimization: every failure path here is silent.
+ * Keep project content in memory so that it never reaches plaintext disk storage.
+ * Query observers share references to avoid serialization during a render.
  */
 export function readQuerySnapshot<T>(name: string): T | undefined {
-  try {
-    const raw = localStorage.getItem(PREFIX + name);
-    return raw === null ? undefined : (JSON.parse(raw) as T);
-  } catch {
-    return undefined;
-  }
+  return snapshots.get(name) as T | undefined;
 }
 
 function writeQuerySnapshot(name: string, value: unknown): void {
-  try {
-    const raw = JSON.stringify(value);
-    if (raw.length > MAX_CHARS) {
-      localStorage.removeItem(PREFIX + name);
-      return;
-    }
-    localStorage.setItem(PREFIX + name, raw);
-  } catch {
-    // Quota and serialization failures cost the next paint, nothing more.
+  if (snapshots.get(name) === value) return;
+  snapshots.delete(name);
+  snapshots.set(name, value);
+  if (snapshots.size > MAX_SNAPSHOTS) {
+    const oldest = snapshots.keys().next().value;
+    if (oldest !== undefined) snapshots.delete(oldest);
   }
 }
 
 /** Snapshots hold project data, so a sign-out must drop them. */
 export function clearQuerySnapshots(): void {
+  snapshots.clear();
   try {
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith(PREFIX)) localStorage.removeItem(key);
     }
   } catch {
-    // Same as above: losing a snapshot only costs a paint.
+    // Storage can be unavailable when the host denies access.
   }
 }
 
+// Remove plaintext snapshots from older builds without reading project content.
+clearQuerySnapshots();
+
 /**
- * Writes the snapshot when the query settles. Waiting for `settled` keeps a
- * paginated fetch from writing the whole document once per page.
+ * Wait for pagination to settle so that later visits start with the full result.
  */
 export function useWriteQuerySnapshot(
   name: string,

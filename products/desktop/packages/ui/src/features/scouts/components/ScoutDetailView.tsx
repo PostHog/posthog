@@ -9,13 +9,14 @@ import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useMemo, useRef } from "react";
+import { useAuthStateValue } from "../../auth/store";
 import { useScoutConfigMutations } from "../hooks/useScoutConfigMutations";
 import { useScoutConfigs } from "../hooks/useScoutConfigs";
-import { isRunsWindowLoadingMore, useScoutRuns } from "../hooks/useScoutRuns";
+import { useScoutRuns } from "../hooks/useScoutRuns";
 import { ScoutActivityTab } from "./ScoutActivityTab";
 import { ScoutConfigForm } from "./ScoutConfigControls";
 import { ScoutDetailHeader } from "./ScoutDetailHeader";
-import { ScoutSignalsSection } from "./ScoutSignalsSection";
+import { ScoutOutputSection } from "./ScoutOutputSection";
 
 export function ScoutDetailView({
   skillSlug,
@@ -27,27 +28,28 @@ export function ScoutDetailView({
   highlightFindingId?: string;
   tab: ScoutDetailTab;
 }) {
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
   const skillName = scoutSkillNameFromSlug(skillSlug);
   const displayName = prettifyScoutSkillName(skillName);
   const { showAgentTab, showTab } = useAgentsPageActions();
 
+  const configsQuery = useScoutConfigs();
   const {
     data: configs,
     isLoading: configsLoading,
     isError: configsError,
-  } = useScoutConfigs();
-  const runsQuery = useScoutRuns();
+  } = configsQuery;
+  const runsQuery = useScoutRuns(skillName);
   const {
     data: runsWindow,
     isLoading: runsLoading,
+    isFetching: runsLoadingMore,
     isError: runsError,
   } = runsQuery;
-  const runsLoadingMore = isRunsWindowLoadingMore(runsQuery);
+  const incomplete = runsWindow ? !runsWindow.complete : false;
   const { updateConfig } = useScoutConfigMutations();
 
   const config = configs?.find((entry) => entry.skill_name === skillName);
-  // The runs endpoint has no skill_name filter yet (scouts-ui api gap 1), so
-  // select this scout's runs from the fleet window client-side.
   const scoutRuns = useMemo(
     () =>
       (runsWindow?.runs ?? []).filter((run) => run.skill_name === skillName),
@@ -76,9 +78,17 @@ export function ScoutDetailView({
   // config and run-window stats are real rather than loading-state zeros.
   const viewTrackedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (configsLoading || runsLoading) return;
-    if (viewTrackedFor.current === skillName) return;
-    viewTrackedFor.current = skillName;
+    if (
+      !configsQuery.isFetchedAfterMount ||
+      configsQuery.isFetching ||
+      configsError ||
+      !runsQuery.isFetchedAfterMount ||
+      runsQuery.isFetching ||
+      runsError
+    )
+      return;
+    if (viewTrackedFor.current === `${projectId}:${skillName}`) return;
+    viewTrackedFor.current = `${projectId}:${skillName}`;
     track(ANALYTICS_EVENTS.SCOUT_DETAIL_VIEWED, {
       skill_name: skillName,
       scout_origin: getScoutOrigin(config),
@@ -90,7 +100,18 @@ export function ScoutDetailView({
       emitted_signal_count: rollup?.emittedCount ?? 0,
       failed_run_count: rollup?.failedCount ?? 0,
     });
-  }, [configsLoading, runsLoading, skillName, config, rollup]);
+  }, [
+    configsQuery.isFetchedAfterMount,
+    configsQuery.isFetching,
+    configsError,
+    runsQuery.isFetchedAfterMount,
+    runsQuery.isFetching,
+    runsError,
+    projectId,
+    skillName,
+    config,
+    rollup,
+  ]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -107,7 +128,12 @@ export function ScoutDetailView({
 
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto max-w-[90rem] px-6 py-6">
-          {configsError ? (
+          {runsError && runsWindow ? (
+            <output className="text-(--amber-11) text-[12.5px]">
+              Run history could not refresh. Available data remains visible.
+            </output>
+          ) : null}
+          {configsError && !configs ? (
             <p className="text-(--red-11) text-[12.5px]">
               Couldn&apos;t load this agent&apos;s configuration.
             </p>
@@ -120,16 +146,19 @@ export function ScoutDetailView({
               skillName={skillName}
               rollup={rollup}
               runs={scoutRuns}
-              runsWindow={runsWindow}
+              incomplete={incomplete}
               loading={runsUnknown}
               loadingMore={runsLoadingMore}
-              error={runsError}
+              error={runsError && !runsWindow}
             />
-          ) : tab === "signals" ? (
-            <ScoutSignalsSection
+          ) : tab === "output" ? (
+            <ScoutOutputSection
+              key={skillName}
               runs={scoutRuns}
-              loading={runsUnknown}
-              error={runsError}
+              loading={runsLoading}
+              loadingMore={runsLoadingMore}
+              incomplete={incomplete}
+              error={runsError && !runsWindow}
               highlightFindingId={highlightFindingId}
             />
           ) : config ? (

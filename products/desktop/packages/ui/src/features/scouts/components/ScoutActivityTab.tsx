@@ -5,10 +5,7 @@ import {
   type ScoutRunFilter,
   summarizeRunWindow,
 } from "@posthog/core/scouts/scoutPresentation";
-import {
-  SCOUT_RUNS_WINDOW_LABEL,
-  type ScoutRunsWindow,
-} from "@posthog/core/scouts/scoutRunsWindow";
+import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
 import { Skeleton, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useMinuteNow } from "@posthog/ui/hooks/useMinuteNow";
@@ -19,7 +16,7 @@ import { ScoutRunsList } from "./ScoutRunsList";
 
 const FILTERS: { value: ScoutRunFilter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "emitted", label: "Signals" },
+  { value: "emitted", label: "Output" },
   { value: "quiet", label: "Quiet" },
   { value: "failed", label: "Failed" },
 ];
@@ -32,7 +29,7 @@ export function ScoutActivityTab({
   skillName,
   rollup,
   runs,
-  runsWindow,
+  incomplete,
   loading,
   loadingMore,
   error,
@@ -40,7 +37,7 @@ export function ScoutActivityTab({
   skillName: string;
   rollup: ScoutRollup | undefined;
   runs: ScoutRun[];
-  runsWindow: ScoutRunsWindow | undefined;
+  incomplete: boolean;
   loading: boolean;
   /** More pages of the run window are still on their way. */
   loadingMore: boolean;
@@ -70,7 +67,6 @@ export function ScoutActivityTab({
     return map;
   }, [runs]);
   const summary = useMemo(() => summarizeRunWindow(rollup, now), [rollup, now]);
-  const incomplete = runsWindow ? !runsWindow.complete : false;
 
   return (
     <div className="flex flex-col gap-4">
@@ -82,7 +78,14 @@ export function ScoutActivityTab({
             <ScoutRunBoxes runs={rollup.runs} />
           ) : null}
           <span className="text-[12.5px] text-gray-12">
-            {summary ?? `No runs in the ${SCOUT_RUNS_WINDOW_LABEL}.`}
+            {summary ??
+              (error
+                ? "Run history is unavailable."
+                : loadingMore
+                  ? "Loading runs."
+                  : incomplete
+                    ? "No runs loaded. The run history is incomplete."
+                    : `No runs in the ${SCOUT_RUNS_WINDOW_LABEL}.`)}
           </span>
           <span className="flex-1" />
           <span className="text-[11.5px] text-gray-10">
@@ -95,7 +98,7 @@ export function ScoutActivityTab({
         </div>
       )}
 
-      {runs.length >= FILTERS_FROM ? (
+      {runs.length >= FILTERS_FROM || filter !== "all" ? (
         <Tabs
           value={filter}
           onValueChange={(value: string) => {
@@ -113,7 +116,12 @@ export function ScoutActivityTab({
           <TabsList className="h-8">
             {FILTERS.map((entry) => {
               const count = counts.get(entry.value) ?? 0;
-              if (entry.value !== "all" && count === 0) return null;
+              if (
+                entry.value !== "all" &&
+                entry.value !== filter &&
+                count === 0
+              )
+                return null;
               return (
                 <TabsTrigger
                   key={entry.value}

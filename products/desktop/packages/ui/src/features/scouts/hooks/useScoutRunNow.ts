@@ -16,10 +16,10 @@ function runNowErrorMessage(error: unknown): string {
   if (error instanceof ScoutRequestError) {
     if (error.status === 409) return "This agent is already running.";
     if (error.status === 429) {
-      return "This project has used its agent runs for today.";
+      return "This project has reached a run, report, or Signals limit. Try again after the limit resets.";
     }
     if (error.status === 403) {
-      return "You don't have permission to run agents in this project.";
+      return "This project does not permit this run. Check agent settings and your access.";
     }
   }
   return "Couldn't start the run.";

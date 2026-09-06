@@ -1,12 +1,14 @@
 import type { ScoutDetailTab } from "@posthog/core/scouts/scoutDetailTabs";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
+import { useRouterState } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { create } from "zustand";
 
-export type AgentsTab = "agents" | "signals" | "memory" | "setup";
+export type AgentsTab = "agents" | "memory" | "setup";
 
 interface OpenAgent {
   slug: string;
   tab: ScoutDetailTab;
-  /** Emission id from a shared finding link — expanded when the page opens. */
   findingId?: string;
 }
 
@@ -15,43 +17,62 @@ interface AgentsPageState {
   agent: OpenAgent | null;
 }
 
-interface AgentsPageActions {
-  showTab: (tab: AgentsTab) => void;
-  openAgent: (
-    slug: string,
-    options?: { tab?: ScoutDetailTab; findingId?: string },
-  ) => void;
-  showAgentTab: (tab: ScoutDetailTab) => void;
+const DEFAULT_STATE: AgentsPageState = { tab: "agents", agent: null };
+const useStore = create<{ pages: Record<string, AgentsPageState> }>(() => ({
+  pages: {},
+}));
+
+function usePageKey(): string {
+  return useRouterState({
+    select: (state) => state.location.state.tabId ?? "default",
+  });
 }
 
-type AgentsPageStore = AgentsPageState & { actions: AgentsPageActions };
-
-// The Agents page is a settings category, so it has no URL of its own below
-// /settings/agents. Which tab is open, and which agent, live here instead.
-const useStore = create<AgentsPageStore>((set) => ({
-  tab: "agents",
-  agent: null,
-  actions: {
-    showTab: (tab) => set({ tab, agent: null }),
-    openAgent: (slug, options) =>
-      set({
+export function agentsPageActions(
+  key = getRouterOrNull()?.history.location.state.tabId ?? "default",
+) {
+  const update = (change: (state: AgentsPageState) => AgentsPageState) => {
+    useStore.setState((state) => ({
+      pages: {
+        ...state.pages,
+        [key]: change(state.pages[key] ?? DEFAULT_STATE),
+      },
+    }));
+  };
+  return {
+    showTab: (tab: AgentsTab) => update(() => ({ tab, agent: null })),
+    openAgent: (
+      slug: string,
+      options?: { tab?: ScoutDetailTab; findingId?: string },
+    ) =>
+      update(() => ({
         tab: "agents",
         agent: {
           slug,
-          tab: options?.tab ?? (options?.findingId ? "signals" : "activity"),
+          tab: options?.tab ?? (options?.findingId ? "output" : "activity"),
           findingId: options?.findingId,
         },
-      }),
-    showAgentTab: (tab) =>
-      set((state) =>
+      })),
+    showAgentTab: (tab: ScoutDetailTab) =>
+      update((state) =>
         state.agent
-          ? { agent: { ...state.agent, tab, findingId: undefined } }
+          ? { ...state, agent: { ...state.agent, tab, findingId: undefined } }
           : state,
       ),
-  },
-}));
+  };
+}
 
-export const useAgentsTab = () => useStore((s) => s.tab);
-export const useOpenAgent = () => useStore((s) => s.agent);
-export const useAgentsPageActions = () => useStore((s) => s.actions);
-export const agentsPageActions = () => useStore.getState().actions;
+export function useAgentsTab() {
+  const key = usePageKey();
+  return useStore((state) => (state.pages[key] ?? DEFAULT_STATE).tab);
+}
+
+export function useOpenAgent() {
+  const key = usePageKey();
+  return useStore((state) => (state.pages[key] ?? DEFAULT_STATE).agent);
+}
+
+export function useAgentsPageActions() {
+  const key = usePageKey();
+  return useMemo(() => agentsPageActions(key), [key]);
+}

@@ -117,7 +117,7 @@ export function ScoutHealthBanner({
             onClick={() => onShowTab(notice.link as ScoutDetailTab)}
             data-attr="scout-health-open-tab"
           >
-            {notice.link === "signals" ? "Open signals" : "Open runs"}
+            {notice.link === "output" ? "Open output" : "Open runs"}
           </Button>
         ) : null}
       </div>

@@ -47,9 +47,10 @@ export function NewAgentDialog({
   });
 
   const submit = async () => {
-    await runTask();
-    onOpenChange(false);
-    setBrief("");
+    if (await runTask()) {
+      onOpenChange(false);
+      setBrief("");
+    }
   };
 
   return (

@@ -16,15 +16,21 @@ import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
 import { suggestionBrief } from "@posthog/core/scouts/scoutSuggestions";
 import { Button, Skeleton, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { leaveSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
+import { useMinuteNow } from "@posthog/ui/hooks/useMinuteNow";
 import { SearchInput } from "@posthog/ui/primitives/SearchInput";
 import { track } from "@posthog/ui/shell/analytics";
+import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useMeQuery } from "../../auth/useMeQuery";
 import { useScoutConfigMutations } from "../hooks/useScoutConfigMutations";
 import { useScoutConfigs } from "../hooks/useScoutConfigs";
 import { useScoutFleetSync } from "../hooks/useScoutFleetSync";
-import { isRunsWindowLoadingMore, useScoutRuns } from "../hooks/useScoutRuns";
+import {
+  useScoutOutputSummary,
+  useScoutRecentRuns,
+} from "../hooks/useScoutRecentRuns";
 import { useScoutSkillCreators } from "../hooks/useScoutSkillCreators";
 import {
   useDismissScoutSuggestion,
@@ -52,22 +58,29 @@ export function ScoutsFleetView({
 }: {
   onNewAgent: (brief?: string) => void;
 }) {
-  const { data: configs, isLoading, isError, refetch } = useScoutConfigs();
+  const now = useMinuteNow();
+  const configsQuery = useScoutConfigs();
+  const { data: configs, isLoading, isError, refetch } = configsQuery;
   // Opening this page is what materializes the fleet, so a project the
   // coordinator never reached still gets its scouts.
   const { isSyncing, syncOutcome } = useScoutFleetSync();
-  const runsQuery = useScoutRuns();
-  const runsWindow = runsQuery.data;
+  const runsQuery = useScoutRecentRuns();
+  const outputQuery = useScoutOutputSummary();
+  const recentRuns = runsQuery.data;
   // Run history arrives after the fleet, so the columns it feeds say "loading",
   // never "none", until the window has answered.
-  const runsPending = runsWindow === undefined;
-  const runsLoadingMore = isRunsWindowLoadingMore(runsQuery);
+  const runsPending = runsQuery.isLoading;
+  const runsLoadingMore = runsQuery.isFetching;
   const { data: creators } = useScoutSkillCreators();
   const { data: currentUser } = useMeQuery();
   const { updateConfig } = useScoutConfigMutations();
   const { data: suggestions } = useScoutSuggestions();
   const dismissSuggestion = useDismissScoutSuggestion();
-  useTrackFleetViewed(configs ?? EMPTY_CONFIGS, syncOutcome);
+  useTrackFleetViewed(
+    configs,
+    syncOutcome,
+    configsQuery.isFetchedAfterMount && !configsQuery.isFetching && !isError,
+  );
 
   const [originChoice, setOriginChoice] = useState<OriginFilter | null>(null);
   const [search, setSearch] = useState("");
@@ -76,16 +89,16 @@ export function ScoutsFleetView({
 
   const allConfigs = configs ?? EMPTY_CONFIGS;
   const rollups = useMemo(
-    () => computeScoutRollups(runsWindow?.runs ?? []),
-    [runsWindow],
+    () => computeScoutRollups(recentRuns ?? []),
+    [recentRuns],
   );
   const summary = useMemo(
-    () => computeFleetSummary(allConfigs, rollups),
-    [allConfigs, rollups],
+    () => computeFleetSummary(allConfigs, rollups, now),
+    [allConfigs, rollups, now],
   );
   const attention = useMemo(
-    () => listScoutsNeedingAttention(allConfigs, rollups, new Date()),
-    [allConfigs, rollups],
+    () => listScoutsNeedingAttention(allConfigs, rollups, now),
+    [allConfigs, rollups, now],
   );
   const originCounts = useMemo(() => {
     const counts: Record<OriginFilter, number> = {
@@ -149,7 +162,7 @@ export function ScoutsFleetView({
     return <FleetSkeleton />;
   }
 
-  if (isError) {
+  if (isError && !configs) {
     return (
       <div className="flex items-center gap-3 rounded-(--radius-md) border border-(--red-6) bg-(--red-2) px-4 py-3.5">
         <p className="flex-1 text-(--red-11) text-[12.5px]">
@@ -189,6 +202,22 @@ export function ScoutsFleetView({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
+      {isError || runsQuery.isError || outputQuery.isError ? (
+        <output className="text-(--amber-11) text-[12.5px]">
+          Some agent data could not refresh. Available data remains visible.{" "}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => {
+              void refetch();
+              void runsQuery.refetch();
+              void outputQuery.refetch();
+            }}
+          >
+            Retry
+          </button>
+        </output>
+      ) : null}
       <p className="flex flex-wrap items-center gap-x-1.5 text-[12.5px] text-gray-10">
         <span>
           <Stat value={summary.enabledCount} /> of {summary.totalCount} enabled
@@ -211,32 +240,54 @@ export function ScoutsFleetView({
               <>
                 <span>
                   <Stat value={`${Math.round(summary.successRate * 100)}%`} />{" "}
-                  success
+                  success in shown runs
                 </span>
                 <Dot />
               </>
             ) : null}
             <span>
-              <Stat value={summary.emittedCount} /> signal
-              {summary.emittedCount === 1 ? "" : "s"}
+              {outputQuery.data ? (
+                <>
+                  <Link
+                    to="/inbox"
+                    onClick={leaveSettings}
+                    className="underline"
+                  >
+                    <Stat
+                      value={
+                        outputQuery.data.authored_report_count +
+                        outputQuery.data.edited_report_count
+                      }
+                    />{" "}
+                    reports
+                  </Link>{" "}
+                  from recent output runs in the {SCOUT_RUNS_WINDOW_LABEL}
+                </>
+              ) : outputQuery.isError ? (
+                "Output totals are unavailable"
+              ) : (
+                "Loading output totals"
+              )}
             </span>
-            <Dot />
-            <span>{SCOUT_RUNS_WINDOW_LABEL}</span>
             {runsLoadingMore ? (
-              <span className="animate-pulse text-gray-9">· counting</span>
+              <span className="animate-pulse text-gray-9">· refreshing</span>
             ) : null}
           </>
         )}
         <span className="flex-1" />
-        {summary.systemPausedCount > 0 ? (
+        {/* One span, so a wrap never leaves its separator hanging on a line. */}
+        {summary.systemPausedCount > 0 || summary.pausingSoonCount > 0 ? (
           <span className="text-(--amber-11)">
-            {summary.systemPausedCount} auto-paused
-          </span>
-        ) : null}
-        {summary.pausingSoonCount > 0 ? (
-          <span className="text-(--amber-11)">
-            {summary.systemPausedCount > 0 ? " · " : ""}
-            {summary.pausingSoonCount} pausing soon
+            {[
+              summary.systemPausedCount > 0
+                ? `${summary.systemPausedCount} auto-paused`
+                : null,
+              summary.pausingSoonCount > 0
+                ? `${summary.pausingSoonCount} pausing soon`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
         ) : null}
       </p>
@@ -260,11 +311,8 @@ export function ScoutsFleetView({
         >
           <TabsList className="h-8">
             {ORIGIN_TABS.map(({ value, label }) => (
-              <TabsTrigger key={value} value={value} className="gap-1.5 px-2.5">
+              <TabsTrigger key={value} value={value} className="px-2.5">
                 {label}
-                <span className="text-[11px] text-gray-10 tabular-nums">
-                  {originCounts[value]}
-                </span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -305,6 +353,7 @@ export function ScoutsFleetView({
                       ?.isCurrentUser ?? false,
                 });
               }}
+              size="default"
               ariaLabel="Filter agents by creator"
               placeholder="Created by anyone"
             />
@@ -344,21 +393,23 @@ export function ScoutsFleetView({
         />
       </div>
 
-      <p className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-gray-10">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-gray-10">
         <span className="flex items-center gap-3">
-          <Legend className="bg-(--iris-9)" label="signal" />
+          <Legend className="bg-(--iris-9)" label="output" />
           <Legend className="bg-(--gray-6)" label="quiet" />
           <Legend className="bg-(--red-9)" label="failed" />
         </span>
-        <span className="text-gray-8">·</span>
-        Showing {visibleConfigs.length} of {configs.length} agents. Run history
-        covers the {SCOUT_RUNS_WINDOW_LABEL}.
-        {runsWindow && !runsWindow.complete
-          ? " Some runs in this window did not load."
-          : ""}{" "}
-        Built-in agents are PostHog&apos;s own. You can switch them on or off
-        but not edit them.
-      </p>
+        <span>
+          Showing {visibleConfigs.length} of {configs.length} agents. Each row
+          shows up to 18 recent runs.
+        </span>
+        {origin !== "custom" ? (
+          <span>
+            PostHog owns the built-in agents. You can switch them on or off. You
+            cannot edit them.
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }

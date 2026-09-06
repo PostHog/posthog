@@ -6,6 +6,12 @@ import {
   type ScoutRunOutcome,
   scoutRunOutcomeLabel,
 } from "@posthog/core/scouts/scoutPresentation";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { formatRelativeTimeLong } from "@posthog/shared";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
 
@@ -40,9 +46,6 @@ function runTitle(run: ScoutRun, now: Date): string {
  * One small box per run in the visible window, oldest on the left. Each box
  * opens the backing task run in PostHog cloud; runs without a task link carry
  * their label only.
- *
- * A fleet list draws thousands of these boxes at once, so each one is a single
- * element with a native label rather than a tooltip component.
  */
 export function ScoutRunBoxes({
   runs,
@@ -57,37 +60,49 @@ export function ScoutRunBoxes({
   const now = new Date();
 
   return (
-    <span className="flex shrink-0 items-center gap-2">
-      {hidden > 0 ? (
-        <span className="text-[10px] text-gray-9">+{hidden}</span>
-      ) : null}
-      <span className="flex items-center gap-1">
-        {visible.map((run) => {
-          const outcome = deriveRunOutcome(run, now);
-          const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`;
-          const taskRunUrl = run.task_url ? getPostHogUrl(run.task_url) : null;
-          const label = runTitle(run, now);
-          if (taskRunUrl) {
+    <TooltipProvider>
+      <span className="flex shrink-0 items-center gap-2">
+        {hidden > 0 ? (
+          <span className="text-[10px] text-gray-9">+{hidden}</span>
+        ) : null}
+        <span className="flex items-center gap-1">
+          {visible.map((run) => {
+            const outcome = deriveRunOutcome(run, now);
+            const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`;
+            const taskRunUrl = run.task_url
+              ? getPostHogUrl(run.task_url)
+              : null;
+            const label = runTitle(run, now);
+            if (taskRunUrl) {
+              return (
+                <Tooltip key={run.run_id}>
+                  <TooltipTrigger
+                    render={
+                      <a
+                        href={taskRunUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={boxClass}
+                        title={`${label} · open task run in PostHog`}
+                      >
+                        <span className="sr-only">Run {label}</span>
+                      </a>
+                    }
+                  />
+                  <TooltipContent>
+                    {label} · open task run in PostHog
+                  </TooltipContent>
+                </Tooltip>
+              );
+            }
             return (
-              <a
-                key={run.run_id}
-                href={taskRunUrl}
-                target="_blank"
-                rel="noreferrer"
-                className={boxClass}
-                title={`${label} · open task run in PostHog`}
-              >
+              <span key={run.run_id} className={boxClass} title={label}>
                 <span className="sr-only">Run {label}</span>
-              </a>
+              </span>
             );
-          }
-          return (
-            <span key={run.run_id} className={boxClass} title={label}>
-              <span className="sr-only">Run {label}</span>
-            </span>
-          );
-        })}
+          })}
+        </span>
       </span>
-    </span>
+    </TooltipProvider>
   );
 }
