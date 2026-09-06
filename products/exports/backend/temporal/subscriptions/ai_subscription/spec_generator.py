@@ -2,9 +2,9 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
-from django.db.models import F, Q
+from django.db.models import F, Q, QuerySet
 
 import structlog
 from pydantic import ValidationError
@@ -17,6 +17,7 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
+from products.event_definitions.backend.models import effective_project_id_expr
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
@@ -422,24 +423,39 @@ def _select_relevant_events(
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
-    # One indexed (team, event) query. Without it the planner gets no event-property schema and guesses
-    # property names — the top cause of InternalHogQLError.
+    """The property names recorded for each of `events`, at most `per_event_limit` per event.
+
+    Without this the planner gets no event-property schema and guesses property names, the top cause
+    of InternalHogQLError.
+
+    The scope is the project, not the team. `posthog_eventproperty` is ordered by
+    `(coalesce(project_id, team_id), event, property)`, so a project-scoped filter seeks that index
+    and the LIMIT stops the scan early. It also shows the planner the properties that a sibling
+    environment of the same project recorded.
+
+    Each event gets its own LIMIT, combined with UNION ALL, so one property-heavy event cannot
+    consume the read budget of the events after it.
+    """
     if not events:
         return {}
+    project_id = team.project_id or team.pk
+    # Untyped operands: django-stubs types QuerySet.union to take QuerySet[Model, Model], which a
+    # values_list queryset never satisfies.
+    per_event_queries: list[QuerySet[Any]] = [
+        EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=project_id, event=event)
+        .order_by("property")
+        .values_list("event", "property")[:per_event_limit]
+        for event in dict.fromkeys(events)
+    ]
+    first, *rest = per_event_queries
+    rows = first.union(*rest, all=True) if rest else first
+
     by_event: dict[str, list[str]] = {}
-    rows = (
-        EventProperty.objects.filter(team_id=team.pk, event__in=events)
-        .order_by("event", "property")
-        # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
-        # before the per-event cap below applies. Caps total rows read; rows are ordered by event name,
-        # so when the budget is hit it favours alphabetically-earlier events (not relevance order).
-        .values_list("event", "property")[: len(events) * per_event_limit]
-    )
     for event, prop in rows:
-        props = by_event.setdefault(event, [])
-        if len(props) < per_event_limit:
-            props.append(prop)
-    return by_event
+        by_event.setdefault(event, []).append(prop)
+    # UNION ALL does not promise the order of its parts, so sort each event again here.
+    return {event: sorted(props) for event, props in by_event.items()}
 
 
 def _load_core_memory_text(team: Team, user: User) -> str:

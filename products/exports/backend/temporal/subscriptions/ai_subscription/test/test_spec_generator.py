@@ -353,12 +353,33 @@ class TestEventPropertyNames(APIBaseTest):
     def test_empty_for_no_events(self) -> None:
         assert _event_property_names(self.team, [], per_event_limit=15) == {}
 
-    def test_excludes_other_teams_properties(self) -> None:
+    def test_excludes_other_projects_properties(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         EventProperty.objects.create(team=other_team, event="export created", property="leaked")
         EventProperty.objects.create(team=self.team, event="export created", property="mine")
 
         assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": ["mine"]}
+
+    def test_includes_sibling_environments_of_the_same_project(self) -> None:
+        sibling = Team.objects.create(
+            organization=self.organization, project=self.team.project, name="staging environment"
+        )
+        EventProperty.objects.create(team=sibling, project=sibling.project, event="export created", property="theirs")
+        EventProperty.objects.create(team=self.team, project=self.team.project, event="export created", property="mine")
+
+        by_event = _event_property_names(self.team, ["export created"], per_event_limit=15)
+
+        assert by_event == {"export created": ["mine", "theirs"]}
+
+    def test_each_event_gets_its_own_limit(self) -> None:
+        for i in range(5):
+            EventProperty.objects.create(team=self.team, event="export created", property=f"prop_{i}")
+        EventProperty.objects.create(team=self.team, event="zz alert created", property="threshold")
+
+        by_event = _event_property_names(self.team, ["export created", "zz alert created"], per_event_limit=2)
+
+        # the property-heavy event must not consume the budget of the events after it
+        assert by_event == {"export created": ["prop_0", "prop_1"], "zz alert created": ["threshold"]}
 
 
 class TestAIWindowConfigProperties:
