@@ -195,6 +195,10 @@ TRANSIENT_EGRESS_MESSAGE = (
     "clears on its own; the next sync runs on schedule."
 )
 
+TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
+    "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
+)
+
 # A retryable failure that outlives its retries keeps whatever the driver said, so `latest_error`
 # ends up holding raw connection text — a psycopg "connection to server at <host>, port <port>
 # failed: ..." line, a pymysql `(2013, ...)` tuple, a urllib3 connection-pool dump. None of it
@@ -225,6 +229,14 @@ Transient_Error_Messages: dict[str, str] = {
     "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
+    # A vendor API that was down or overloaded, in the wording `requests.raise_for_status()` builds:
+    # "<status> Server Error: <reason> for url: <url>". REST sources retry these in their transport
+    # and again through Temporal, so reaching here means the outage outlasted both and the stored
+    # text is a bare status plus the vendor URL. Only the gateway statuses are mapped: a 500 can be
+    # one request the vendor mishandles every time, which is not an outage that clears on its own.
+    "502 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    "503 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    "504 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
 }
 
 
