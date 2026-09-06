@@ -1084,6 +1084,31 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn seed_routing_preserves_order_and_ceiling_per_partition() {
+        let router = PartitionRouter::with_intake_cap(16, usize::MAX, cap(8));
+        let mut five = router.add_partition(5).unwrap();
+        let mut six = router.add_partition(6).unwrap();
+
+        let mut outcomes = router.try_route_seeds(vec![
+            consumed_seed(5, 1),
+            consumed_seed(6, 2),
+            consumed_seed(5, 3),
+        ]);
+
+        assert!(matches!(
+            outcomes.remove(&5),
+            Some(SeedSendOutcome::Sent { max_offset: 3 })
+        ));
+        assert!(matches!(
+            outcomes.remove(&6),
+            Some(SeedSendOutcome::Sent { max_offset: 2 })
+        ));
+        assert!(outcomes.is_empty());
+        assert_eq!(drain_seeds(&mut five.seeds), vec![1, 3]);
+        assert_eq!(drain_seeds(&mut six.seeds), vec![2]);
+    }
+
     /// A refusal is only reachable here with the lane already full, so the stop-at-first-refusal
     /// loop itself cannot be staged — that needs a concurrent drain between two `try_send`s. What
     /// is observable is its consequence, and the one that matters: the reported ceiling follows

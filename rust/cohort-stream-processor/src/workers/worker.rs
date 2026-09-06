@@ -233,9 +233,16 @@ async fn run_worker(
             // Both lanes are closed and drained and no run is pending, so nothing more can arrive.
             else => break,
         };
-        match turn {
-            Turn::Live(None) => live_open = false,
-            Turn::Seeds(0) => seed_open = false,
+        let batch = match turn {
+            Turn::Live(Some(batch)) => batch,
+            Turn::Live(None) => {
+                live_open = false;
+                continue;
+            }
+            Turn::Seeds(0) => {
+                seed_open = false;
+                continue;
+            }
             // `recv_many` appends, so drain it: otherwise turn n re-groups turns 1..n-1.
             Turn::Seeds(_) => {
                 debug_assert!(
@@ -248,6 +255,7 @@ async fn run_worker(
                     &merge,
                     seed_buf.drain(..).map(Admitted::from).collect(),
                 );
+                continue;
             }
             Turn::Run => {
                 apply_next_run(
@@ -268,277 +276,274 @@ async fn run_worker(
                     std::mem::take(&mut pending.marks).publish(&merge.seed_tracker, partition_id);
                     seeds.finish_turn();
                 }
+                continue;
             }
-            Turn::Live(Some(batch)) => {
-                let mut buffer = OutputBuffer::new();
-                let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
-                let mut max_offset: Option<i64> = None;
-                // Observed into the live watermarks only post-mark, so a held batch never advances the
-                // seed fence.
-                let mut max_broker_ts: Option<i64> = None;
-                // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
-                let mut held = false;
+        };
+        let mut buffer = OutputBuffer::new();
+        let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
+        let mut max_offset: Option<i64> = None;
+        // Observed into the live watermarks only post-mark, so a held batch never advances the
+        // seed fence.
+        let mut max_broker_ts: Option<i64> = None;
+        // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
+        let mut held = false;
 
-                for message in batch {
-                    let last_updated = last_updated_clock.next();
-                    match message {
-                        ShuffleMessage::Event {
-                            event,
-                            cse_offset,
-                            broker_ts_ms,
-                        } => {
-                            max_offset = Some(
-                                max_offset.map_or(cse_offset, |current| current.max(cse_offset)),
+        for message in batch {
+            let last_updated = last_updated_clock.next();
+            match message {
+                ShuffleMessage::Event {
+                    event,
+                    cse_offset,
+                    broker_ts_ms,
+                } => {
+                    max_offset =
+                        Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
+                    max_broker_ts = max_broker_ts.max(broker_ts_ms);
+                    let effects = handle_event(
+                        partition_id,
+                        &handle,
+                        &catalog,
+                        &event,
+                        &last_updated,
+                        merge.partition_count,
+                        event_name_gating,
+                    )
+                    .await;
+                    buffer.extend(effects.changes);
+                    for (key, deadline) in effects.schedules {
+                        queue.schedule(key, deadline);
+                    }
+                    re_keys.extend(effects.re_keys);
+                }
+                ShuffleMessage::Sweep { due_before_ms } => {
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
+                    {
+                        break;
+                    }
+                    handle_sweep(
+                        partition_id,
+                        &handle,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &mut queue,
+                        &last_updated,
+                        due_before_ms,
+                    )
+                    .await;
+                }
+                ShuffleMessage::Merge { event, offset } => {
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
+                    {
+                        break;
+                    }
+                    handle_merge(
+                        partition_id,
+                        &handle,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &mut queue,
+                        &last_updated,
+                        &event,
+                        offset,
+                    )
+                    .await;
+                }
+                ShuffleMessage::Transfer { transfer, offset } => {
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
+                    {
+                        break;
+                    }
+                    handle_apply(
+                        partition_id,
+                        &handle,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &mut queue,
+                        &last_updated,
+                        &transfer,
+                        offset,
+                    )
+                    .await;
+                }
+                ShuffleMessage::Cascade { message, offset } => {
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
+                    {
+                        break;
+                    }
+                    handle_cascade(
+                        partition_id,
+                        &handle,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &last_updated,
+                        &message,
+                        offset,
+                    )
+                    .await;
+                }
+                ShuffleMessage::RedrivePendingTransfers => {
+                    handle_redrive(partition_id, &handle, &merge).await;
+                }
+                ShuffleMessage::MergeCfGc {
+                    marker_cutoff_ms,
+                    tombstone_cutoff_ms,
+                } => {
+                    // The cursor moves into the section and back out by value; a teardown
+                    // cancellation resets it to `Default`, which is benign — the GC re-scans from the
+                    // prefix start next tenure.
+                    let scan_limit = merge.gc_scan_limit;
+                    let mut cursor = std::mem::take(&mut gc_cursor);
+                    gc_cursor = handle
+                        .run_section("merge_gc", move |store| {
+                            handle_merge_gc(
+                                partition_id,
+                                store,
+                                &mut cursor,
+                                marker_cutoff_ms,
+                                tombstone_cutoff_ms,
+                                scan_limit,
                             );
-                            max_broker_ts = max_broker_ts.max(broker_ts_ms);
-                            let effects = handle_event(
-                                partition_id,
-                                &handle,
-                                &catalog,
-                                &event,
-                                &last_updated,
-                                merge.partition_count,
-                                event_name_gating,
-                            )
-                            .await;
-                            buffer.extend(effects.changes);
-                            for (key, deadline) in effects.schedules {
-                                queue.schedule(key, deadline);
-                            }
-                            re_keys.extend(effects.re_keys);
-                        }
-                        ShuffleMessage::Sweep { due_before_ms } => {
-                            if flush_event_changes_before_inline(
-                                &sink,
-                                &mut buffer,
-                                partition_id,
-                                &mut held,
-                            )
+                            cursor
+                        })
+                        .await
+                        .unwrap_or_default();
+                    if merge.stage2_orphan_gc_enabled {
+                        let catalog = catalog.clone();
+                        let mut cursor = std::mem::take(&mut stage2_gc_cursor);
+                        stage2_gc_cursor = handle
+                            .run_section("stage2_orphan_gc", move |store| {
+                                handle_stage2_orphan_gc(
+                                    partition_id,
+                                    store,
+                                    &catalog,
+                                    &mut cursor,
+                                    scan_limit,
+                                );
+                                cursor
+                            })
                             .await
-                            {
-                                break;
-                            }
-                            handle_sweep(
-                                partition_id,
-                                &handle,
-                                &catalog,
-                                &sink,
-                                &merge,
-                                &mut queue,
-                                &last_updated,
-                                due_before_ms,
-                            )
-                            .await;
-                        }
-                        ShuffleMessage::Merge { event, offset } => {
-                            if flush_event_changes_before_inline(
-                                &sink,
-                                &mut buffer,
-                                partition_id,
-                                &mut held,
-                            )
-                            .await
-                            {
-                                break;
-                            }
-                            handle_merge(
-                                partition_id,
-                                &handle,
-                                &catalog,
-                                &sink,
-                                &merge,
-                                &mut queue,
-                                &last_updated,
-                                &event,
-                                offset,
-                            )
-                            .await;
-                        }
-                        ShuffleMessage::Transfer { transfer, offset } => {
-                            if flush_event_changes_before_inline(
-                                &sink,
-                                &mut buffer,
-                                partition_id,
-                                &mut held,
-                            )
-                            .await
-                            {
-                                break;
-                            }
-                            handle_apply(
-                                partition_id,
-                                &handle,
-                                &catalog,
-                                &sink,
-                                &merge,
-                                &mut queue,
-                                &last_updated,
-                                &transfer,
-                                offset,
-                            )
-                            .await;
-                        }
-                        ShuffleMessage::Cascade { message, offset } => {
-                            if flush_event_changes_before_inline(
-                                &sink,
-                                &mut buffer,
-                                partition_id,
-                                &mut held,
-                            )
-                            .await
-                            {
-                                break;
-                            }
-                            handle_cascade(
-                                partition_id,
-                                &handle,
-                                &catalog,
-                                &sink,
-                                &merge,
-                                &last_updated,
-                                &message,
-                                offset,
-                            )
-                            .await;
-                        }
-                        ShuffleMessage::RedrivePendingTransfers => {
-                            handle_redrive(partition_id, &handle, &merge).await;
-                        }
-                        ShuffleMessage::MergeCfGc {
-                            marker_cutoff_ms,
-                            tombstone_cutoff_ms,
-                        } => {
-                            // The cursor moves into the section and back out by value; a teardown
-                            // cancellation resets it to `Default`, which is benign — the GC re-scans from the
-                            // prefix start next tenure.
-                            let scan_limit = merge.gc_scan_limit;
-                            let mut cursor = std::mem::take(&mut gc_cursor);
-                            gc_cursor = handle
-                                .run_section("merge_gc", move |store| {
-                                    handle_merge_gc(
-                                        partition_id,
-                                        store,
-                                        &mut cursor,
-                                        marker_cutoff_ms,
-                                        tombstone_cutoff_ms,
-                                        scan_limit,
-                                    );
-                                    cursor
-                                })
-                                .await
-                                .unwrap_or_default();
-                            if merge.stage2_orphan_gc_enabled {
-                                let catalog = catalog.clone();
-                                let mut cursor = std::mem::take(&mut stage2_gc_cursor);
-                                stage2_gc_cursor = handle
-                                    .run_section("stage2_orphan_gc", move |store| {
-                                        handle_stage2_orphan_gc(
-                                            partition_id,
-                                            store,
-                                            &catalog,
-                                            &mut cursor,
-                                            scan_limit,
-                                        );
-                                        cursor
-                                    })
-                                    .await
-                                    .unwrap_or_default();
-                            }
-                        }
-                        ShuffleMessage::ReconcileDrain => {
-                            if flush_event_changes_before_inline(
-                                &sink,
-                                &mut buffer,
-                                partition_id,
-                                &mut held,
-                            )
-                            .await
-                            {
-                                break;
-                            }
-                            handle_reconcile_drain(
-                                partition_id,
-                                &handle,
-                                &catalog,
-                                &sink,
-                                &merge,
-                                &mut reconcile_queue,
-                                &last_updated,
-                            )
-                            .await;
-                        }
-                    }
-
-                    if last_yield.elapsed() >= WORKER_YIELD_INTERVAL {
-                        tokio::task::yield_now().await;
-                        last_yield = Instant::now();
+                            .unwrap_or_default();
                     }
                 }
-
-                if held {
-                    continue;
-                }
-
-                if !buffer.is_empty() {
-                    let changes = buffer.take();
-                    // Build cascades from a borrow before `changes` is moved into produce; gate-off allocates nothing.
-                    let cascades = first_cascades(&merge, &changes, max_offset.unwrap_or(0));
-                    let errors = produce_membership(&sink, changes).await;
-                    if errors > 0 {
-                        warn!(
-                            partition_id,
-                            errors,
-                            "produce to the membership topic failed; holding offset for replay",
-                        );
-                        continue;
+                ShuffleMessage::ReconcileDrain => {
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
+                    {
+                        break;
                     }
-                    let cascade_errors = produce_cascades(&merge, cascades).await;
-                    if cascade_errors > 0 {
-                        warn!(
-                            partition_id,
-                            errors = cascade_errors,
-                            "produce to cohort_cascade_events failed; holding offset for replay",
-                        );
-                        continue;
-                    }
+                    handle_reconcile_drain(
+                        partition_id,
+                        &handle,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &mut reconcile_queue,
+                        &last_updated,
+                    )
+                    .await;
                 }
+            }
 
-                if !re_keys.is_empty() {
-                    let produced = re_keys.len() as u64;
-                    let acks = merge.stream_event_sink.produce(re_keys).await;
-                    let errors = acks.iter().filter(|result| result.is_err()).count();
-                    if errors > 0 {
-                        counter!(MERGE_REKEY_PRODUCE_FAILURE_TOTAL).increment(errors as u64);
-                        warn!(
+            if last_yield.elapsed() >= WORKER_YIELD_INTERVAL {
+                tokio::task::yield_now().await;
+                last_yield = Instant::now();
+            }
+        }
+
+        if held {
+            continue;
+        }
+
+        if !buffer.is_empty() {
+            let changes = buffer.take();
+            // Build cascades from a borrow before `changes` is moved into produce; gate-off allocates nothing.
+            let cascades = first_cascades(&merge, &changes, max_offset.unwrap_or(0));
+            let errors = produce_membership(&sink, changes).await;
+            if errors > 0 {
+                warn!(
+                    partition_id,
+                    errors, "produce to the membership topic failed; holding offset for replay",
+                );
+                continue;
+            }
+            let cascade_errors = produce_cascades(&merge, cascades).await;
+            if cascade_errors > 0 {
+                warn!(
+                    partition_id,
+                    errors = cascade_errors,
+                    "produce to cohort_cascade_events failed; holding offset for replay",
+                );
+                continue;
+            }
+        }
+
+        if !re_keys.is_empty() {
+            let produced = re_keys.len() as u64;
+            let acks = merge.stream_event_sink.produce(re_keys).await;
+            let errors = acks.iter().filter(|result| result.is_err()).count();
+            if errors > 0 {
+                counter!(MERGE_REKEY_PRODUCE_FAILURE_TOTAL).increment(errors as u64);
+                warn!(
                         partition_id,
                         errors,
                         "straggler re-key produce to cohort_stream_events failed; holding offset for replay",
                     );
-                        continue;
-                    }
-                    tombstone_redirect::record_re_keyed(produced);
-                }
+                continue;
+            }
+            tombstone_redirect::record_re_keyed(produced);
+        }
 
-                if let Some(max_offset) = max_offset {
-                    if let MarkOutcome::CappedAheadOfDispatch =
-                        tracker.mark_processed(partition_id as i32, max_offset + 1)
-                    {
-                        counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
-                        warn!(
+        if let Some(max_offset) = max_offset {
+            if let MarkOutcome::CappedAheadOfDispatch =
+                tracker.mark_processed(partition_id as i32, max_offset + 1)
+            {
+                counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
+                warn!(
                         partition_id,
                         next_offset = max_offset + 1,
                         "offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
                     );
-                    }
-                }
-                // Strictly post-mark: a consume-time watermark would reopen the double-count branch the
-                // fence deletes.
-                if let Some(broker_ts_ms) = max_broker_ts {
-                    merge
-                        .live_watermarks
-                        .observe(partition_id as i32, broker_ts_ms);
-                }
             }
+        }
+        // Strictly post-mark: a consume-time watermark would reopen the double-count branch the
+        // fence deletes.
+        if let Some(broker_ts_ms) = max_broker_ts {
+            merge
+                .live_watermarks
+                .observe(partition_id as i32, broker_ts_ms);
         }
     }
 

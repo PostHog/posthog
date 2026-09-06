@@ -5,6 +5,8 @@
 //! watermark clears `s_chunk + margin`), a full seed lane, live-priority (the partition's live
 //! watermark age crossed the pause threshold — live traffic always wins), and pod-wide disk
 //! pressure. An un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
+//! The live-lag gate remains an admission backstop because an admitted seed run still uses the
+//! worker and its CPU and I/O even though separate lanes keep queued seeds behind live traffic.
 //! Consume-side skips ride the seed lane so their offsets mark in order; they never close the
 //! fence, but a live-lag/disk gate holds them too (nothing leapfrogs a gated partition).
 //! The [`PauseLedger`] records why each partition is held and since when; the pause target and

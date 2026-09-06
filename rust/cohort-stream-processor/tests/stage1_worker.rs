@@ -2494,10 +2494,9 @@ impl MembershipSink for InjectLiveOnFirstProduce {
 async fn every_queued_live_batch_is_served_before_a_waiting_seed_turn() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
-    let alice = person(1);
-    let bob = person(2);
-    let carol = person(3);
-    let dave = person(4);
+    let live_people: Vec<_> = (1..=8).map(person).collect();
+    let bob = person(9);
+    let carol = person(10);
 
     let catalog = catalog_of(filters);
     let sink = CaptureSink::new();
@@ -2507,13 +2506,13 @@ async fn every_queued_live_batch_is_served_before_a_waiting_seed_turn() {
     let (live_tx, live_rx) = mpsc::channel(16);
     let (seed_tx, seed_rx) = mpsc::channel(16);
     let broker_ts = 1_750_000_000_000_i64;
-    tracker.mark_dispatched(PARTITION_ID as i32, 2);
+    tracker.mark_dispatched(PARTITION_ID as i32, 8);
     deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
 
     // Both lanes are filled before the worker starts, so both select branches are ready at its
-    // very first poll and the order is the priority, not a race. Two live batches, so the seed
-    // turn has to wait through more than one live round.
-    for (n, who) in [alice, dave].into_iter().enumerate() {
+    // very first poll and the order is the priority, not a race. Eight live batches make an
+    // unbiased select unlikely to serve every live round before the waiting seed turn.
+    for (n, who) in live_people.iter().copied().enumerate() {
         live_tx
             .send(vec![ShuffleMessage::Event {
                 event: Box::new(event(who, 5, 0)),
@@ -2547,17 +2546,20 @@ async fn every_queued_live_batch_is_served_before_a_waiting_seed_turn() {
     worker.join().await.unwrap();
 
     let changes = sink.changes();
-    assert_eq!(changes.len(), 4, "two live flips, two seeded flips");
+    assert_eq!(changes.len(), 10, "eight live flips, two seeded flips");
     assert_eq!(
-        changes[..2]
+        changes[..8]
             .iter()
             .map(|change| (change.person_id.clone(), change.origin))
             .collect::<Vec<_>>(),
-        vec![(alice.to_string(), None), (dave.to_string(), None)],
+        live_people
+            .iter()
+            .map(|who| (who.to_string(), None))
+            .collect::<Vec<_>>(),
         "every queued live batch was served before the waiting seed turn",
     );
     assert_eq!(
-        changes[2..]
+        changes[8..]
             .iter()
             .map(|change| change.person_id.clone())
             .collect::<std::collections::BTreeSet<_>>(),
@@ -2565,19 +2567,19 @@ async fn every_queued_live_batch_is_served_before_a_waiting_seed_turn() {
         "both seeds of the turn applied",
     );
     assert!(
-        changes[2..].iter().all(|change| change.origin.is_some()),
+        changes[8..].iter().all(|change| change.origin.is_some()),
         "the seeded changes are tagged",
     );
     assert_eq!(
         sink.produce_calls(),
-        3,
+        9,
         "one call per live batch and one for the whole seed run",
     );
 
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
-        Some(&2),
-        "the events tracker advanced past both events",
+        Some(&8),
+        "the events tracker advanced past all eight events",
     );
     assert_eq!(
         deps.seed_tracker
@@ -2589,7 +2591,7 @@ async fn every_queued_live_batch_is_served_before_a_waiting_seed_turn() {
     assert_eq!(
         deps.live_watermarks.get(PARTITION_ID as i32),
         Some(cohort_stream_processor::partitions::WatermarkMs(
-            broker_ts + 1
+            broker_ts + 7
         )),
         "the folded batches advanced the live watermark",
     );
@@ -2854,6 +2856,9 @@ async fn a_closed_seed_lane_does_not_stall_the_live_lane() {
         deps.clone(),
         false,
     );
+
+    // Let the worker observe the closed seed lane while the live lane is still open.
+    tokio::task::yield_now().await;
 
     tracker.mark_dispatched(PARTITION_ID as i32, 1);
     tx.send(vec![ShuffleMessage::Event {
