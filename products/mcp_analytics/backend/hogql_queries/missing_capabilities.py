@@ -1,8 +1,10 @@
 """The missing-capabilities feed: every `$mcp_missing_capability` report, newest first.
 
-When a server enables `reportMissing`, the SDK registers a virtual `get_more_tools`
-tool; an agent that calls it says, in its own words, what it wanted and could not
-get. That text lands in `$mcp_intent` and records the capability the agent needed.
+Reports reach the feed from the SDK's virtual `get_more_tools` tool, which a server
+registers when it enables `reportMissing`, and from PostHog's own
+`report-missing-capability` tool. An agent that calls either says, in its own words,
+what it wanted and could not get. That text lands in `$mcp_intent` and records the
+capability the agent needed.
 
 The feed stays chronological because exact-text grouping would split similar free-form
 requests. Semantic clustering is a separate job.

@@ -357,7 +357,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_missing_capability": {
             "label": "MCP missing capability",
-            "description": "Fires when an agent reports functionality it couldn't find via the `get_more_tools` virtual tool (when `reportMissing` is enabled). Carries the agent's reasoning in `$mcp_intent` — a capability gap, not a tool invocation.",
+            "description": "Fires when an agent reports functionality it couldn't find. Customer-instrumented servers emit it through the SDK's `get_more_tools` virtual tool (when `reportMissing` is enabled); PostHog's own MCP server emits it through its `report-missing-capability` tool. Carries the agent's reasoning in `$mcp_intent` — a capability gap, not a tool invocation.",
         },
         # LEGACY MCP event names (non-`$`) — DO NOT USE. Dual-emitted through the cutover, now
         # stopped; query only for pre-2026-06-16 history. `ignored_in_assistant` hides them from
