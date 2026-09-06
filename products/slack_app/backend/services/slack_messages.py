@@ -21,7 +21,7 @@ without one.
 
 import re
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
@@ -34,6 +34,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.utils import absolute_uri
 
@@ -226,8 +227,118 @@ def resolve_bot_author_label(msg: dict) -> str:
     return bot_profile.get("name") or msg.get("username") or "Bot"
 
 
+@frozen
+class SlackFileRef:
+    """A Slack upload, reduced to what it takes to decide whether to fetch it, and from where.
+
+    A raw file object carries some forty fields — thumbnails, sharing history, edit
+    state — and this rides in a Temporal payload, so the rest is dropped at the boundary.
+
+    Slack omits any of these on some uploads, so each one defaults rather than being
+    required. That also makes the type safe to grow: a payload recorded before a new
+    field existed decodes into the default instead of failing the activity.
+    """
+
+    id: str = ""
+    name: str = ""
+    title: str = ""
+    mimetype: str = ""
+    filetype: str = ""
+    size: int | None = None
+    url_private: str = ""
+    url_private_download: str = ""
+
+
+@frozen
+class SlackThreadMessage:
+    """One message in the thread the agent reads as context.
+
+    ``user_id`` is the raw ``U…`` Slack id, kept alongside the resolved display name so
+    prompt builders can render the labeled ``<@U…|name>`` mention — the wire-format token
+    the agent can echo back to ping that person. ``ts`` places the message in the thread,
+    which is how callers tell the message that tagged the app from the ones around it.
+
+    Every field is a string because this rides in a Temporal payload that a worker on
+    the previous build decodes as ``dict[str, str]``. Temporal rejects the whole message
+    when any value is a list, so the attachments travel as ``files_json`` and are read
+    back through the ``files`` property. Read attachments through that property; nothing
+    outside this class should parse the JSON itself.
+    """
+
+    user: str = ""
+    user_id: str = ""
+    text: str = ""
+    ts: str = ""
+    files_json: str = ""
+
+    @property
+    def files(self) -> list[SlackFileRef]:
+        if not self.files_json:
+            return []
+        try:
+            return parse_slack_file_refs(json.loads(self.files_json))
+        except ValueError:
+            return []
+
+
+def _parse_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
+
+
+def parse_slack_file_refs(files: Any) -> list[SlackFileRef]:
+    """Read a Slack message's ``files`` into references.
+
+    Takes the raw value rather than a list, because it is read straight off event
+    payloads Slack sends us and off `conversations.replies` results — neither of which
+    promises the key is there, let alone a list. Anything unrecognizable yields no
+    references rather than raising.
+    """
+    if not isinstance(files, list):
+        return []
+    return [
+        SlackFileRef(
+            id=str(file.get("id") or ""),
+            name=str(file.get("name") or ""),
+            title=str(file.get("title") or ""),
+            mimetype=str(file.get("mimetype") or ""),
+            filetype=str(file.get("filetype") or ""),
+            size=_parse_int(file.get("size")),
+            url_private=str(file.get("url_private") or ""),
+            url_private_download=str(file.get("url_private_download") or ""),
+        )
+        for file in files
+        if isinstance(file, dict)
+    ]
+
+
+def encode_slack_file_refs(refs: list[SlackFileRef]) -> str:
+    """Serialize references into the string `SlackThreadMessage.files_json` carries.
+
+    A message with no attachments encodes to the empty string, so the common payload
+    stays the size it was before attachments were carried at all.
+    """
+    if not refs:
+        return ""
+    return json.dumps([asdict(ref) for ref in refs])
+
+
+# Bump when SlackThreadMessage or SlackFileRef change shape: cached values are pickled, so old
+# entries would otherwise unpickle missing a field, and a worker on either build can read an
+# entry the other one wrote during a rolling deploy.
+_THREAD_REPLIES_CACHE_VERSION = 1
+
+
 def _thread_replies_cache_key(integration_id: int, channel: str, thread_ts: str) -> str:
-    return f"slack_thread_replies:{integration_id}:{channel}:{thread_ts}"
+    return f"slack_thread_replies:v{_THREAD_REPLIES_CACHE_VERSION}:{integration_id}:{channel}:{thread_ts}"
 
 
 def _message_exists_cache_key(channel: str, ts: str) -> str:
@@ -341,22 +452,23 @@ def post_slack_ephemeral(
 _MISSING_THREAD_ERRORS = frozenset({"thread_not_found", "message_not_found"})
 
 
-def messages_at_or_before(messages: list[dict[str, str]], bound_ts: str) -> list[dict[str, str]]:
-    """Messages posted at or before ``bound_ts``.
+def _ts_at_or_before(ts: str, bound_ts: str) -> bool:
+    """Whether a Slack `ts` sits at or before another.
 
     Slack `ts` values are decimal strings, compared as Decimals rather than floats so
-    precision can't drop a message that sits on the bound. A message without a parseable
-    `ts` is dropped: callers use this to answer "what had been said by then", and a
+    precision can't drop a message that sits on the bound. A `ts` that does not parse
+    answers False: callers ask this to answer "what had been said by then", and a
     message that can't be placed in time can't be part of that answer.
     """
+    try:
+        return Decimal(ts) <= Decimal(bound_ts)
+    except InvalidOperation:
+        return False
 
-    def at_or_before(ts: str) -> bool:
-        try:
-            return Decimal(ts) <= Decimal(bound_ts)
-        except InvalidOperation:
-            return False
 
-    return [message for message in messages if at_or_before(message.get("ts", ""))]
+def messages_at_or_before(messages: list[SlackThreadMessage], bound_ts: str) -> list[SlackThreadMessage]:
+    """The thread up to ``bound_ts``, for a reader who was looking at it then."""
+    return [message for message in messages if _ts_at_or_before(message.ts, bound_ts)]
 
 
 def collect_thread_messages(
@@ -366,7 +478,7 @@ def collect_thread_messages(
     thread_ts: str,
     our_bot_id: str | None,
     until_ts: str | None = None,
-) -> list[dict[str, str]]:
+) -> list[SlackThreadMessage]:
     """Fetch thread messages, strip bot mentions, and resolve user display names.
 
     ``until_ts`` clips the thread at a message, for a reader who forked the discussion
@@ -391,7 +503,7 @@ def collect_thread_messages(
         return []
     raw_messages: list[dict] = thread_response.get("messages", [])
     if until_ts:
-        raw_messages = messages_at_or_before(raw_messages, until_ts)
+        raw_messages = [msg for msg in raw_messages if _ts_at_or_before(str(msg.get("ts") or ""), until_ts)]
 
     user_cache: dict[str, str] = {}
 
@@ -405,7 +517,7 @@ def collect_thread_messages(
                 user_cache[uid] = "Unknown"
         return user_cache[uid]
 
-    messages = []
+    messages: list[SlackThreadMessage] = []
     for index, msg in enumerate(raw_messages):
         # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
         # Never skip the thread root: the agent only ever posts as a reply, so msg 0 is
@@ -423,13 +535,19 @@ def collect_thread_messages(
         else:
             username = "Unknown"
 
-        text = resolve_user_mentions_text(slack, integration, extract_message_text(msg))
-        # `ts` lets downstream callers distinguish the initiator message from surrounding thread
-        # context, since `app_mention` events surface only the initiator's ts. `user_id` is the
-        # raw `U…` Slack id so downstream prompt builders can render the labeled `<@U…|name>`
-        # mention form for each message author — the same wire-format token the agent can echo
-        # back to ping that user.
-        messages.append({"user": username, "user_id": user_id or "", "text": text, "ts": msg.get("ts") or ""})
+        # A file the agent can be given is worth more than a mention of one, so the
+        # reference travels with the message that carried it: the agent's copy is fetched
+        # with the bot's token and uploaded as a run artifact, and the Slack url it came
+        # from answers to nobody else.
+        messages.append(
+            SlackThreadMessage(
+                user=username,
+                user_id=user_id or "",
+                text=resolve_user_mentions_text(slack, integration, extract_message_text(msg)),
+                ts=msg.get("ts") or "",
+                files_json=encode_slack_file_refs(parse_slack_file_refs(msg.get("files"))),
+            )
+        )
 
     return messages
 
@@ -442,7 +560,7 @@ def cached_collect_thread_messages(
     our_bot_id: str | None,
     *,
     ttl: int = THREAD_REPLIES_CACHE_TTL_SECONDS,
-) -> list[dict[str, str]]:
+) -> list[SlackThreadMessage]:
     """Cached version of ``collect_thread_messages`` keyed by (integration, channel, thread_ts).
 
     A bursty thread — fast classifier-then-forwarder pipeline, many follow-ups within
