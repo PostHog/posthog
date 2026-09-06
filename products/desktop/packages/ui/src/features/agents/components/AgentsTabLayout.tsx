@@ -40,6 +40,7 @@ export function AgentsTabLayout({
   children: ReactNode;
 }) {
   const { showTab } = useAgentsPageActions();
+  const counts: Partial<Record<AgentsTab, number>> = { [tab]: count };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -47,7 +48,7 @@ export function AgentsTabLayout({
         <CountedTabStrip
           tabs={TABS}
           value={tab}
-          counts={{ [tab]: count } as Partial<Record<AgentsTab, number>>}
+          counts={counts}
           onValueChange={showTab}
           dataAttrPrefix="agents-tab"
           className="min-w-0 flex-1 overflow-x-auto"
@@ -59,17 +60,14 @@ export function AgentsTabLayout({
         ) : null}
       </div>
 
+      {/* A filling tab scrolls its own list, so the page itself must not scroll. */}
       <div
         className={
           fill ? "flex min-h-0 flex-1 flex-col" : "min-h-0 flex-1 overflow-auto"
         }
       >
         <div
-          className={
-            fill
-              ? "mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col gap-3 px-6 py-5"
-              : "mx-auto flex w-full max-w-[90rem] flex-col gap-3 px-6 py-5"
-          }
+          className={`mx-auto flex w-full max-w-[90rem] flex-col gap-3 px-6 py-5 ${fill ? "min-h-0 flex-1" : ""}`}
         >
           <p className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
             {TAB_DESCRIPTION[tab]}

@@ -29,7 +29,7 @@ export function ScoutDetailView({
 }) {
   const skillName = scoutSkillNameFromSlug(skillSlug);
   const displayName = prettifyScoutSkillName(skillName);
-  const { showAgentTab, closeAgent } = useAgentsPageActions();
+  const { showAgentTab, showTab } = useAgentsPageActions();
 
   const {
     data: configs,
@@ -62,7 +62,7 @@ export function ScoutDetailView({
   const runsUnknown =
     runsLoading || (runsLoadingMore && scoutRuns.length === 0);
 
-  const showTab = (next: ScoutDetailTab) => {
+  const showDetailTab = (next: ScoutDetailTab) => {
     track(ANALYTICS_EVENTS.SCOUT_ACTION, {
       action_type: "switch_detail_tab",
       surface: "scout_detail",
@@ -101,8 +101,8 @@ export function ScoutDetailView({
         rollup={rollup}
         onUpdate={updateConfig}
         tab={tab}
-        onTabChange={showTab}
-        onBack={closeAgent}
+        onTabChange={showDetailTab}
+        onBack={() => showTab("agents")}
       />
 
       <div className="min-h-0 flex-1 overflow-auto">
