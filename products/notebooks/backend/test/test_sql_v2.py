@@ -3128,6 +3128,25 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         self.assertIn("'US'", run.code)
         self.assertNotIn("{country}", run.code)
 
+    @parameterized.expand([("relative", "-7d"), ("relative_boundary", "mStart"), ("not_a_date", "yesterday")])
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_date_variable_must_be_an_absolute_date(self, _name, value, _mock_enabled, mock_enqueue):
+        # The editor's picker only writes absolute dates, and a relative one would re-resolve
+        # against the clock on every state read, leaving the cell stale forever.
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "n1",
+                "code": "select {since} as since",
+                "variables": [{"name": "since", "type": "date", "value": value}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("absolute date", str(response.json()))
+        mock_enqueue.assert_not_called()
+
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_reading_an_undeclared_variable_is_a_400(self, _mock_enabled, mock_enqueue):

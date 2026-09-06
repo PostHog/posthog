@@ -52846,7 +52846,7 @@ export namespace Schemas {
       name: string;
       /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
       type: string;
-      /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
+      /** The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected. */
       value?: unknown;
     }
 
@@ -53372,6 +53372,8 @@ export namespace Schemas {
       content?: unknown;
       /** The notebook's kernel runtime state and compute config. */
       kernel: NotebookKernelState;
+      /** The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run. */
+      variables: NotebookVariable[];
       /** Every cell in document order, with its dependency edges and derived run state. */
       cells: NotebookCellState[];
     }
