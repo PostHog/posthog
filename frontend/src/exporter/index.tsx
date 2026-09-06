@@ -1,6 +1,10 @@
 import '~/styles'
 import './Exporter.scss'
 
+// The relative path keeps this with the side-effect imports when imports are sorted, so it evaluates
+// before any module that builds a zod schema. See lib/configureZod.
+import '../lib/configureZod'
+
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { BeforeSendFn, CapturedNetworkRequest } from 'posthog-js'
 import { createRoot } from 'react-dom/client'

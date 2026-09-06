@@ -9,10 +9,12 @@ import { z } from 'zod'
  * p75 was identical at the three largest samples, LCP was equal or better, and eval violations fell
  * from 33 to 14-20 per 1000 pageviews.
  *
- * zod binds `jitless` when it constructs each object schema, so this must run before any module
- * that builds a schema at module scope evaluates. src/index.tsx imports and calls it before it
- * imports the App chunk.
+ * zod binds `jitless` when it constructs each object schema, so this module must evaluate before any
+ * module that builds a schema at module scope. Each esbuild entry point bundles its own copy of zod
+ * with its own config, so every browser entry point imports this module itself:
+ * - src/index.tsx imports it on its own before it imports the App chunk.
+ * - src/exporter/index.tsx and src/render-query/index.tsx import it for its side effect ahead of their
+ *   other imports. ESM evaluates imports in declaration order, so it runs before the modules that build
+ *   schemas.
  */
-export function configureZod(): void {
-    z.config({ jitless: true })
-}
+z.config({ jitless: true })
