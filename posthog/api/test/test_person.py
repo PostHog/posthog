@@ -821,9 +821,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIn("not both", str(response.content))
 
     def test_bulk_delete_no_matching_persons(self):
+        missing_ids = [str(uuid4()), str(uuid4())]
         response = self.client.post(
             f"/api/person/bulk_delete/",
-            {"ids": [str(uuid4()), str(uuid4())], "delete_events": True},
+            {"ids": missing_ids, "delete_events": True},
         )
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         data = response.json()
@@ -831,7 +832,31 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(data["persons_deleted"], 0)
         self.assertFalse(data["events_queued_for_deletion"])
         self.assertEqual(data["deletion_errors"], [])
+        self.assertEqual(data["ids_not_found"], missing_ids)
+        self.assertEqual(data["distinct_ids_not_found"], [])
         self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
+
+    def test_bulk_delete_reports_distinct_ids_without_a_person(self):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+        # Captured with $process_person_profile: false, so this distinct_id has no person row.
+        _create_event(event="test", team=self.team, distinct_id="personless_id")
+        flush_persons_and_events()
+
+        response = self.client.post(
+            "/api/person/bulk_delete/",
+            {"distinct_ids": ["person_1", "personless_id"], "delete_events": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        data = response.json()
+        self.assertEqual(data["persons_found"], 1)
+        self.assertEqual(data["persons_deleted"], 1)
+        self.assertEqual(data["distinct_ids_not_found"], ["personless_id"])
+        self.assertEqual(data["ids_not_found"], [])
+        self.assertEqual(
+            [deletion.key for deletion in AsyncDeletion.objects.filter(team_id=self.team.id)],
+            [str(person.uuid)],
+        )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deletion_status_lists_pending_deletions(self):

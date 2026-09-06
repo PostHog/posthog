@@ -56,6 +56,28 @@ def resolve_persons_for_deletion(
     return personhog_call("resolve_persons_for_deletion", _fetch, caller_tag="persons/deletion-resolve")
 
 
+def _normalized_uuid(value: str) -> str:
+    try:
+        return str(uuid_lib.UUID(value))
+    except ValueError:
+        return value
+
+
+def identifiers_without_persons(
+    persons: builtins.list[Person],
+    uuids: builtins.list[str] | None,
+    distinct_ids: builtins.list[str] | None,
+) -> builtins.list[str]:
+    """Return the supplied identifiers that matched no person, in the order supplied."""
+    if uuids:
+        matched = {str(person.uuid) for person in persons}
+        return [value for value in dict.fromkeys(uuids) if _normalized_uuid(value) not in matched]
+    if distinct_ids:
+        known = {distinct_id for person in persons for distinct_id in person.distinct_ids}
+        return [value for value in dict.fromkeys(distinct_ids) if value not in known]
+    return []
+
+
 def delete_persons_profile(
     team_id: int,
     persons: builtins.list[Person],
