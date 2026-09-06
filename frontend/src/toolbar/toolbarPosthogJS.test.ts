@@ -41,4 +41,27 @@ describe('toolbar posthog-js instance', () => {
         // subscribes, so it never patches the customer's console.
         expect((toolbarPosthogJS as any).getExtension('logs')).toBeUndefined()
     })
+
+    it('keeps network payloads and canvas out of a recording when remote config opts them in', () => {
+        // The global posthog-js mock hides the real config precedence, so load the true library.
+        jest.resetModules()
+        jest.doMock('posthog-js', () => jest.requireActual('posthog-js'))
+        const { toolbarPosthogJS } = require('~/toolbar/toolbarPosthogJS')
+        const { buildNetworkRequestOptions } = require('posthog-js/lib/src/extensions/replay/external/config')
+
+        // Product tours calls startSessionRecording, so the recorder does run on a customer page
+        // and resolves these against the internal project's replay settings.
+        const networkOptions = buildNetworkRequestOptions(toolbarPosthogJS.config, {
+            recordHeaders: true,
+            recordBody: true,
+            recordPerformance: true,
+        })
+
+        expect(networkOptions.recordHeaders).toBe(false)
+        expect(networkOptions.recordBody).toBe(false)
+        expect(networkOptions.recordPerformance).toBe(false)
+        // The recorder reads canvas straight off this value and only falls back to the remote one
+        // when the client leaves it unset.
+        expect(toolbarPosthogJS.config.session_recording.captureCanvas?.recordCanvas).toBe(false)
+    })
 })

@@ -43,6 +43,12 @@ const initResult = posthog.init(
             blockClass: 'ph-internal-no-capture',
             blockSelector: '.ph-no-capture:not(#__POSTHOG_TOOLBAR__):not(#__POSTHOG_TOOLBAR__ *)',
             maskAllInputs: true,
+            // Product tours starts a recording on the customer's page. Input masking and the block
+            // selector above do not reach network payloads or canvas pixels, and remote config
+            // turns each of these on unless the client sets it explicitly.
+            recordHeaders: false,
+            recordBody: false,
+            captureCanvas: { recordCanvas: false },
         },
     },
     'ph_toolbar_internal'
