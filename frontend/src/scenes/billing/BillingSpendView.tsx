@@ -125,6 +125,7 @@ export function BillingSpendView(): JSX.Element {
                                 placeholder="All projects"
                                 options={teamOptions}
                                 allowCustomValues={false}
+                                data-attr="billing-spend-projects"
                             />
                         )}
                     </div>

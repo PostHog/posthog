@@ -119,6 +119,7 @@ export function BillingUsage(): JSX.Element {
                                 placeholder="All projects"
                                 options={teamOptions}
                                 allowCustomValues={false}
+                                data-attr="billing-usage-projects"
                             />
                         )}
                     </div>
