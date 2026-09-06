@@ -626,6 +626,7 @@ export interface sessionRecordingPlayerLogicValues {
     playNextRecording: ((automatic: boolean) => void) | undefined
     player: Player | null
     playerError: string | null
+    playerFrameDocumentFailed: boolean
     playerSpeed: number
     playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE
     playingTimeTracking: PlayerTimeTracking
@@ -863,6 +864,9 @@ export interface sessionRecordingPlayerLogicActions {
     }
     playerErrorSeen: (error: any) => {
         error: any
+    }
+    playerFrameDocumentLoadFailed: () => {
+        value: true
     }
     restartIframePlayback: () => {
         value: true
@@ -1270,6 +1274,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementClickCount: true,
         // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
+        playerFrameDocumentLoadFailed: true,
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
@@ -1456,6 +1461,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
+        // The frame's src never changes, so a second load never arrives on its own, and nothing resets this.
+        playerFrameDocumentFailed: [false, { playerFrameDocumentLoadFailed: () => true }],
         playerError: [
             null as string | null,
             {
@@ -2092,6 +2099,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             } else {
                 actions.setPlay()
             }
+        },
+        playerFrameDocumentLoadFailed: () => {
+            // The player still works from the app document, so the only sign of this is the report.
+            posthog.captureException(new Error('Replay player frame loaded without its mount node'), {
+                feature: 'session-recording-player-frame',
+                sessionRecordingId: props.sessionRecordingId,
+            })
         },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
