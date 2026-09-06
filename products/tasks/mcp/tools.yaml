@@ -21,15 +21,14 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            # Not idempotent: a private channel is always created fresh, so a retry makes a duplicate.
             idempotent: false
         title: Create a channel
         description: >
             Create a channel. A public channel (the default `channel_type`) is resolve-or-create by name (normalized to
-            lowercase-dashed): it returns the existing channel when one with the name already exists, so call channel-list
-            first to resolve a public name. A private channel (`channel_type: "private"`) is always created fresh with the
-            requester and any `member_ids` as its members, even when a channel with the same name already exists — private
-            names are not unique, so a retry creates a duplicate.
+            lowercase-dashed): it returns the existing channel when one with the name already exists, so call
+            channel-list first to resolve a public name. A private channel (`channel_type: "private"`) is always created
+            fresh with the requester and any `member_ids` as its members, even when a channel with the same name already
+            exists — private names are not unique, so a retry creates a duplicate.
     channel-instructions-retrieve:
         operation: task_channels_instructions_retrieve
         enabled: true
@@ -83,9 +82,9 @@ tools:
         description: >
             List the project's channels the requester can see: public channels, the requester's personal #me channel,
             and any private channel they are a member of. Use this to resolve a channel id from its name before creating
-            or listing canvases or reading instructions. Private names are not unique, so resolve those by id, not name. A
-            project can hold hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged response
-            carries `count` and `next`, and without `limit` you get every channel in one array.
+            or listing canvases or reading instructions. Private names are not unique, so resolve those by id, not name.
+            A project can hold hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged
+            response carries `count` and `next`, and without `limit` you get every channel in one array.
     channel-retrieve:
         operation: task_channels_retrieve
         enabled: true
@@ -351,6 +350,12 @@ tools:
         enabled: false
     task-channels-instructions-versions-retrieve:
         operation: task_channels_instructions_versions_retrieve
+        enabled: false
+    task-channels-members-retrieve:
+        operation: task_channels_members_retrieve
+        enabled: false
+    task-channels-members-update:
+        operation: task_channels_members_update
         enabled: false
     task-channels-onboarding-session-create:
         operation: task_channels_onboarding_session_create
