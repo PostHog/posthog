@@ -802,6 +802,62 @@ describe('maxThreadLogic', () => {
             expect(toastSpy).toHaveBeenCalledWith('You can only queue two messages at a time.')
         })
 
+        it('guards message length before enqueueing', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue')
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('x'.repeat(40001))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).not.toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalledWith(
+                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+            )
+        })
+
+        it.each([
+            ['emoji counted as code points, not UTF-16 units', '😀'.repeat(25000)],
+            ['surrounding whitespace trimmed before counting', ` ${'x'.repeat(40000)} `],
+        ])('does not block a message the server would accept (%s)', async (_label, prompt) => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+            mockStream()
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax(prompt)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID, expect.objectContaining({ content: prompt }))
+            expect(toastSpy).not.toHaveBeenCalled()
+        })
+
+        it('shows the length message and does not capture on a 400 content error while enqueueing', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
+            jest.spyOn(api.conversations.queue, 'enqueue').mockRejectedValue(
+                new ApiError('Bad Request', 400, undefined, { attr: 'content', detail: 'Content too long' })
+            )
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.enqueueQueuedMessage({ content: 'Queued prompt', contextualTools: {} })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(toastSpy).toHaveBeenCalledWith(
+                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+            )
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        })
+
         it('updates queued messages from the API', async () => {
             const queueMessage = {
                 id: 'queue-1',
@@ -3883,6 +3939,30 @@ describe('maxThreadLogic', () => {
                 'completeThreadGeneration',
                 'clearQueuedMessages',
                 (action: any) => action.payload?.prompt === 'First\n\nSecond' && action.payload?.addToThread === false,
+            ])
+        })
+
+        it('drains the sandbox queue even when the combined content exceeds the length limit', async () => {
+            // The length guard must not abort the drain: clearQueuedMessages() has already cleared the
+            // server-side queue, so an abort would lose the messages. Each queued message is within
+            // the limit, but combining them crosses it.
+            jest.spyOn(api.conversations.queue, 'clear').mockResolvedValue({ messages: [], max_queue_messages: 2 })
+            const long = 'x'.repeat(30000)
+
+            const sandboxStreamInstance = await startSandboxTurn()
+            logic.actions.setConversation(MOCK_CONVERSATION)
+            logic.actions.setIsSandboxMode(true)
+            logic.actions.setQueuedMessages([
+                { id: 'queue-1', content: long, created_at: new Date().toISOString() },
+                { id: 'queue-2', content: long, created_at: new Date().toISOString() },
+            ])
+
+            await expectLogic(logic, () => {
+                sandboxStreamInstance.actions.markTurnComplete()
+            }).toDispatchActions([
+                'clearQueuedMessages',
+                (action: any) =>
+                    action.payload?.prompt === `${long}\n\n${long}` && action.payload?.addToThread === false,
             ])
         })
 
