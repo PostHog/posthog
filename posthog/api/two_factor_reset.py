@@ -1,4 +1,5 @@
 import time
+import datetime
 from typing import cast
 
 from django.contrib.auth.models import AbstractBaseUser
@@ -7,7 +8,8 @@ from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
 
 import structlog
-from rest_framework import permissions, status, viewsets
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -122,6 +124,13 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
 
     permission_classes = (permissions.AllowAny,)
 
+    def get_throttles(self):
+        from posthog.rate_limit import TwoFactorResetRequestThrottle
+
+        if self.action == "request_reset":
+            return [TwoFactorResetRequestThrottle()]
+        return super().get_throttles()
+
     def _get_half_authed_user(self, request: Request) -> tuple[User | None, str | None]:
         """
         Get the user from either a half-authed session state or a fully authenticated session.
@@ -157,6 +166,61 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
             return user, None
         except User.DoesNotExist:
             return None, "User not found. Please log in again."
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                "TwoFactorResetRequest",
+                fields={"success": serializers.BooleanField()},
+            )
+        },
+        description="Send a 2FA reset email to the user who is stuck on the login challenge page.",
+    )
+    def request_reset(self, request: Request) -> Response:
+        """
+        Let a half-authed user email themselves a 2FA reset link when they lost their authenticator.
+
+        The user must have passed credential auth (half-authed session) and have 2FA configured.
+        We always report success so the response never reveals whether an account has 2FA.
+        """
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+
+        from posthog.api.two_factor_reset import TwoFactorResetVerifier
+        from posthog.event_usage import report_two_factor_reset_requested
+        from posthog.models.webauthn_credential import WebauthnCredential
+        from posthog.tasks.email import send_two_factor_reset_email
+
+        session_user, session_error = self._get_half_authed_user(request)
+        if session_error or not session_user:
+            return Response(
+                {
+                    "success": False,
+                    "error": session_error or "You must log in with your credentials first.",
+                    "requires_login": True,
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        has_totp = TOTPDevice.objects.filter(user=session_user, confirmed=True).exists()
+        has_passkeys_for_2fa = (
+            WebauthnCredential.objects.filter(user=session_user, verified=True).exists()
+            and session_user.passkeys_enabled_for_2fa
+        )
+
+        # Only send an email when there is real 2FA to reset. We still return success either way
+        # so the response does not disclose the account's 2FA state.
+        if has_totp or has_passkeys_for_2fa:
+            # Bump the timestamp so any previous reset token stops working.
+            session_user.requested_2fa_reset_at = datetime.datetime.now(datetime.UTC)
+            session_user.save(update_fields=["requested_2fa_reset_at"])
+
+            token = TwoFactorResetVerifier.create_token(session_user)
+            send_two_factor_reset_email.delay(session_user.pk, token)
+
+            report_two_factor_reset_requested(session_user)
+
+        return Response({"success": True})
 
     def retrieve(self, request: Request, user_uuid: str) -> Response:
         """Validate the 2FA reset token and session state."""
@@ -212,6 +276,7 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
         from django_otp.plugins.otp_totp.models import TOTPDevice
 
         from posthog.api.two_factor_reset import TwoFactorResetVerifier
+        from posthog.event_usage import report_two_factor_reset_completed
         from posthog.session.activity import revoke_other_sessions_for_request
         from posthog.tasks.email import send_two_factor_auth_disabled_email
 
@@ -280,5 +345,7 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
         # 2FA reset is an account-recovery action — revoke the user's other sessions, keeping the
         # one driving the reset.
         revoke_other_sessions_for_request(request, link_user)
+
+        report_two_factor_reset_completed(link_user)
 
         return Response({"success": True})

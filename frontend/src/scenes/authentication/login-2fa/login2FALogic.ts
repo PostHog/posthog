@@ -52,6 +52,8 @@ export interface login2FALogicValues {
     passkey2FAWasCancelled: boolean
     passkeysAvailable: boolean
     passkeysAvailableLoading: boolean
+    resetEmailSent: boolean
+    resetEmailSentLoading: boolean
     showTwofactortokenErrors: boolean
     totpAvailable: boolean
     twofactortoken: TwoFactorForm
@@ -114,6 +116,27 @@ export interface login2FALogicActions {
     }
     passkey2FACancelled: () => {
         value: true
+    }
+    requestReset: () => {
+        value: true
+    }
+    requestResetFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    requestResetSuccess: (
+        resetEmailSent: boolean,
+        payload?: {
+            value: true
+        }
+    ) => {
+        resetEmailSent: boolean
+        payload?: {
+            value: true
+        }
     }
     resetTwofactortoken: (values?: TwoFactorForm) => {
         values?: TwoFactorForm
@@ -180,6 +203,7 @@ export const login2FALogic = kea<login2FALogicType>([
         passkey2FACancelled: true,
         checkPasskeysAvailable: true,
         setTotpAvailable: (available: boolean) => ({ available }),
+        requestReset: true,
     }),
     reducers({
         generalError: [
@@ -240,6 +264,24 @@ export const login2FALogic = kea<login2FALogicType>([
                             return null
                         }
                         actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                        throw e
+                    }
+                },
+            },
+        ],
+        resetEmailSent: [
+            false as boolean,
+            {
+                requestReset: async () => {
+                    try {
+                        await api.create<LoginTokenResponse>('api/reset_2fa/request/')
+                        return true
+                    } catch (e: unknown) {
+                        if (e instanceof ApiError) {
+                            actions.setGeneralError(e.code || 'unknown_error', e.detail || 'An error occurred')
+                        } else {
+                            actions.setGeneralError('unknown_error', 'An unexpected error occurred')
+                        }
                         throw e
                     }
                 },

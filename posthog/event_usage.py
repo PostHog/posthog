@@ -172,6 +172,34 @@ def report_user_password_reset(user: User) -> None:
     )
 
 
+def report_two_factor_reset_requested(user: User) -> None:
+    """
+    Reports a user requesting a 2FA reset from the login challenge page.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user two factor reset requested",
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_two_factor_reset_completed(user: User) -> None:
+    """
+    Reports a user completing a 2FA reset.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user two factor reset completed",
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
 def report_team_member_invited(
     inviting_user: User,
     invite_id: str,
