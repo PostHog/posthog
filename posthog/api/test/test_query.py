@@ -43,9 +43,10 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
-from posthog.models.utils import UUIDT
+from posthog.models import PersonalAPIKey
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
@@ -1533,3 +1534,47 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
         comment = self._get_log_comment_for_team()
         self.assertNotEqual(comment.get("source"), "mcp")
         self.assertNotEqual(comment.get("product"), Product.MCP.value)
+
+
+class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):
+    def _personal_key_headers(self) -> dict[str, str]:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="cost headers", user=self.user, secure_value=hash_key_value(value), scopes=["query:read"]
+        )
+        return {"Authorization": f"Bearer {value}"}
+
+    def test_api_key_query_response_carries_cost_and_balance_headers(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            format="json",
+            headers=self._personal_key_headers(),
+        )
+        assert response.status_code == 200, response.content
+        assert int(response["X-PostHog-Query-Bytes-Read"]) >= 0
+        assert int(response["X-PostHog-Query-Budget-Remaining-Bytes"]) > 0
+
+    def test_session_query_response_has_no_cost_headers(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            format="json",
+        )
+        assert response.status_code == 200
+        assert "X-PostHog-Query-Bytes-Read" not in response
+
+    def test_budget_429_is_not_captured_as_an_error(self):
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=APIQueriesBudgetExceeded(wait=5)),
+            patch("posthog.api.query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                format="json",
+                headers=self._personal_key_headers(),
+            )
+        assert response.status_code == 429
+        assert response["Retry-After"] == "5"
+        assert not mock_capture.called
