@@ -21,6 +21,7 @@ from llm_gateway.modal import is_modal_served_model
 from llm_gateway.modal_routing import send_modal_chat_completions, send_modal_responses
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
+from llm_gateway.products.wizard_prompt import prepend_wizard_purpose
 from llm_gateway.request_context import apply_posthog_context_from_headers
 
 openai_router = APIRouter()
@@ -40,6 +41,7 @@ async def _handle_chat_completions(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
+    prepend_wizard_purpose(data, product, "chat")
 
     if is_inference_routed_model(body.model):
         return await send_inference_chat_completions(data, user, body.stream or False, product)
@@ -69,6 +71,7 @@ async def _handle_responses(
     It supports multimodal inputs, reasoning models, and persistent conversations.
     """
     data = body.model_dump(exclude_none=True)
+    prepend_wizard_purpose(data, product, "responses")
 
     if is_inference_routed_model(body.model):
         # OpenAI-compatible backends can't use the native OpenAI Responses path below: it would prefix

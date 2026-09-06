@@ -85,6 +85,10 @@ These are compatibility checks, not automatic blockers:
 
 ## Migration checklist
 
+Pending: keep Wizard purpose instructions aligned across both gateways while the
+Python caller remains supported. Checked 2026-09-05 against PostHog `fc180d4ca1`
+and Go `69b6a1dfb5aa`; these local changes are unmerged.
+
 Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 1. Describe the caller and identify which identity controls its access and spend.

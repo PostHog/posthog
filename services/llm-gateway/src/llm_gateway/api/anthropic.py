@@ -50,6 +50,7 @@ from llm_gateway.modal import is_modal_served_model
 from llm_gateway.modal_routing import send_modal_anthropic_messages
 from llm_gateway.models.anthropic import GATEWAY_ONLY_FIELDS, AnthropicCountTokensRequest, AnthropicMessagesRequest
 from llm_gateway.products.config import validate_product
+from llm_gateway.products.wizard_prompt import prepend_wizard_purpose
 from llm_gateway.request_context import (
     apply_posthog_context_from_headers,
     extract_posthog_provider_from_headers,
@@ -522,6 +523,7 @@ async def _handle_anthropic_messages(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
+    prepend_wizard_purpose(data, product, "anthropic")
     data = enable_required_opus_5_thinking(data)
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
@@ -613,6 +615,7 @@ async def _handle_count_tokens(
     product: str = "llm_gateway",
 ) -> dict[str, Any]:
     data = _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
+    prepend_wizard_purpose(data, product, "anthropic")
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
