@@ -3,7 +3,9 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -11,7 +13,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { useMocks } from '~/mocks/jest'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { ConversationDetail, SidePanelTab } from '~/types'
+import { ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
 import {
     PENDING_MAX_CONTEXT_KEY,
@@ -741,6 +743,39 @@ describe('maxLogic', () => {
                 is_sandbox: false,
                 pending_approvals: [],
             })
+        })
+    })
+
+    describe('pollConversation', () => {
+        beforeEach(() => {
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+        })
+
+        it('applies a conversation that is still generating instead of waiting for it to finish', async () => {
+            const generatingConversation: ConversationDetail = {
+                ...MOCK_CONVERSATION,
+                status: ConversationStatus.InProgress,
+                messages: [],
+            }
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(generatingConversation)
+
+            logic.actions.pollConversation(MOCK_CONVERSATION_ID, 0, 0)
+            await expectLogic(logic).toDispatchActions(['prependOrReplaceConversation'])
+
+            expect(logic.values.conversationHistory).toEqual([expect.objectContaining({ id: MOCK_CONVERSATION_ID })])
+        })
+
+        it('offers a retry when polling runs out of attempts', async () => {
+            const warningSpy = jest.spyOn(lemonToast, 'warning')
+
+            logic.actions.pollConversation(MOCK_CONVERSATION_ID, 11, 0)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(warningSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Retry' }) })
+            )
         })
     })
 })
