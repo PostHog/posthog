@@ -132,6 +132,26 @@ export const SettingsUserNavigation: Story = {
     args: { sectionId: 'user-navigation' },
 }
 
+export const SettingsUserPersonalIntegrations: Story = {
+    args: { sectionId: 'user-personal-integrations' },
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    // No project has the Slack app connected, so there is no workspace to link.
+                    '/api/users/@me/integrations/': { results: [] },
+                    '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
+                    '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
+                    '/api/projects/:id/integrations/github/available_installations/': {
+                        installations: [],
+                        personal_github_connected: false,
+                    },
+                },
+            },
+        },
+    },
+}
+
 export const SettingsUserDangerZone: Story = {
     args: { sectionId: 'user-danger-zone' },
 }

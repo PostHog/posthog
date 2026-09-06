@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -11,6 +11,7 @@ import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { userGithubIntegrationLogic } from 'lib/integrations/userGithubIntegrationLogic'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
 
 import {
     LinkableSlackWorkspace,
@@ -295,9 +296,11 @@ export function PersonalSlackIntegrations(): JSX.Element {
         linkableSlackWorkspacesLoading,
     } = useValues(personalIntegrationsLogic)
     const { connectSlack } = useActions(personalIntegrationsLogic)
+    const { reportPersonalIntegrationConnectClicked } = useActions(eventUsageLogic)
 
     const hasLinkableWorkspaces = linkableSlackWorkspaces.length > 0
     const onConnect = (): void => {
+        reportPersonalIntegrationConnectClicked('slack')
         if (linkableSlackWorkspaces.length > 1) {
             openSlackWorkspacePicker(linkableSlackWorkspaces, connectSlack)
         } else if (linkableSlackWorkspaces.length === 1) {
@@ -323,10 +326,7 @@ export function PersonalSlackIntegrations(): JSX.Element {
                     <SlackLinkRow key={integration.id} integration={integration} />
                 ))
             )}
-            {/* Button is hidden when there are no linkable workspaces left — every workspace
-                accessible via the user's orgs has already been linked, or none are connected at
-                all. Server still defends with a 400 if the user gets here some other way. */}
-            {(linkableSlackWorkspacesLoading || hasLinkableWorkspaces) && (
+            {linkableSlackWorkspacesLoading || hasLinkableWorkspaces ? (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
                     <LemonButton
                         type="secondary"
@@ -341,6 +341,18 @@ export function PersonalSlackIntegrations(): JSX.Element {
                     <span className="text-xs text-secondary text-balance">
                         You'll be redirected to Slack to authorize this PostHog account. The link binds your Slack user
                         id to your PostHog account — no Slack token is kept after the redirect.
+                    </span>
+                </div>
+            ) : (
+                <div className="px-4 py-3">
+                    <span className="text-xs text-secondary text-balance">
+                        {slackIntegrations.length === 0
+                            ? 'There is no Slack workspace to link yet. Add the Slack app to your project in '
+                            : 'You linked every Slack workspace your projects connect to. To link another, add its Slack app in '}
+                        <Link to={urls.settings('environment-integrations', 'integration-slack')}>
+                            project settings, under Integrations
+                        </Link>
+                        , then come back here.
                     </span>
                 </div>
             )}
