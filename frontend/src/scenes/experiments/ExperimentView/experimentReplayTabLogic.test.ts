@@ -1,14 +1,18 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, FilterLogicalOperator, SessionRecordingSidebarTab } from '~/types'
+import { Experiment, FilterLogicalOperator, SessionRecordingSidebarTab, TeamType } from '~/types'
 
 import {
     experimentsInSessionExposureRetrieve,
@@ -20,7 +24,11 @@ import { visionScannersList } from 'products/replay_vision/frontend/generated/ap
 
 import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
 import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
-import { type ExperimentReplayRecording, experimentReplayTabLogic } from './experimentReplayTabLogic'
+import {
+    type ExperimentReplayRecording,
+    ExperimentReplayListEmptyReason,
+    experimentReplayTabLogic,
+} from './experimentReplayTabLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntentForCrossSell: jest.fn().mockResolvedValue(null),
@@ -148,6 +156,75 @@ const EMPTY_FILTER_GROUP = {
     type: FilterLogicalOperator.And,
     values: [{ type: FilterLogicalOperator.And, values: [] }],
 }
+
+// Run windows are relative: the reasons are read against the retention period and against today,
+// so a fixed date would start naming a different reason as it aged. Counted in hours, so a run in
+// a zone with daylight saving still lands a whole number of days back.
+const daysAgo = (days: number): string =>
+    dayjs()
+        .subtract(days * 24, 'hour')
+        .toISOString()
+
+const listsRendered = (captureSpy: jest.SpyInstance, experimentId: number): any[] =>
+    captureSpy.mock.calls.filter(
+        ([event, properties]) =>
+            event === 'experiment recordings list rendered' && (properties as any)?.experiment_id === experimentId
+    )
+
+interface EmptyReasonCase {
+    reason: ExperimentReplayListEmptyReason
+    /** One per case: the logic is keyed per experiment, and each case mounts its own. */
+    experimentId: number
+    experiment: Partial<Experiment>
+    team?: Partial<TeamType>
+    setup?: (logic: ReturnType<typeof experimentReplayTabLogic.build>) => void
+}
+
+// The team's retention period is the mock default of 30 days, which the run windows are set against.
+const EMPTY_REASON_CASES: EmptyReasonCase[] = [
+    {
+        reason: ExperimentReplayListEmptyReason.ReplayDisabled,
+        experimentId: 121,
+        experiment: {},
+        team: { session_recording_opt_in: false },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.NotLaunched,
+        experimentId: 122,
+        experiment: { start_date: null, end_date: null },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.MetricFilterMatchedNothing,
+        experimentId: 123,
+        experiment: { start_date: daysAgo(10), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({ ...BUCKET_RESPONSE, session_ids: [] })
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.EndedPastRetention,
+        experimentId: 124,
+        experiment: { start_date: daysAgo(200), end_date: daysAgo(60) },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 125,
+        experiment: { start_date: daysAgo(1), end_date: null },
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.UnknownInWindow,
+        experimentId: 127,
+        experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
+    },
+    {
+        // Still running past the retention period: its retained days are inside retention, so this
+        // is unexplained rather than a retention loss.
+        reason: ExperimentReplayListEmptyReason.UnknownInWindow,
+        experimentId: 128,
+        experiment: { start_date: daysAgo(60), end_date: null },
+    },
+]
 
 describe('experimentReplayTabLogic', () => {
     let logic: ReturnType<typeof experimentReplayTabLogic.build>
@@ -681,6 +758,132 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(1)
         expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[0][1].session_ids).toHaveLength(20)
+    })
+
+    it.each(EMPTY_REASON_CASES)(
+        'reports $reason for a list that came back empty',
+        async ({ reason, experimentId, experiment, team, setup }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ...team })
+            const empty = experimentReplayTabLogic({
+                experiment: { ...EXPERIMENT, id: experimentId, ...experiment } as Experiment,
+            })
+            empty.mount()
+            setup?.(empty)
+            await expectLogic(empty).toFinishAllListeners()
+
+            empty.actions.recordingsLoaded([])
+            await expectLogic(empty).toFinishAllListeners()
+
+            expect(listsRendered(captureSpy, experimentId)).toHaveLength(1)
+            expect(listsRendered(captureSpy, experimentId)[0][1]).toMatchObject({
+                result_count: 0,
+                empty_reason: reason,
+            })
+            empty.unmount()
+        }
+    )
+
+    it('reports a list with rows, with no reason and the facets it was narrowed by', async () => {
+        // The empty reason names a plausible cause of emptiness, so on a list with rows it would
+        // read as a fault the tab found. The facets match `experiment recording opened`, so an
+        // empty list and an opened recording are comparable per facet.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, session_recording_retention_period: '90d' })
+        const filled = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 111, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
+        })
+        filled.mount()
+        filled.actions.setSelectedVariantKey('test')
+        await expectLogic(filled).toFinishAllListeners()
+
+        filled.actions.recordingsLoaded(loadedPage(['s1', 's2']))
+        await expectLogic(filled).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 111)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 111)[0][1]).toEqual({
+            experiment_id: 111,
+            result_count: 2,
+            empty_reason: null,
+            days_since_start: 10,
+            days_since_end: 2,
+            retention_period: '90d',
+            replay_opt_in: true,
+            duration_filter_active: true,
+            exposure_linkable: true,
+            variant: 'test',
+            exposure_scope: 'all_exposed',
+            metric_filter_mode: 'fired_all',
+            selected_metric_count: 0,
+            is_bucketed: false,
+            watch_card_kind: null,
+        })
+        filled.unmount()
+    })
+
+    it('tells a refused metric filter apart from one that matched nothing, once it has answered', async () => {
+        // Both leave the list with an empty session set, since a refusal must never widen the list
+        // back out. Folded together, a broken endpoint would inflate the count of filters that
+        // legitimately match nothing — the reason a reader would act on.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockReturnValue(new Promise(() => {}))
+        const failing = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 113, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        failing.mount()
+        failing.actions.setMetricFilterMode('no_metric_activity')
+
+        // While the request is out the list is empty because the filter hasn't answered yet, and
+        // the caption says so. Reported, that provisional empty would be counted twice.
+        failing.actions.recordingsLoaded([])
+        expect(listsRendered(captureSpy, 113)).toHaveLength(0)
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockRejectedValue(
+            Object.assign(new Error('boom'), { detail: 'Pick exactly one funnel metric' })
+        )
+        failing.actions.loadSessionBucket()
+        await expectLogic(failing).toFinishAllListeners()
+        failing.actions.recordingsLoaded([])
+        await expectLogic(failing).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 113)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 113)[0][1]).toMatchObject({
+            result_count: 0,
+            empty_reason: 'metric_filter_failed',
+            is_bucketed: true,
+        })
+        failing.unmount()
+    })
+
+    it('leaves the pages scrolling adds out of the report', async () => {
+        // Counted too, one visit would look like several lists, and a later page that comes back
+        // empty would read as an empty list rather than the end of a list with rows.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        logic.actions.recordingsLoaded([], false)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 42)).toHaveLength(0)
+    })
+
+    it('reports the exposure event as unlinkable when it is never seen with a session id', async () => {
+        // The residual "in window, replay on, still empty" bucket is the one the tab can't explain,
+        // and an exposure event captured without a session id is the likeliest cause in it.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, $feature_flag_called: false })
+        const unlinkable = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 112, start_date: daysAgo(10), end_date: null } as Experiment,
+        })
+        unlinkable.mount()
+        await expectLogic(unlinkable).toFinishAllListeners()
+
+        unlinkable.actions.recordingsLoaded([])
+        await expectLogic(unlinkable).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 112)[0][1]).toMatchObject({
+            empty_reason: 'unknown_in_window',
+            exposure_linkable: false,
+            days_since_end: null,
+        })
+        unlinkable.unmount()
     })
 
     it('offers saved/shared metrics in the facet, deduped by uuid', async () => {

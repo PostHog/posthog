@@ -67,6 +67,8 @@ export interface TaskCreationInput {
    * label itself. Only sent when signalReportId is set.
    */
   signalReportTaskRelationship?: string;
+  /** Empty suppresses the scout note; omitted falls back to parsing taskDescription for older clients. */
+  signalReportDiscussionQuestion?: string;
   additionalDirectories?: string[];
   /**
    * CONTEXT.md of the channel a task was created in, if any. Appended to the
