@@ -29,6 +29,7 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
+import MISSING_CAPABILITY from '@/templates/sections/missing-capability.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
@@ -83,6 +84,7 @@ export class InstructionsFormatter {
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
+                MISSING_CAPABILITY,
                 EXAMPLES,
             ],
             ctx,
@@ -172,8 +174,8 @@ export class InstructionsFormatter {
             id: 'feedback',
             kind: 'guide',
             title: 'Feedback',
-            description: 'Send feedback about PostHog.',
-            content: this.compose([AGENT_FEEDBACK], ctx, { compact: false }),
+            description: 'Send feedback about PostHog, or report a capability this server is missing.',
+            content: this.compose([AGENT_FEEDBACK, MISSING_CAPABILITY], ctx, { compact: false }),
         })
 
         return entries
@@ -255,6 +257,7 @@ export class InstructionsFormatter {
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,
+            MISSING_CAPABILITY,
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext

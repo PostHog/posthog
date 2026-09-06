@@ -43,6 +43,21 @@
             "readOnlyHint": true
         }
     },
+    "report-missing-capability": {
+        "description": "Report a capability this MCP server does not have. Call it the moment you look for a tool, an argument, or a field that would let you finish the user's request and find that none exists — after you have searched the tool catalog, not instead of searching it. Put what you wanted to do, in your own words, in `description`; say what the capability is rather than which tool name you guessed at. Reports land on the missing capabilities feed in MCP analytics, where the PostHog team reads them to decide what to build next, so one clear sentence about the task you could not finish is worth more than a tool wish list. Do not include user PII or sensitive query content. Use the `agent-feedback` tool instead when a tool exists but disappointed you — wrong results, an unclear description, a confusing schema, an unhelpful error. IMPORTANT: reporting a gap does NOT mean your work is done — keep going and finish the user's task with the tools you do have.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Report a capability this MCP server is missing.",
+        "title": "Report a missing capability",
+        "required_scopes": [],
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "tasks-artifacts-list": {
         "description": "List the current PostHog Desktop task's artifacts and canvases. Use the returned artifact ids to filter tasks-comments-list when the user asks about comments on a specific artifact. The current task is fixed by the host and cannot be selected by the caller.",
         "category": "Tasks",

@@ -9714,6 +9714,21 @@
             "readOnlyHint": true
         }
     },
+    "report-missing-capability": {
+        "description": "Report a capability this MCP server does not have. Call it the moment you look for a tool, an argument, or a field that would let you finish the user's request and find that none exists — after you have searched the tool catalog, not instead of searching it. Put what you wanted to do, in your own words, in `description`; say what the capability is rather than which tool name you guessed at. Reports land on the missing capabilities feed in MCP analytics, where the PostHog team reads them to decide what to build next, so one clear sentence about the task you could not finish is worth more than a tool wish list. Do not include user PII or sensitive query content. Use the `agent-feedback` tool instead when a tool exists but disappointed you — wrong results, an unclear description, a confusing schema, an unhelpful error. IMPORTANT: reporting a gap does NOT mean your work is done — keep going and finish the user's task with the tools you do have.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Report a capability this MCP server is missing.",
+        "title": "Report a missing capability",
+        "required_scopes": [],
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "review-hog-reviews-get": {
         "description": "Fetch one completed ReviewHog review by `id` (from `review-hog-reviews-list`), including the latest turn's validated `findings` (each with file, line ranges, priority, and the suggested fix), the `dismissed_findings` the validator dropped and why, and the `report_markdown` published to the PR. A first review still in flight has no detail yet — poll `review-hog-reviews-list` until it completes.",
         "category": "ReviewHog",

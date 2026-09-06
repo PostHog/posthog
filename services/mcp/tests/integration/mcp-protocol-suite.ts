@@ -9,6 +9,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { getToolDefinitions } from '@/tools/toolDefinitions'
+
 export type ProtocolTestHarness = {
     /** Origin used to construct the MCP endpoint URL (e.g. `https://test.local`). */
     baseUrl: URL
@@ -1377,11 +1379,16 @@ export function defineCatalogFilterTests(
             }
             const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
             expect(Array.isArray(tools)).toBe(true)
-            // `always_available` utility tools (e.g. agent-feedback, gated by its
-            // own feature flag) bypass feature filtering by design, so an unknown
-            // feature yields only those — assert no feature-gated tool leaked,
-            // rather than a hard-empty list.
-            const featureGated = tools.filter((t) => t.name !== 'agent-feedback')
+            // `always_available` utility tools (e.g. agent-feedback) bypass feature
+            // filtering by design, so an unknown feature yields only those — assert no
+            // feature-gated tool leaked, rather than a hard-empty list. The set is read
+            // from the definitions so it grows as utility tools are added.
+            const alwaysAvailable = new Set(
+                Object.entries(getToolDefinitions())
+                    .filter(([, def]) => def.always_available === true)
+                    .map(([name]) => name)
+            )
+            const featureGated = tools.filter((t) => !alwaysAvailable.has(t.name))
             expect(featureGated).toHaveLength(0)
         })
 

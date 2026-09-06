@@ -364,6 +364,15 @@ export const FeedbackSubmitSchema = z
         }
     })
 
+export const MissingCapabilityReportSchema = z.object({
+    description: z
+        .string()
+        .min(1)
+        .describe(
+            'What you wanted to do and could not, in your own words (e.g. "no way to list the members of a cohort", "wanted to pause a running experiment from here"). Say what the capability is, not which tool you looked for. Add the shape of the data or action you needed, so the gap is actionable. Do not include user PII or sensitive query content.'
+        ),
+})
+
 const SavedMetricAttachItemSchema = z.object({
     id: z
         .number()

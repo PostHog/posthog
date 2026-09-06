@@ -20,6 +20,7 @@ import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
     getEffectiveMCPClientContext,
+    getEffectiveMCPClientIdentity,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
@@ -221,23 +222,27 @@ export class RequestContext {
         requestContext: MCPRequestContext = this.requestContext,
         sessionContext: MCPSessionContext | null = this.sessionContext
     ): Record<string, unknown> {
+        // Live-first per field, session-pinned as the fallback: `clientInfo` only arrives
+        // on `initialize`, so a mid-session call carries no client identity of its own and
+        // the read path would label the event as an unidentified client.
+        const clientIdentity = getEffectiveMCPClientIdentity(requestContext, sessionContext)
         return {
             $ai_product: 'mcp',
             $mcp_source: MCP_ANALYTICS_SOURCE,
             $mcp_server_name: MCP_SERVER_NAME,
             $mcp_server_version: MCP_SERVER_VERSION,
-            $mcp_client_name: requestContext.mcpClientName,
-            $mcp_client_version: requestContext.mcpClientVersion,
+            $mcp_client_name: clientIdentity.mcpClientName,
+            $mcp_client_version: clientIdentity.mcpClientVersion,
             $mcp_client_user_agent: requestContext.clientUserAgent,
-            $mcp_protocol_version: requestContext.mcpProtocolVersion,
+            $mcp_protocol_version: clientIdentity.mcpProtocolVersion,
             $mcp_transport: requestContext.transport,
             $mcp_session_id: requestContext.mcpSessionId,
             $mcp_conversation_id: requestContext.mcpConversationId,
-            $mcp_consumer: requestContext.mcpConsumer,
+            $mcp_consumer: clientIdentity.mcpConsumer,
             $mcp_mode: requestContext.mode,
             $mcp_region: requestContext.region,
             mcp_runtime: 'hono',
-            mcp_vendor_client: requestContext.mcpVendorClient,
+            mcp_vendor_client: clientIdentity.mcpVendorClient,
             ...buildMCPSessionAnalyticsProperties(sessionContext),
         }
     }
