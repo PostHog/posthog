@@ -58,15 +58,22 @@ async fn test_filter_drops_existing_event_properties(db: PgPool) {
     )
     .await;
 
+    let cache = Cache::new(1000, 1000, 1000);
     let mut batch = EventPropertiesBatch::new(10);
     batch.append(event_prop("plan"));
     batch.append(event_prop("fresh"));
     batch.append(event_prop("browser"));
 
-    filter_event_properties(&db, &mut batch, BUDGET).await;
+    filter_event_properties(&db, &cache, &mut batch, BUDGET).await;
 
     assert_eq!(batch.len(), 1, "only the unknown row survives the filter");
     assert_eq!(batch.property_names, vec!["fresh".to_string()]);
+
+    // Dropped rows go back in the dedup cache, so the next sighting stops in
+    // memory instead of probing the reader again.
+    assert!(cache.contains_key(&Update::EventProperty(event_prop("plan"))));
+    assert!(cache.contains_key(&Update::EventProperty(event_prop("browser"))));
+    assert!(!cache.contains_key(&Update::EventProperty(event_prop("fresh"))));
 }
 
 // The filter mirrors the upsert's DO UPDATE guard: an existing row is dropped
@@ -105,6 +112,14 @@ async fn test_filter_keeps_new_rows_and_type_upgrades(db: PgPool) {
         Some(PropertyValueType::DateTime)
     ))));
     assert!(cache.contains_key(&Update::Property(prop_def("plan", None))));
+
+    // A row stored without a type caches too, so untyped sightings stop in
+    // memory. A typed sighting still misses, because that upsert can upgrade it.
+    assert!(cache.contains_key(&Update::Property(prop_def("misc", None))));
+    assert!(!cache.contains_key(&Update::Property(prop_def(
+        "misc",
+        Some(PropertyValueType::Boolean)
+    ))));
 }
 
 // End to end through process_batch: with the read pool set, a repeated batch

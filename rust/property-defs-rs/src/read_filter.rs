@@ -25,6 +25,7 @@ use crate::{
 /// probe (COALESCE project key, event, property), one index descent per row.
 pub async fn filter_event_properties(
     pool: &PgPool,
+    cache: &Cache,
     batch: &mut EventPropertiesBatch,
     budget: Duration,
 ) {
@@ -75,7 +76,12 @@ pub async fn filter_event_properties(
 
     let mut keep = vec![true; batch.len()];
     for (ord,) in found {
-        keep[ord as usize - 1] = false;
+        let idx = ord as usize - 1;
+        keep[idx] = false;
+        // Re-cache the row Postgres confirmed. Cache lookups peek, so only an
+        // insert marks the entry referenced and keeps it resident. Without it
+        // the row cycles out, and every later sighting probes the reader again.
+        cache.insert(batch.cached[idx].clone());
     }
     let dropped = batch.retain_rows(&keep);
     metrics::counter!(READ_FILTER_ROWS_DROPPED, &[("table", "eventprops")])
@@ -148,13 +154,15 @@ pub async fn filter_property_definitions(
         }
         keep[idx] = false;
         // Refresh the dedup cache with the stored type, so future typed sightings
-        // of this row hit in memory instead of re-probing the reader.
-        if let Some(stored) = stored_type.and_then(|s| PropertyValueType::from_str(&s).ok()) {
-            if let Update::Property(pd) = &batch.cached[idx] {
-                let mut refreshed = pd.clone();
+        // of this row hit in memory instead of re-probing the reader. A row
+        // stored without a type refreshes too, and keeps the incoming type.
+        // Skipping those rows left them probing the reader on every batch.
+        if let Update::Property(pd) = &batch.cached[idx] {
+            let mut refreshed = pd.clone();
+            if let Some(stored) = stored_type.and_then(|s| PropertyValueType::from_str(&s).ok()) {
                 refreshed.property_type = Some(stored);
-                cache.insert(Update::Property(refreshed));
             }
+            cache.insert(Update::Property(refreshed));
         }
     }
     let dropped = batch.retain_rows(&keep);
