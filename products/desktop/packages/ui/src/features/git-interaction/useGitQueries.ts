@@ -1,6 +1,7 @@
 import { EMPTY_DIFF_STATS } from "@posthog/core/code-review/selectTaskDiffStats";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useQuery } from "@tanstack/react-query";
+import { resolveChangesLoading } from "./gitQueriesState";
 
 const EMPTY_CHANGED_FILES: never[] = [];
 
@@ -31,7 +32,7 @@ export function useGitQueries(
 
   const {
     data: changedFiles = EMPTY_CHANGED_FILES,
-    isLoading: changesLoading,
+    isPending: changesPending,
   } = useQuery(
     trpc.git.getChangedFilesHead.queryOptions(input, {
       enabled: repoEnabled,
@@ -40,6 +41,13 @@ export function useGitQueries(
       placeholderData: (prev) => prev,
     }),
   );
+
+  const changesLoading = resolveChangesLoading({
+    enabled,
+    isRepoLoading,
+    repoEnabled,
+    changesPending,
+  });
 
   const { data: diffStats = EMPTY_DIFF_STATS } = useQuery(
     trpc.git.getDiffStats.queryOptions(input, {
