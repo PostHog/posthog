@@ -16,39 +16,45 @@
 //! offset with its durable effects either absent or idempotently re-appliable, and the redelivery
 //! replays the whole run.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Instant;
 
-use cohort_core::seed::{PersonSeed, RunId, SeedTile};
+use cohort_core::seed::{PersonSeed, ReconcileTile, RunId, SeedTile};
 use metrics::{counter, histogram};
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterCatalog, TeamId};
+use crate::merge::tombstone_redirect::{self, Resolution};
 use crate::observability::metrics::{
+    COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, OUTPUT_TRANSITIONS_UNMAPPED,
     PERSON_SEEDS_APPLIED_TOTAL, PERSON_SEEDS_DROPPED_TOTAL, PERSON_SEEDS_SKIPPED_TOTAL,
     PERSON_SEEDS_UNCHANGED_TOTAL, PERSON_SEED_REKEYED_TOTAL,
-    PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL, SEED_APPLY_RUNS_HELD_TOTAL,
-    SEED_APPLY_RUN_DURATION_SECONDS, SEED_APPLY_RUN_SIZE, SEED_REKEYED_TOTAL,
+    PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL, RECONCILE_JOBS_ENQUEUED_TOTAL,
+    RECONCILE_JOBS_SUPERSEDED_TOTAL, SEED_APPLY_RUNS_HELD_TOTAL, SEED_APPLY_RUN_DURATION_SECONDS,
+    SEED_APPLY_RUN_SIZE, SEED_HELD_OFFSET_GAUGE, SEED_REKEYED_TOTAL,
     SEED_REKEY_PRODUCE_FAILURE_TOTAL, SEED_TILES_APPLIED_TOTAL, SEED_TILES_DROPPED_TOTAL,
     SEED_TILES_SKIPPED_TOTAL, SEED_TILES_UNCHANGED_TOTAL, STAGE1_TRANSITIONS,
 };
+use crate::partitions::offset_tracker::MarkOutcome;
 use crate::partitions::offset_tracker::OffsetTracker;
-use crate::producer::{CohortMembershipChange, LastUpdatedClock, MembershipSink};
+use crate::producer::{ChangeOrigin, CohortMembershipChange, LastUpdatedClock, MembershipSink};
 use crate::stage1::key::LeafStateKey;
+use crate::stage1::transition::LeafTransition;
 use crate::store::{BehavioralKey, ReadLane, StagedBatch, StoreError, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::merge_path::MergeWorkerDeps;
-use crate::workers::reconcile::ReconcileQueue;
-use crate::workers::seed_path::{admit_reconcile, hold, mark_processed, tag_seed};
+use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
 use crate::workers::seed_run::{Admitted, OffsetSpan, SeedGroup, SeedKind, SeedOffset, SeedRun};
 use crate::workers::stage2_path::{
     commit_stage2_writes, diff_single_leaf_registers, recompute_stage2, FoldedLeaf, RegisterDiff,
     Stage2Recompute,
 };
-use crate::workers::worker::{first_cascades, produce_cascades, produce_membership};
+use crate::workers::worker::{
+    first_cascades, produce_cascades, produce_membership, transition_metric_label,
+};
 
 /// The ordered steps every run takes. Doubles as the `stage` metric label, so the duration
 /// histogram and the held counter can never name a step the pipeline does not have.
@@ -172,6 +178,133 @@ impl<'a> ApplyDeps<'a> {
     }
 }
 
+pub(crate) async fn resolve_run_persons(
+    deps: ApplyDeps<'_>,
+    mut persons: Vec<(TeamId, Uuid)>,
+) -> Result<HashMap<(TeamId, Uuid), Resolution>, SeedHold> {
+    persons.sort_unstable();
+    persons.dedup();
+    let resolved = tombstone_redirect::resolve_batch_offloaded(
+        deps.handle,
+        deps.partition_id,
+        &persons,
+        deps.merge.partition_count,
+        ReadLane::Maintenance,
+    )
+    .await
+    .map_err(SeedHold::store(ApplyStage::Resolve))?;
+    SeedHold::check_read(ApplyStage::Resolve, persons.len(), resolved.len())?;
+    Ok(resolved)
+}
+
+pub(crate) fn record_stage1_transition(
+    tally: &mut Tally,
+    filters: &TeamFilters,
+    transition: &LeafTransition,
+) {
+    if let Some(kind) = transition_metric_label(filters, transition) {
+        tally.add(Outcome::Stage1Transition(kind));
+    }
+    if filters
+        .by_lsk_to_single_leaf_cohorts
+        .get(&transition.leaf_state_key)
+        .is_none_or(Vec::is_empty)
+        && !filters
+            .by_lsk_to_composable_cohorts
+            .contains_key(&transition.leaf_state_key)
+    {
+        tally.add(Outcome::UnmappedTransition);
+    }
+}
+
+pub(crate) fn admit_reconcile(
+    partition_id: u16,
+    merge: &MergeWorkerDeps,
+    queue: &mut ReconcileQueue,
+    marks: &mut BatchMarks,
+    tile: &ReconcileTile,
+    offset: SeedOffset,
+) {
+    if !merge.reconcile.enabled {
+        counter!(SEED_TILES_SKIPPED_TOTAL, "reason" => "reconcile_disabled").increment(1);
+        warn!(
+            partition_id,
+            team_id = tile.team_id().0,
+            cohort_id = tile.cohort_id().0,
+            run_id = %tile.run_id().0,
+            "reconcile seed skipped while reconcile is disabled; re-dispatch after enabling",
+        );
+        marks.mark(offset);
+        return;
+    }
+
+    let kind = tile.scope().kind();
+    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), kind, offset.0)
+    {
+        SupersedeOutcome::NoQueuedJob => merge.seed_tracker.defer(partition_id as i32, offset.0),
+        SupersedeOutcome::Replaced(superseded) => {
+            let (replacement, outcome) = merge
+                .seed_tracker
+                .replace_deferred(superseded, offset.0)
+                .expect("a queued reconcile must retain its deferred offset in the current tenure");
+            if let MarkOutcome::CappedAheadOfDispatch = outcome {
+                counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
+                warn!(
+                    partition_id,
+                    "superseded reconcile completion exceeded the seed dispatch ceiling",
+                );
+            }
+            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL, "kind" => kind.as_str()).increment(1);
+            replacement
+        }
+        SupersedeOutcome::RetainedNewerOrEqual => {
+            counter!(SEED_TILES_SKIPPED_TOTAL, "reason" => "reconcile_stale_replay").increment(1);
+            tracing::debug!(
+                partition_id,
+                team_id = tile.team_id().0,
+                cohort_id = tile.cohort_id().0,
+                run_id = %tile.run_id().0,
+                offset = offset.0,
+                "replayed reconcile seed retained the newer or equal queued job",
+            );
+            marks.mark(offset);
+            return;
+        }
+    };
+
+    queue.enqueue(tile.clone(), deferred);
+    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL, "kind" => kind.as_str()).increment(1);
+}
+
+pub(crate) fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
+    for change in changes {
+        change.origin = Some(ChangeOrigin::Seed);
+        change.run_id = Some(run_id);
+    }
+}
+
+/// Advance the seed tracker past `offset`. A mark beyond the dispatch ceiling is capped and counted.
+pub(crate) fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: SeedOffset) {
+    if let MarkOutcome::CappedAheadOfDispatch =
+        tracker.mark_processed(partition_id as i32, offset.0 + 1)
+    {
+        counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
+        warn!(
+            partition_id,
+            next_offset = offset.0 + 1,
+            "seed offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
+        );
+    }
+}
+
+/// Pin the seed commit floor at the failed offset so Kafka redelivers it; emit
+/// [`SEED_HELD_OFFSET_GAUGE`] so the stall is visible.
+pub(crate) fn hold(tracker: &OffsetTracker, partition_id: u16, offset: SeedOffset) {
+    let floor = tracker.hold(partition_id as i32, offset.0);
+    let partition: Arc<str> = Arc::from(partition_id.to_string());
+    metrics::gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition).set(floor as f64);
+}
+
 /// The one clock reading and the one output version a whole run shares.
 ///
 /// `now_ms` is taken once, after every member was fenced individually at admission, so the newest
@@ -192,9 +325,6 @@ pub(crate) struct Slot<V> {
     before: Option<V>,
     /// The fold's fixed point, once some seed changed the bytes.
     advanced: Option<V>,
-    /// Whether any seed folded into this slot, advancing it or not. An all-`Unchanged` slot skips
-    /// its row write but still takes part in the register diff and the recompute.
-    touched: bool,
     /// The row existed but did not decode. The tile fold refuses such a slot; the person fold
     /// rebuilds from the absent baseline, as its per-seed apply does.
     prior_corrupt: bool,
@@ -221,12 +351,6 @@ impl<V> Slot<V> {
     /// Record a fold that changed the bytes.
     pub(crate) fn advance(&mut self, value: V) {
         self.advanced = Some(value);
-        self.touched = true;
-    }
-
-    /// Record a fold that left the bytes alone.
-    pub(crate) fn touch(&mut self) {
-        self.touched = true;
     }
 }
 
@@ -267,7 +391,6 @@ impl<K: Ord + Copy, V> Overlay<K, V> {
                 Slot {
                     before,
                     advanced: None,
-                    touched: false,
                     prior_corrupt,
                 },
             );
@@ -289,11 +412,6 @@ impl<K: Ord + Copy, V> Overlay<K, V> {
             .values()
             .filter(|slot| slot.prior_corrupt)
             .count()
-    }
-
-    /// Every slot some seed folded into, in key order.
-    pub(crate) fn touched(&self) -> impl Iterator<Item = (&K, &Slot<V>)> {
-        self.slots.iter().filter(|(_, slot)| slot.touched)
     }
 }
 
@@ -332,14 +450,17 @@ struct PersonTouch {
 }
 
 impl TouchedPersons {
-    pub(crate) fn touch(&mut self, team_id: TeamId, person: Uuid, run: RunId, leaf: LeafStateKey) {
-        let touch = self
-            .per_person
+    fn entry(&mut self, team_id: TeamId, person: Uuid, run: RunId) -> &mut PersonTouch {
+        self.per_person
             .entry((team_id, person))
             .or_insert_with(|| PersonTouch {
                 run,
                 leaves: BTreeSet::new(),
-            });
+            })
+    }
+
+    pub(crate) fn touch(&mut self, team_id: TeamId, person: Uuid, run: RunId, leaf: LeafStateKey) {
+        let touch = self.entry(team_id, person, run);
         // Last call wins, and the heads call in offset order: the person stays in one recompose
         // group under the run of the last seed that touched them.
         touch.run = run;
@@ -355,14 +476,7 @@ impl TouchedPersons {
         run: RunId,
         leaf: LeafStateKey,
     ) {
-        self.per_person
-            .entry((team_id, person))
-            .or_insert_with(|| PersonTouch {
-                run,
-                leaves: BTreeSet::new(),
-            })
-            .leaves
-            .insert(leaf);
+        self.entry(team_id, person, run).leaves.insert(leaf);
     }
 
     fn is_empty(&self) -> bool {
@@ -410,6 +524,7 @@ pub(crate) enum Outcome {
     PersonDropped(&'static str),
     /// `kind` label, as [`crate::workers::worker::transition_metric_label`] names it.
     Stage1Transition(&'static str),
+    UnmappedTransition,
     ReKeyed(SeedKind),
 }
 
@@ -424,7 +539,10 @@ impl Outcome {
     fn durable_at_stage1(self) -> bool {
         matches!(
             self,
-            Self::TileApplied(_) | Self::PersonApplied(_) | Self::Stage1Transition(_)
+            Self::TileApplied(_)
+                | Self::PersonApplied(_)
+                | Self::Stage1Transition(_)
+                | Self::UnmappedTransition
         )
     }
 }
@@ -488,6 +606,10 @@ fn record_outcomes(outcomes: BTreeMap<Outcome, u64>) {
             }
             Outcome::Stage1Transition(kind) => {
                 counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(count);
+            }
+            Outcome::UnmappedTransition => {
+                counter!(OUTPUT_TRANSITIONS_UNMAPPED, "reason" => "no_emitting_cohort")
+                    .increment(count);
             }
             Outcome::ReKeyed(SeedKind::Tile) => {
                 counter!(SEED_REKEYED_TOTAL).increment(count);
@@ -1054,6 +1176,11 @@ pub(crate) async fn handle_seed_groups(
 
 #[cfg(test)]
 mod tests {
+    use chrono_tz::UTC;
+    use metrics_exporter_prometheus::PrometheusBuilder;
+
+    use crate::filters::TeamFiltersBuilder;
+
     use super::*;
 
     fn overlay_of(values: Vec<Option<&str>>) -> Overlay<u8, String> {
@@ -1090,24 +1217,6 @@ mod tests {
             "the net-transition rule diffs against the read pass, not the last write",
         );
         assert!(slot.advanced().is_some());
-    }
-
-    /// An all-`Unchanged` slot writes no row but must still reach the register diff and the
-    /// recompute, which is what heals a produce that failed after an earlier run committed.
-    #[test]
-    fn a_touched_but_unadvanced_slot_is_still_touched() {
-        let mut overlay = overlay_of(vec![Some("stored")]);
-        overlay.slot_mut(&0).unwrap().touch();
-
-        let touched: Vec<_> = overlay.touched().collect();
-        assert_eq!(touched.len(), 1);
-        assert!(touched[0].1.advanced().is_none(), "no row to write");
-    }
-
-    #[test]
-    fn an_unfolded_slot_is_not_touched() {
-        let overlay = overlay_of(vec![Some("stored"), None]);
-        assert_eq!(overlay.touched().count(), 0);
     }
 
     /// A corrupt row reads as absent with the flag set, so the tile fold can refuse it while the
@@ -1163,6 +1272,7 @@ mod tests {
             Outcome::TileApplied("behavioral_single"),
             Outcome::PersonApplied("fresh"),
             Outcome::Stage1Transition("entered"),
+            Outcome::UnmappedTransition,
         ] {
             assert!(
                 outcome.durable_at_stage1(),
@@ -1199,6 +1309,32 @@ mod tests {
             1,
             "what a replay repeats still waits for the run to settle",
         );
+    }
+
+    #[test]
+    fn an_unmapped_transition_publishes_once_at_the_stage1_boundary() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let filters = TeamFiltersBuilder::default().freeze(UTC);
+        let transition = LeafTransition {
+            team_id: TeamId(7),
+            leaf_state_key: LeafStateKey([0xEE; 16]),
+            person_id: Uuid::from_u128(1),
+            condition_hash: [0xDD; 16],
+            kind: crate::stage1::transition::TransitionKind::Entered,
+        };
+        let mut tally = Tally::default();
+        record_stage1_transition(&mut tally, &filters, &transition);
+
+        metrics::with_local_recorder(&recorder, || {
+            tally.record_durable();
+            tally.record_durable();
+            tally.record();
+        });
+
+        assert!(handle
+            .render()
+            .contains("output_transitions_unmapped_total{reason=\"no_emitting_cohort\"} 1"));
     }
 
     /// Splitting a person across two recompute calls would evaluate the same cohort twice against

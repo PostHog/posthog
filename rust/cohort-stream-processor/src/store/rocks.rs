@@ -447,7 +447,7 @@ impl CohortStore {
     }
 
     /// One batched read of `cf`, preserving input order. Every typed `multi_get_*` routes through
-    /// it, so none can skip the empty-batch guard or label its errors differently.
+    /// it, so none can skip the empty-batch or answer-length checks or label its errors differently.
     fn multi_get_ordered<K, B: AsRef<[u8]>>(
         &self,
         cf: Cf,
@@ -465,6 +465,14 @@ impl CohortStore {
             .db
             .multi_get_cf(encoded.iter().map(|key| (handle, key.as_ref())));
         record_multi_get(started, keys.len());
+        if results.len() != keys.len() {
+            counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
+            return Err(StoreError::ShortRead {
+                op: OP_MULTI_GET,
+                asked: keys.len(),
+                answered: results.len(),
+            });
+        }
         results
             .into_iter()
             .map(|result| {

@@ -331,15 +331,6 @@ pub(crate) async fn diff_single_leaf_registers(
 
     let keys: Vec<Stage2Key> = wanted.keys().copied().collect();
     let stored = handle.multi_get_stage2(keys, lane).await?;
-    // A short answer would zip one register's bytes onto another register's key and silently drop
-    // the tail's emissions. A run asks for every leaf it folded, so the tail can be large.
-    if stored.len() != wanted.len() {
-        return Err(StoreError::ShortRead {
-            op: "multi_get_stage2",
-            asked: wanted.len(),
-            answered: stored.len(),
-        });
-    }
 
     let mut changes = Vec::new();
     let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
@@ -1948,6 +1939,7 @@ mod tests {
                     person_id: alice,
                     in_cohort,
                     minted_transition: minted,
+                    run_id: RUN,
                 }],
                 EVENT_MS,
                 TS,

@@ -278,19 +278,17 @@ pub struct Config {
     #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
     pub cohort_seed_person_live_margin_ms: i64,
 
-    /// Seeds one partition worker applies as a single run. `1` reproduces the per-seed apply and
-    /// is the hatch if batching misbehaves. Live on roll: there is no dark period.
+    /// Seeds one partition worker applies as a single run. `1` limits each run to one seed through
+    /// the same apply pipeline; it does not restore a different implementation.
     #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX", default = "256")]
     pub cohort_seed_apply_batch_max: usize,
 
     /// Store rows one run may touch: the stage-1 rows its seeds fold plus one stage-2 register per
-    /// cohort those leaves back. A ceiling on what the run retains and emits — overlay, register
-    /// read, recompute set, membership output and cascades — so a hash resolving to many leaves, a
-    /// leaf backing many cohorts, or a 1,024-hash person seed cannot make a run arbitrarily heavy.
-    /// Not a ceiling on the reads inside each composed evaluation: those scale with that cohort's
-    /// tree as they do under the per-seed apply, and the maintenance lane's permits meter them. A
-    /// run closes before the seed that would exceed it; a seed heavier than the whole budget still
-    /// runs alone, which is the per-seed apply's own exposure.
+    /// cohort those leaves back. This bounds entry counts in the overlay, register read, recompute
+    /// set, and outputs. It is not a byte limit: behavioral row sizes grow with their windows.
+    /// Reads inside each composed evaluation scale with that cohort's tree and use the maintenance
+    /// lane's permits. A run closes before the seed that would exceed the budget; a seed heavier
+    /// than the whole budget still runs alone.
     #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX_ROWS", default = "4096")]
     pub cohort_seed_apply_batch_max_rows: usize,
 
@@ -809,7 +807,7 @@ impl Config {
         // held and the partition would wedge behind the first one.
         ensure!(
             self.cohort_seed_apply_batch_max > 0,
-            "COHORT_SEED_APPLY_BATCH_MAX must be greater than zero (1 = the per-seed apply).",
+            "COHORT_SEED_APPLY_BATCH_MAX must be greater than zero (1 = one seed per run).",
         );
         ensure!(
             self.cohort_seed_apply_batch_max_rows > 0,

@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
-use crate::merge::tombstone_redirect::{self, MAX_CROSS_PARTITION_REDIRECT_HOPS};
+use crate::merge::tombstone_redirect::MAX_CROSS_PARTITION_REDIRECT_HOPS;
 use crate::observability::metrics::{
     PERSON_SEED_HASHES_DROPPED_TOTAL, PERSON_SEED_PRIOR_CORRUPT_TOTAL,
     PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
@@ -32,13 +32,12 @@ use crate::stage1::state::StateVariant;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{PersonPrefix, PersonRecordKey, PersonRecords, ReadLane, StagedBatch};
 use crate::workers::seed_apply::{
-    ApplyDeps, ApplyStage, Decoded, Folded, Outcome, Overlay, ReKeys, RunStamp, SeedHead, SeedHold,
-    StageClock, Tally, TouchedPersons,
+    record_stage1_transition, resolve_run_persons, ApplyDeps, ApplyStage, Decoded, Folded, Outcome,
+    Overlay, ReKeys, RunStamp, SeedHead, SeedHold, StageClock, Tally, TouchedPersons,
 };
 use crate::workers::seed_path::{route_seed, SeedRoute};
 use crate::workers::seed_run::{Admitted, OffsetSpan, SeedKind, SeedRun};
 use crate::workers::stage2_path::FoldedLeaf;
-use crate::workers::worker::transition_metric_label;
 
 /// Person-property seed admission for the partition workers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,22 +147,11 @@ async fn route_person_seeds<'a>(
         placed.push((seed, filters, effective));
     }
 
-    let mut persons: Vec<(TeamId, Uuid)> = placed
+    let persons: Vec<(TeamId, Uuid)> = placed
         .iter()
         .map(|(seed, _, _)| (seed.team_id(), seed.person_id()))
         .collect();
-    persons.sort_unstable();
-    persons.dedup();
-    let resolved = tombstone_redirect::resolve_batch_offloaded(
-        deps.handle,
-        deps.partition_id,
-        &persons,
-        deps.merge.partition_count,
-        ReadLane::Maintenance,
-    )
-    .await
-    .map_err(SeedHold::store(ApplyStage::Resolve))?;
-    SeedHold::check_read(ApplyStage::Resolve, persons.len(), resolved.len())?;
+    let resolved = resolve_run_persons(deps, persons).await?;
 
     let mut local = Vec::with_capacity(placed.len());
     let mut re_keys = Vec::new();
@@ -248,7 +236,7 @@ async fn read_person_records(
 }
 
 /// What the run left on one person, carried from the fold to the emit.
-struct PersonTouch<'a> {
+struct SeededPerson<'a> {
     team_id: TeamId,
     filters: &'a TeamFilters,
     person: Uuid,
@@ -276,14 +264,14 @@ fn fold_person_seeds(
     mut tally: Tally,
 ) -> Folded {
     let margin_ms = deps.merge.person_seed.live_margin_ms;
-    let mut touches: BTreeMap<PersonRecordKey, PersonTouch<'_>> = BTreeMap::new();
+    let mut touches: BTreeMap<PersonRecordKey, SeededPerson<'_>> = BTreeMap::new();
     let mut recompose = TouchedPersons::default();
 
-    for local in &local {
-        let team_id = local.seed.team_id();
-        let run_id = local.seed.run_id();
+    for seeded in &local {
+        let team_id = seeded.seed.team_id();
+        let run_id = seeded.seed.run_id();
         let slot = overlay
-            .slot_mut(&local.record_key)
+            .slot_mut(&seeded.record_key)
             .expect("the read pass keyed a slot for every person this run can touch");
         // Read-your-writes covers the verdict, not just the record: a second seed for the same
         // person in a run sees the first seed's stamp and zeroed fingerprints and gets
@@ -295,28 +283,28 @@ fn fold_person_seeds(
         };
         let verdict = person_seed_verdict(
             &prior,
-            local.seed.scanned_at_ms(),
+            seeded.seed.scanned_at_ms(),
             margin_ms,
-            local.filters.catalog_fingerprint,
+            seeded.filters.catalog_fingerprint,
         );
         // A live-fresh skip is not merged at all: the stored state already subsumes the seed.
         let update = match verdict {
             PersonSeedVerdict::SkipLiveFresh => RecordUpdate::Unchanged,
-            _ => record_update(&prior, &local.seed, &local.effective, margin_ms),
+            _ => record_update(&prior, &seeded.seed, &seeded.effective, margin_ms),
         };
         tally.add(update.outcome(verdict));
         let recomposes_this = recomposes(&update, verdict, &prior);
         match update {
             RecordUpdate::Changed(record) => slot.advance(record),
-            RecordUpdate::Unchanged => slot.touch(),
+            RecordUpdate::Unchanged => {}
         }
 
         let touch = touches
-            .entry(local.record_key)
-            .or_insert_with(|| PersonTouch {
+            .entry(seeded.record_key)
+            .or_insert_with(|| SeededPerson {
                 team_id,
-                filters: local.filters,
-                person: local.person,
+                filters: seeded.filters,
+                person: seeded.person,
                 hashes: BTreeMap::new(),
                 run_id,
                 recompose: BTreeSet::new(),
@@ -324,11 +312,11 @@ fn fold_person_seeds(
         // Offset order, so last write wins on both: the person carries the last seed that touched
         // them, each hash the last seed that evaluated that hash.
         touch.run_id = run_id;
-        for &hash in &local.effective.evaluated {
+        for &hash in &seeded.effective.evaluated {
             touch.hashes.insert(hash, run_id);
         }
         if recomposes_this {
-            touch.recompose.extend(local.effective.leaf_keys());
+            touch.recompose.extend(seeded.effective.leaf_keys());
         }
     }
 
@@ -387,9 +375,7 @@ fn fold_person_seeds(
                     kind,
                 };
                 // Stage-1 flips, not emissions: the register diff owns what downstream is told.
-                if let Some(label) = transition_metric_label(touch.filters, &transition) {
-                    tally.add(Outcome::Stage1Transition(label));
-                }
+                record_stage1_transition(&mut tally, touch.filters, &transition);
             }
         }
     }

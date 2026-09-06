@@ -7,8 +7,8 @@
 //! stage-1 commit → schedule → recompute → produce → stage-2 commit → mark.
 //! Before an emission, this path records the retired membership with stage 1 and advances it only
 //! after the produce acks. A failed produce is therefore re-derived while replay still folds the
-//! leaf. If the leaf expires before replay and is dropped by the fold, sweep or reconcile retires
-//! its stored state. Composed bits come from
+//! leaf. If the leaf expires before replay and the fold drops it, this repair no longer applies;
+//! eviction and reconcile remain its recovery paths. Composed bits come from
 //! [`recompute_stage2`](crate::workers::stage2_path::recompute_stage2); single-leaf ones from
 //! [`diff_single_leaf_registers`](crate::workers::stage2_path::diff_single_leaf_registers), which
 //! is why `Unchanged` leaves still take part. The replay mints no transition, so the persisted
@@ -19,23 +19,16 @@ use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroU32;
 
 use chrono_tz::Tz;
-use metrics::{counter, gauge};
-use tracing::{debug, warn};
+use metrics::counter;
+use tracing::warn;
 use uuid::Uuid;
 
-use cohort_core::seed::{PersonSeed, ReconcileTile, RunId, SeedTile};
+use cohort_core::seed::{PersonSeed, RunId, SeedTile};
 
 use crate::filters::reverse_index::{LeafStateMeta, TeamFilters};
 use crate::filters::TeamId;
-use crate::merge::tombstone_redirect::{self, Resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS};
-use crate::observability::metrics::{
-    COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_JOBS_ENQUEUED_TOTAL,
-    RECONCILE_JOBS_SUPERSEDED_TOTAL, SEED_HELD_OFFSET_GAUGE, SEED_REKEY_HOP_CAPPED_TOTAL,
-    SEED_TILES_SKIPPED_TOTAL, STAGE1_STATE_DECODE_ERROR,
-    OUTPUT_TRANSITIONS_UNMAPPED, STAGE1_TRANSITIONS,
-};
-use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
-use crate::producer::{ChangeOrigin, CohortMembershipChange};
+use crate::merge::tombstone_redirect::{Resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS};
+use crate::observability::metrics::{SEED_REKEY_HOP_CAPPED_TOTAL, STAGE1_STATE_DECODE_ERROR};
 use crate::stage1::bucket_tz::{
     daily_bucket_len, day_idx_in_tz, start_of_day_ms_in_tz, window_start_for_now, DayIdx,
 };
@@ -48,15 +41,12 @@ use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::stage2::leaf_membership;
 use crate::store::{Behavioral, BehavioralKey, PersonPrefix, ReadLane, StagedBatch};
-use crate::workers::merge_path::MergeWorkerDeps;
-use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
 use crate::workers::seed_apply::{
-    ApplyDeps, ApplyStage, BatchMarks, Decoded, Folded, Outcome, Overlay, ReKeys, RunStamp,
-    SeedHead, SeedHold, StageClock, Tally, TouchedPersons,
+    record_stage1_transition, resolve_run_persons, ApplyDeps, ApplyStage, Decoded, Folded, Outcome,
+    Overlay, ReKeys, RunStamp, SeedHead, SeedHold, StageClock, Tally, TouchedPersons,
 };
-use crate::workers::seed_run::{Admitted, OffsetSpan, SeedKind, SeedOffset, SeedRun};
+use crate::workers::seed_run::{Admitted, OffsetSpan, SeedKind, SeedRun};
 use crate::workers::stage2_path::FoldedLeaf;
-use crate::workers::worker::transition_metric_label;
 
 /// A seed kind that can be re-keyed onto a merge survivor.
 pub(crate) trait RekeyableSeed: Sized {
@@ -566,22 +556,11 @@ async fn route_tiles<'a>(
         placed.push((tile, filters));
     }
 
-    let mut persons: Vec<(TeamId, Uuid)> = placed
+    let persons: Vec<(TeamId, Uuid)> = placed
         .iter()
         .map(|(tile, _)| (tile.team_id(), tile.person_id()))
         .collect();
-    persons.sort_unstable();
-    persons.dedup();
-    let resolved = tombstone_redirect::resolve_batch_offloaded(
-        deps.handle,
-        deps.partition_id,
-        &persons,
-        deps.merge.partition_count,
-        ReadLane::Maintenance,
-    )
-    .await
-    .map_err(SeedHold::store(ApplyStage::Resolve))?;
-    SeedHold::check_read(ApplyStage::Resolve, persons.len(), resolved.len())?;
+    let resolved = resolve_run_persons(deps, persons).await?;
 
     let mut local = Vec::with_capacity(placed.len());
     let mut re_keys = Vec::new();
@@ -743,7 +722,6 @@ fn fold_tiles(
                 }
                 LeafMergeOutcome::Unchanged { .. } => {
                     tally.add(Outcome::TileUnchanged(meta.variant.as_str()));
-                    slot.touch();
                     i64::MAX
                 }
                 LeafMergeOutcome::Dropped(reason) => {
@@ -773,10 +751,10 @@ fn fold_tiles(
     let mut records = StagedBatch::default();
     let mut leaves: BTreeMap<TeamId, Vec<FoldedLeaf>> = BTreeMap::new();
     let mut schedules = Vec::new();
-    for (key, slot) in overlay.touched() {
-        let Some(touch) = touches.get(key) else {
-            continue;
-        };
+    for (key, touch) in &touches {
+        let slot = overlay
+            .slot(key)
+            .expect("every touch came from a slot the read pass keyed");
         let person_id = key.prefix.person_id;
         let in_cohort = leaf_membership(slot.current().map(|record| &record.state), touch.meta);
         // Net against the run-start read, not against the last seed: a run that enters and then
@@ -810,9 +788,7 @@ fn fold_tiles(
                 kind,
             };
             // Stage-1 flips, not emissions: the register diff owns what downstream is told.
-            if let Some(label) = transition_metric_label(touch.filters, &transition) {
-                tally.add(Outcome::Stage1Transition(label));
-            }
+            record_stage1_transition(&mut tally, touch.filters, &transition);
         }
     }
 
@@ -827,115 +803,6 @@ fn fold_tiles(
     }
 }
 
-pub(crate) fn admit_reconcile(
-    partition_id: u16,
-    merge: &MergeWorkerDeps,
-    queue: &mut ReconcileQueue,
-    marks: &mut BatchMarks,
-    tile: &ReconcileTile,
-    offset: SeedOffset,
-) {
-    if !merge.reconcile.enabled {
-        counter!(SEED_TILES_SKIPPED_TOTAL, "reason" => "reconcile_disabled").increment(1);
-        warn!(
-            partition_id,
-            team_id = tile.team_id().0,
-            cohort_id = tile.cohort_id().0,
-            run_id = %tile.run_id().0,
-            "reconcile seed skipped while reconcile is disabled; re-dispatch after enabling",
-        );
-        marks.mark(offset);
-        return;
-    }
-
-    let kind = tile.scope().kind();
-    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), kind, offset.0)
-    {
-        SupersedeOutcome::NoQueuedJob => merge.seed_tracker.defer(partition_id as i32, offset.0),
-        SupersedeOutcome::Replaced(superseded) => {
-            let (replacement, outcome) = merge
-                .seed_tracker
-                .replace_deferred(superseded, offset.0)
-                .expect("a queued reconcile must retain its deferred offset in the current tenure");
-            match outcome {
-                MarkOutcome::WithinDispatch => {}
-                MarkOutcome::CappedAheadOfDispatch => {
-                    counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
-                    warn!(
-                        partition_id,
-                        "superseded reconcile completion exceeded the seed dispatch ceiling",
-                    );
-                }
-            }
-            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL, "kind" => kind.as_str()).increment(1);
-            replacement
-        }
-        SupersedeOutcome::RetainedNewerOrEqual => {
-            counter!(SEED_TILES_SKIPPED_TOTAL, "reason" => "reconcile_stale_replay").increment(1);
-            debug!(
-                partition_id,
-                team_id = tile.team_id().0,
-                cohort_id = tile.cohort_id().0,
-                run_id = %tile.run_id().0,
-                offset = offset.0,
-                "replayed reconcile seed retained the newer or equal queued job",
-            );
-            marks.mark(offset);
-            return;
-        }
-    };
-
-    queue.enqueue(tile.clone(), deferred);
-    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL, "kind" => kind.as_str()).increment(1);
-}
-
-pub(crate) fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
-    for change in changes {
-        change.origin = Some(ChangeOrigin::Seed);
-        change.run_id = Some(run_id);
-    }
-}
-
-/// Count stage-1 flips without deriving emissions, which the seed register diff owns.
-pub(crate) fn count_stage1_transitions(filters: &TeamFilters, transitions: &[LeafTransition]) {
-    for transition in transitions {
-        if let Some(kind) = transition_metric_label(filters, transition) {
-            counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-        }
-        if filters
-            .by_lsk_to_single_leaf_cohorts
-            .get(&transition.leaf_state_key)
-            .is_none_or(Vec::is_empty)
-            && !filters
-                .by_lsk_to_composable_cohorts
-                .contains_key(&transition.leaf_state_key)
-        {
-            counter!(OUTPUT_TRANSITIONS_UNMAPPED, "reason" => "no_emitting_cohort").increment(1);
-        }
-    }
-}
-
-/// Advance the seed tracker past `offset`. A mark beyond the dispatch ceiling is capped and counted.
-pub(crate) fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: SeedOffset) {
-    if let MarkOutcome::CappedAheadOfDispatch =
-        tracker.mark_processed(partition_id as i32, offset.0 + 1)
-    {
-        counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
-        warn!(
-            partition_id,
-            next_offset = offset.0 + 1,
-            "seed offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
-        );
-    }
-}
-
-/// Pin the seed commit floor at the failed offset so Kafka redelivers it; emit
-/// [`SEED_HELD_OFFSET_GAUGE`] so the stall is visible.
-pub(crate) fn hold(tracker: &OffsetTracker, partition_id: u16, offset: SeedOffset) {
-    let floor = tracker.hold(partition_id as i32, offset.0);
-    gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition_id.to_string()).set(floor as f64);
-}
-
 #[cfg(test)]
 // Tests seed and assert against `CohortStore` directly, the sanctioned direct-store surface.
 #[allow(clippy::disallowed_methods)]
@@ -944,8 +811,9 @@ mod tests {
     use std::sync::Arc;
 
     use chrono_tz::America::New_York;
+    use chrono_tz::Etc::GMTPlus12;
+    use chrono_tz::Pacific::Kiritimati;
     use chrono_tz::UTC;
-    use metrics_exporter_prometheus::PrometheusBuilder;
     use proptest::prelude::*;
     use serde_json::{json, Value};
     use tempfile::TempDir;
@@ -960,9 +828,10 @@ mod tests {
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
+    use crate::partitions::OffsetTracker;
     use crate::producer::{
-        CaptureReconcileMarkerSink, CaptureSeedTileSink, CaptureSink, MembershipSink,
-        MembershipStatus,
+        CaptureReconcileMarkerSink, CaptureSeedTileSink, CaptureSink, ChangeOrigin,
+        CohortMembershipChange, MembershipSink, MembershipStatus,
     };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
@@ -971,34 +840,15 @@ mod tests {
     };
     use crate::sweep::EvictionQueue;
     use crate::workers::event_path::{process_event_gated, EventNameGating};
+    use crate::workers::merge_path::MergeWorkerDeps;
+    use crate::workers::reconcile::ReconcileQueue;
     use crate::workers::seed_apply::handle_seed_groups;
-    use crate::workers::seed_run::{group_seeds, row_weight, RunBudget};
+    use crate::workers::seed_run::{group_seeds, row_weight, RunBudget, SeedOffset};
 
     use super::*;
 
     const TEAM: TeamId = TeamId(7);
 
-    #[test]
-    fn an_unmapped_seed_transition_keeps_its_diagnostic() {
-        let recorder = PrometheusBuilder::new().build_recorder();
-        let handle = recorder.handle();
-        let filters = build_filters(Vec::new(), UTC);
-        let transition = LeafIdentity {
-            team_id: TEAM,
-            lsk: LeafStateKey([0xEE; 16]),
-            person_id: Uuid::from_u128(1),
-            condition_hash: [0xDD; 16],
-        }
-        .transition(TransitionKind::Entered);
-
-        metrics::with_local_recorder(&recorder, || {
-            count_stage1_transitions(&filters, &[transition]);
-        });
-
-        assert!(handle
-            .render()
-            .contains("output_transitions_unmapped_total{reason=\"no_emitting_cohort\"} 1"));
-    }
     const OTHER_TEAM: TeamId = TeamId(8);
     const HASH: [u8; 16] = *b"0123456789abcdef";
     /// A fixed "now": 2026-06-15 12:00:00 UTC.
@@ -2029,16 +1879,6 @@ mod tests {
         /// Apply a channel batch's worth of seeds the way the worker does: group them into runs,
         /// then apply each group in order.
         async fn run_batch(&mut self, partition_id: u16, seeds: Vec<(SeedWork, i64)>) {
-            self.run_batch_budgeted(partition_id, seeds, RunBudget::default())
-                .await;
-        }
-
-        async fn run_batch_budgeted(
-            &mut self,
-            partition_id: u16,
-            seeds: Vec<(SeedWork, i64)>,
-            budget: RunBudget,
-        ) {
             let max = seeds.iter().map(|(_, offset)| *offset).max().unwrap();
             self.deps
                 .seed_tracker
@@ -2059,7 +1899,9 @@ mod tests {
                     offset: SeedOffset(offset),
                 })
                 .collect();
-            let groups = group_seeds(admitted, budget, |work| row_weight(&snapshot, work));
+            let groups = group_seeds(admitted, RunBudget::default(), |work| {
+                row_weight(&snapshot, work)
+            });
             handle_seed_groups(
                 deps,
                 &mut self.queue,
@@ -2363,6 +2205,30 @@ mod tests {
         assert_eq!(batched.committable(partition_id), Some(2));
     }
 
+    #[tokio::test]
+    async fn an_unchanged_later_tile_keeps_the_runs_eviction_deadline() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::new(vec![(1, wrap(vec![multiple_leaf_json(7, "gte", 1)]))]);
+        let day = today();
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (SeedWork::Tile(tile_for(person, day, 2)), 0),
+                    (SeedWork::Tile(tile_for(person, day, 1)), 1),
+                ],
+            )
+            .await;
+
+        assert_eq!(
+            shell.queue.len(),
+            1,
+            "the unchanged max-merge must not replace the earlier finite deadline",
+        );
+    }
+
     /// A run that enters and then leaves the same leaf told downstream nothing, so it must emit
     /// nothing and leave no register behind. Emitting the intermediate flip would make a run of
     /// two differ from a run of one over the same net state.
@@ -2656,6 +2522,76 @@ mod tests {
             "the other team's register lands under its own team id",
         );
         assert_eq!(shell.committable(partition_id), Some(2));
+    }
+
+    #[test]
+    fn a_multi_team_fold_uses_each_teams_day_index() {
+        let cohorts = vec![(1, wrap(vec![multiple_leaf_json(1, "gte", 1)]))];
+        let late_filters = build_filters_for(TEAM, cohorts.clone(), Kiritimati);
+        let early_filters = build_filters_for(OTHER_TEAM, cohorts, GMTPlus12);
+        let hash = ConditionHash::parse("0123456789abcdef").unwrap();
+        let late_lsk = late_filters.by_condition_to_lsk[&hash.as_bytes()][0];
+        let early_lsk = early_filters.by_condition_to_lsk[&hash.as_bytes()][0];
+        let late_person = Uuid::from_u128(1);
+        let early_person = Uuid::from_u128(2);
+        let partition_id = 0;
+        let stamp = RunStamp {
+            now_ms: NOW_MS,
+            last_updated: "fixed".to_string(),
+        };
+        let early_day = day_idx_in_tz(stamp.now_ms, GMTPlus12);
+        assert!(day_idx_in_tz(stamp.now_ms, Kiritimati) > early_day);
+        let tile_day = early_day - 1;
+        let late_prefix = PersonPrefix::new(partition_id, TEAM.0 as u64, late_person);
+        let early_prefix = PersonPrefix::new(partition_id, OTHER_TEAM.0 as u64, early_person);
+        let late_lsks = [late_lsk];
+        let early_lsks = [early_lsk];
+        let local = vec![
+            LocalTile {
+                tile: tile_for_team(TEAM, late_person, tile_day, 1),
+                person: late_person,
+                filters: &late_filters,
+                lsks: &late_lsks,
+                prefix: late_prefix,
+            },
+            LocalTile {
+                tile: tile_for_team(OTHER_TEAM, early_person, tile_day, 1),
+                person: early_person,
+                filters: &early_filters,
+                lsks: &early_lsks,
+                prefix: early_prefix,
+            },
+        ];
+        let keys = vec![
+            late_prefix.behavioral_key(late_lsk),
+            early_prefix.behavioral_key(early_lsk),
+        ];
+        let overlay = Overlay::from_read(ApplyStage::Read, keys, vec![None, None], |_| {
+            Decoded::Corrupt
+        })
+        .unwrap();
+
+        let folded = fold_tiles(
+            OffsetSpan {
+                first: SeedOffset(0),
+                last: SeedOffset(1),
+            },
+            local,
+            Vec::new(),
+            overlay,
+            &stamp,
+            Tally::default(),
+        );
+
+        assert!(
+            !folded.leaves.contains_key(&TEAM),
+            "the late timezone has already elapsed the tile",
+        );
+        assert_eq!(
+            folded.leaves[&OTHER_TEAM][0].person_id, early_person,
+            "the early timezone still includes the tile",
+        );
+        assert!(folded.leaves[&OTHER_TEAM][0].in_cohort);
     }
 
     /// A composed change carries the run of the last seed that touched the person, in offset

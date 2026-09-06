@@ -203,14 +203,14 @@ fn registers_backed_by(filters: &TeamFilters, lsk: &LeafStateKey) -> usize {
 /// Split `seeds` into runs of one kind, in offset order, each within `budget` under `weigh`.
 ///
 /// One open run per kind: a tile does not close the open person run and vice versa, so an
-/// interleaved stream still forms full runs. A control seed (reconcile, skip) closes both open
-/// runs first, so it stays behind every data seed that precedes it. A budget closes only the run
-/// it bounds.
+/// interleaved stream still forms full runs. A reconcile seed closes both open runs first because
+/// it orders a queue entry; a skip has no durable effect and does not split them. A budget closes
+/// only the run it bounds.
 ///
 /// Runs apply in first-offset order, so two open runs could apply one person's seeds out of offset
 /// order when both kinds touch them, and a composed cohort would then emit flips the per-seed
 /// apply never emits. A seed joins its kind's open run only if that run starts above the other
-/// kind's latest run holding its person; otherwise it starts a new run. Different persons keep
+/// kind's latest run for its person; otherwise it starts a new run. Different persons keep
 /// batching, which is the ordinary shape.
 ///
 /// Residue: a tombstone redirects a seed to the merge survivor, and routing runs after grouping, so
@@ -233,24 +233,24 @@ pub(crate) fn group_seeds(
         let weight = weigh(&work);
         match work {
             SeedWork::Tile(tile) => {
-                let holder = (tile.team_id(), tile.person_id());
-                let held_since = persons.holds_since(holder);
+                let person = (tile.team_id(), tile.person_id());
+                let other_kind_run_start = persons.run_start_for(person);
                 tiles.admit(
                     Admitted { work: tile, offset },
-                    holder,
-                    held_since,
+                    person,
+                    other_kind_run_start,
                     weight,
                     budget,
                     &mut groups,
                 );
             }
             SeedWork::Person(seed) => {
-                let holder = (seed.team_id(), seed.person_id());
-                let held_since = tiles.holds_since(holder);
+                let person = (seed.team_id(), seed.person_id());
+                let other_kind_run_start = tiles.run_start_for(person);
                 persons.admit(
                     Admitted { work: seed, offset },
-                    holder,
-                    held_since,
+                    person,
+                    other_kind_run_start,
                     weight,
                     budget,
                     &mut groups,
@@ -262,8 +262,6 @@ pub(crate) fn group_seeds(
                 groups.push(SeedGroup::Reconcile(Admitted { work: tile, offset }));
             }
             SeedWork::Skip(reason) => {
-                tiles.close(&mut groups);
-                persons.close(&mut groups);
                 groups.push(SeedGroup::Skip(Admitted {
                     work: reason,
                     offset,
@@ -282,8 +280,8 @@ pub(crate) fn group_seeds(
 }
 
 /// One person of one team, the unit both seed kinds order against: stage-1 rows, stage-2 registers
-/// and cascades are all keyed on it, so runs that share no holder cannot observe each other.
-type Holder = (TeamId, Uuid);
+/// and cascades are all keyed on it, so runs that share no person cannot observe each other.
+type TeamPerson = (TeamId, Uuid);
 
 /// A run of one kind still accepting seeds, with the row weight it has admitted.
 struct OpenRun<T> {
@@ -292,7 +290,7 @@ struct OpenRun<T> {
     rows: usize,
     /// Per person, the first offset of the latest run of this kind that took them. Kept across
     /// closes: a closed run still applies at its own first offset.
-    holders: HashMap<Holder, SeedOffset>,
+    run_start_by_person: HashMap<TeamPerson, SeedOffset>,
 }
 
 impl<T> OpenRun<T> {
@@ -301,30 +299,30 @@ impl<T> OpenRun<T> {
             into,
             items: Vec::new(),
             rows: 0,
-            holders: HashMap::new(),
+            run_start_by_person: HashMap::new(),
         }
     }
 
-    /// The start of the latest run of this kind holding this person.
-    fn holds_since(&self, holder: Holder) -> Option<SeedOffset> {
-        self.holders.get(&holder).copied()
+    /// The start of the latest run of this kind for this person.
+    fn run_start_for(&self, person: TeamPerson) -> Option<SeedOffset> {
+        self.run_start_by_person.get(&person).copied()
     }
 
-    /// Admit one seed. The run closes first when `held_since` starts above it or the weight would
-    /// overflow the row budget, and after when the seed count fills. An empty run always admits,
-    /// so a seed heavier than the whole budget still runs alone.
+    /// Admit one seed. The run closes first when the other kind's run for this person starts above
+    /// it or the weight would overflow the row budget, and after when the seed count fills. An
+    /// empty run always admits, so a seed heavier than the whole budget still runs alone.
     fn admit(
         &mut self,
         item: Admitted<T>,
-        holder: Holder,
-        held_since: Option<SeedOffset>,
+        person: TeamPerson,
+        other_kind_run_start: Option<SeedOffset>,
         weight: usize,
         budget: RunBudget,
         groups: &mut Vec<SeedGroup>,
     ) {
         let start = self.items.first().map(|first| first.offset);
         let reorders = start
-            .zip(held_since)
+            .zip(other_kind_run_start)
             .is_some_and(|(start, since)| start < since);
         let overflows = self.rows.saturating_add(weight) > budget.rows.get();
         if reorders || (overflows && !self.items.is_empty()) {
@@ -333,7 +331,7 @@ impl<T> OpenRun<T> {
         self.items.push(item);
         self.rows = self.rows.saturating_add(weight);
         let start = self.items[0].offset;
-        self.holders.insert(holder, start);
+        self.run_start_by_person.insert(person, start);
         if self.items.len() >= budget.seeds.get() {
             self.close(groups);
         }
@@ -466,10 +464,9 @@ mod tests {
             .collect()
     }
 
-    /// A run that leaked across kinds would hand tiles to the person fold; a control seed that did
-    /// not close both runs would let a later batch mark past its own offset.
+    /// Reconcile must stay behind preceding data, while a no-op skip must not fragment a data run.
     #[test]
-    fn control_seeds_close_both_runs_and_stay_single() {
+    fn reconcile_closes_both_runs_while_skip_stays_nonbarrier() {
         let groups = group_by_count(
             vec![
                 admitted(SeedWork::Tile(tile()), 0),
@@ -477,19 +474,20 @@ mod tests {
                 admitted(SeedWork::Reconcile(reconcile()), 2),
                 admitted(SeedWork::Tile(tile()), 3),
                 admitted(SeedWork::Skip(SeedSkipReason::UnknownKind), 4),
+                admitted(SeedWork::Tile(tile()), 5),
             ],
             256,
         );
 
         assert_eq!(
             spans(&groups),
-            vec![(0, 0), (1, 1), (2, 2), (3, 3), (4, 4)],
-            "every group holds its own first and marks its own last",
+            vec![(0, 0), (1, 1), (2, 2), (3, 5), (4, 4)],
+            "reconcile closes both runs, while skip leaves the tile run open",
         );
         assert!(matches!(groups[0], SeedGroup::Tiles(_)));
         assert!(matches!(groups[1], SeedGroup::Persons(_)));
         assert!(matches!(groups[2], SeedGroup::Reconcile(_)));
-        assert!(matches!(groups[3], SeedGroup::Tiles(_)));
+        assert!(matches!(groups[3], SeedGroup::Tiles(ref run) if run.len() == 2));
         assert!(matches!(groups[4], SeedGroup::Skip(_)));
     }
 
@@ -540,7 +538,7 @@ mod tests {
         );
     }
 
-    /// A run that starts above the other kind's run holding its persons applies after it, so it
+    /// A run that starts above the other kind's run for its persons applies after it, so it
     /// batches.
     #[test]
     fn a_run_starting_above_the_other_kinds_run_batches_its_shared_persons() {
