@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -86,6 +87,17 @@ describe('wizardRunDetailsLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
+    })
+
+    it('reports an opened run with the environment that ran it', () => {
+        logic.actions.selectRun(makeRun())
+
+        expect(posthog.capture).toHaveBeenCalledWith('wizard launchpad run opened', {
+            surface: 'cloud_launchpad',
+            run_environment: 'cloud',
+            run_status: 'running',
+            program_id: 'posthog-integration',
+        })
     })
 
     it('loads run details and artifacts through separate endpoints', async () => {

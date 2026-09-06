@@ -5,6 +5,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { wizardRunsList } from './generated/api'
 import type { RunEnvironmentEnumApi, WizardRunApi, WizardRunStatusEnumApi } from './generated/api.schemas'
+import { reportWizardLaunchpadViewed } from './wizardLaunchpadTelemetry'
 import { wizardWorkspaceLabel } from './wizardRunDisplay'
 
 const RUN_POLL_INTERVAL_MS = 10_000
@@ -182,6 +183,7 @@ export const wizardRunsLogic = kea<wizardRunsLogicType>([
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
+            reportWizardLaunchpadViewed()
             actions.loadRuns()
 
             cache.disposables.add(() => {
