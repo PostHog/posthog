@@ -885,7 +885,7 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'PurityBot',
-        definition: { name: 'PurityBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Purity' },
+        definition: { name: 'PurityBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Purili' },
     },
     {
         pattern: 'NumbatTopicCalibration',

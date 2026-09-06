@@ -1022,7 +1022,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "internal-link-study": BotDefinition(
         "internal-link-study", "seo_crawler", "Bot", "nadiamohamed.me", documentation_url="https://nadiamohamed.me"
     ),
-    "PurityBot": BotDefinition("PurityBot", "search_crawler", "Bot", "Purity", documentation_url="https://puri.li/bot"),
+    "PurityBot": BotDefinition("PurityBot", "search_crawler", "Bot", "Purili", documentation_url="https://puri.li/bot"),
     "NumbatTopicCalibration": BotDefinition(
         "Numbat Topic Calibration", "search_crawler", "Bot", "Numbat", documentation_url="https://numbat.io"
     ),
