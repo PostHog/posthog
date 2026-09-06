@@ -21,19 +21,31 @@ interface ShortcutProps extends Omit<ShortcutType, 'ref' | 'keybind' | 'interact
     interaction: 'click' | 'focus'
     /** If true, the keyboard shortcut will not be registered and tooltip keyboard shortcut will not be added to the childs tooltip */
     disabled?: boolean
+    /**
+     * Reason the child is disabled. A wrapper such as AccessControlAction injects this to guard the
+     * child; it is forwarded to the child so the guard is not silently dropped.
+     */
+    disabledReason?: string | null
 }
 
 export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut(
-    { children, name, keybind, intent, interaction, scope = 'global', disabled = false, priority = 0 },
+    { children, name, keybind, intent, interaction, scope = 'global', disabled = false, disabledReason, priority = 0 },
     forwardedRef
 ): ReactElement {
+    const childProps = (isValidElement(children) ? children.props : {}) as Record<string, unknown>
+
+    // The child is disabled when this Shortcut, a wrapper's forwarded props, or the child itself
+    // say so. A disabled control must not keep a live keybind, so skip registration in that case.
+    const isDisabled =
+        disabled || Boolean(disabledReason) || Boolean(childProps.disabled) || Boolean(childProps.disabledReason)
+
     const { callbackRef } = useShortcut({
         name,
         keybind,
         intent,
         interaction,
         scope,
-        disabled,
+        disabled: isDisabled,
         priority,
     })
 
@@ -43,12 +55,11 @@ export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut
         throw new Error('Shortcut requires a single React element child')
     }
 
-    const childProps = children.props as Record<string, unknown>
     const keybindStrings = keybind.map((kb) => kb.join('+')).join(',')
 
     // Append keyboard shortcut to tooltip if child has one
     let finalTooltip = childProps.tooltip
-    if (childProps.tooltip && !disabled) {
+    if (childProps.tooltip && !isDisabled) {
         finalTooltip = (
             <>
                 {childProps.tooltip}{' '}
@@ -64,6 +75,8 @@ export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut
 
     return cloneElement(children, {
         ref: mergedRef,
+        disabled: isDisabled,
+        disabledReason: disabledReason ?? (childProps.disabledReason as string | null | undefined),
         'data-shortcut-name': name,
         'data-shortcut-keybind': keybindStrings,
         'data-shortcut-intent': intent,

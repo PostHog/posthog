@@ -104,6 +104,30 @@ describe('LemonButton', () => {
         expect(onSubmit).not.toHaveBeenCalled()
     })
 
+    // A wrapper such as AccessControlAction guards the whole control through disabledReason. The side
+    // action must inherit it, or a viewer could still open the create menu through the side caret.
+    it.each([
+        { desc: 'blocked', disabledReason: 'Nope' as const, opens: false },
+        { desc: 'enabled', disabledReason: undefined, opens: true },
+    ])('side action dropdown $desc by the button disabledReason', async ({ disabledReason, opens }) => {
+        const user = userEvent.setup()
+
+        render(
+            <LemonButton disabledReason={disabledReason} sideAction={{ dropdown: { overlay: <div>Side menu</div> } }}>
+                Go
+            </LemonButton>
+        )
+
+        const buttons = screen.getAllByRole('button')
+        await user.click(buttons[buttons.length - 1])
+
+        if (opens) {
+            expect(screen.getByText('Side menu')).toBeInTheDocument()
+        } else {
+            expect(screen.queryByText('Side menu')).not.toBeInTheDocument()
+        }
+    })
+
     it('still submits when enabled (htmlType submit)', async () => {
         const user = userEvent.setup()
         const onSubmit = jest.fn((e) => e.preventDefault())
