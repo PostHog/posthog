@@ -11,6 +11,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { wizardRunsPartialUpdate, wizardRunsRetrieve } from './generated/api'
 import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from './generated/api.schemas'
 import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from './wizardApi'
+import { reportWizardLaunchpadRunOpened } from './wizardLaunchpadTelemetry'
 import { wizardRunDiffCanRender, wizardRunIsActive } from './wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
 
@@ -293,6 +294,7 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
                 return
             }
 
+            reportWizardLaunchpadRunOpened(run)
             actions.loadRunDetails({ runId: run.id })
             actions.loadRunArtifacts({ runId: run.id })
 

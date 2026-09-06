@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -6,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { wizardRegistryList, wizardRunsCreate } from './generated/api'
-import type { WizardProgramApi } from './generated/api.schemas'
+import type { WizardProgramApi, WizardRunApi } from './generated/api.schemas'
 import { wizardLibraryLogic } from './wizardLibraryLogic'
 
 jest.mock('./generated/api', () => ({
@@ -34,6 +35,24 @@ const localProgram: WizardProgramApi = {
     id: 'local-program',
     name: 'Local program',
     supported_environments: ['local'],
+}
+
+const createdRun: WizardRunApi = {
+    id: 'run-1',
+    team_id: 1,
+    created_by_id: 1,
+    environment: 'cloud',
+    workspace: { type: 'git_repository', repository: 'posthog/posthog' },
+    program,
+    status: 'created',
+    error_code: null,
+    error_message: null,
+    stage: null,
+    created_at: '2026-08-26T10:00:00Z',
+    updated_at: '2026-08-26T10:00:00Z',
+    started_at: null,
+    finished_at: null,
+    deadline_at: '2026-08-26T11:00:00Z',
 }
 
 describe('wizardLibraryLogic', () => {
@@ -67,6 +86,24 @@ describe('wizardLibraryLogic', () => {
 
     it('hides programs that only support local runs', () => {
         expect(logic.values.filteredPrograms).toEqual([program])
+    })
+
+    it('reports a cloud run started from the launchpad', async () => {
+        mockWizardRunsCreate.mockResolvedValue(createdRun)
+        logic.actions.openLibrary('stable-key')
+        logic.actions.selectProgram(program)
+        logic.actions.setRepository('posthog/posthog')
+
+        logic.actions.createRun()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(posthog.capture).toHaveBeenCalledWith('wizard launchpad run started', {
+            surface: 'cloud_launchpad',
+            wizard_run_id: 'run-1',
+            run_environment: 'cloud',
+            program_id: 'posthog-integration',
+            workspace_type: 'git_repository',
+        })
     })
 
     it('reuses the idempotency key after a failed cloud request', async () => {

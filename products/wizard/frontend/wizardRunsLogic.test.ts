@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -65,6 +66,10 @@ describe('wizardRunsLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('reports a launchpad view that is separable from local Wizard screens', () => {
+        expect(posthog.capture).toHaveBeenCalledWith('wizard launchpad viewed', { surface: 'cloud_launchpad' })
     })
 
     it('keeps resolved rows visible during background polling', async () => {

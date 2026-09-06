@@ -19,6 +19,7 @@ import type {
     WizardRunApi,
     WizardRunCreateRequestApi,
 } from './generated/api.schemas'
+import { reportWizardLaunchpadRunStarted } from './wizardLaunchpadTelemetry'
 import { WIZARD_LOCAL_RUNS_VISIBLE, wizardCommand } from './wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
 
@@ -357,7 +358,8 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
                 },
             })
         },
-        createRunRequestSuccess: () => {
+        createRunRequestSuccess: ({ createRunRequest }) => {
+            reportWizardLaunchpadRunStarted(createRunRequest)
             lemonToast.success('Cloud run started.')
             actions.closeLibrary()
             actions.refreshRuns()
