@@ -458,9 +458,22 @@ class BatchWritingPersonsCache {
             is_identified: existingPersonUpdate.is_identified || person.is_identified,
         }
 
+        // `properties_to_set` is what this batch intends to WRITE, so an incoming snapshot's whole
+        // property blob belongs in it only when that snapshot represents a write. A re-read does not:
+        // when a second event reaches the same person through a distinct ID the batch has not cached,
+        // the store goes back to Postgres, and folding that row in here overwrote the values already
+        // queued with the stale ones it had just read. `$identify` with a `$set` followed by a
+        // `$create_alias` is ordinary browser SDK traffic, and it lost the set silently: no error, no
+        // retry, and the profile kept the old value however many times the client resent it.
+        //
+        // `needs_write` is what tells the two apart. `fromInternalPerson` builds a read with
+        // `needs_write: false` and an empty `properties_to_set`, while anything the batch means to
+        // write carries true. Only the queued keys are protected: `properties` above still takes the
+        // freshly read values, so a key this batch never touched is still refreshed from the row,
+        // including one another pod wrote.
         mergedPersonUpdate.properties_to_set = {
             ...existingPersonUpdate.properties_to_set,
-            ...person.properties,
+            ...(person.needs_write ? person.properties : {}),
             ...person.properties_to_set,
         }
         for (const key of person.properties_to_unset) {
@@ -1313,7 +1326,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     if (person !== undefined) {
                         const personUpdate = fromInternalPerson(person, distinctId)
                         cache.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
-                        return person
+                        // Return what the cache HOLDS, not the row we just read. The two differ
+                        // whenever this batch already queued writes against the same person through
+                        // another distinct ID: `setCachedPersonForUpdate` folds this row under those
+                        // writes, and handing back the raw row instead would give the caller the
+                        // stale value the write was meant to replace. The null branch below already
+                        // re-reads the cache for the same reason; this is the same rule for the
+                        // branch that found a row.
+                        const merged = cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+                        return merged === undefined || merged === null ? person : toInternalPerson(merged)
                     } else {
                         // Before caching null, check if another async operation populated
                         // the cache while we were awaiting the DB query. This can happen when:

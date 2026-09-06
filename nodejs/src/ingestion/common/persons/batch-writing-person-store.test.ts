@@ -481,6 +481,95 @@ describe('BatchWritingPersonStore', () => {
             expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
 
+        /** A `$set` event's ops, with the fields these tests do not care about at their defaults. */
+        const ops = (overrides: Partial<EventOps>): EventOps => ({
+            set: {},
+            setOnce: {},
+            unset: [],
+            denied: false,
+            shouldForceUpdate: false,
+            eventName: '$set',
+            ...overrides,
+        })
+
+        it('does not let a mid-batch re-read overwrite a queued property write', async () => {
+            // #95302: a second event for the SAME person, arriving through a distinct ID the batch
+            // has not cached, sends the store back to Postgres. The row it gets back was folded on
+            // top of the writes already queued, so `$identify` with a `$set` lost its value to the
+            // stale database copy. The pipeline raised no error and the profile kept the old value,
+            // so clients resent it forever and it never converged.
+            const stored: InternalPerson = { ...person, properties: { plan: 'free' } }
+            const repo = createMockRepository()
+            repo.fetchPerson = jest.fn().mockResolvedValue(stored)
+            const store = new BatchWritingPersonsStore(repo, mockIngestionWarningsOutputs)
+
+            // Distinct ID A: read the person, then queue plan: 'pro' on it.
+            const fetchedByA = await store.fetchForUpdate(teamId, 'distinct-a', 0)
+            expect(fetchedByA!.properties).toEqual({ plan: 'free' })
+            await store.applyEventOps(
+                fetchedByA!,
+                ops({ set: { plan: 'pro' }, eventName: '$identify' }),
+                'distinct-a',
+                0
+            )
+
+            // Distinct ID B resolves to the same person but is not cached, so this re-reads Postgres.
+            const fetchedByB = await store.fetchForUpdate(teamId, 'distinct-b', 0)
+            expect(repo.fetchPerson).toHaveBeenCalledTimes(2)
+            expect(fetchedByB!.properties).toEqual({ plan: 'pro' })
+
+            // ...and the flush must write the queued value, not the row that was read over it.
+            await store.flush()
+            expect(repo.updatePersonsBatch).toHaveBeenCalledWith(
+                expect.arrayContaining([expect.objectContaining({ properties_to_set: { plan: 'pro' } })])
+            )
+            await store.shutdown()
+        })
+
+        it('still refreshes properties the batch has not queued a write for', async () => {
+            // The other half, and the reason the read is folded in at all: a key this batch never
+            // touched must take the value the database has, including one another pod wrote. Only
+            // the queued keys are protected.
+            const stored: InternalPerson = { ...person, properties: { plan: 'free', tier: 'gold' } }
+            const repo = createMockRepository()
+            repo.fetchPerson = jest.fn().mockResolvedValue(stored)
+            const store = new BatchWritingPersonsStore(repo, mockIngestionWarningsOutputs)
+
+            const fetchedByA = await store.fetchForUpdate(teamId, 'distinct-a', 0)
+            await store.applyEventOps(fetchedByA!, ops({ set: { plan: 'pro' } }), 'distinct-a', 0)
+
+            const fetchedByB = await store.fetchForUpdate(teamId, 'distinct-b', 0)
+            expect(fetchedByB!.properties).toEqual({ plan: 'pro', tier: 'gold' })
+
+            await store.flush()
+            await store.shutdown()
+        })
+
+        it('lets a later queued write win over an earlier one', async () => {
+            // Guard on the guard: protecting queued writes from a READ must not also protect them
+            // from a genuine later WRITE, which would freeze the first value of every key.
+            const stored: InternalPerson = { ...person, properties: { plan: 'free' } }
+            const repo = createMockRepository()
+            repo.fetchPerson = jest.fn().mockResolvedValue(stored)
+            const store = new BatchWritingPersonsStore(repo, mockIngestionWarningsOutputs)
+
+            const fetched = await store.fetchForUpdate(teamId, 'distinct-a', 0)
+            const [afterFirst] = await store.applyEventOps(fetched!, ops({ set: { plan: 'pro' } }), 'distinct-a', 0)
+            const [afterSecond] = await store.applyEventOps(
+                afterFirst,
+                ops({ set: { plan: 'enterprise' } }),
+                'distinct-a',
+                0
+            )
+
+            expect(afterSecond.properties).toEqual({ plan: 'enterprise' })
+            await store.flush()
+            expect(repo.updatePersonsBatch).toHaveBeenCalledWith(
+                expect.arrayContaining([expect.objectContaining({ properties_to_set: { plan: 'enterprise' } })])
+            )
+            await store.shutdown()
+        })
+
         it('should handle null results from database', async () => {
             const mockRepo = createMockRepository()
             mockRepo.fetchPerson = jest.fn().mockResolvedValue(undefined)
