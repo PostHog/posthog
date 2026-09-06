@@ -263,7 +263,6 @@ class PluginConfig(models.Model):
     class Meta:
         db_table = "posthog_pluginconfig"
         indexes = [
-            models.Index(fields=["web_token"]),
             models.Index(fields=["enabled"]),
         ]
 
