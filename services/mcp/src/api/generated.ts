@@ -35275,6 +35275,22 @@ export namespace Schemas {
       user_access_level?: AccessControlLevel | null;
     }
 
+    /**
+     * Errored entity counts by `$feature_flag_error` value, largest first.
+     */
+    export type ExposureCoverageErrorReasons = {[key: string]: number};
+
+    export interface ExposureCoverage {
+      /** Errored entity counts by `$feature_flag_error` value, largest first. */
+      error_reasons: ExposureCoverageErrorReasons;
+      /** Entities that called the flag and only ever got an error back. */
+      errored_entities: number;
+      /** Errored entities as a percentage (0-100) of all entities that called the flag. */
+      errored_percentage: number;
+      /** Entities that called the flag and got a variant back at least once. */
+      evaluated_entities: number;
+    }
+
     export type SampleRatioMismatchExpected = {[key: string]: number};
 
     export interface SampleRatioMismatch {
@@ -35293,6 +35309,7 @@ export namespace Schemas {
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      exposure_coverage?: ExposureCoverage | null;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
@@ -73142,6 +73159,7 @@ export namespace Schemas {
     export interface QueryResponseAlternative21 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      exposure_coverage?: ExposureCoverage | null;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];

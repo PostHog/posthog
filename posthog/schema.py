@@ -5218,22 +5218,6 @@ class ExperimentApiMetric(BaseModel):
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 
-class ExperimentExposureQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5333,6 +5317,28 @@ class ExperimentVariantResultFrequentist(BaseModel):
     sum: float
     sum_squares: float
     validation_failures: list[ExperimentStatsValidationFailure] | None = None
+
+
+class ExposureCoverage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error_reasons: dict[str, int] = Field(
+        ...,
+        description=("Errored entity counts by `$feature_flag_error` value, largest first."),
+    )
+    errored_entities: int = Field(
+        ...,
+        description="Entities that called the flag and only ever got an error back.",
+    )
+    errored_percentage: float = Field(
+        ...,
+        description=("Errored entities as a percentage (0-100) of all entities that called the flag."),
+    )
+    evaluated_entities: int = Field(
+        ...,
+        description=("Entities that called the flag and got a variant back at least once."),
+    )
 
 
 class ExternalQueryError(BaseModel):
@@ -6630,6 +6636,7 @@ class QueryResponseAlternative21(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    exposure_coverage: ExposureCoverage | None = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -11787,6 +11794,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    exposure_coverage: ExposureCoverage | None = None
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: AwareDatetime
@@ -17348,6 +17356,23 @@ class ExperimentBreakdownResult(BaseModel):
     variants: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] = Field(
         ...,
         description=("Test variant results with statistical comparisons for this breakdown"),
+    )
+
+
+class ExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    exposure_coverage: ExposureCoverage | None = None
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
 
 
