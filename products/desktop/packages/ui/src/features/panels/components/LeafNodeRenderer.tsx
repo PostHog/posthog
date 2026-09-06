@@ -29,6 +29,7 @@ interface LeafNodeRendererProps {
   onActiveTabChange: (panelId: string, tabId: string) => void;
   onPanelFocus: (panelId: string) => void;
   onAddTerminal: (panelId: string) => void;
+  onAddBrowser: (panelId: string) => void;
   onSplitPanel: (panelId: string, direction: SplitDirection) => void;
 }
 
@@ -45,18 +46,23 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   onActiveTabChange,
   onPanelFocus,
   onAddTerminal,
+  onAddBrowser,
   onSplitPanel,
 }) => {
   const isCloud = useIsCloudTask(task);
-  const { localWorkspaces } = useHostCapabilities();
-  // Hide the terminal for cloud runs, and on cloud-only hosts (web).
+  const { localWorkspaces, embeddedBrowser } = useHostCapabilities();
+  // Hide the terminal for cloud runs, and on cloud-only hosts (web). The
+  // browser only needs the host capability — it works for cloud runs too.
   const hideTerminal = isCloud || !localWorkspaces;
+  const hideBrowser = !embeddedBrowser;
   const inputTabs = useMemo(
     () =>
-      hideTerminal
-        ? node.content.tabs.filter((t) => t.data.type !== "terminal")
-        : node.content.tabs,
-    [node.content.tabs, hideTerminal],
+      node.content.tabs.filter(
+        (t) =>
+          !(hideTerminal && t.data.type === "terminal") &&
+          !(hideBrowser && t.data.type === "browser"),
+      ),
+    [node.content.tabs, hideTerminal, hideBrowser],
   );
   const tabs = useTabInjection(inputTabs, node.id, taskId, task, closeTab);
   const activeTabId = tabs.some((t) => t.id === node.content.activeTabId)
@@ -109,6 +115,7 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
       draggingTabPanelId={draggingTabPanelId}
       allowPanelSplit={!isCloud}
       onAddTerminal={hideTerminal ? undefined : () => onAddTerminal(node.id)}
+      onAddBrowser={hideBrowser ? undefined : () => onAddBrowser(node.id)}
       onSplitPanel={
         isCloud ? undefined : (direction) => onSplitPanel(node.id, direction)
       }

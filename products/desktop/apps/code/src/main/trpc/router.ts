@@ -16,6 +16,7 @@ import { contextMenuRouter } from "@posthog/host-router/routers/context-menu.rou
 import { dashboardsRouter } from "@posthog/host-router/routers/dashboards.router";
 import { deepLinkRouter } from "@posthog/host-router/routers/deep-link.router";
 import { diskCacheRouter } from "@posthog/host-router/routers/disk-cache.router";
+import { embeddedBrowserRouter } from "@posthog/host-router/routers/embedded-browser.router";
 import { enrichmentRouter } from "@posthog/host-router/routers/enrichment.router";
 import { environmentRouter } from "@posthog/host-router/routers/environment.router";
 import { externalAppsRouter } from "@posthog/host-router/routers/external-apps.router";
@@ -100,6 +101,7 @@ export const trpcRouter = router({
   notification: notificationRouter,
   oauth: oauthRouter,
   logs: logsRouter,
+  embeddedBrowser: embeddedBrowserRouter,
   os: osRouter,
   piSession: piSessionRouter,
   processTracking: processTrackingRouter,

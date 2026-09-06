@@ -2,6 +2,7 @@ import {
   ChartLineUp,
   ChatCenteredText,
   FileText,
+  Globe,
   PackageIcon,
   Scroll,
   Terminal,
@@ -32,6 +33,7 @@ export interface PanelLayoutState {
   keepTab: (taskId: string, panelId: string, tabId: string) => void;
   setFocusedPanel: (taskId: string, panelId: string) => void;
   addTerminalTab: (taskId: string, panelId: string) => void;
+  addBrowserTab: (taskId: string, panelId: string) => void;
   splitPanel: (
     taskId: string,
     tabId: string,
@@ -56,6 +58,7 @@ export function usePanelLayoutState(taskId: string): PanelLayoutState {
         keepTab: state.keepTab,
         setFocusedPanel: state.setFocusedPanel,
         addTerminalTab: state.addTerminalTab,
+        addBrowserTab: state.addBrowserTab,
         splitPanel: state.splitPanel,
         draggingTabId: state.getLayout(taskId)?.draggingTabId ?? null,
         draggingTabPanelId: state.getLayout(taskId)?.draggingTabPanelId ?? null,
@@ -114,6 +117,8 @@ export function useTabInjection(
             icon = <FileIcon filename={filename} size={14} />;
           } else if (tab.data.type === "terminal") {
             icon = <Terminal size={14} />;
+          } else if (tab.data.type === "browser") {
+            icon = <Globe size={14} />;
           } else if (tab.data.type === "logs") {
             icon = <ChatCenteredText size={14} />;
           } else if (tab.data.type === "action") {
