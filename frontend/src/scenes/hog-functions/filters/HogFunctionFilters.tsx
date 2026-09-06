@@ -163,13 +163,16 @@ export function HogFunctionFilters({
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.EventMetadata,
             TaxonomicFilterGroupType.HogQLExpression,
+            // Autocapture element text/href/selector/tag_name. The transformer builds these globals
+            // per event, so a team can drop autocapture clicks by element text without a raw
+            // elements_chain regex.
+            TaxonomicFilterGroupType.Elements,
         ]
 
         if (!isTransformation) {
             types.push(
                 TaxonomicFilterGroupType.PersonProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
-                TaxonomicFilterGroupType.Elements,
                 ...groupsTaxonomicTypes
             )
         }
