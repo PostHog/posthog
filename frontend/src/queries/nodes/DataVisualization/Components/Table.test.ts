@@ -1,6 +1,6 @@
 import { TableDataCell } from '../dataVisualizationLogic'
 import { ColumnScalar } from '../types'
-import { compareTableCells } from './Table'
+import { classifyHogBytecode, compareTableCells } from './Table'
 
 function cell(value: string | number | boolean | Date | null, type: ColumnScalar = 'STRING'): TableDataCell<any> {
     return { value, formattedValue: value === null ? null : String(value), type }
@@ -27,5 +27,16 @@ describe('compareTableCells', () => {
         expect(
             Math.sign(compareTableCells(a as TableDataCell<any> | undefined, b as TableDataCell<any> | undefined))
         ).toBe(expected)
+    })
+})
+
+describe('classifyHogBytecode', () => {
+    it.each([
+        ['undefined bytecode is pending', undefined, 'pending'],
+        ['empty bytecode is pending (compile has not landed)', [], 'pending'],
+        ['non-empty bytecode without the _H header is malformed', ['nope', 1], 'malformed'],
+        ['bytecode starting with _H is valid', ['_H', 1, 2], 'valid'],
+    ])('%s', (_label, bytecode, expected) => {
+        expect(classifyHogBytecode(bytecode as any[] | undefined)).toBe(expected)
     })
 })
