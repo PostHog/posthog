@@ -29,6 +29,7 @@ export function getAddTileMenuItems({
     onAddInsight,
     onAddText,
     onAddImage,
+    onAddSeparator,
     onAddButton,
     push,
     setAddWidgetModalOpen,
@@ -38,6 +39,7 @@ export function getAddTileMenuItems({
     onAddInsight: () => void
     onAddText: () => void
     onAddImage: () => void
+    onAddSeparator: () => void
     onAddButton: () => void
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
@@ -87,8 +89,18 @@ export function getAddTileMenuItems({
                   'data-attr': 'dashboard-add-widget-preview',
               },
     ]
+    const organizeItems: LemonMenuItem[] = [
+        {
+            label: 'Divider',
+            onClick: withBeforeSelect(onAddSeparator),
+            'data-attr': 'dashboard-add-separator-tile',
+        },
+    ]
 
-    return [{ title: 'Content', items: contentItems }]
+    return [
+        { title: 'Content', items: contentItems },
+        { title: 'Organize', items: organizeItems },
+    ]
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
@@ -100,6 +112,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
         openAddInsightModal,
         openTextTileModal,
         openImageTileModal,
+        addSeparatorTile,
         openButtonTileModal,
     } = useActions(dashboardLogic)
     const { push } = useActions(router)
@@ -140,6 +153,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         onAddInsight: openAddInsightModal,
                         onAddText: openTextTileModal,
                         onAddImage: openImageTileModal,
+                        onAddSeparator: addSeparatorTile,
                         onAddButton: openButtonTileModal,
                         push,
                         setAddWidgetModalOpen,

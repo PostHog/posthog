@@ -53,6 +53,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         out: dict[str, Any] = {
             "id": text_id,
             "body": body,
+            "tile_type": "text",
             "created_by": self._serialised_user(created_by),
             "last_modified_at": last_modified_at,
             "last_modified_by": self._serialised_user(last_modified_by),

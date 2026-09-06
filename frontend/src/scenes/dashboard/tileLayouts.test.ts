@@ -44,6 +44,31 @@ describe('calculating tile layouts', () => {
         expect(layouts.xs?.[0]).toMatchObject({ w: 1, h: 2, minW: 1, minH: 2 })
     })
 
+    it('defaults Markdown separators to a full-width single row', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                text: { body: '---', tile_type: 'divider' },
+                layouts: {},
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({
+            x: 0,
+            w: 12,
+            h: 1,
+            minW: 2,
+            minH: 1,
+        })
+        expect(calculateLayouts(tiles).xs?.[0]).toMatchObject({
+            x: 0,
+            w: 1,
+            h: 1,
+            minW: 1,
+            minH: 1,
+        })
+    })
+
     it('raises a stored image tile height to its minimum', () => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             {
@@ -183,7 +208,7 @@ describe('calculating tile layouts', () => {
         expect(result.sm?.[0]?.minH).toBe(expectedMinH)
         expect(result.xs?.[0]?.minH).toBe(expectedMinH)
         expect(result.sm?.[0]?.minW).toBe(expectedMinW)
-        expect(result.xs?.[0]?.minW).toBe(expectedMinW)
+        expect(result.xs?.[0]?.minW).toBe(Math.min(expectedMinW, 1))
     })
 
     it('xs follows sm dirty-placement order when no tiles have stored sm layouts', () => {

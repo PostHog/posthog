@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import React from 'react'
 
@@ -36,6 +37,7 @@ function DashboardTextItemInternal(
         onCopyToDashboard,
         onDuplicate,
         onRemove,
+        className,
         ...textCardProps
     }: DashboardTextItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
@@ -51,18 +53,26 @@ function DashboardTextItemInternal(
     )
 
     const image = tile.text ? getImageOnlyTextCardImage(textCardConverter, tile.text.body) : null
-    const tileType = image ? 'image' : 'text'
+    const isSeparator = tile.text?.tile_type === 'divider'
+    let tileType = 'text'
+    if (image) {
+        tileType = 'image'
+    }
     const moreButtonOverlay = (
         <>
-            <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
-                Edit {tileType}
-            </LemonButton>
+            {!isSeparator && (
+                <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
+                    Edit {tileType}
+                </LemonButton>
+            )}
 
-            <DashboardWidgetPlacementMenus
-                placementDestinations={copyToDestinations}
-                onMoveToDashboard={onMoveToDashboard}
-                onCopyToDashboard={onCopyToDashboard}
-            />
+            {!isSeparator && (
+                <DashboardWidgetPlacementMenus
+                    placementDestinations={copyToDestinations}
+                    onMoveToDashboard={onMoveToDashboard}
+                    onCopyToDashboard={onCopyToDashboard}
+                />
+            )}
 
             <LemonButton onClick={onDuplicate} fullWidth data-attr={`duplicate-${tileType}-from-dashboard`}>
                 Duplicate
@@ -89,6 +99,7 @@ function DashboardTextItemInternal(
                 image={image}
                 placement={placement}
                 moreButtonOverlay={moreButtonOverlay}
+                className={className}
                 {...textCardProps}
             />
         )
@@ -100,6 +111,7 @@ function DashboardTextItemInternal(
             textTile={tile}
             placement={placement}
             moreButtonOverlay={moreButtonOverlay}
+            className={clsx(isSeparator && 'DashboardDividerTile', className)}
             {...textCardProps}
         />
     )

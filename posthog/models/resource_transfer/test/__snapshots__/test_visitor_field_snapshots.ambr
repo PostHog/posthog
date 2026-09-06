@@ -332,6 +332,7 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Text
   list([
     'body',
+    'tile_type',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_Action
