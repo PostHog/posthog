@@ -242,7 +242,7 @@ def _build_bot_array_lookup(
         patterns_array = _string_array([*BOT_DEFINITIONS.keys(), "^$"])
         labels_array = _string_array([*builtin_labels, empty_ua_value])
         index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
-        return ast.Call(
+        inner_expr = ast.Call(
             name="if",
             args=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
@@ -250,6 +250,26 @@ def _build_bot_array_lookup(
                 ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
             ],
         )
+        # In cookieless mode, the user agent is stripped from the event after hashing for
+        # identity purposes. An empty user agent therefore does not indicate automation —
+        # it means "the UA was present but redacted for privacy". Treat it as regular traffic.
+        cookieless_prop = _cookieless_mode_property(user_agent_expr)
+        if cookieless_prop is not None:
+            return ast.Call(
+                name="if",
+                args=[
+                    ast.Call(
+                        name="and",
+                        args=[
+                            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=safe_user_agent, right=ast.Constant(value="")),
+                            ast.Call(name="ifNull", args=[cookieless_prop, ast.Constant(value=False)]),
+                        ],
+                    ),
+                    ast.Constant(value=default),
+                    inner_expr,
+                ],
+            )
+        return inner_expr
 
     # With project rules the checks become an ordered chain, in this order: the project's own
     # rules, then the built-ins, then the empty user agent, then the built-in IP ranges. A rule
@@ -281,11 +301,48 @@ def _build_bot_array_lookup(
         ]
     )
     branches.append(fallback)
-    return ast.Call(name="multiIf", args=branches)
+    inner_expr = ast.Call(name="multiIf", args=branches)
+    # In cookieless mode, the user agent is stripped from the event after hashing for
+    # identity purposes. An empty user agent therefore does not indicate automation —
+    # it means "the UA was present but redacted for privacy". Treat it as regular traffic.
+    cookieless_prop = _cookieless_mode_property(user_agent_expr)
+    if cookieless_prop is not None:
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=safe_user_agent, right=ast.Constant(value="")),
+                        ast.Call(name="ifNull", args=[cookieless_prop, ast.Constant(value=False)]),
+                    ],
+                ),
+                ast.Constant(value=default),
+                inner_expr,
+            ],
+        )
+    return inner_expr
 
 
 def _optional_ip_arg(args: list[ast.Expr]) -> Optional[ast.Expr]:
     return args[1] if len(args) > 1 else None
+
+
+def _cookieless_mode_property(user_agent_expr: ast.Expr) -> Optional[ast.Expr]:
+    """Build properties.$cookieless_mode expression from a user_agent Field.
+
+    When the user agent is a Field on a properties object (e.g. properties.$raw_user_agent),
+    the cookieless_mode property is on the same object. Returns None when the user agent
+    is not a simple property reference and the property cannot be reached.
+    """
+    if (
+        isinstance(user_agent_expr, ast.Field)
+        and len(user_agent_expr.chain) > 1
+        and user_agent_expr.chain[-1] == USER_AGENT_FIELD
+        and user_agent_expr.chain[-2] == "properties"
+    ):
+        return ast.Field(chain=[*user_agent_expr.chain[:-1], "$cookieless_mode"])
+    return None
 
 
 def get_bot_name(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None) -> ast.Expr:
@@ -369,7 +426,28 @@ def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQuery
     matched: ast.Expr = conditions[0] if len(conditions) == 1 else ast.Or(exprs=conditions)
 
     # Cast to Bool so results render as true/false (not 0/1) in insights breakdowns.
-    return ast.Call(name="toBool", args=[matched])
+    inner_result = ast.Call(name="toBool", args=[matched])
+
+    # In cookieless mode, the user agent is stripped from the event after hashing for
+    # identity purposes. An empty user agent therefore does not indicate a bot —
+    # it means "the UA was present but redacted for privacy". Treat it as not a bot.
+    cookieless_prop = _cookieless_mode_property(user_agent_expr)
+    if cookieless_prop is not None:
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=safe_user_agent, right=ast.Constant(value="")),
+                        ast.Call(name="ifNull", args=[cookieless_prop, ast.Constant(value=False)]),
+                    ],
+                ),
+                ast.Constant(value=False),
+                inner_result,
+            ],
+        )
+    return inner_result
 
 
 def get_bot_type(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None) -> ast.Expr:
