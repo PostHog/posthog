@@ -89,6 +89,21 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
     ),
 }
 
+# Every (model, effort) pair the wizard CLI dispatches, measured 2026-09-05 over 14 days of
+# stamped wizard traffic. "none" is a request carrying no effort parameter. Exact match on both
+# axes: a lifted wizard token otherwise buys any model at any effort for the per-user cap, and
+# 49 distinct model strings showed up that way. The wizard-gateway-model-allowlist flag payload
+# replaces this whole table at runtime; this is the answer when that flag is off or unreachable.
+DEFAULT_WIZARD_MODEL_ALLOWLIST: dict[str, list[str]] = {
+    "claude-sonnet-4-6": ["none", "high"],
+    "claude-sonnet-5": ["none", "high"],
+    "claude-haiku-4-5": ["none"],
+    "claude-haiku-4-5-20251001": ["none"],
+    "gpt-5.6-luna": ["low"],
+    "gpt-5.6-sol": ["medium"],
+    "gpt-5.6-terra": ["low", "medium", "high"],
+}
+
 # Per-sandbox-run ceilings, keyed the same way as the cost limits above. Opt-in: a key with no
 # entry has no per-run ceiling, so adding one here is the only way a product gains one. The
 # window is a floor on how long a single run's spend is remembered, not a refill schedule —
@@ -226,6 +241,8 @@ class Settings(BaseSettings):
     # budgets are windowed, so neither bounds one runaway conversation inside its window.
     sandbox_task_cost_limits: dict[str, ProductCostLimit] = DEFAULT_SANDBOX_TASK_COST_LIMITS
     sandbox_task_cost_limits_disabled: bool = False
+
+    wizard_model_allowlist: dict[str, list[str]] = DEFAULT_WIZARD_MODEL_ALLOWLIST
 
     posthog_code_free_tier_models: list[str] = [
         "@cf/zai-org/glm-5.2",
