@@ -15,6 +15,7 @@ export function reportWizardLaunchpadViewed(): void {
 export function reportWizardLaunchpadRunOpened(run: WizardRunApi): void {
     posthog.capture('wizard launchpad run opened', {
         surface: SURFACE,
+        wizard_run_id: run.id,
         run_environment: run.environment,
         run_status: run.status,
         program_id: run.program.id,
@@ -24,6 +25,7 @@ export function reportWizardLaunchpadRunOpened(run: WizardRunApi): void {
 export function reportWizardLaunchpadRunStarted(run: WizardRunApi): void {
     posthog.capture('wizard launchpad run started', {
         surface: SURFACE,
+        wizard_run_id: run.id,
         run_environment: run.environment,
         program_id: run.program.id,
         workspace_type: run.workspace.type,

@@ -94,6 +94,7 @@ describe('wizardRunDetailsLogic', () => {
 
         expect(posthog.capture).toHaveBeenCalledWith('wizard launchpad run opened', {
             surface: 'cloud_launchpad',
+            wizard_run_id: 'run-1',
             run_environment: 'cloud',
             run_status: 'running',
             program_id: 'posthog-integration',

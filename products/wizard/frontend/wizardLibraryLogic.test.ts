@@ -99,6 +99,7 @@ describe('wizardLibraryLogic', () => {
 
         expect(posthog.capture).toHaveBeenCalledWith('wizard launchpad run started', {
             surface: 'cloud_launchpad',
+            wizard_run_id: 'run-1',
             run_environment: 'cloud',
             program_id: 'posthog-integration',
             workspace_type: 'git_repository',
