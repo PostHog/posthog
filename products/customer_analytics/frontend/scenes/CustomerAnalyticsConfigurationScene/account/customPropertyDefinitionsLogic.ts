@@ -1386,8 +1386,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             posthog.captureException(errorObject, { scope: 'customPropertyDefinitionsLogic.delete' })
             lemonToast.error('Failed to delete custom property')
         },
-        loadDefinitionsFailure: ({ error }) => {
-            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.load' })
+        loadDefinitionsFailure: () => {
+            // The global kea-loaders handler already captures the real Error; here we only toast.
             lemonToast.error('Failed to load custom properties')
         },
         createWorkflowForPropertySuccess: ({ newWorkflowUrl }) => {
@@ -1409,12 +1409,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             posthog.captureException(errorObject, { scope: 'customPropertyDefinitionsLogic.createWorkflow' })
             lemonToast.error('Failed to create workflow')
         },
-        loadSavedQueriesFailure: ({ error }) => {
-            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadSavedQueries' })
+        loadSavedQueriesFailure: () => {
             lemonToast.error('Failed to load data warehouse views')
         },
-        loadWarehouseTablesFailure: ({ error }) => {
-            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadWarehouseTables' })
+        loadWarehouseTablesFailure: () => {
             lemonToast.error('Failed to load data warehouse tables')
         },
         triggerSync: async ({ sourceId }) => {

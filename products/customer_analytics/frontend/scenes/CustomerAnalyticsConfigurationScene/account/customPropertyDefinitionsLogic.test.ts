@@ -1,7 +1,9 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -115,6 +117,29 @@ describe('customPropertyDefinitionsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadDefinitions', 'loadDefinitionsSuccess'])
             .toMatchValues({ definitions: [expect.objectContaining({ id: 'def-1', name: 'ARR' })] })
+    })
+
+    it.each([
+        ['a reportable 500', 500, 1],
+        ['a 401 the app already recovers from', 401, 0],
+    ])('files one exception via the global handler on a load failure, and toasts: %s', async (_n, status, captures) => {
+        silenceKeaLoadersErrors() // the loader failure is the scenario under test
+        const captureException = jest.spyOn(posthog, 'captureException').mockReturnValue(undefined as any)
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        useMocks({
+            ...defaultMocks(),
+            get: { ...defaultMocks().get, [DEFINITIONS_URL]: () => [status, { detail: 'nope' }] },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsFailure'])
+
+        // The global kea-loaders handler is the single capture path, and it captures the real Error.
+        // The listener must not file a second, degraded exception built from the message string.
+        expect(captureException).toHaveBeenCalledTimes(captures)
+        if (captures > 0) {
+            expect(captureException).toHaveBeenCalledWith(expect.any(Error))
+        }
+        expect(toastError).toHaveBeenCalledWith('Failed to load custom properties')
     })
 
     it('filters definitions by target type combined with search', async () => {
