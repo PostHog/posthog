@@ -35,6 +35,9 @@ export type { EmailTemplate }
 
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
+export type EmailEditorFonts = NonNullable<EmailEditorProps['options']>['fonts']
+export type EmailEditorCustomFont = NonNullable<NonNullable<EmailEditorFonts>['customFonts']>[number]
+
 /**
  * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
  * native_email: advanced editor with email integration dropdown, and additional email metafields
@@ -176,6 +179,10 @@ export interface EmailTemplaterLogicProps {
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
     fieldErrors?: EmailFieldErrors
+    // Extra fonts for the block settings font-family dropdown, on top of the built-in ones. A team
+    // passes its brand font here. Each font needs a font-family value and the stylesheet URL that
+    // loads it. Buttons and text blocks can then use the brand font.
+    customFonts?: EmailEditorCustomFont[]
 }
 
 function autoRevealAdvancedFields(
