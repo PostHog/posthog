@@ -24,6 +24,11 @@ those. It removes them from the person properties as well, so a toolbar user's P
 records the customer page they were on. `save_referrer` and `save_campaign_params` are off for the
 same reason, which stops posthog-js storing the values in the first place.
 
+The toolbar sends no logs either. Console capture is another switch the internal project's remote
+config controls, and log records leave on their own transport, which the `before_send` guard cannot
+see, so a `logs.beforeSend` hook drops every record. Nothing in this document reaches PostHog as a
+log.
+
 None of the events in this document therefore carry `$current_url`. To tell where a toolbar event
 came from, use the properties the toolbar sets itself, such as `api_host` on `toolbar loaded`.
 

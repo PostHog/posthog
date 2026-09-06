@@ -1,6 +1,6 @@
 import '~/toolbar/toolbarPosthogJS'
 
-import posthog, { CaptureResult, PostHogConfig } from 'posthog-js'
+import posthog, { CaptureLogOptions, CaptureResult, PostHogConfig } from 'posthog-js'
 
 // Captured at module load, before clearMocks empties the call record.
 const initConfig = (posthog.init as jest.Mock).mock.calls[0][1] as Partial<PostHogConfig>
@@ -92,6 +92,16 @@ describe('toolbar posthog instance', () => {
 
         expect(result?.$set).toEqual({ email: 'engineer@example.com' })
         expect(result?.$set_once).toEqual({})
+    })
+
+    // Console capture rides a transport `before_send` never sees, and remote config can switch it
+    // on whatever the init option says.
+    it('drops log records, so host page console output never leaves', () => {
+        expect(initConfig.logs?.captureConsoleLogs).toBe(false)
+
+        const dropLog = initConfig.logs?.beforeSend as (record: CaptureLogOptions) => CaptureLogOptions | null
+
+        expect(dropLog({ body: 'host page code logged this' })).toBeNull()
     })
 
     // `pathname` is the toolbar's own API path, and `$initialization_time` is not an `$initial_`

@@ -120,6 +120,13 @@ const initResult = posthog.init(
         save_referrer: false,
         save_campaign_params: false,
         before_send: dropHostPageCapture,
+        // Remote config can switch console capture on whatever captureConsoleLogs says here, and
+        // log records leave on their own transport, which before_send never sees. The toolbar
+        // captures no logs of its own, so drop every record instead.
+        logs: {
+            captureConsoleLogs: false,
+            beforeSend: () => null,
+        },
         disable_surveys: true,
         disable_scroll_properties: true,
         disable_product_tours: true,
