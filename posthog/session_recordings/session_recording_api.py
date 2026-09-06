@@ -105,7 +105,7 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks,
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
-    gate_surfacing_score_order,
+    gate_replay_relevance,
     query_as_params_to_dict,
     recordings_query_has_event_filters,
 )
@@ -912,7 +912,7 @@ class SessionRecordingViewSet(
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(params)
 
-                gate_surfacing_score_order(query, cast(User, request.user))
+                gate_replay_relevance(query, cast(User, request.user))
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
