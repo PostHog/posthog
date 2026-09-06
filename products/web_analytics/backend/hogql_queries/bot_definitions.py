@@ -998,4 +998,32 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
     ),
+    # Link checkers, SEO and research crawlers seen in production `$http_log` traffic
+    # lychee sends its name in four shapes, and every surface matches these patterns literally.
+    "lychee/": BotDefinition(
+        "lychee", "seo_crawler", "Bot", "lycheeverse", documentation_url="https://github.com/lycheeverse/lychee"
+    ),
+    "Lychee/": BotDefinition(
+        "lychee", "seo_crawler", "Bot", "lycheeverse", documentation_url="https://github.com/lycheeverse/lychee"
+    ),
+    "lychee-link": BotDefinition(
+        "lychee", "seo_crawler", "Bot", "lycheeverse", documentation_url="https://github.com/lycheeverse/lychee"
+    ),
+    "lychee link": BotDefinition(
+        "lychee", "seo_crawler", "Bot", "lycheeverse", documentation_url="https://github.com/lycheeverse/lychee"
+    ),
+    "textiqSEO": BotDefinition(
+        "textiqSEO",
+        "seo_crawler",
+        "Bot",
+        "textiqSEO",
+        documentation_url="https://github.com/AnatolyRytik/textiqSEO",
+    ),
+    "internal-link-study": BotDefinition(
+        "internal-link-study", "seo_crawler", "Bot", "nadiamohamed.me", documentation_url="https://nadiamohamed.me"
+    ),
+    "PurityBot": BotDefinition("PurityBot", "search_crawler", "Bot", "Purity", documentation_url="https://puri.li/bot"),
+    "NumbatTopicCalibration": BotDefinition(
+        "Numbat Topic Calibration", "search_crawler", "Bot", "Numbat", documentation_url="https://numbat.io"
+    ),
 }
