@@ -178,8 +178,9 @@ jobs:
             # WebKit runs wherever a break can still be stopped: on master pushes, and on the
             # merge-queue run that gates the merge. No story opts into webkit snapshots (see
             # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
-            # only — worth a batched queue run, not worth every push of every frontend PR. Author
-            # PRs stay chromium-only; a webkit-only break now fails the queue instead of master.
+            # only. That coverage is worth a batched queue run, because a webkit-only break then
+            # fails the queue instead of master. It is not worth every push of every frontend PR,
+            # so author PRs stay chromium-only.
             - name: Build matrix
               id: matrix
               env:
