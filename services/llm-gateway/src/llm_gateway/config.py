@@ -47,10 +47,15 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
+    # The wizard CLI mints per-run tokens on the Go gateway since 2026-09-01; what still reaches
+    # this product directly is stale clients, CI, and lifted OAuth tokens. Sized to the stale
+    # clients: over 30 days of stamped wizard traffic a legitimate user peaked at $22.69 in an
+    # hour (p99 $8.82) and $49 in the month (p99.9 $29.71), while lifted tokens ran $100 per
+    # account in about an hour. CI runs above this and needs a team_rate_limit_multipliers entry.
     "wizard": UserCostLimit(
-        burst_limit_usd=100.0,
-        burst_window_seconds=2592000,  # 30 days
-        sustained_limit_usd=100.0,
+        burst_limit_usd=25.0,
+        burst_window_seconds=3600,
+        sustained_limit_usd=30.0,
         sustained_window_seconds=2592000,  # 30 days
     ),
     "background_agents": UserCostLimit(

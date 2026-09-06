@@ -829,7 +829,7 @@ class TestUnconfiguredProductsUseDefaults:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product="unconfigured_product")
 
         await throttle.record_cost(context, 99.0)
         result = await throttle.allow_request(context)
@@ -927,7 +927,7 @@ class TestUnconfiguredProductsUseDefaults:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard")
+        context = make_context(product="unconfigured_product")
 
         await throttle.record_cost(context, 99.0)
         assert (await throttle.allow_request(context)).allowed is True
@@ -935,7 +935,7 @@ class TestUnconfiguredProductsUseDefaults:
         monkeypatch.setenv(
             "LLM_GATEWAY_USER_COST_LIMITS",
             '{"posthog_code": {"burst_limit_usd": 100, "burst_window_seconds": 86400, "sustained_limit_usd": 1000, "sustained_window_seconds": 2592000}, '
-            '"wizard": {"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}',
+            '"unconfigured_product": {"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}',
         )
         get_settings.cache_clear()
 
@@ -1184,7 +1184,7 @@ class TestPostHogCodeUserThrottling:
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="wizard")
 
-        await throttle.record_cost(context, 50.0)
+        await throttle.record_cost(context, 20.0)
         result = await throttle.allow_request(context)
         assert result.allowed is True
 
