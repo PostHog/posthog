@@ -126,6 +126,24 @@ describe('FixedRangeWithTimePicker', () => {
         expect(dayjs(from).isBefore(dayjs(to))).toBe(true)
     })
 
+    it('moves the calendar to the month of the date being edited', async () => {
+        const { container } = render(
+            <FixedRangeWithTimePicker
+                rangeDateFrom={dayjs('2020-03-15T10:00:00')}
+                rangeDateTo={dayjs('2020-06-20T11:00:00')}
+                setDate={setDate}
+                onClose={onClose}
+            />
+        )
+
+        const calendar = container.querySelector('[data-attr="lemon-calendar"]') as HTMLElement
+        expect(await within(calendar).findByText('March 2020')).toBeTruthy()
+
+        // Switching to the end date must show the end date's month, not stay on the start month.
+        await userEvent.click(within(container).getByText(/End:/))
+        expect(await within(calendar).findByText('June 2020')).toBeTruthy()
+    })
+
     it('allows setting the start time when no start date is initially set', async () => {
         const { container } = render(
             <FixedRangeWithTimePicker
