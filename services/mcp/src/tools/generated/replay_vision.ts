@@ -568,6 +568,7 @@ const visionScannersObservationsList = (): ToolBase<
                         'scanner_snapshot.scanner_config.prompt',
                         'scanner_snapshot.query',
                         'scanner_result.model_output.reasoning_segments',
+                        'scanner_result.model_output.summary_segments',
                     ])
                 ),
             } as typeof result
