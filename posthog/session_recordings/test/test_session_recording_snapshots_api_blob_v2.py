@@ -10,7 +10,7 @@ from posthog.models import PersonalAPIKey, SessionRecording
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.recordings.errors import RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 
@@ -1018,3 +1018,62 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_410_GONE
         assert response.json()["error"] == "recording_deleted"
         assert response.json()["deleted_at"] == 1700000000
+
+    @parameterized.expand(
+        [
+            ("retry_recovers", [BlockFetchError("transient"), b'{"timestamp": 1000}\n'], status.HTTP_200_OK, 2),
+            (
+                "retries_exhausted",
+                [BlockFetchError("transient")] * 3,
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                3,
+            ),
+            (
+                "no_retry_when_not_retriable",
+                [BlockFetchError("Block not found", retriable=False)],
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                1,
+            ),
+        ]
+    )
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_retries_failed_block_fetch(
+        self,
+        _name,
+        fetch_results,
+        expected_status,
+        expected_calls,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_recording_api_client,
+    ):
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
+
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(side_effect=fetch_results)
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+        response = self.client.get(url)
+
+        assert response.status_code == expected_status
+        assert mock_storage.fetch_block.call_count == expected_calls
