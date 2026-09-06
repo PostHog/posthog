@@ -353,5 +353,24 @@ describe('cohortsModel', () => {
                 explicit_datetime: '-30d',
             })
         })
+
+        it('keeps the filterTestAccounts flag the API returned', () => {
+            // processCohort rebuilds `filters` on every load. Rebuilding only `properties`
+            // drops the flag, so the switch reads back off on a cohort that has it saved.
+            const cohort = {
+                id: 7,
+                name: 'Cohort excluding internal users',
+                count: 0,
+                groups: [],
+                is_calculating: false,
+                is_static: false,
+                filters: {
+                    filterTestAccounts: true,
+                    properties: { type: FilterLogicalOperator.And, values: [] },
+                },
+            } as unknown as CohortType
+
+            expect(processCohort(cohort).filters.filterTestAccounts).toBe(true)
+        })
     })
 })

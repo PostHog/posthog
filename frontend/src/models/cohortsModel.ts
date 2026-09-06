@@ -64,6 +64,7 @@ export function processCohort(cohort: CohortType): CohortType {
 
         /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
         filters: {
+            ...cohort.filters,
             properties: {
                 ...cohort.filters.properties,
                 values: (cohort.filters.properties?.values?.map((group) =>

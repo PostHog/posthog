@@ -223,6 +223,7 @@ describe('cohortEditLogic', () => {
     describe('form validation', () => {
         it('save with valid cohort', async () => {
             await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update')
             await expectLogic(logic, async () => {
                 logic.actions.setCohort({
                     ...mockCohort,
@@ -248,11 +249,15 @@ describe('cohortEditLogic', () => {
                         },
                     },
                 })
+                logic.actions.setFilterTestAccounts(true)
                 logic.actions.submitCohort()
             })
                 .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
                 .toNotHaveDispatchedActions(['loadUsedIn'])
             expect(api.update).toHaveBeenCalledTimes(1)
+            const updatePayload = updateSpy.mock.calls[0][1] as FormData
+            const filters = JSON.parse(updatePayload.get('filters') as string)
+            expect(filters.filterTestAccounts).toBe(true)
         })
 
         it('do not save with invalid name', async () => {
@@ -1349,6 +1354,34 @@ describe('cohortEditLogic', () => {
                         properties: partial({ type: FilterLogicalOperator.And }),
                     }),
                 }),
+            })
+        })
+
+        // Every criteria edit rebuilds `filters` through applyAllCriteriaGroup or
+        // applyAllNestedCriteria, so the flag has to survive the rebuild. Otherwise turning the
+        // switch on and then touching any criterion silently turns it back off before saving.
+        it.each([
+            ['setInnerGroupType', (l: typeof logic) => l.actions.setInnerGroupType(FilterLogicalOperator.Or, 0)],
+            ['addFilter (group)', (l: typeof logic) => l.actions.addFilter()],
+            ['addFilter (criterion)', (l: typeof logic) => l.actions.addFilter(0)],
+            ['duplicateFilter', (l: typeof logic) => l.actions.duplicateFilter(0)],
+            ['removeFilter', (l: typeof logic) => l.actions.removeFilter(0, 0)],
+            [
+                'setCriteria',
+                (l: typeof logic) =>
+                    l.actions.setCriteria(
+                        { type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent },
+                        0,
+                        0
+                    ),
+            ],
+        ])('%s preserves the filterTestAccounts flag', async (_name, editCriteria) => {
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+                editCriteria(logic)
+            }).toMatchValues({
+                cohort: partial({ filters: partial({ filterTestAccounts: true }) }),
             })
         })
     })
