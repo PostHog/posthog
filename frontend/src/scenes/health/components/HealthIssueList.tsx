@@ -10,20 +10,23 @@ import type { HealthIssueCategory } from '../healthCategories'
 import { healthSceneLogic } from '../healthSceneLogic'
 import { severityToTagType, worstSeverity } from '../healthUtils'
 import type { HealthIssue } from '../types'
+import { HealthEmptyState } from './HealthEmptyState'
 import { HealthIssueCard } from './HealthIssueCard'
 
 export const HealthIssueList = (): JSX.Element => {
-    const { issues, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
+    const { issues, healthIssuesLoading, healthIssues, hasIngestedEvents, currentTeam } = useValues(healthSceneLogic)
     const { snoozeIssue, dismissIssue, undismissIssue, loadHealthIssues } = useActions(healthSceneLogic)
 
+    const loadingSkeleton = (
+        <div className="flex flex-col gap-3">
+            <LemonSkeleton className="h-16 rounded" />
+            <LemonSkeleton className="h-16 rounded" />
+            <LemonSkeleton className="h-16 rounded" />
+        </div>
+    )
+
     if (healthIssuesLoading && !healthIssues) {
-        return (
-            <div className="flex flex-col gap-3">
-                <LemonSkeleton className="h-16 rounded" />
-                <LemonSkeleton className="h-16 rounded" />
-                <LemonSkeleton className="h-16 rounded" />
-            </div>
-        )
+        return loadingSkeleton
     }
 
     if (!healthIssuesLoading && healthIssues === null) {
@@ -35,12 +38,14 @@ export const HealthIssueList = (): JSX.Element => {
     }
 
     if (issues.length === 0) {
-        return (
-            <LemonBanner type="success">
-                <p className="font-semibold mb-0">All systems healthy</p>
-                <p className="text-sm mt-1 mb-0">No active health issues found for your project.</p>
-            </LemonBanner>
-        )
+        // The health request resolves off currentTeamIdStrict, which falls back to "@current", so it
+        // can finish before currentTeam itself loads (e.g. during OAuth bootstrap). Until the team
+        // resolves we can't tell "no events yet" from "already installed", so keep the loading state
+        // rather than flash the install prompt at a project that is already installed.
+        if (!currentTeam) {
+            return loadingSkeleton
+        }
+        return <HealthEmptyState hasIngestedEvents={hasIngestedEvents} />
     }
 
     const groupedByCategory: Partial<Record<HealthIssueCategory, HealthIssue[]>> = {}

@@ -13,7 +13,7 @@ import { severityColor } from '../healthUtils'
 import type { CategoryHealthSummary } from '../types'
 
 export const HealthIssueSummaryCards = (): JSX.Element => {
-    const { categorySummaries, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
+    const { categorySummaries, healthIssuesLoading, healthIssues, hasIngestedEvents } = useValues(healthSceneLogic)
 
     if (healthIssuesLoading && !healthIssues) {
         return (
@@ -26,6 +26,13 @@ export const HealthIssueSummaryCards = (): JSX.Element => {
     }
 
     if (!healthIssuesLoading && healthIssues === null) {
+        return <></>
+    }
+
+    // A project that has never ingested an event has no data for any check to run against, so the
+    // per-category "healthy" cards would be a premature success claim — and would contradict the
+    // install prompt the empty issue list shows just below them. Hide the cards until data arrives.
+    if (!hasIngestedEvents) {
         return <></>
     }
 

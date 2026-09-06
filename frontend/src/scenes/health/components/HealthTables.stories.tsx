@@ -4,6 +4,7 @@ import DataModelingDetailContent from '../categoryDetail/categories/DataModeling
 import { SdkOutdatedRenderer } from '../renderers/SdkOutdatedRenderer'
 import type { HealthIssue, HealthIssueSeverity } from '../types'
 import { DataModelingHealthTable } from './DataModelingHealthTable'
+import { HealthEmptyState } from './HealthEmptyState'
 import { IngestionWarningTable } from './IngestionWarningTable'
 import { PipelineHealthTable } from './PipelineHealthTable'
 import { WebAnalyticsHealthTable } from './WebAnalyticsHealthTable'
@@ -297,6 +298,10 @@ export const WebAnalyticsAllChecks: StoryFn = () => (
 export const WebAnalyticsEmpty: StoryFn = () => (
     <WebAnalyticsHealthTable issues={[]} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
+
+export const EmptyAllHealthy: StoryFn = () => <HealthEmptyState hasIngestedEvents={true} />
+
+export const EmptyNoEventsYet: StoryFn = () => <HealthEmptyState hasIngestedEvents={false} />
 
 export const SdkOutdatedDefault: StoryFn = () => <SdkOutdatedRenderer issue={SDK_OUTDATED_ISSUE} />
 
