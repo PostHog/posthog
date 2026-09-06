@@ -111,8 +111,8 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             verdict: 'captured',
             headline: 'A recording exists for this session',
             reasons: [
-                'PostHog has a stored recording linked to this event\u2019s session (`$has_recording = true`).',
-                'If the replay still appears missing in the UI, try refreshing — it may still be processing.',
+                'PostHog has a stored recording linked to this session.',
+                'If the replay still looks missing, refresh the page. It may still be processing.',
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],
@@ -122,7 +122,7 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     if (scriptNotLoaded) {
         return {
             verdict: 'ad_blocked',
-            headline: 'The recording script failed to load — likely blocked by an ad blocker',
+            headline: 'The recording script failed to load, likely blocked by an ad blocker',
             reasons: [
                 'The SDK reported that the recorder script was not loaded on the page.',
                 'This is usually caused by a browser ad blocker or content security policy blocking the recorder asset.',
@@ -137,8 +137,8 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             verdict: 'disabled',
             headline: 'Session recording was disabled for this session',
             reasons: [
-                'The SDK reported `$recording_status = disabled` at the time this event was captured.',
-                'Recording may be turned off in project settings, or explicitly disabled at runtime via the SDK.',
+                'Session recording was turned off while this session ran.',
+                'Recording can be turned off in project settings, or turned off at runtime in the SDK.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
@@ -212,8 +212,8 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             verdict: 'captured',
             headline: 'A recording should exist for this session',
             reasons: [
-                'The SDK reported `$recording_status = active` and flushed recording data to PostHog.',
-                'If the replay still appears missing, it may still be processing, or it may have been deleted due to retention.',
+                'The SDK was recording and sent recording data to PostHog.',
+                'If the replay still looks missing, it may still be processing, or retention may have deleted it.',
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],

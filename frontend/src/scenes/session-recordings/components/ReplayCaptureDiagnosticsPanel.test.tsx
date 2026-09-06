@@ -45,7 +45,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             )
 
             expect(
-                screen.getByText('The recording script failed to load — likely blocked by an ad blocker')
+                screen.getByText('The recording script failed to load, likely blocked by an ad blocker')
             ).toBeInTheDocument()
         })
 
@@ -121,7 +121,7 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             const text = Array.from(listItems)
                 .map((li) => li.textContent)
                 .join(' ')
-            expect(text).toContain('$has_recording = true')
+            expect(text).toContain('PostHog has a stored recording linked to this session')
         })
 
         it('renders buffering_empty headline', () => {
