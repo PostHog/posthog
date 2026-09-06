@@ -353,6 +353,10 @@ class SSHTunnelMixin:
             if not is_port_valid:
                 return is_port_valid, port_errors
 
+            is_host_key_valid, host_key_errors = ssh_tunnel.is_host_key_valid()
+            if not is_host_key_valid:
+                return is_host_key_valid, host_key_errors
+
         return True, None
 
 

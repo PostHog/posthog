@@ -299,7 +299,12 @@ export const sourceFieldToElement = (
 
     if (field.type === 'textarea') {
         return (
-            <LemonField key={field.name} name={field.name} label={field.label}>
+            <LemonField
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            >
                 {({ value, onChange }) => (
                     <LemonTextArea
                         className="ph-ignore-input"

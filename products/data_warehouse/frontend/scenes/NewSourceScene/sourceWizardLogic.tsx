@@ -144,6 +144,16 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
             ],
         },
         {
+            name: 'host_key',
+            label: 'SSH host key (optional)',
+            type: 'textarea',
+            required: false,
+            placeholder: 'ssh-ed25519 AAAA...',
+            secret: false,
+            caption:
+                "Paste the tunnel server's public host key to verify its identity on connect. Get it from your server administrator, or with `ssh-keyscan -p <port> <host>` and confirm it through a channel you trust. Leave blank to connect without verifying the server.",
+        },
+        {
             name: 'require_tls',
             label: 'Require TLS through tunnel?',
             type: 'switch-group',
