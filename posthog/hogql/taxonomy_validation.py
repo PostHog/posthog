@@ -15,10 +15,16 @@ from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_strin
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.taxonomy.taxonomy import virtual_property_names
 
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 logger = getLogger(__name__)
+
+# Virtual event properties (e.g. `$virt_traffic_type`, `$virt_is_bot`) are computed at query time from
+# event data and never persisted as PropertyDefinition rows, so a lookup against the table would flag
+# them as unknown. `read_taxonomy` reads the same source, so the two tools stay in agreement.
+VIRTUAL_EVENT_PROPERTY_NAMES = virtual_property_names("event_properties")
 
 # How a suggested name is rendered back into the marked range for a one-click fix:
 # `string` → a quoted, escaped string literal (event `=`/`IN` values, `properties['key']` keys);
@@ -57,6 +63,10 @@ class TaxonomyReference:
     # it strips the quotes/prefix. `fix_context` says how to render the suggested name back into that slot.
     # `None` means "warn, but offer no one-click fix" (e.g. nested `properties.a.b`).
     fix_context: FixContext | None = "string"
+    # `properties['name']` bracket access reads the raw JSON blob directly; `properties.name` dot access is
+    # the form the resolver remaps onto a virtual top-level field for `$virt` names. Recording the form lets
+    # the validator exempt a virtual name only for the dot access that actually reaches the computed value.
+    bracket_access: bool = False
 
 
 class TaxonomyReferenceVisitor(TraversingVisitor):
@@ -102,7 +112,13 @@ class TaxonomyReferenceVisitor(TraversingVisitor):
             and isinstance(node.property.value, str)
         ):
             self.property_names.append(
-                TaxonomyReference(node.property.value, node.property.start, node.property.end, fix_context="string")
+                TaxonomyReference(
+                    node.property.value,
+                    node.property.start,
+                    node.property.end,
+                    fix_context="string",
+                    bracket_access=True,
+                )
             )
 
 
@@ -136,7 +152,7 @@ def validate_taxonomy_references(
 
         if visitor.property_names:
             property_references = [
-                reference for reference in visitor.property_names if not _is_dynamic_property(reference.name)
+                reference for reference in visitor.property_names if not _is_known_computed_property(reference)
             ]
             if property_references:
                 warnings.extend(
@@ -163,8 +179,18 @@ def _is_properties_field(node: ast.Expr) -> bool:
     return isinstance(node, ast.Field) and len(node.chain) == 1 and node.chain[0] == "properties"
 
 
-def _is_dynamic_property(name: str) -> bool:
-    return any(name.startswith(prefix) for prefix in DYNAMIC_PROPERTY_PREFIXES)
+def _is_known_computed_property(reference: TaxonomyReference) -> bool:
+    # Properties that legitimately never appear in PropertyDefinition and so must not be flagged as unknown.
+    # Dynamic id-encoding prefixes (feature flags, survey ids) are real JSON keys read the same way through
+    # dot or bracket access, so they are always exempt. A virtual property is computed at query time, and the
+    # resolver only remaps the `properties.<name>` dot form onto the computed top-level field; bracket access
+    # (`properties['<name>']`) reads the raw JSON blob, where the virtual value is never stored, so it returns
+    # an empty value and must still warn. A typo'd virtual name (e.g. `$virt_trafic_type`) is not in the set,
+    # so it also still warns.
+    name = reference.name
+    if any(name.startswith(prefix) for prefix in DYNAMIC_PROPERTY_PREFIXES):
+        return True
+    return name in VIRTUAL_EVENT_PROPERTY_NAMES and not reference.bracket_access
 
 
 def _event_literal_from_equality(field_node: ast.Expr, value_node: ast.Expr) -> TaxonomyReference | None:
