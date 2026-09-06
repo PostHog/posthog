@@ -137,6 +137,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READ_FEATURES'
         | 'CYCLOTRON_NODE_DATABASE_URL'
         | 'CYCLOTRON_NODE_MAX_CONNECTIONS'
+        | 'CDP_WATCHER_COST_ERROR'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -381,6 +382,7 @@ export function createCdpCoreServices(
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
 
     const hogWatcherConfig = {
+        costError: config.CDP_WATCHER_COST_ERROR,
         hogCostTimingLowerMs: config.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
         hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
         hogCostTiming: config.CDP_WATCHER_HOG_COST_TIMING,

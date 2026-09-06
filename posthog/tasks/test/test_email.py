@@ -1461,6 +1461,42 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Should now be sent to all users (creator, editor, original user, test2) - 4 separate emails
         assert len(mocked_email_messages) == 4
 
+    def test_send_hog_functions_daily_digest_counts_input_build_failures(self, MockEmailMessage: MagicMock) -> None:
+        from posthog.test.fixtures import create_app_metric2
+
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Broken Inputs Destination",
+            type="destination",
+            enabled=True,
+            deleted=False,
+            hog="return event",
+        )
+
+        # A destination that throws while building its inputs emits only this metric.
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),
+            metric_kind="failure",
+            metric_name="inputs_failed",
+            count=7,
+        )
+
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):
+            send_hog_functions_daily_digest()
+
+        assert len(mocked_email_messages) == 1
+        html_body = mocked_email_messages[0].html_body
+        assert "Broken Inputs Destination" in html_body
+        assert "100.0%" in html_body
+        assert "Failed runs: 7" in html_body
+
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

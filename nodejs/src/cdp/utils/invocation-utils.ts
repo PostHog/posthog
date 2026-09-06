@@ -39,6 +39,10 @@ export function createInvocation(
 /**
  * Matches a batch of hog functions against one event's globals and builds an invocation per match,
  * resolving each one's inputs. Filter metrics/logs come back alongside for the caller to queue.
+ *
+ * A function whose inputs throw builds no invocation, so it also comes back in `inputsFailed`.
+ * The caller must report those to the watcher: with no invocation there is no invocation result,
+ * and `HogWatcherService.observeResults` only sees results.
  */
 export async function buildHogFunctionInvocations(
     hogInputsService: HogInputsService,
@@ -48,10 +52,12 @@ export async function buildHogFunctionInvocations(
     invocations: CyclotronJobInvocationHogFunction[]
     metrics: MinimalAppMetric[]
     logs: LogEntry[]
+    inputsFailed: HogFunctionType[]
 }> {
     const metrics: MinimalAppMetric[] = []
     const logs: LogEntry[] = []
     const invocations: CyclotronJobInvocationHogFunction[] = []
+    const inputsFailed: HogFunctionType[] = []
 
     // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
     const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
@@ -113,6 +119,8 @@ export async function buildHogFunctionInvocations(
                 count: 1,
             })
 
+            inputsFailed.push(hogFunction)
+
             return null
         }
     }
@@ -156,6 +164,7 @@ export async function buildHogFunctionInvocations(
         invocations,
         metrics,
         logs,
+        inputsFailed,
     }
 }
 
