@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import Mock, patch
@@ -28,6 +29,7 @@ from posthog.schema import (
     PathsQuery,
     PathsV2Filter,
     PathsV2Query,
+    QueryStatus,
     RetentionFilter,
     RetentionQuery,
     StickinessQuery,
@@ -38,17 +40,76 @@ from posthog.schema import (
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.execute_async import InternalQueryStatus
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
+    QueryStatusError,
+    _query_status_error,
     execute_and_format_query,
     get_example_prompt,
     is_supported_query,
 )
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
+
+
+@pytest.mark.parametrize(
+    "error_message,error_code,error_category,expected_message,expected_code",
+    [
+        pytest.param(
+            "Query failed with error",
+            "specific_error",
+            None,
+            "Query failed with error",
+            "specific_error",
+            id="message_and_public_code",
+        ),
+        pytest.param(
+            None,
+            "specific_error",
+            None,
+            "Query failed",
+            "specific_error",
+            id="public_code_without_message",
+        ),
+        pytest.param(
+            None,
+            None,
+            QueryErrorCategory.USER_ERROR,
+            "Query failed",
+            "error",
+            id="typed_internal_category",
+        ),
+        pytest.param(
+            None,
+            None,
+            None,
+            "Query failed",
+            "error",
+            id="unknown_error",
+        ),
+    ],
+)
+def test_query_status_error_preserves_public_code_and_typed_category(
+    error_message: str | None,
+    error_code: str | None,
+    error_category: QueryErrorCategory | None,
+    expected_message: str,
+    expected_code: str,
+) -> None:
+    error = _query_status_error(
+        error_message=error_message,
+        error_code=error_code,
+        error_category=error_category,
+    )
+
+    assert isinstance(error, APIException)
+    assert str(error) == expected_message
+    assert error.get_codes() == expected_code
+    assert error.error_category is error_category
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -324,21 +385,27 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("max execution time", str(context.exception))
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_success(self, mock_get_query_status, mock_process_query):
+    @patch("ee.hogai.context.insight.query_executor.get_internal_query_status")
+    async def test_async_query_polling_success(self, mock_get_internal_query_status, mock_process_query):
         """Test successful async query polling"""
         # Initial response with incomplete query
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
         # Mock polling responses
-        mock_get_query_status.side_effect = [
-            Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False}),  # Still running
-            Mock(
-                model_dump=lambda mode: {
-                    "id": "test-query-id",
-                    "complete": True,
-                    "results": {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]},
-                }
+        mock_get_internal_query_status.side_effect = [
+            InternalQueryStatus(
+                query_status=QueryStatus(id="test-query-id", team_id=self.team.pk, complete=False, error=False),
+                error_category=None,
+            ),
+            InternalQueryStatus(
+                query_status=QueryStatus(
+                    id="test-query-id",
+                    team_id=self.team.pk,
+                    complete=True,
+                    error=False,
+                    results={"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]},
+                ),
+                error_category=None,
             ),  # Complete
         ]
 
@@ -350,18 +417,21 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIsInstance(result, str)
         self.assertFalse(used_fallback)
         self.assertIn("Date|test", result)
-        self.assertEqual(mock_get_query_status.call_count, 2)
+        self.assertEqual(mock_get_internal_query_status.call_count, 2)
         self.assertEqual(mock_sleep.call_count, 2)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_timeout(self, mock_get_query_status, mock_process_query):
+    @patch("ee.hogai.context.insight.query_executor.get_internal_query_status")
+    async def test_async_query_polling_timeout(self, mock_get_internal_query_status, mock_process_query):
         """Test async query polling timeout"""
         # Initial response with incomplete query
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
         # Mock polling to always return incomplete
-        mock_get_query_status.return_value = Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False})
+        mock_get_internal_query_status.return_value = InternalQueryStatus(
+            query_status=QueryStatus(id="test-query-id", team_id=self.team.pk, complete=False, error=False),
+            error_category=None,
+        )
 
         query = AssistantTrendsQuery(series=[])
 
@@ -372,20 +442,22 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Query hasn't completed in time", str(context.exception))
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_with_error(self, mock_get_query_status, mock_process_query):
+    @patch("ee.hogai.context.insight.query_executor.get_internal_query_status")
+    async def test_async_query_polling_with_error(self, mock_get_internal_query_status, mock_process_query):
         """Test async query polling that returns an error"""
         # Initial response with incomplete query
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
         # Mock polling to return error
-        mock_get_query_status.return_value = Mock(
-            model_dump=lambda mode: {
-                "id": "test-query-id",
-                "complete": True,
-                "error": True,
-                "error_message": "Query failed with error",
-            }
+        mock_get_internal_query_status.return_value = InternalQueryStatus(
+            query_status=QueryStatus(
+                id="test-query-id",
+                team_id=self.team.pk,
+                complete=True,
+                error=True,
+                error_message="Query failed with error",
+            ),
+            error_category=QueryErrorCategory.USER_ERROR,
         )
 
         query = AssistantTrendsQuery(series=[])
@@ -395,6 +467,12 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query failed with error", str(context.exception))
+        self.assertIsInstance(context.exception, MaxToolRetryableError)
+        self.assertIsInstance(context.exception.__context__, QueryStatusError)
+        assert isinstance(context.exception.__context__, QueryStatusError)
+        self.assertEqual(context.exception.__context__.get_codes(), "error")
+        self.assertEqual(context.exception.__context__.error_category, QueryErrorCategory.USER_ERROR)
+        self.assertEqual(mock_get_internal_query_status.call_count, 1)
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

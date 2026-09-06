@@ -12,8 +12,10 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from posthog.hogql.errors import InternalHogQLError
 
+from posthog.dataclasses import frozen
+from posthog.errors import InternalCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.ph_client import ph_background_capture
@@ -61,9 +63,13 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_query_error_details
+from products.exports.backend.temporal.subscriptions.types import (
+    iter_exception_chain,
+    safe_error_message,
+    safe_query_error_details,
+)
 
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor, QueryStatusError
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool_errors import MaxToolRetryableError
 
@@ -102,14 +108,14 @@ _FIX_LLM_TIMEOUT_SECONDS = 30.0
 # queue and run as slots free up — every step still executes.
 _MAX_CONCURRENT_STEPS = 5
 
-# Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
-# failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
-# since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
-_RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
-    MaxToolRetryableError,
-    ExposedHogQLError,
-    InternalHogQLError,
+_CLICKHOUSE_QUERY_REPAIR_HINT = "ClickHouse rejected the query. Rewrite it using valid HogQL syntax and functions."
+_ASYNC_USER_QUERY_REPAIR_HINT = "The query was rejected because its structure is invalid. Rewrite it using valid HogQL."
+_QUERY_PERFORMANCE_REPAIR_HINT = (
+    "The query exceeded its execution budget. Rewrite it to preaggregate data, avoid repeated scans, "
+    "and reduce high-cardinality grouping while preserving the requested metric and time window."
 )
+_GENERIC_QUERY_REPAIR_HINT = "The query failed with an adjusted-input error. Rewrite it using valid HogQL."
+_SELF_RECOVERABLE_QUERY_ERROR_CATEGORIES = frozenset({QueryErrorCategory.RATE_LIMITED})
 
 
 def _all_queries_failed_notice(total_steps: int) -> str:
@@ -118,6 +124,73 @@ def _all_queries_failed_notice(total_steps: int) -> str:
         f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
         "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
     )
+
+
+@frozen
+class QueryRepairDecision:
+    repair_hint: Optional[str]
+    invalidates_plan: bool
+
+
+def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairDecision:
+    safe_message = safe_error_message(exc)
+    categories: set[QueryErrorCategory] = set()
+    has_clickhouse_user_error = False
+    has_retryable_error = False
+    has_unknown_query_status_error = False
+    has_unclassified_error = False
+    has_internal_hogql_error = False
+    for current in iter_exception_chain(exc):
+        if isinstance(current, MaxToolRetryableError):
+            has_retryable_error = True
+        if isinstance(current, QueryStatusError):
+            if current.error_category is None:
+                has_unknown_query_status_error = True
+            else:
+                categories.add(current.error_category)
+        if isinstance(current, InternalHogQLError):
+            has_internal_hogql_error = True
+        if isinstance(current, Exception):
+            category = classify_query_error(current)
+            if category is not QueryErrorCategory.ERROR:
+                categories.add(category)
+            elif not isinstance(current, (MaxToolRetryableError, QueryStatusError)):
+                has_unclassified_error = True
+            if isinstance(current, InternalCHQueryError) and category is QueryErrorCategory.USER_ERROR:
+                has_clickhouse_user_error = True
+
+    if QueryErrorCategory.QUERY_PERFORMANCE_ERROR in categories:
+        return QueryRepairDecision(repair_hint=_QUERY_PERFORMANCE_REPAIR_HINT, invalidates_plan=True)
+    # Preserve a plan only when every classified failure is explicitly self-recoverable. Check this
+    # before safe messages because capacity exceptions may be both user-safe and transient.
+    if (
+        categories
+        and categories <= _SELF_RECOVERABLE_QUERY_ERROR_CATEGORIES
+        and not has_unknown_query_status_error
+        and not has_unclassified_error
+    ):
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=False)
+    # Exposed ClickHouse errors are user-safe, so their server text reaches `safe_message`. Check them
+    # first to keep query-derived identifiers out of the repair prompt.
+    if has_clickhouse_user_error:
+        return QueryRepairDecision(repair_hint=_CLICKHOUSE_QUERY_REPAIR_HINT, invalidates_plan=True)
+    if safe_message is not None:
+        return QueryRepairDecision(repair_hint=safe_message, invalidates_plan=True)
+    if QueryErrorCategory.USER_ERROR in categories:
+        return QueryRepairDecision(repair_hint=_ASYNC_USER_QUERY_REPAIR_HINT, invalidates_plan=True)
+    # A HogQL engine failure means the generated query is wrong, so a rewrite can still recover the
+    # step. The message is not user-safe, so send the generic hint instead of it.
+    if has_internal_hogql_error:
+        return QueryRepairDecision(repair_hint=_GENERIC_QUERY_REPAIR_HINT, invalidates_plan=True)
+    if has_unknown_query_status_error or has_unclassified_error:
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
+    # A cancellation says nothing about the query text, so a rewrite would drift a valid metric. The
+    # plan still needs replanning: a deploy, an operator, and a user kill are indistinguishable here.
+    if QueryErrorCategory.CANCELLED in categories:
+        return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
+    if has_retryable_error:
+        return QueryRepairDecision(repair_hint=_GENERIC_QUERY_REPAIR_HINT, invalidates_plan=True)
+    return QueryRepairDecision(repair_hint=None, invalidates_plan=True)
 
 
 def _validate_step_chart(
@@ -174,6 +247,7 @@ class StepOutcome:
     rendered: str
     diagnostic: QueryStepDiagnostic
     chart: Optional[ValidatedChart] = None
+    plan_invalidating_failure: bool = False
 
 
 @dataclass(frozen=True)
@@ -182,6 +256,7 @@ class PlanExecution:
     failed_count: int
     diagnostics: list[QueryStepDiagnostic]
     charts: list[ValidatedChart]
+    plan_invalidating_failed_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -309,6 +384,7 @@ async def generate_ai_report(
             spec.plan,
             freshly_planned=freshly_planned,
             failed_count=failed_count,
+            plan_invalidating_failed_count=execution.plan_invalidating_failed_count,
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
             trace_correlation_id=trace_correlation_id,
@@ -345,24 +421,33 @@ def _plan_to_freeze(
     *,
     freshly_planned: bool,
     failed_count: int,
+    plan_invalidating_failed_count: int,
     total_steps: int,
     relevant_events: Sequence[str],
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
-    # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
-    # replay that broken HogQL every run, and a step without any window placeholder would scan unbounded
-    # every run.
+    # Never freeze a plan the next delivery is better off re-planning, or a plan without a window
+    # placeholder because it would scan an unbounded range on every run.
     if not freshly_planned:
         return None
-    # Freeze only when every step succeeded. If any step failed, re-plan next run instead — a frozen plan
-    # replays verbatim until the plan version bumps, so even a single broken step would re-send broken
-    # HogQL every delivery, whereas re-planning gives the planner and fix loop another shot (and lets the
-    # subscription pick up any planner/prompt improvements we've since shipped).
-    if failed_count:
+    # Structural and per-query performance failures need a fresh plan because the same SQL is not safe
+    # to reuse. Transient execution/capacity failures keep the plan stable so the metric does not drift.
+    if plan_invalidating_failed_count:
         logger.warning(
-            "ai_report.plan_had_failures_not_frozen",
+            "ai_report.plan_had_query_structure_failures_not_frozen",
+            trace_correlation_id=trace_correlation_id,
+            failed_count=failed_count,
+            plan_invalidating_failed_count=plan_invalidating_failed_count,
+            total_steps=total_steps,
+        )
+        return None
+    # If every query failed, no metric was delivered to preserve. Re-plan next time instead of pinning
+    # a query that may keep exceeding its budget against an ever-growing scheduled-report window.
+    if total_steps and failed_count >= total_steps:
+        logger.warning(
+            "ai_report.plan_all_queries_failed_not_frozen",
             trace_correlation_id=trace_correlation_id,
             failed_count=failed_count,
             total_steps=total_steps,
@@ -519,6 +604,7 @@ async def _run_steps(
         # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
+        had_plan_invalidating_failure = False
         # planner output — strip framing markers so it can't break the <query_results> envelope
         safe_description = strip_llm_framing_markers(step.description, max_len=500)
 
@@ -560,7 +646,9 @@ async def _run_steps(
                 )
             except Exception as exc:
                 last_exc = exc
-                if attempt >= _MAX_QUERY_FIX_RETRIES or not isinstance(exc, _RETRYABLE_QUERY_ERRORS):
+                repair_decision = _query_repair_hint_and_plan_invalidation(exc)
+                had_plan_invalidating_failure = had_plan_invalidating_failure or repair_decision.invalidates_plan
+                if attempt >= _MAX_QUERY_FIX_RETRIES or repair_decision.repair_hint is None:
                     break
                 logger.info(
                     "ai_report.query_fix_attempt",
@@ -570,11 +658,9 @@ async def _run_steps(
                     max_retries=_MAX_QUERY_FIX_RETRIES,
                     error_type=type(exc).__name__,
                 )
-                error_details = safe_query_error_details(exc)
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # Forward explicitly safe detail when available; fall back to the type name.
-                    error_message=(error_details["message"] if error_details else None) or type(exc).__name__,
+                    error_message=repair_decision.repair_hint,
                     step_description=safe_description,
                     # The planner's project schema (event/property names) — a schema-blind fixer just
                     # re-guesses the wrong name, so give it the same grounding the planner had.
@@ -611,6 +697,7 @@ async def _run_steps(
                 error_code=error_details["code"] if error_details else None,
                 human_readable_error=error_details["message"] if error_details else None,
             ),
+            plan_invalidating_failure=had_plan_invalidating_failure,
         )
 
     async def run_step_bounded(step: QueryPlanStep, step_index: int) -> StepOutcome:
@@ -625,6 +712,7 @@ async def _run_steps(
         failed_count=sum(1 for diag in diagnostics if not diag.ok),
         diagnostics=diagnostics,
         charts=[outcome.chart for outcome in step_results if outcome.chart is not None],
+        plan_invalidating_failed_count=sum(1 for outcome in step_results if outcome.plan_invalidating_failure),
     )
 
 

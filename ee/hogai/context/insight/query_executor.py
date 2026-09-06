@@ -42,10 +42,10 @@ from posthog.hogql.errors import (
 )
 
 from posthog.api.services.query import process_query_dict
-from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.client.execute_async import InternalQueryStatus, get_internal_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
@@ -123,6 +123,31 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | AssistantHogQLQuery
         | HogQLQuery
         | DataVisualizationNode,
+    )
+
+
+class QueryStatusError(APIException):
+    def __init__(
+        self,
+        detail: str,
+        *,
+        code: str,
+        error_category: Optional[QueryErrorCategory],
+    ) -> None:
+        self.error_category = error_category
+        super().__init__(detail, code=code)
+
+
+def _query_status_error(
+    *,
+    error_message: Optional[str],
+    error_code: Optional[str],
+    error_category: Optional[QueryErrorCategory],
+) -> QueryStatusError:
+    return QueryStatusError(
+        error_message or "Query failed",
+        code=error_code or "error",
+        error_category=error_category,
     )
 
 
@@ -383,6 +408,7 @@ class AssistantQueryExecutor:
 
             # Handle async queries that may need polling
             if query_status := response_dict.get("query_status"):
+                internal_query_status: Optional[InternalQueryStatus] = None
                 if not query_status["complete"]:
                     polling_start = time.time()
                     poll_count = 0
@@ -408,13 +434,13 @@ class AssistantQueryExecutor:
 
                         status_check_start = time.time()
                         # Fast operation–Redis access
-                        query_status_res = await database_sync_to_async(get_query_status, thread_sensitive=True)(
-                            team_id=self._team.pk, query_id=query_status["id"]
-                        )
+                        internal_query_status = await database_sync_to_async(
+                            get_internal_query_status, thread_sensitive=True
+                        )(team_id=self._team.pk, query_id=query_status["id"])
                         status_check_elapsed = time.time() - status_check_start
                         total_wait_s += status_check_elapsed
 
-                        query_status = query_status_res.model_dump(mode="json")
+                        query_status = internal_query_status.query_status.model_dump(mode="json")
 
                         if status_check_elapsed > 0.5 and debug_timing:  # Log slow status checks
                             logger.warning(f"{TIMING_LOG_PREFIX} Slow status check: {status_check_elapsed:.3f}s")
@@ -440,9 +466,20 @@ class AssistantQueryExecutor:
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
-                    if error_message := query_status.get("error_message"):
-                        raise APIException(error_message)
-                    raise Exception("Query failed")
+                    if internal_query_status is None:
+                        try:
+                            internal_query_status = await database_sync_to_async(
+                                get_internal_query_status, thread_sensitive=True
+                            )(team_id=self._team.pk, query_id=query_status["id"])
+                        except Exception:
+                            logger.warning("Failed to retrieve internal query error category", exc_info=True)
+                    raise _query_status_error(
+                        error_message=query_status.get("error_message"),
+                        error_code=query_status.get("error_code"),
+                        error_category=(
+                            internal_query_status.error_category if internal_query_status is not None else None
+                        ),
+                    )
 
                 # Use the completed query results
                 response_dict = query_status["results"]

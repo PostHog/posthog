@@ -10,6 +10,7 @@ from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import APIException
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
@@ -21,15 +22,24 @@ from posthog.clickhouse.client import (
     sync_execute,
 )
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.execute_async import (
+    QueryNotFoundError,
+    QueryStatusManager,
+    _query_status_error_code,
+    execute_process_query,
+)
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import CHQueryErrorUnknownIdentifier, ExposedCHQueryError, QueryErrorCategory
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+)
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -71,6 +81,16 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
+    def test_internal_error_category_is_stored_outside_public_query_status(self):
+        self.manager.store_query_status(self.query_status, error_category=QueryErrorCategory.USER_ERROR)
+
+        public_status = self.manager.get_query_status()
+        internal_status = self.manager.get_internal_query_status()
+
+        self.assertIsNone(public_status.error_code)
+        self.assertEqual(internal_status.query_status, public_status)
+        self.assertEqual(internal_status.error_category, QueryErrorCategory.USER_ERROR)
+
     def test_process_query_task_on_failure_marks_status_errored(self):
         from posthog.tasks.tasks import process_query_task
 
@@ -89,6 +109,35 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, ClickHouseAtCapacity.default_detail)
         self.assertIsNotNone(result.end_time)
+        self.assertEqual(
+            self.manager.get_internal_query_status().error_category,
+            QueryErrorCategory.RATE_LIMITED,
+        )
+
+    @parameterized.expand(
+        [
+            ("internal_user_error", CHQueryErrorUnknownIdentifier("bad", code=47), QueryErrorCategory.USER_ERROR),
+            ("transient_capacity", ClickHouseClusterMemoryLimitExceeded(), QueryErrorCategory.RATE_LIMITED),
+            ("query_performance", ClickHouseQueryMemoryLimitExceeded(), QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
+        ]
+    )
+    def test_query_status_error_category(self, _name, error, expected_category):
+        self.assertEqual(client._query_status_error_category(error), expected_category)
+
+    @parameterized.expand(
+        [
+            ("generic_api_code", APIException("Query failed"), "error"),
+            ("specific_api_code", APIException("Query failed", code="user_error"), "user_error"),
+            (
+                "query_performance_api_code",
+                ClickHouseQueryMemoryLimitExceeded(),
+                ClickHouseQueryMemoryLimitExceeded.default_code,
+            ),
+            ("internal_error", CHQueryErrorUnknownIdentifier("bad", code=47), None),
+        ]
+    )
+    def test_query_status_public_error_code(self, _name, error, expected_code):
+        self.assertEqual(_query_status_error_code(error), expected_code)
 
     def test_store_clickhouse_query_progress(self):
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}
@@ -242,6 +291,23 @@ class TestExecuteProcessQuery(TestCase):
 
         self.assertEqual(mock_capture_exception.called, should_capture)
 
+    def test_user_safe_error_without_code_preserves_existing_error_code(self):
+        self.manager.store_query_status(
+            QueryStatus(
+                id=self.query_id,
+                team_id=self.team.id,
+                complete=False,
+                error=False,
+                error_code="existing_error_code",
+            )
+        )
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=ExposedHogQLError("bad query")):
+            execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        result = self.manager.get_query_status()
+        self.assertEqual(result.error_code, "existing_error_code")
+
     @parameterized.expand(
         [
             ("live", {}, True, True),
@@ -362,6 +428,24 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+
+    def test_async_query_internal_error_category_is_not_exposed_as_public_error_code(self):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+        error = CHQueryErrorUnknownIdentifier(
+            "DB::Exception: Unknown identifier attacker_controlled_value", code=47, code_name="unknown_identifier"
+        )
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=error):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        public_status = client.get_query_status(self.team.id, query_id)
+        self.assertIsNone(public_status.error_message)
+        self.assertIsNone(public_status.error_code)
+        internal_status = client.get_internal_query_status(self.team.id, query_id)
+        self.assertEqual(internal_status.error_category, QueryErrorCategory.USER_ERROR)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
