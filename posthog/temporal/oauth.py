@@ -17,6 +17,7 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
+    SLACK_RUN_SCOPE,
     resolve_ceiling,
 )
 from posthog.utils import get_instance_region
@@ -540,6 +541,7 @@ def create_oauth_access_token_for_user(
     include_internal_scopes: bool = True,
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
+    include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
 ) -> str:
@@ -553,6 +555,8 @@ def create_oauth_access_token_for_user(
         # Provenance marker only — it grants no access. The LLM gateway meters a run
         # carrying it against the interactive budget instead of the pipeline's.
         resolved.append(INTERACTIVE_RUN_SCOPE)
+    if include_slack_run_scope:
+        resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 

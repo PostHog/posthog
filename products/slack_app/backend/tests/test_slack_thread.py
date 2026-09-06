@@ -25,6 +25,11 @@ class TestSlackThreadHandler(SimpleTestCase):
             ("passthrough", "Internal error: something else", "Internal error: something else"),
             ("stripped_passthrough", "  Internal error: something else  ", "Internal error: something else"),
             ("rate_limit", "Internal error: API Error: 429 rate_limit_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
+            (
+                "task_spend_limit",
+                "Internal error: API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours.",
+                "Internal error: API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours.",
+            ),
             ("overloaded", "Internal error: API Error: 529 overloaded_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
             ("server_error", "Internal error: API Error: 500 internal_error", UPSTREAM_PROVIDER_FAILURE_MESSAGE),
         ]
