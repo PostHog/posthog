@@ -85,7 +85,7 @@ These are the failure modes that produce a plausible-looking answer rather than 
    `$exception`.** `$exception` can be disabled, isn't emitted when no error value is passed,
    and never matched new-SDK events — so querying it returns nothing rather than failing.
 3. **Dash the in-progress bucket.** Every time-bucketed chart zero-fills and marks the final
-   incomplete interval via `products/mcp_analytics/frontend/timeBuckets.ts` (`resolveWindow`,
+   incomplete interval via `frontend/src/lib/utils/timeBuckets.ts` (`resolveWindow`,
    `normalizeBucket`, `buildBucketKeys`, `lastBucketIsInProgress`). Omit it and a partial
    period reads as a real decline.
 4. **`harness` is derived, and its logic exists in three places that must move in lockstep:**
