@@ -428,6 +428,27 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["detail"], "Internal server error")
 
+    def test_follower_replayed_capacity_response_carries_retry_after(self):
+        mock_coalescer = mock.MagicMock()
+        mock_coalescer.try_acquire.return_value = False
+        mock_coalescer._dry_run = False
+        mock_coalescer.wait_for_signal.return_value = CoalesceSignal.DONE
+        mock_coalescer.get_success_response.return_value = {
+            "status": 503,
+            "body": '{"type": "server_error", "detail": "Queries are a little too busy right now."}',
+            "content_type": "application/json",
+            "retry_after": "30",
+        }
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer),
+        ):
+            response = self.client.post(self._query_url(), self._query_payload())
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response["Retry-After"], "30")
+
     def test_follower_permission_denied_returns_403_not_500(self):
         mock_coalescer = mock.MagicMock()
         mock_coalescer.try_acquire.return_value = False
