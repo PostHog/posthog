@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.s
 _SCHEMA_MODEL = "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
 _JOB_MODEL = "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob"
 _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
+_COMPANIONS = "products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs"
 
 
 def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
@@ -55,11 +56,15 @@ def _dispatch(
     inputs: SourceInputs,
     in_flight: bool = False,
     job_version: str | None = ExternalDataJob.PipelineVersion.V3,
+    clear_listing: MagicMock | None = None,
+    retire_orphans: MagicMock | None = None,
 ):
     job = None if job_version is None else MagicMock(pipeline_version=job_version)
     with (
         patch(f"{_SCHEMA_MODEL}.objects") as objects,
         patch(f"{_JOB_MODEL}.objects") as job_objects,
+        patch(f"{_MANAGER}.clear_listing", clear_listing or MagicMock()),
+        patch(f"{_COMPANIONS}.retire_orphaned_companions", retire_orphans or MagicMock(return_value=[])),
         patch(f"{_MANAGER}.has_batches_in_flight", return_value=in_flight),
         patch(f"{_MANAGER}.DeltaTableRef", _delta_ref()),
         patch(f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, applied={}))),
@@ -126,6 +131,29 @@ class TestBufferedDispatch:
 
         assert list(response.items()) == []
         assert response.lanes is None
+
+    def test_a_no_op_tick_takes_an_earlier_attempts_listing_off_the_job(self):
+        # Attempt 1 of this same job listed and stamped, then died with batches staged. This
+        # attempt hands back an empty response and the workflow completes the job on it. If a
+        # staged batch later fails in the loader, the job stays Completed — and a stamp still on
+        # it would prove a listing nothing drained.
+        clear, retire = MagicMock(), MagicMock()
+        inputs = _inputs()
+
+        _dispatch(_schema(cdc_table_mode="both"), inputs, in_flight=True, clear_listing=clear, retire_orphans=retire)
+
+        clear.assert_called_once_with(inputs.job_id, inputs.team_id)
+        retire.assert_not_called()
+
+    def test_a_run_retires_companions_no_run_owns_before_it_reads(self):
+        # Once nothing is in flight, a companion still Running belongs to a run that died without
+        # its `finally`. Nothing else ever closes it, and one such row blocks every flip.
+        retire = MagicMock(return_value=["orphan"])
+        inputs = _inputs()
+
+        _dispatch(_schema(cdc_table_mode="both"), inputs, retire_orphans=retire)
+
+        assert retire.call_args.kwargs["owner_job_id"] == inputs.job_id
 
     def test_a_reset_on_a_streaming_buffered_schema_is_refused(self):
         with pytest.raises(ValueError, match="cdc_mode='snapshot'"):

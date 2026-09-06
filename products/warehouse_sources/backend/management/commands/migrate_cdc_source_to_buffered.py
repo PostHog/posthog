@@ -31,7 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     is_cdc_write_resolution_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
@@ -154,9 +153,8 @@ class Command(BaseCommand):
         """
         if not eligible:
             return
-        job_inputs = eligible[0].source.job_inputs or {}
         # Stored through `job_inputs`, which stringifies, so "False" is not a value this ever writes.
-        if parse_ingest_mode(job_inputs) == "buffered" or job_inputs.get("cdc_buffered_before"):
+        if (eligible[0].source.job_inputs or {}).get("cdc_buffered_before"):
             return
         conflicted = [s.name for s in eligible if s.table is not None and CDC_SEQ_COLUMN in (s.table.columns or {})]
         if conflicted:
@@ -226,8 +224,8 @@ class Command(BaseCommand):
         self.stdout.write("4/7 draining sourcebatch")
         self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
-        # Pre-flip files were already delivered by the legacy lane, and replaying them would
-        # re-apply rows against a position the guard has no watermark for yet. Every CDC schema is
+        # Pre-flip files were already delivered by the legacy lane, whose rows carry no position,
+        # so nothing in the table could tell a replay of them from new changes. Every CDC schema is
         # purged, not just the eligible ones: a schema still snapshotting today becomes eligible on
         # its first completed sync, and would otherwise inherit whatever the shadow lane left here.
         self.stdout.write("5/7 purging pre-flip buffer files")

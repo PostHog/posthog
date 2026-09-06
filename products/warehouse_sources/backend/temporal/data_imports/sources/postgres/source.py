@@ -1431,9 +1431,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from asgiref.sync import async_to_sync
 
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+            retire_orphaned_companions,
+        )
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
             build_output_lanes,
+            clear_listing,
             completed_listing_proof,
             consumes_buffer,
             has_batches_in_flight,
@@ -1448,15 +1452,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return None
 
         # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
-        # before the flip, or a worker one deploy behind, would consume this buffer on v2, record
-        # no load position, and re-merge the whole buffer on every tick. Fail the run loudly
-        # instead of degrading silently.
+        # before the flip, or a worker one deploy behind, would consume this buffer on v2, which
+        # stamps no position on the rows it writes, so every later run would find nothing to resume
+        # from and re-merge the whole buffer. Fail the run loudly instead of degrading silently.
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
         if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
             raise ValueError(
                 f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
-                "Buffered consumption requires v3, whose loader records the load position that "
-                "proves buffer files consumed."
+                "Buffered consumption requires v3, whose loader stamps each row with the position "
+                "the next run resumes from."
             )
 
         # A CDC reset must travel through snapshot mode (which purges the buffer and re-seeds the
@@ -1475,9 +1479,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # batches that are still claimable, which the append lane would then write twice.
             #
             # An empty response no-ops this tick and keeps the schedule alive, unlike
-            # CDCHandledExternally, which would pause it for good. Nothing is listed, so nothing is
-            # deleted and no listing is stamped — this run can never serve as proof of consumption.
+            # CDCHandledExternally, which would pause it for good. Nothing is listed and nothing is
+            # deleted. An earlier attempt of this same job may have stamped a listing, though, and
+            # the workflow completes the job on this response — so the stamp comes off, or a batch
+            # of that attempt failing later would leave a Completed job proving a listing nothing
+            # drained.
             inputs.logger.info("cdc_buffered_waiting_for_in_flight_batches", schema_name=schema.name)
+            clear_listing(inputs.job_id, inputs.team_id)
             first_lane = served_lanes(schema)[0]
             return SourceResponse(
                 name=first_lane.resource_name,
@@ -1488,6 +1496,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
+
+        # Nothing of any earlier run is executing now, so a companion still Running belongs to a
+        # run that died without its `finally` and nothing else will ever close it.
+        retired = retire_orphaned_companions(schema, owner_job_id=inputs.job_id)
+        if retired:
+            inputs.logger.warning("cdc_orphaned_companion_jobs_retired", schema_name=schema.name, job_ids=retired)
 
         # Every table this schema's changes feed, written from one read of the buffer. Each lane
         # carries where its own table stops, because a failed run can leave one ahead of the other.

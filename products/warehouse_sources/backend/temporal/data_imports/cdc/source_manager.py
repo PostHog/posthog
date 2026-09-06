@@ -11,11 +11,9 @@ generator resumes.
 
 from __future__ import annotations
 
-import uuid
 import datetime as dt
-from collections import Counter
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from django.utils import timezone
 
@@ -32,8 +30,8 @@ from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
     build_scd2_table,
     companion_resource_name as build_companion_resource_name,
 )
@@ -42,8 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     get_buffer_prefix,
     parse_buffer_file_name,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
     LanePosition,
+    content_columns,
     ensure_position_stats,
     read_lane_position,
 )
@@ -167,16 +167,20 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | No
 
     since = timezone.now() - _PROOF_WINDOW
     jobs = (
+        # `pipeline_id` is redundant with `schema_id` but is what lets the planner use
+        # `idx_extdatajob_latest_run` (team, pipeline, status, -created_at); without it the read
+        # walks every job the schema ever had, every tick.
         ExternalDataJob.objects.filter(
             team_id=schema.team_id,
+            pipeline_id=schema.source_id,
             schema_id=schema.id,
             status=ExternalDataJob.Status.COMPLETED,
             created_at__gte=since,
         )
         .order_by("-created_at")
-        .values_list("id", "created_at", "schema_snapshot")[:_PROOF_SEARCH_DEPTH]
+        .values_list("schema_snapshot", flat=True)[:_PROOF_SEARCH_DEPTH]
     )
-    for job_id, created_at, snapshot in jobs:
+    for snapshot in jobs:
         listed_at = (snapshot or {}).get(BUFFER_LISTED_AT_KEY)
         if not listed_at:
             continue
@@ -186,7 +190,7 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | No
             continue
         if stamped.tzinfo is None:
             continue
-        if _companions_completed(job_id, schema, created_at):
+        if _companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
             return stamped
     return None
 
@@ -196,24 +200,34 @@ async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | N
     return await database_sync_to_async_pool(db_read_with_retry)(lambda: read_completed_listing_proof(schema))
 
 
-def _companions_completed(job_id: uuid.UUID, schema: ExternalDataSchema, created_at: dt.datetime) -> bool:
-    """Whether every companion table this run also wrote finished with it.
+def clear_listing(job_id: str, team_id: int) -> None:
+    """Drop the listing stamp from a job that a retry is about to hand back without draining.
 
-    A companion is created inside its parent's own run, so the row can only be a few minutes
-    younger. Bounding on that keeps the unindexed `companion_of` predicate off the schema's whole
-    history, and `billable=False` narrows it to companion rows before the JSONB is touched.
+    An earlier attempt of the same job listed the buffer and stamped it; this attempt stood down
+    for its in-flight batches, and the workflow will now complete the job anyway. If one of those
+    batches then fails in the loader, the job stays Completed, and a stamp still on it would prove
+    a listing nothing drained — and delete a file at the floor whose rows never landed.
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
-    companions = ExternalDataJob.objects.filter(
-        team_id=schema.team_id,
-        schema_id=schema.id,
-        billable=False,
-        created_at__gte=created_at - _COMPANION_CLOCK_SLACK,
-        created_at__lte=created_at + _COMPANION_CREATION_WINDOW,
-        schema_snapshot__companion_of=str(job_id),
-    ).values_list("status", flat=True)
-    return all(status == ExternalDataJob.Status.COMPLETED for status in companions)
+    job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).only("id", "schema_snapshot").first()
+    stamped = dict(job.schema_snapshot or {}) if job is not None else {}
+    if job is None or not stamped.get(BUFFER_LISTED_AT_KEY):
+        return
+    snapshot = {k: v for k, v in stamped.items() if k != BUFFER_LISTED_AT_KEY}
+    ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
+
+
+def _companions_completed(companion_job_ids: list[str]) -> bool:
+    """Whether every companion table this run also wrote finished with it."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    if not companion_job_ids:
+        return True
+    statuses = ExternalDataJob.objects.filter(id__in=companion_job_ids).values_list("status", flat=True)
+    return len(statuses) == len(companion_job_ids) and all(
+        status == ExternalDataJob.Status.COMPLETED for status in statuses
+    )
 
 
 # A run whose companion failed proves nothing, so look past it — but never far: an older listing
@@ -223,11 +237,6 @@ _PROOF_SEARCH_DEPTH = 10
 # How far back a usable proof can sit. A schema that has not completed a run in this long has a
 # bigger problem than an undeleted buffer file.
 _PROOF_WINDOW = dt.timedelta(days=2)
-
-# A companion is created at the start of its parent's run, so it cannot be older than the parent
-# nor much younger than the longest a run can take.
-_COMPANION_CLOCK_SLACK = dt.timedelta(minutes=1)
-_COMPANION_CREATION_WINDOW = dt.timedelta(hours=6)
 
 
 def _history_transform(replay: ReplayFilter, key_columns: list[str]) -> Callable[[pa.Table], pa.Table]:
@@ -247,8 +256,11 @@ def _history_transform(replay: ReplayFilter, key_columns: list[str]) -> Callable
 
     def _apply(table: pa.Table) -> pa.Table:
         table = replay.apply(table)
-        if not table.num_rows or SCD2_VALID_FROM_COLUMN in table.column_names:
+        if not table.num_rows:
             return table
+        # No guard on the columns already being there: a source that owns `valid_from` fails
+        # loudly inside `build_scd2_table`, where a skip would let the writer close rows against
+        # customer data.
         return build_scd2_table(table, key_columns)
 
     return _apply
@@ -301,10 +313,10 @@ def scheduled_sync_consumes_buffer(schema: ExternalDataSchema) -> bool:
     """Whether this schema's scheduled sync consumes the S3 change buffer.
 
     Doubles as the pipeline-version override: buffered consumption must run the v3 pipeline,
-    because only the v3 loader records the load position that proves buffer files consumed and
-    resolves versions and deletes. The team's general rollout flag cannot make that call (it can
-    neither see individual sources nor be trusted to stay wide after a flip), so the version
-    check consults this predicate before the flag.
+    because only the v3 loader stamps the position each row landed at, which is what the next
+    run reads back from the table, and only it resolves versions and deletes. The team's general
+    rollout flag cannot make that call (it can neither see individual sources nor be trusted to
+    stay wide after a flip), so the version check consults this predicate before the flag.
     """
     return consumes_buffer(schema, ingest_mode=parse_ingest_mode(schema.source.job_inputs))
 
@@ -374,16 +386,21 @@ class ReplayFilter:
     table would keep a second copy instead, so it asks for the rows its table holds there and
     drops a batch row whose identity is one of them.
 
-    A multiset, not a set: one transaction can change the same key more than once and history
-    keeps every version, so each match spends one. A row whose identity is not there has never
-    been written, including one in a file capture wrote after the last run listed the buffer.
+    Matched on content, not on key alone: one transaction can change the same key more than once,
+    and history keeps every version. Two such changes share every key column and the position,
+    so a batch row spends a table row only when their values agree — on every column the batch
+    row actually carries, since a TOAST-omitted column is unset in the batch and real in the
+    table. A row nothing matches has never been written, including one in a file capture wrote
+    after the last run listed the buffer, and including the second change to a key whose first
+    change is all the table holds.
     """
 
     def __init__(self, position: LanePosition, *, team_id: int | None = None) -> None:
         self._position = position.position
-        self._applied = Counter(position.applied)
+        self._applied = {key: list(rows) for key, rows in position.applied.items()}
         # Taken from the position itself, so the batch is keyed exactly as the table was read.
         self._key_columns = list(position.key_columns)
+        self._content_schema = position.content_schema
         self._team_id = team_id
         self.rows_skipped = 0
 
@@ -411,21 +428,62 @@ class ReplayFilter:
             return table
         seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
         identities = list(zip(*(table.column(name).to_pylist() for name in self._key_columns)))
+        contents = self._batch_contents(table)
+        omitted = (
+            table.column(TOAST_OMITTED_COLUMN).to_pylist()
+            if TOAST_OMITTED_COLUMN in table.column_names
+            else [None] * table.num_rows
+        )
         keep: list[int] = []
         for i, seq in enumerate(seqs):
-            if seq == self._position and self._applied.get(identities[i], 0) > 0:
-                # Deleted rather than decremented to zero: a Counter holding zero-valued keys is
-                # still truthy, and `apply` would keep paying for this scan long after it is spent.
-                if self._applied[identities[i]] == 1:
-                    del self._applied[identities[i]]
-                else:
-                    self._applied[identities[i]] -= 1
+            if seq != self._position:
+                keep.append(i)
                 continue
-            keep.append(i)
+            candidates = self._applied.get(identities[i])
+            if not candidates:
+                keep.append(i)
+                continue
+            skip = set(omitted[i] or ())
+            match = next((j for j, held in enumerate(candidates) if _same_content(contents[i], held, skip)), None)
+            if match is None:
+                keep.append(i)
+                continue
+            candidates.pop(match)
+            if not candidates:
+                del self._applied[identities[i]]
         if len(keep) == table.num_rows:
             return table
         self._count_skipped(table.num_rows - len(keep), "already_written")
         return table.take(pa.array(keep, type=pa.int64()))
+
+    def _batch_contents(self, table: pa.Table) -> list[dict[str, Any]]:
+        """The batch's content columns as the table stores them, so values compare as equals.
+
+        The batch carries the source's own arrow types and the table the loader's evolved ones;
+        a `real` reaches the table as a double, and the two floats are not equal. A column that
+        will not cast is left out of the comparison rather than failing it: the row then matches
+        on the rest, and a wrong match is a lost change where a missed one is only a copy.
+        """
+        names = content_columns(table.column_names)
+        if self._content_schema is None:
+            return table.select(names).to_pylist()
+        columns: list[pa.ChunkedArray] = []
+        kept: list[str] = []
+        for name in names:
+            column = table.column(name)
+            if name in self._content_schema.names:
+                try:
+                    column = column.cast(self._content_schema.field(name).type)
+                except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+                    continue
+            columns.append(column)
+            kept.append(name)
+        return pa.table(columns, names=kept).to_pylist()
+
+
+def _same_content(batch_row: dict[str, Any], held_row: dict[str, Any], skip: set[str]) -> bool:
+    """Whether a batch row and a stored row agree on every column the batch row carries."""
+    return all(held_row[name] == value for name, value in batch_row.items() if name not in skip and name in held_row)
 
 
 class CDCSourceManager:

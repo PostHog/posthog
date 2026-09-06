@@ -2,6 +2,7 @@ import pytest
 
 import pyarrow as pa
 import deltalake
+import pyarrow.dataset as pa_ds
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_OP_COLUMN, CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
@@ -23,6 +24,10 @@ def _rows(seqs: list[int], *, wide: bool = True, ids: list[int] | None = None) -
     return pa.table(columns)
 
 
+def _content(row_id: int, *, wide: bool = True) -> dict:
+    return {"id": row_id, **({f"c{i}": 0 for i in range(_WIDE)} if wide else {})}
+
+
 def _write(
     path, seqs: list[int], *, stats: bool = True, wide: bool = True, ids: list[int] | None = None
 ) -> deltalake.DeltaTable:
@@ -35,8 +40,12 @@ def _write(
     return deltalake.DeltaTable(str(path))
 
 
-def _append(path, seqs: list[int], *, wide: bool = True, ids: list[int] | None = None) -> deltalake.DeltaTable:
-    deltalake.write_deltalake(str(path), _rows(seqs, wide=wide, ids=ids), mode="append")
+def _append(
+    path, seqs: list[int], *, wide: bool = True, ids: list[int] | None = None, evolve: bool = False
+) -> deltalake.DeltaTable:
+    deltalake.write_deltalake(
+        str(path), _rows(seqs, wide=wide, ids=ids), mode="append", schema_mode="merge" if evolve else None
+    )
     return deltalake.DeltaTable(str(path))
 
 
@@ -65,16 +74,18 @@ class TestReadLanePosition:
         position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
 
         assert position.position == 30
-        assert position.applied == {(2, "I"): 1, (3, "I"): 1}
+        assert position.applied == {(2, "I"): [_content(2)], (3, "I"): [_content(3)]}
 
-    async def test_the_same_row_written_twice_is_counted_twice(self, tmp_path):
-        # History keeps every version, so identity is a multiset: a key changed twice inside one
-        # transaction holds two rows, and a third change still has to be appended.
+    async def test_the_same_key_written_twice_keeps_both_rows_content(self, tmp_path):
+        # History keeps every version. A key changed twice inside one transaction holds two rows
+        # that share every key column, and only their content tells a third change from a replay.
         table = _write(tmp_path / "t", [30, 30], ids=[1, 1])
 
         position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
 
-        assert position.applied == {(1, "I"): 2}
+        assert position.applied == {(1, "I"): [_content(1), _content(1)]}
+        assert position.content_schema is not None
+        assert position.content_schema.names == ["id", *(f"c{i}" for i in range(_WIDE))]
 
     async def test_rows_at_the_position_are_gathered_across_the_files_holding_them(self, tmp_path):
         path = tmp_path / "t"
@@ -83,7 +94,7 @@ class TestReadLanePosition:
 
         position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
 
-        assert position.applied == {(2, "I"): 1, (3, "I"): 1, (4, "I"): 1}
+        assert position.applied == {(2, "I"): [_content(2)], (3, "I"): [_content(3)], (4, "I"): [_content(4)]}
 
     async def test_a_lane_that_does_not_ask_for_them_reads_no_rows(self, tmp_path, mocker):
         # The merge lane needs only the position: it rewrites rows at it as upserts.
@@ -96,17 +107,67 @@ class TestReadLanePosition:
         assert position.applied == {}
         read.assert_not_called()
 
-    async def test_a_table_whose_files_predate_the_property_reports_no_position(self, tmp_path, mocker):
-        # Without the statistic the position cannot be proven cheaply, and scanning a history
-        # table's whole column to find it would cost more than replaying rows both lanes absorb.
+    async def test_a_merge_table_whose_files_carry_no_statistic_reports_no_position(self, tmp_path, mocker):
+        # The merge lane replays as upserts, so nothing is lost by knowing nothing, and a scan of
+        # the column would cost more than the replay.
         table = _write(tmp_path / "t", [10, 30], stats=False)
         read = mocker.spy(table, "to_pyarrow_table")
 
-        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
+        position = await read_lane_position(table)
 
         assert position.position is None
-        assert position.applied == {}
         read.assert_not_called()
+
+    async def test_a_history_table_whose_files_carry_no_statistic_scans_the_column_once(self, tmp_path):
+        # A repartition rewrites every file without the statistic. Reporting no position here
+        # would replay the whole buffer into an append-only table; the scan is the price of not.
+        table = _write(tmp_path / "t", [10, 30], stats=False)
+
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
+
+        assert position.position == 30
+        assert set(position.applied) == {(1, "I")}
+
+    async def test_only_the_files_that_can_hold_the_position_are_read(self, tmp_path, mocker):
+        # A snapshot seed has no position column at all, and a 50M-row seed read in full on every
+        # tick just to be filtered away is the cost this avoids. The seed file is opened only as
+        # far as its footer.
+        path = tmp_path / "t"
+        seed = pa.table({"id": pa.array(range(1000), pa.int64())})
+        deltalake.write_deltalake(str(path), seed, mode="overwrite")
+        deltalake.DeltaTable(str(path)).alter.set_table_properties({STATS_COLUMNS_PROPERTY: CDC_SEQ_COLUMN})
+        _append(path, [10, 10], wide=False, ids=[1, 2], evolve=True)
+        table = _append(path, [30], wide=False, ids=[3], evolve=True)
+        real = pa_ds.FileSystemDataset
+        built = mocker.patch.object(pa_ds, "FileSystemDataset", side_effect=real)
+
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
+
+        assert position.applied == {(3, "I"): [_content(3, wide=False)]}
+        assert len(built.call_args.args[0]) == 1
+
+    async def test_a_seed_file_the_schema_evolution_rewrote_is_not_read_either(self, tmp_path, mocker):
+        # Adding the position column can rewrite a seed file with it present and every value null.
+        # Its `max` statistic is then null — the same as no statistic — and only its null count
+        # says the file cannot hold a position. Without that check every such file is read in full.
+        path = tmp_path / "t"
+        rewritten_seed = pa.table(
+            {
+                "id": pa.array(range(500), pa.int64()),
+                CDC_SEQ_COLUMN: pa.array([None] * 500, pa.int64()),
+                CDC_OP_COLUMN: pa.array(["I"] * 500, pa.string()),
+            }
+        )
+        deltalake.write_deltalake(str(path), rewritten_seed, mode="overwrite")
+        deltalake.DeltaTable(str(path)).alter.set_table_properties({STATS_COLUMNS_PROPERTY: CDC_SEQ_COLUMN})
+        table = _append(path, [30], wide=False, ids=[3])
+        real = pa_ds.FileSystemDataset
+        built = mocker.patch.object(pa_ds, "FileSystemDataset", side_effect=real)
+
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
+
+        assert position.position == 30
+        assert len(built.call_args.args[0]) == 1
 
     async def test_a_stat_bearing_file_decides_without_reading_the_column(self, tmp_path):
         # Positions only ever increase and the property follows the first write, so a file

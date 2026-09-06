@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_TIMESTAMP_COLUMN,
     SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
@@ -48,17 +49,39 @@ def _table(ids: list[int], seqs: list[int]) -> pa.Table:
     )
 
 
-def _ops(ids: list[int], seqs: list[int], ops: list[str] | None = None) -> pa.Table:
+def _ops(
+    ids: list[int],
+    seqs: list[int],
+    ops: list[str] | None = None,
+    labels: list[str | None] | None = None,
+    omitted: list[list[str] | None] | None = None,
+) -> pa.Table:
     """A batch as the lanes see it: keyed rows carrying the position, operation and commit time.
 
-    The timestamp is what `build_scd2_table` reads to stamp the history lane's validity columns.
+    `label` is the one content column, so two changes to a key can differ. `omitted` is the TOAST
+    marker: the columns a row does not carry because the source left them unchanged.
     """
     stamps = pa.array([dt.datetime(2026, 1, 1, tzinfo=dt.UTC)] * len(ids), pa.timestamp("us", tz="UTC"))
-    return (
+    table = (
         _table(ids, seqs)
+        .append_column(pa.field("label", pa.string()), pa.array(labels or ["v1"] * len(ids), pa.string()))
         .append_column(pa.field(CDC_OP_COLUMN, pa.string()), pa.array(ops or ["I"] * len(ids), pa.string()))
         .append_column(pa.field(CDC_TIMESTAMP_COLUMN, stamps.type), stamps)
     )
+    if omitted is not None:
+        table = table.append_column(
+            pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())), pa.array(omitted, pa.list_(pa.string()))
+        )
+    return table
+
+
+def _held(*rows: tuple[int, str] | tuple[int, str, str]) -> dict:
+    """Rows a history table holds at its position, as `read_lane_position` returns them."""
+    grouped: dict = {}
+    for row in rows:
+        row_id, op, label = (*row, "v1")[:3]
+        grouped.setdefault((row_id, op), []).append({"id": row_id, "label": label})
+    return grouped
 
 
 _NO_POSITION = LanePosition(position=None, applied={})
@@ -343,7 +366,7 @@ class TestReplayFilter:
     """What each lane drops when a run re-reads a buffer its table has partly consumed.
 
     The two lanes differ only at the position itself: a merge rewrites those rows as upserts,
-    while history would keep a second copy, so only the append lane matches them by identity.
+    while history would keep a second copy, so only the append lane matches them, by content.
     """
 
     @staticmethod
@@ -371,29 +394,48 @@ class TestReplayFilter:
         assert result.column("id").to_pylist() == [1, 2, 3]
 
     def test_the_append_lane_drops_only_the_rows_its_table_already_holds(self):
-        result = self._append(20, {(1, "I"): 1, (2, "U"): 1}).apply(
+        result = self._append(20, _held((1, "I"), (2, "U"))).apply(
             _ops([1, 2, 3, 4], [20, 20, 20, 30], ["I", "U", "I", "U"])
         )
 
         assert result.column("id").to_pylist() == [3, 4]
 
     def test_a_file_that_arrives_late_at_a_consumed_position_still_lands(self):
-        """The data-loss case a bare count could not see.
-
-        The previous run read every file at position 20 and its table holds those two rows.
-        Capture then wrote another file at the same position, carrying rows nothing has seen.
-        """
-        result = self._append(20, {(1, "I"): 1, (2, "I"): 1}).apply(_ops([7, 8], [20, 20], ["I", "I"]))
+        # The previous run read every file at position 20 and its table holds those two rows.
+        # Capture then wrote another file at the same position, carrying rows nothing has seen.
+        result = self._append(20, _held((1, "I"), (2, "I"))).apply(_ops([7, 8], [20, 20], ["I", "I"]))
 
         assert result.column("id").to_pylist() == [7, 8]
 
-    def test_a_key_changed_twice_in_one_transaction_keeps_its_second_version(self):
-        result = self._append(20, {(1, "U"): 1}).apply(_ops([1, 1], [20, 20], ["U", "U"]))
+    def test_a_second_change_to_a_key_is_kept_when_the_table_holds_only_the_first(self):
+        # One transaction updated key 1 twice, across two buffer files. The first file was applied
+        # and then deleted; only the second is read now. Its row shares every key column with the
+        # one the table holds, and matching on the key alone would have dropped it for good.
+        result = self._append(20, _held((1, "U", "first"))).apply(_ops([1], [20], ["U"], labels=["second"]))
 
-        assert result.num_rows == 1
+        assert result.column("label").to_pylist() == ["second"]
+
+    def test_a_replayed_row_is_matched_by_its_content(self):
+        result = self._append(20, _held((1, "U", "first"))).apply(_ops([1], [20], ["U"], labels=["first"]))
+
+        assert result.num_rows == 0
+
+    def test_a_key_changed_twice_in_one_transaction_spends_one_row_per_match(self):
+        result = self._append(20, _held((1, "U", "a"))).apply(_ops([1, 1], [20, 20], ["U", "U"], labels=["a", "b"]))
+
+        assert result.column("label").to_pylist() == ["b"]
+
+    def test_a_toast_omitted_column_is_left_out_of_the_comparison(self):
+        # The source left `label` unchanged, so the batch row does not carry it and the table's
+        # row does. Comparing it would never match, and the row would be appended a second time.
+        replay = self._append(20, _held((1, "U", "unchanged")))
+
+        result = replay.apply(_ops([1], [20], ["U"], labels=[None], omitted=[["label"]]))
+
+        assert result.num_rows == 0
 
     def test_the_identity_is_spent_across_files_that_share_the_position(self):
-        replay = self._append(20, {(1, "I"): 1, (2, "I"): 1})
+        replay = self._append(20, _held((1, "I"), (2, "I")))
 
         first = replay.apply(_ops([1], [20], ["I"]))
         second = replay.apply(_ops([2, 3], [20, 20], ["I", "I"]))
@@ -402,7 +444,7 @@ class TestReplayFilter:
         assert second.column("id").to_pylist() == [3]
 
     def test_rows_past_the_position_are_never_matched(self):
-        replay = self._append(20, {(1, "I"): 1})
+        replay = self._append(20, _held((1, "I")))
         result = replay.apply(_ops([1, 2], [30, 40], ["I", "I"]))
 
         assert result.column("id").to_pylist() == [1, 2]
@@ -412,11 +454,26 @@ class TestReplayFilter:
         # The position reports the columns it actually read. If the filter keyed batch rows by a
         # wider tuple than the table was read with, nothing would ever match and every replayed
         # row would be appended a second time.
-        replay = ReplayFilter(LanePosition(position=20, applied={("I",): 1}, key_columns=(CDC_OP_COLUMN,)))
+        replay = ReplayFilter(
+            LanePosition(position=20, applied={("I",): [{"id": 1, "label": "v1"}]}, key_columns=(CDC_OP_COLUMN,))
+        )
 
         result = replay.apply(_ops([1, 2], [20, 20], ["I", "I"]))
 
         assert result.num_rows == 1
+
+    def test_a_batch_is_cast_to_the_table_types_before_comparing(self):
+        # A column the loader widened from date to timestamp reads back as a datetime, and the
+        # batch's date is not equal to it. Left uncast, every replayed row would be appended again.
+        held = {(1, "I"): [{"id": 1, "label": "v1", "day": dt.datetime(2026, 1, 1)}]}
+        stored = pa.table({"day": pa.array([dt.datetime(2026, 1, 1)], pa.timestamp("us"))})
+        schema = _ops([1], [20]).select(["id", "label"]).append_column("day", stored.column("day")).schema
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=held, key_columns=("id", CDC_OP_COLUMN), content_schema=schema)
+        )
+        batch = _ops([1], [20], ["I"]).append_column("day", pa.array([dt.date(2026, 1, 1)], pa.date32()))
+
+        assert replay.apply(batch).num_rows == 0
 
     def test_a_source_owned_position_column_is_never_matched(self):
         # The batcher passes a source column literally named _ph_cdc_seq through untouched, so its
@@ -429,12 +486,12 @@ class TestReplayFilter:
                 CDC_OP_COLUMN: pa.array(["I", "I"], pa.string()),
             }
         )
-        replay = self._append(20, {(1, "I"): 1, (2, "I"): 1})
+        replay = self._append(20, _held((1, "I"), (2, "I")))
 
         assert replay.apply(table) is table
 
     def test_skipped_rows_are_counted(self):
-        replay = self._append(20, {(2, "I"): 1})
+        replay = self._append(20, _held((2, "I")))
         replay.apply(_ops([1, 2, 3], [10, 20, 20], ["I", "I", "I"]))
 
         assert replay.rows_skipped == 2
@@ -444,7 +501,7 @@ class TestReplayFilter:
         # the identity drop under the same name would flatten a dashboard onto one number.
         counter = MagicMock()
         replay = ReplayFilter(
-            LanePosition(position=20, applied={(2, "I"): 1}, key_columns=("id", CDC_OP_COLUMN)), team_id=7
+            LanePosition(position=20, applied=_held((2, "I")), key_columns=("id", CDC_OP_COLUMN)), team_id=7
         )
 
         with patch(
@@ -597,7 +654,7 @@ class TestBuildOutputLanes:
                 LanePosition(position=20, applied={}),
                 LanePosition(
                     position=20,
-                    applied={(1, "I"): 1, (2, "I"): 1, (3, "I"): 1},
+                    applied=_held((1, "I"), (2, "I"), (3, "I")),
                     key_columns=("id", CDC_OP_COLUMN),
                 ),
             ],

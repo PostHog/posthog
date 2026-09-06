@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 import pyarrow as pa
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 
 # CDC metadata column names — database-agnostic
@@ -439,6 +440,13 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     A two-step merge + append in the load processor closes previous "current"
     rows (sets valid_to) when a new batch is written for the same PK.
     """
+    taken = {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN} & set(pa_table.column_names)
+    if taken:
+        # Delta refuses a duplicate column name at write time; failing here names the column and
+        # keeps a half-built batch out of the writer.
+        raise CDCReservedColumnError(
+            f"Source column(s) {sorted(taken)} collide with the history table's validity columns"
+        )
     # Taken from the batch rather than assumed: `valid_from` is the timestamp column's own values,
     # and declaring a type it does not have makes pyarrow reject the append outright. The buffered
     # path normalizes timestamps to naive before this runs, the legacy path does not.

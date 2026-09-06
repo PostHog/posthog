@@ -410,7 +410,7 @@ class TestLaneFanOut:
         pipeline.__dict__.update(base.__dict__)
         pipeline._output_lanes = [writer.lane for writer in writers]
         pipeline._lane_writers = writers
-        pipeline._writers_by_lane = {id(writer.lane): writer for writer in writers}
+        pipeline._writers_by_lane = dict(enumerate(writers))
         pipeline._s3_batch_writer = writers[0].s3_batch_writer
         pipeline._pg_producer = writers[0].pg_producer
         pipeline._batch_results = writers[0].batch_results
@@ -536,10 +536,13 @@ class TestCompanionJob:
         return _build_laned(lanes)
 
     @staticmethod
-    def _open(pipeline: LanedPipelineV3, lane: OutputLane, created: MagicMock) -> MagicMock:
+    def _open(
+        pipeline: LanedPipelineV3, lane: OutputLane, created: MagicMock, recorded: MagicMock | None = None
+    ) -> MagicMock:
         producer = MagicMock()
         with (
             patch(f"{_LANES}.PostgresProducer", producer),
+            patch(f"{_LANES}.record_companion_job", recorded or MagicMock()),
             patch(
                 f"{_LANES}.database_sync_to_async_pool",
                 lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k)),
@@ -551,7 +554,7 @@ class TestCompanionJob:
             ),
             patch("products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects", created),
         ):
-            async_to_sync(pipeline._writer_for)(lane)
+            async_to_sync(pipeline._writer_for)(pipeline._output_lanes.index(lane))
         return producer
 
     @staticmethod
@@ -583,6 +586,18 @@ class TestCompanionJob:
         assert fields["billable"] is False
         assert fields["schema_snapshot"]["cdc_write_mode"] == "scd2_append"
         assert fields["schema_snapshot"]["companion_of"] == "job-1"
+
+    def test_the_parent_job_records_its_companion(self) -> None:
+        # The listing proof checks companions by the ids on the parent's own row — a primary-key
+        # lookup, where a search by `companion_of` would walk the schema's whole job history.
+        pipeline = self._laned(self._both())
+        created = MagicMock()
+        created.create.return_value = MagicMock(id="companion-job")
+        recorded = MagicMock()
+
+        self._open(pipeline, pipeline._output_lanes[1], created, recorded)
+
+        recorded.assert_called_once_with("job-1", pipeline._job.team_id, "companion-job")
 
     def test_the_companion_writes_under_its_own_job_and_run(self) -> None:
         pipeline = self._laned(self._both())
@@ -619,27 +634,58 @@ class TestCompanionJob:
         assert pipeline._total_batches() == 1
         assert pipeline._consumer_finalizes_this_run() is False
 
-    def test_a_failed_run_takes_its_open_companion_jobs_terminal(self) -> None:
+    def test_a_failed_run_retires_its_companion_job_rows_and_nothing_else(self) -> None:
         # Keyed on the job id the run recorded, not on a writer: the row is created before the S3
-        # client and the queue connect, and a failure between them must still retire it.
+        # client and the queue connect, and a failure between them must still retire it. Its
+        # batches are left alone: failing one the loader is mid-write on does not stop the write,
+        # but it does drop the run out of the in-flight guard, and the retry then reads a position
+        # the straggler is about to move past and stages the same rows again.
         pipeline = self._laned(self._both())
         pipeline._companion_job_ids.append("companion-job")
-        retired: list[str] = []
+        retired = MagicMock()
 
         with (
-            patch.object(LanedPipelineV3, "_retire_companion_batches", staticmethod(lambda job_id: None)),
-            patch.object(LanedPipelineV3, "_retire_companion_job", staticmethod(retired.append)),
+            patch(f"{_LANES}.retire_companion_job", retired),
             patch(
                 f"{_LANES}.database_sync_to_async_pool",
                 lambda fn: AsyncMock(side_effect=lambda *a, **k: fn(*a, **k)),
             ),
-            patch(f"{_LANES}.asyncio.to_thread", AsyncMock()),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue."
+                "jobs_db.BatchQueue.fail_batches_for_job_sync"
+            ) as swept,
         ):
             async_to_sync(pipeline._fail_companion_jobs)()
 
-        # Written straight onto the row: going through the shared status helper would repaint the
-        # customer's schema FAILED and fire a digest, on a run Temporal may retry and complete.
-        assert retired == ["companion-job"]
+        retired.assert_called_once_with("companion-job")
+        swept.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_history_only_schema_maintains_its_table_under_the_companion_watermark(self) -> None:
+        # For `cdc_only` the schema's own table is the history table. The loader's post-load pass
+        # vacuums it under `last_vacuum_version_cdc`; the pre-write pass here must use the same
+        # one, or the two run on separate cadences against one table.
+        pipeline = self._laned([OutputLane(name="users_cdc", cdc_write_mode="scd2_append")])
+        pipeline._delta_table_ref = MagicMock(is_first_sync=False)
+        pipeline._schema.table = MagicMock()
+        pipeline._resource.items = MagicMock(return_value=iter([]))
+        pipeline._sinks = MagicMock(clear=AsyncMock(), cdp_producer=MagicMock(should_run=AsyncMock(return_value=False)))
+        maintenance = MagicMock()
+        maintenance.return_value.run_scheduled = AsyncMock()
+
+        with (
+            patch(f"{_PIPELINE}.reset_rows_synced_if_needed", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.validate_incremental_sync"),
+            patch(f"{_PIPELINE}.setup_row_tracking_with_billing_check", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.handle_reset_or_full_refresh", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.DeltaMaintenance", maintenance),
+            patch(f"{_PIPELINE}.activity") as mock_activity,
+        ):
+            mock_activity.in_activity.return_value = False
+            await pipeline.run()
+
+        assert maintenance.return_value.run_scheduled.call_args.kwargs["is_cdc_companion"] is True
+        assert self._laned(self._both())._maintains_companion_table() is False
 
 
 @pytest.mark.asyncio
@@ -661,16 +707,15 @@ class TestSingleTableRunIsUntouched:
         pipeline._pg_producer.send_batch_notification.assert_called_once()
 
     def test_the_activity_runs_the_base_class_for_a_source_without_lanes(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
-            LanedPipelineV3 as Laned,
+        # What keeps every other source off the subclass. `lanes=None` is what a source that
+        # never heard of lanes carries, and `[]` what a lane build that found nothing returns.
+        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+            v3_pipeline_class,
         )
 
-        # The dispatch the activity makes, which is what keeps every other source off the subclass.
-        def pick(lanes):
-            return Laned if lanes else PipelineV3
-
-        assert pick(None) is PipelineV3
-        assert pick([OutputLane(name="users"), OutputLane(name="users_cdc")]) is Laned
+        assert v3_pipeline_class(MagicMock(lanes=None)) is PipelineV3
+        assert v3_pipeline_class(MagicMock(lanes=[])) is PipelineV3
+        assert v3_pipeline_class(MagicMock(lanes=[OutputLane(name="users_cdc")])) is LanedPipelineV3
 
 
 class TestZeroBatchRunStampsTheFullRunMarker:

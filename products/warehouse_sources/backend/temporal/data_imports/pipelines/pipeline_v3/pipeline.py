@@ -312,6 +312,10 @@ class PipelineV3(Generic[ResumableData]):
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
 
+    def _maintains_companion_table(self) -> bool:
+        """Whether this run's own table is a `_cdc` history table, keyed under its own watermark."""
+        return False
+
     def _close_producers(self) -> None:
         self._pg_producer.close()
 
@@ -401,7 +405,9 @@ class PipelineV3(Generic[ResumableData]):
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
             if not is_fresh_sync:
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
-                    self._schema, partition_count_fallback=self._resource.partition_count
+                    self._schema,
+                    is_cdc_companion=self._maintains_companion_table(),
+                    partition_count_fallback=self._resource.partition_count,
                 )
 
             async for item in async_iterate(self._resource.items()):

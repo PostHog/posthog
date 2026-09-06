@@ -60,8 +60,8 @@ class OutputLane:
     """Whether this lane's rows count towards the team's synced-row usage. A source feeding two
     tables from one stream bills the stream once."""
     transform: Optional[Callable[[pa.Table], pa.Table]] = None
-    """Applied to each batch before this lane writes it. May drop rows; must not change columns,
-    which are reconciled once for every lane."""
+    """Applied to each batch before this lane writes it. May drop rows and add columns; the lane's
+    own writer tracks the schema it ends up with."""
 
 
 @dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction

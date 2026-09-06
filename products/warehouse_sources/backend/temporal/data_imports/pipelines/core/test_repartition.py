@@ -591,6 +591,37 @@ class TestRewriteIntoTemp:
         for key in new_sizes:
             assert key is not None and len(key) == len("2024-01-05")
 
+    def test_the_live_tables_properties_travel_with_its_rows(self, tmp_path):
+        # A buffered CDC history table reads its resume point from a statistic one property
+        # declares. A rebuilt table that lost it reports no position and replays the buffer into
+        # an append-only table.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        old_delta.alter.set_table_properties({"delta.dataSkippingStatsColumns": "id"})
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+        temp_uri = str(tmp_path / "tmp")
+
+        asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=temp_uri,
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["created_at"],
+                    trigger_reason="test",
+                    partition_mode="datetime",
+                    partition_format="day",
+                ),
+                batch_size=1,
+                logger=logger,
+            )
+        )
+
+        rebuilt = deltalake.DeltaTable(temp_uri)
+        assert rebuilt.metadata().configuration.get("delta.dataSkippingStatsColumns") == "id"
+        # And the statistic itself is on the rewritten files, not just the declaration.
+        assert "max.id" in rebuilt.get_add_actions(flatten=True).column_names
+
     def test_reports_buffered_bytes_to_the_workload_reporter(self, tmp_path):
         # Dropping this hook makes rewrites invisible to the OOM classifier's culprit rule.
         rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
@@ -988,6 +1019,7 @@ class TestRewriteIntoTemp:
                 return self._batches.pop(0)
 
         old_delta = SimpleNamespace(
+            metadata=lambda: SimpleNamespace(configuration={}),
             to_pyarrow_dataset=lambda: SimpleNamespace(
                 scanner=lambda **kwargs: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
             ),

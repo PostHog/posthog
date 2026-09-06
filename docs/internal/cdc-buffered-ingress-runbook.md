@@ -74,14 +74,16 @@ the table's own first 32 columns ahead of those. Without that repetition a schem
 the min/max off every column the customer queries, and this property is the only thing that sets
 them. Legacy CDC tables never reach the lane build, so the property is never declared on them.
 
-A table whose files carry no statistic for the position column reports no position at all. The
-merge lane then re-applies rows as upserts, which is a no-op, but the append lane appends them a
-second time. So the property is declared on a lane's table before its first buffered write, even
-while the column is absent, and a persistent `cdc_position_stats_property_not_set` warning is an
-alert: that table will accumulate duplicate history and its buffer will grow to the S3 retention.
+A merge table whose files carry no statistic for the position column reports no position and
+re-applies rows as upserts, which is a no-op. A history table cannot afford that, since a replay it
+does not recognise is a second copy of every row, so it falls back to scanning the position column
+once and logs `cdc_position_scanned`. The next write lands with the statistic and the scan stops.
+One such log line after a repartition is expected; the same line on every tick means the property
+is not being accepted, and `cdc_position_stats_property_not_set` alongside it says why. Alert on
+the pair: that table is paying a full column read every five minutes.
 
-A repartition rewrites files without the property, so deletion pauses for a tick until the next
-lane build re-declares it and the next write carries the statistic again.
+A repartition carries the live table's properties onto the rebuilt one, so its files keep the
+statistic and nothing pauses.
 
 **A run stands down while any delivery for the schema is still in the queue** — a legacy one, or a
 previous attempt of this same job. Both would write alongside whatever this run reads, and on the
@@ -256,3 +258,9 @@ one costs nothing extra.
 This changes what `both` used to cost. Legacy extraction writes the two tables from two
 `ExternalDataJob` rows and counts each event twice; buffered writes them from one and counts once.
 Sources on `both` will see their synced-row count roughly halve when they flip.
+
+**The merge lane re-bills the rows at its position until the file holding them is deleted.** It
+keeps every row at its position deliberately, since dropping one would lose a later event for the
+same key at that same commit, and a kept row is a staged row. That is one transaction's rows, for
+the tick or two until the completed-listing proof clears the file. The history lane matches those
+rows by content and bills none of them.

@@ -16,14 +16,17 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from django.utils import timezone
-
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    record_companion_job,
+    retire_companion_job,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
@@ -72,6 +75,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
 
     _output_lanes: list[OutputLane]
     _lane_writers: list[_LaneWriter]
+    # Keyed by the lane's index in `_output_lanes`, which is stable for the run.
     _writers_by_lane: dict[int, _LaneWriter]
     _companion_job_ids: list[str]
 
@@ -98,7 +102,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         primary = _LaneWriter(self._output_lanes[0], self._s3_batch_writer, self._pg_producer, self._batch_results)
         self._lane_writers = [primary]
         # Companions are appended as they open; the primary is always here because the base built it.
-        self._writers_by_lane: dict[int, _LaneWriter] = {id(self._output_lanes[0]): primary}
+        self._writers_by_lane: dict[int, _LaneWriter] = {0: primary}
         # Tracked apart from the writers, so a job row this run created is retired even when the
         # writer built on top of it never came together.
         self._companion_job_ids = []
@@ -115,7 +119,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 # Shielded because the failure may be a cancellation.
                 await asyncio.shield(self._fail_companion_jobs())
 
-    async def _writer_for(self, lane: OutputLane) -> _LaneWriter:
+    async def _writer_for(self, index: int) -> _LaneWriter:
         """This lane's writer, opening its job on the first batch it actually has rows for.
 
         Opened lazily on purpose. A job created before there is anything to write is a row nothing
@@ -125,9 +129,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         row blocks the flip and the rollback for the whole source. Opening it here means every
         companion job has at least one batch, so the sweep is its owner like any other run.
         """
-        existing = self._writers_by_lane.get(id(lane))
+        existing = self._writers_by_lane.get(index)
         if existing is not None:
             return existing
+        lane = self._output_lanes[index]
 
         job = await self._create_companion_job(lane)
         # Recorded before the S3 client and the queue connect below, either of which can raise. A
@@ -144,7 +149,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             }
         )
         writer = _LaneWriter(lane, s3_batch_writer, producer, job=job)
-        self._writers_by_lane[id(lane)] = writer
+        self._writers_by_lane[index] = writer
         self._lane_writers.append(writer)
         return writer
 
@@ -179,6 +184,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             )
 
         job = await database_sync_to_async_pool(_create)()
+        await database_sync_to_async_pool(record_companion_job)(str(self._job.id), self._job.team_id, str(job.id))
         await self._logger.ainfo(
             "companion_job_created", companion_job_id=str(job.id), resource_name=lane.name, job_id=str(self._job.id)
         )
@@ -187,50 +193,22 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     async def _fail_companion_jobs(self) -> None:
         """Take this run's open companion jobs terminal when extraction did not finish.
 
-        The row is written directly, the way the legacy CDC path retires its own companion jobs.
-        Going through `update_external_job_status` would repaint the customer's schema FAILED and
-        fire a failure digest, and this runs from a `finally` on every attempt — including ones
-        Temporal retries and succeeds.
+        Only the job row. Its batches are left to the loader: a batch the loader is mid-write on
+        still lands (the pre-commit check is a lease, not a status read), and marking it failed
+        would also drop the run out of the in-flight guard, so the retry would read a position
+        the straggler is about to move past and stage the same rows again. Leaving the batches
+        non-terminal holds the retry until they are, exactly as the primary lane's are held.
 
-        Batches first, then the job, the order the reconcile sweep uses: a straggler that loads
-        after the job went terminal would write rows the next run's read-back cannot account for.
+        Written directly, the way the legacy CDC path retires its own companion jobs. Going
+        through `update_external_job_status` would repaint the customer's schema FAILED and fire a
+        failure digest, and this runs from a `finally` on every attempt — including ones Temporal
+        retries and succeeds.
         """
-
         for job_id in self._companion_job_ids:
             try:
-                await asyncio.to_thread(self._retire_companion_batches, job_id)
-            except Exception:
-                await self._logger.awarning("companion_batches_not_failed", companion_job_id=job_id, exc_info=True)
-
-            try:
-                await database_sync_to_async_pool(self._retire_companion_job)(job_id)
+                await database_sync_to_async_pool(retire_companion_job)(job_id)
             except Exception:
                 await self._logger.awarning("companion_job_fail_write_failed", companion_job_id=job_id, exc_info=True)
-
-    @staticmethod
-    def _retire_companion_job(job_id: str) -> None:
-        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-
-        ExternalDataJob.objects.filter(id=job_id, status=ExternalDataJob.Status.RUNNING).update(
-            status=ExternalDataJob.Status.FAILED,
-            latest_error="Extraction ended before this table's changes were written",
-            finished_at=timezone.now(),
-        )
-
-    @staticmethod
-    def _retire_companion_batches(job_id: str) -> None:
-        import psycopg
-
-        from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
-
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-            BatchQueue,
-        )
-
-        with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
-            BatchQueue.fail_batches_for_job_sync(
-                conn, job_id=job_id, reason="extraction ended before this table's changes were written"
-            )
 
     async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
         # Each lane writes the same batch to its own job. A lane that already holds these rows
@@ -248,7 +226,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             filtered_away = pa_table.num_rows and not lane_table.num_rows
             if filtered_away and not (index == 0 and batch_index == 0):
                 continue
-            writer = await self._writer_for(lane)
+            writer = await self._writer_for(index)
             writer.row_count += lane_table.num_rows
             batch_result = await asyncio.to_thread(writer.s3_batch_writer.write_batch, lane_table, batch_index)
             writer.batch_results.append(batch_result)
@@ -302,6 +280,12 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         except Exception:
             # Bookkeeping for rows already written; never worth failing the run over.
             await self._logger.awarning("companion_job_rows_not_recorded", companion_job_id=str(job_id), exc_info=True)
+
+    def _maintains_companion_table(self) -> bool:
+        # A `cdc_only` schema's own table IS the history table. Without this the pre-write pass
+        # would vacuum it under the snapshot table's watermark while the loader's post-load pass
+        # uses the history one — two cadences on one table.
+        return self._output_lanes[0].cdc_write_mode == SCD2_APPEND_MODE
 
     def _mark_first_ever_sync(self) -> None:
         # The schema's own table only. A companion is append-only history the loader never

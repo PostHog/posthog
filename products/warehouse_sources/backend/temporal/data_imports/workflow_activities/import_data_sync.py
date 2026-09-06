@@ -3,7 +3,7 @@ import socket
 import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.db import InterfaceError, InternalError, OperationalError
 from django.db.models import Prefetch
@@ -143,6 +143,10 @@ WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
         ExternalDataSchema.SyncType.WEBHOOK,
     }
 )
+
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
 
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
@@ -295,6 +299,17 @@ async def _probe_found_new_data(
         await logger.ainfo("Fast-return probe: source has no new data")
         return False
     return True
+
+
+def v3_pipeline_class(source_response: SourceResponse) -> "type[PipelineV3]":
+    """A source feeding several tables from one read declares lanes; everything else runs the
+    base class untouched."""
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+        LanedPipelineV3,
+        PipelineV3,
+    )
+
+    return LanedPipelineV3 if source_response.lanes else PipelineV3
 
 
 @activity.defn
@@ -861,16 +876,10 @@ async def _run(
         use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
-                LanedPipelineV3,
-                PipelineV3,
-            )
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
             logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
-            # A source feeding several tables from one read declares lanes; everything else runs
-            # the base class untouched.
-            pipeline_cls: type[PipelineV3] = LanedPipelineV3 if source_response.lanes else PipelineV3
-            pipeline: PipelineV3 | PipelineNonDLT = pipeline_cls(
+            pipeline: PipelineV3 | PipelineNonDLT = v3_pipeline_class(source_response)(
                 source_response,
                 logger,
                 job_inputs.run_id,
