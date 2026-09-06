@@ -5054,6 +5054,30 @@ class TestExternalDataSource(APIBaseTest):
         validate.assert_called_once()
         self.assertEqual(validate.call_args.args[2], "direct")
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_postgres_requires_ssl_while_setting_the_source_up(self, mock_get_source):
+        source = PostgresSource()
+        mock_get_source.return_value = source
+
+        with patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)) as validate:
+            self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Postgres",
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                },
+            )
+
+        # A source created now syncs over SSL, so the setup probe has to hold the connection to the
+        # same requirement — otherwise a server without SSL support only fails after setup reports
+        # success.
+        self.assertIs(validate.call_args.kwargs["require_ssl"], True)
+
     @parameterized.expand(
         [
             # (test name, source_type, supports_xmin, expected_xmin_available)
