@@ -7959,13 +7959,8 @@ def set_channel_members(
     if channel.created_by_id is not None:
         target_ids.add(channel.created_by_id)
     with transaction.atomic():
-        # Lock the channel row so concurrent replacements serialize, then re-check the actor
-        # is still a member. Without this, a member removed by a racing PUT could re-add
-        # themselves from an in-flight request.
-        Channel.objects.select_for_update().filter(id=channel.id, team_id=team_id).first()
-        if channel.created_by_id != user_id and not (
-            ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id, user_id=user_id).exists()
-        ):
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
             return "not_found"
         memberships = ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id)
         existing = set(memberships.values_list("user_id", flat=True))
@@ -7991,62 +7986,55 @@ def update_channel(
     auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
 ) -> contracts.ChannelDTO | str:
     """Update a visible channel."""
-    # Visibility-gated load: a private space is not visible (and so not updatable) to a
-    # non-member, exactly like a personal space to a non-owner.
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return "not_found"
-    if channel.channel_type == Channel.ChannelType.PERSONAL:
-        if channel.created_by_id != user_id:
-            return "not_found"
-        if name is not None:
-            return "personal"
-    elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
-        return "auto_archive_forbidden"
-    if name is not None and _is_general_channel(channel):
-        return "general"
-    update_fields: list[str] = []
-    if name is not None:
-        normalized = normalize_channel_name(name)
-        if not normalized:
-            return "invalid_name"
-        channel.name = normalized
-        update_fields.append("name")
-    if repositories is not None:
-        channel.repositories = repositories
-        channel.github_integration = github_integration if repositories else None
-        update_fields.extend(["repositories", "github_integration"])
-    if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
-        channel.auto_archive_after_days = auto_archive_after_days
-        update_fields.append("auto_archive_after_days")
-    if not update_fields:
-        return _channel_to_dto(channel)
     try:
-        channel.save(update_fields=[*update_fields, "updated_at"])
+        with transaction.atomic():
+            channel = _locked_visible_channel(channel_id, team_id, user_id)
+            if channel is None:
+                return "not_found"
+            if channel.channel_type == Channel.ChannelType.PERSONAL:
+                if channel.created_by_id != user_id:
+                    return "not_found"
+                if name is not None:
+                    return "personal"
+            elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
+                return "auto_archive_forbidden"
+            if name is not None and _is_general_channel(channel):
+                return "general"
+            update_fields: list[str] = []
+            if name is not None:
+                normalized = normalize_channel_name(name)
+                if not normalized:
+                    return "invalid_name"
+                channel.name = normalized
+                update_fields.append("name")
+            if repositories is not None:
+                channel.repositories = repositories
+                channel.github_integration = github_integration if repositories else None
+                update_fields.extend(["repositories", "github_integration"])
+            if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
+                channel.auto_archive_after_days = auto_archive_after_days
+                update_fields.append("auto_archive_after_days")
+            if not update_fields:
+                return _channel_to_dto(channel)
+            channel.save(update_fields=[*update_fields, "updated_at"])
+            return _channel_to_dto(channel)
     except IntegrityError:
         return "name_taken"
-    return _channel_to_dto(channel)
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public channel. Archived tasks do not count as content."""
-    # Visibility-gated load: a private space is not visible (and so not deletable) to a
-    # non-member. The locked re-read below re-confirms existence, not visibility — a caller
-    # who is not a member is already rejected here, before the transaction.
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return "not_found"
-    if channel.channel_type == Channel.ChannelType.PERSONAL:
-        return "personal" if channel.created_by_id == user_id else "not_found"
-    if _is_general_channel(channel):
-        return "general"
+    """Soft-delete an empty public or private channel. Archived tasks do not count as content."""
     with transaction.atomic():
         # Emptiness is checked under a row lock because filing a task takes FOR KEY SHARE on
         # its channel: unlocked, a task can land after the check and be orphaned in a channel
         # this call goes on to delete.
-        channel = Channel.objects.select_for_update().filter(id=channel_id, team_id=team_id, deleted=False).first()
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
             return "not_found"
+        if channel.channel_type == Channel.ChannelType.PERSONAL:
+            return "personal" if channel.created_by_id == user_id else "not_found"
+        if _is_general_channel(channel):
+            return "general"
         if (
             channel.tasks.filter(deleted=False, archived=False).exists()
             or channel.canvases.filter(deleted=False).exists()
@@ -8098,14 +8086,23 @@ def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) ->
 
 
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
-    """A channel the requester may read: any live public channel on the team, or their
-    own personal channel. ``None`` when it's missing or someone else's personal channel."""
+    """A live public channel, the requester's personal channel, or a private channel
+    they belong to. ``None`` when missing or inaccessible."""
     return (
         _team_channels(team_id)
         .select_related("created_by")
         .filter(visible_channels_q(user_id), id=channel_id, deleted=False)
         .first()
     )
+
+
+def _locked_visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
+    # Membership replacements take this same lock. Read visibility in a separate query
+    # so its snapshot includes revocations committed while the lock query was waiting.
+    channel = Channel.objects.for_team(team_id).select_for_update().filter(id=channel_id, deleted=False).first()
+    if channel is None:
+        return None
+    return _visible_channel(channel_id, team_id, user_id)
 
 
 def list_channel_feed_messages(
@@ -8141,26 +8138,27 @@ def create_channel_feed_message(
     records the acting user so the client can render "Adam …". ``created_at`` lets a
     client order a burst of announcements deterministically (else the server stamps
     ``now``)."""
-    if _visible_channel(channel_id, team_id, user_id) is None:
-        return None
-    if (
-        ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False).count()
-        >= CHANNEL_FEED_MAX_MESSAGES
-    ):
-        return "full"
-    fields: dict = {
-        "team_id": team_id,
-        "channel_id": channel_id,
-        "author_id": user_id,
-        "author_kind": ChannelFeedMessage.AuthorKind.HUMAN,
-        "event": event,
-        "payload": payload or {},
-    }
-    if created_at is not None:
-        fields["created_at"] = created_at
-    message = ChannelFeedMessage.objects.create(**fields)
-    # Fresh row: author lazy-loads once for the DTO.
-    return _channel_feed_message_to_dto(message)
+    with transaction.atomic():
+        if _locked_visible_channel(channel_id, team_id, user_id) is None:
+            return None
+        if (
+            ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False).count()
+            >= CHANNEL_FEED_MAX_MESSAGES
+        ):
+            return "full"
+        fields: dict = {
+            "team_id": team_id,
+            "channel_id": channel_id,
+            "author_id": user_id,
+            "author_kind": ChannelFeedMessage.AuthorKind.HUMAN,
+            "event": event,
+            "payload": payload or {},
+        }
+        if created_at is not None:
+            fields["created_at"] = created_at
+        message = ChannelFeedMessage.objects.create(**fields)
+        # Fresh row: author lazy-loads once for the DTO.
+        return _channel_feed_message_to_dto(message)
 
 
 def get_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> contracts.ChannelDTO | None:
@@ -8328,12 +8326,12 @@ def publish_channel_instructions(
     ``None`` when the channel isn't visible. Publishing clears the channel's
     in-progress context-generation marker.
     """
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return None
-    if len(content.encode("utf-8")) > CHANNEL_INSTRUCTIONS_MAX_BYTES:
-        raise ChannelInstructionsTooLargeError(max_bytes=CHANNEL_INSTRUCTIONS_MAX_BYTES)
     with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return None
+        if len(content.encode("utf-8")) > CHANNEL_INSTRUCTIONS_MAX_BYTES:
+            raise ChannelInstructionsTooLargeError(max_bytes=CHANNEL_INSTRUCTIONS_MAX_BYTES)
         current_latest = (
             ChannelInstructions.objects.select_for_update()
             .filter(channel_id=channel.id, deleted=False, is_latest=True)
@@ -8348,11 +8346,8 @@ def publish_channel_instructions(
         if current_latest is not None:
             ChannelInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
         try:
-            # Nested savepoint: a lost-update race (the select_for_update above
-            # locks no row when none exists yet, and a concurrent delete clears
-            # is_latest without adding a lockable row) makes the insert collide
-            # with the (channel, version) uniqueness. Rolling back to the
-            # savepoint keeps this transaction usable so we can read the winner.
+            # Keep conflict recovery outside the failed insert's savepoint so the
+            # transaction remains usable when reading the conflicting version.
             with transaction.atomic():
                 published = ChannelInstructions.objects.create(
                     team_id=team_id,
@@ -8378,10 +8373,10 @@ def publish_channel_instructions(
 def delete_channel_instructions(channel_id: str | UUID, team_id: int, user_id: int | None) -> int | None:
     """Soft-delete every instructions version. Returns the count, or ``None``
     when the channel isn't visible."""
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return None
     with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return None
         count = (
             ChannelInstructions.objects.select_for_update()
             .filter(channel_id=channel.id, deleted=False)
@@ -8406,24 +8401,26 @@ def set_channel_context_generation(
     channel_id: str | UUID, team_id: int, user_id: int | None, *, task_id: str | UUID | None
 ) -> str | None | Literal["not_found", "invalid_task"]:
     """Set or clear the task associated with the channel's CONTEXT.md generation."""
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return "not_found"
-    if task_id is not None and not task_exists(task_id, team_id):
-        return "invalid_task"
-    ChannelContextGeneration.objects.update_or_create(
-        channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
-    )
-    return str(task_id) if task_id else None
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return "not_found"
+        if task_id is not None and not task_exists(task_id, team_id):
+            return "invalid_task"
+        ChannelContextGeneration.objects.update_or_create(
+            channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
+        )
+        return str(task_id) if task_id else None
 
 
 def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred: bool) -> bool:
     """Star or unstar a channel for the requesting user. False when the channel isn't visible."""
-    channel = _visible_channel(channel_id, team_id, user_id)
-    if channel is None:
-        return False
-    _set_channel_star(channel.id, team_id, user_id, starred=starred)
-    return True
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team_id, user_id)
+        if channel is None:
+            return False
+        _set_channel_star(channel.id, team_id, user_id, starred=starred)
+        return True
 
 
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:

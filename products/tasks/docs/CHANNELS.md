@@ -128,6 +128,11 @@ extends visibility without adding any permission to `Task`.
   or when a target lacks project access. Removing a member who owns tasks leaves those
   tasks in place; they simply lose visibility.
 
+Channel updates, deletion, membership changes, feed posts, instructions, context-generation
+markers, and stars serialize on the channel row. Each write checks visibility after
+acquiring the lock, so a pending request cannot write after another request removes
+the caller's membership.
+
 ### Task endpoints
 
 - `TaskCreateSerializer` accepts `channel` (UUID). It must belong to the team. A
