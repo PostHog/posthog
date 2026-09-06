@@ -40,9 +40,9 @@ class TestWrapClickhouseQueryError:
 
     @parameterized.expand(
         [
-            # These are exposed but their raw CH message embeds a per-row data value, so they carry a
-            # fixed user_safe string. The assertion guards against a revert to user_safe=True, which
-            # would pass the raw ClickHouse text (and the source value) straight through.
+            # These are exposed but their raw CH message embeds a value that changes run to run, so
+            # they carry a fixed user_safe string. The assertion guards against a revert to
+            # user_safe=True, which would pass the raw ClickHouse text straight through.
             (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
             (
                 70,
@@ -50,6 +50,11 @@ class TestWrapClickhouseQueryError:
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            (
+                128,
+                "TOO_LARGE_ARRAY_SIZE",
+                "This query matched too much data to process. Narrow the date range, or add filters to match fewer events.",
+            ),
         ]
     )
     def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, name: str, message: str) -> None:
