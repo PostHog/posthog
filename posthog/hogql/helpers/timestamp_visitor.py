@@ -42,6 +42,10 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         self.context = context
         self.tombstone_string = tombstone_string
 
+    def visit_unknown(self, node: ast.Expr) -> bool:
+        # An unlisted node is not a timestamp field expression.
+        return False
+
     def visit_constant(self, node: ast.Constant) -> bool:
         return False
 
@@ -196,6 +200,10 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def __init__(self, tombstone_string: Optional[str]):
         self.tombstone_string = tombstone_string
 
+    def visit_unknown(self, node: ast.Expr) -> bool:
+        # An unlisted node is not a time or interval constant.
+        return False
+
     def visit_constant(self, node: ast.Constant) -> bool:
         if self.tombstone_string is not None and node.value == self.tombstone_string:
             return False
@@ -281,6 +289,10 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
     @abstractmethod
     def check_parsed(self, parsed: datetime) -> bool:
         raise NotImplementedError("check_parsed must be implemented in subclasses")
+
+    def visit_unknown(self, node: ast.Expr) -> bool:
+        # An unlisted node is not a start-of-period constant.
+        return False
 
     def visit_constant(self, node: ast.Constant) -> bool:
         if self.tombstone_string is not None and node.value == self.tombstone_string:
@@ -430,6 +442,10 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
 
     def __init__(self, tombstone_string: Optional[str]):
         self.tombstone_string = tombstone_string
+
+    def visit_unknown(self, node: ast.Expr) -> bool:
+        # An unlisted node is not an end-of-period constant.
+        return False
 
     def visit_constant(self, node: ast.Constant) -> bool:
         if self.tombstone_string is not None and node.value == self.tombstone_string:
