@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "include_plans": {
+            "default": false,
+            "description": "Add the `plans` list to each product and add-on. Most of the payload.",
+            "type": "boolean"
+        },
+        "product_key": {
+            "description": "The product's key.",
+            "type": "string"
+        }
+    },
+    "required": ["product_key"],
+    "type": "object"
+}

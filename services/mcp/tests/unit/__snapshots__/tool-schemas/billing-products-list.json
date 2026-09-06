@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "include_plans": {
+            "default": false,
+            "description": "Add the plan list to each product and add-on. Most of the payload; pass true only when the question is about plans or upgrades.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}
