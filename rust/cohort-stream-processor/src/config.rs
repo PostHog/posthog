@@ -1,5 +1,6 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use tracing::warn;
 use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
 use crate::store::durability::DurabilityConfig;
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
-use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
+use crate::workers::{CascadeConfig, EventNameGating, SeedBatchLimits, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -275,6 +276,22 @@ pub struct Config {
     /// clock skew; ties go to live.
     #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
     pub cohort_seed_person_live_margin_ms: i64,
+
+    /// Seeds applied as one unit: one batched read pass, one stage-1 commit, one stage-2 recompute
+    /// and one produce round trip per leg per batch, instead of per seed. `1` restores the per-seed
+    /// apply.
+    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX", default = "256")]
+    pub cohort_seed_apply_batch_max: usize,
+
+    /// Fan-out units one apply batch may expand to, where a seed weighs one per leaf its condition
+    /// reaches plus one per cohort each leaf backs. Bounds the run's leaf reads and recomputes,
+    /// which the seed count alone does not: one seed can reach any number of cohorts.
+    ///
+    /// Typical fan-out is one to six units per seed, so a full 256-seed run weighs under 1.5k and
+    /// the count cap binds; this cap only binds above ~16 units per seed, and its ceiling (4096
+    /// units, about 4k leaf reads plus at most 4k recomputes) is a sub-second run.
+    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX_FANOUT", default = "4096")]
+    pub cohort_seed_apply_batch_max_fanout: usize,
 
     /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
     /// `0` disables the trigger.
@@ -674,6 +691,18 @@ impl Config {
         Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
     }
 
+    /// The seed apply batch ceilings as proven-positive counts, so the grouping loop cannot be
+    /// handed a zero that would never close a batch.
+    pub fn seed_batch_limits(&self) -> anyhow::Result<SeedBatchLimits> {
+        Ok(SeedBatchLimits {
+            max_seeds: NonZeroUsize::new(self.cohort_seed_apply_batch_max).context(
+                "COHORT_SEED_APPLY_BATCH_MAX must be greater than zero (1 = apply per seed).",
+            )?,
+            max_fanout: NonZeroUsize::new(self.cohort_seed_apply_batch_max_fanout)
+                .context("COHORT_SEED_APPLY_BATCH_MAX_FANOUT must be greater than zero.")?,
+        })
+    }
+
     /// The seed consumer's pacing gates. `0` on a pause threshold disables that trigger; an
     /// enabled trigger requires `0 < resume < pause` (and `pause <= 100` for the disk share) so a
     /// flapping or never-releasing pair is refused at startup.
@@ -801,6 +830,8 @@ impl Config {
                  controls can be consumed; enable the seed consumer or turn reconcile off.",
             );
         }
+
+        self.seed_batch_limits()?;
 
         // A negative margin biases the person-seed verdict toward the seed, letting a stale scan
         // overwrite fresher live state.
@@ -1170,6 +1201,8 @@ mod tests {
             cohort_seed_reconcile_enabled: false,
             cohort_seed_reconcile_scan_page: 256,
             cohort_seed_reconcile_tick_interval_ms: 2_000,
+            cohort_seed_apply_batch_max: 256,
+            cohort_seed_apply_batch_max_fanout: 4096,
             cohort_seed_person_apply_enabled: false,
             cohort_seed_person_live_margin_ms: 900_000,
             cohort_seed_live_lag_pause_ms: 120_000,
@@ -1250,6 +1283,40 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
+    }
+
+    /// `1` is the documented hatch back to the per-seed apply, so the floor has to be `1`, not `0`:
+    /// a zero ceiling would make the knob silently meaningless instead of failing the boot.
+    #[test]
+    fn the_seed_apply_batch_ceilings_default_and_refuse_zero() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(defaults.cohort_seed_apply_batch_max, 256);
+        assert_eq!(defaults.cohort_seed_apply_batch_max_fanout, 4096);
+        assert_eq!(
+            defaults.seed_batch_limits().unwrap(),
+            SeedBatchLimits::default(),
+            "the deps default must mirror the env default",
+        );
+
+        let mut config = test_config();
+        config.cohort_seed_apply_batch_max = 1;
+        config.cohort_seed_apply_batch_max_fanout = 1;
+        assert!(config.validate_startup().is_ok());
+
+        config.cohort_seed_apply_batch_max = 0;
+        assert!(config
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_APPLY_BATCH_MAX must"),);
+
+        config.cohort_seed_apply_batch_max = 256;
+        config.cohort_seed_apply_batch_max_fanout = 0;
+        assert!(config
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_APPLY_BATCH_MAX_FANOUT"),);
     }
 
     #[test]

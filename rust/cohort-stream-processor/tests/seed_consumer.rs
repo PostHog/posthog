@@ -674,6 +674,7 @@ async fn spawn_instance(
             marker_sink,
         },
         person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
+        seed_batch: cohort_stream_processor::workers::SeedBatchLimits::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

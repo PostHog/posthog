@@ -306,6 +306,19 @@ impl StoreHandle {
         .await
     }
 
+    /// Batch-read `cf_person_records` values, preserving input order. Keys are taken by value so
+    /// the closure is trivially `'static`.
+    pub async fn multi_get_person_records(
+        &self,
+        keys: Vec<PersonRecordKey>,
+        lane: ReadLane,
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.read("multi_get_person_records", lane, move |store| {
+            store.multi_get_person_records(&keys)
+        })
+        .await
+    }
+
     /// Read one event's full state snapshot in a single mixed-CF `multi_get` (behavioral keys plus
     /// the optional person-record key). The event fold's hot-path read, on the Event lane. Keys are
     /// taken by value so the closure is trivially `'static`.
@@ -384,6 +397,22 @@ impl StoreHandle {
         let key = *key;
         self.read("get_tombstone", lane, move |store| {
             store.get_tombstone(&key)
+        })
+        .await
+    }
+
+    /// Batch-read redirect tombstones, preserving input order. One hop per key: a chain that
+    /// continues on this partition still needs [`tombstone_redirect::resolve_offloaded`] for that
+    /// person.
+    ///
+    /// [`tombstone_redirect::resolve_offloaded`]: crate::merge::tombstone_redirect::resolve_offloaded
+    pub async fn multi_get_tombstones(
+        &self,
+        keys: Vec<TombstoneKey>,
+        lane: ReadLane,
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.read("multi_get_tombstones", lane, move |store| {
+            store.multi_get_tombstones(&keys)
         })
         .await
     }

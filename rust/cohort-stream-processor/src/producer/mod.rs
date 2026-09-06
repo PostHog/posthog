@@ -10,6 +10,8 @@ pub mod marker;
 pub mod merge;
 pub mod seed;
 
+use std::num::NonZeroUsize;
+
 use async_trait::async_trait;
 use chrono::Utc;
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -180,8 +182,25 @@ impl CaptureSink {
         Self(Capture::failing_first(n))
     }
 
+    /// Fail the `count` produces after `skip` acked ones, so a failure can be aimed at one leg of
+    /// a multi-leg pipeline.
+    pub fn failing_calls(skip: usize, count: usize) -> Self {
+        Self(Capture::failing_calls(skip, count))
+    }
+
+    /// On the first produce, fail every `every`-th change and ack the rest: the mixed
+    /// acknowledgement a real broker returns.
+    pub fn partially_failing_first(every: NonZeroUsize) -> Self {
+        Self(Capture::partially_failing_first(every))
+    }
+
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
         self.0.recorded()
+    }
+
+    /// Produce calls, not changes. One call per apply batch is what the batching buys.
+    pub fn produce_calls(&self) -> usize {
+        self.0.calls()
     }
 }
 
