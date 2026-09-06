@@ -369,9 +369,17 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
     3: ErrorCodeMeta("UNEXPECTED_END_OF_FILE"),
     4: ErrorCodeMeta("EXPECTED_END_OF_FILE"),
-    # Stays internal: the CH message embeds the failing data value, which would leak stored
-    # data to anonymous viewers of public shared insights. Only user_safe once sanitized.
-    6: ErrorCodeMeta("CANNOT_PARSE_TEXT", category=QueryErrorCategory.USER_ERROR),
+    # Type-coercion parse family (codes 6, 26, 72, 130). A malformed literal in a comparison or IN
+    # clause is the caller's input, not a server fault, so these return a 400 and classify as
+    # USER_ERROR — kept off the SLO failure count and out of error tracking. The category is set
+    # explicitly so the classification is a deliberate choice, not a side effect of user_safe.
+    # The message is a fixed string because the raw CH text embeds the failing data value, which
+    # would leak stored data to anonymous viewers of public shared insights.
+    6: ErrorCodeMeta(
+        "CANNOT_PARSE_TEXT",
+        user_safe="Cannot parse a text value as the required type. Check the types in your comparisons and IN clauses.",
+        category=QueryErrorCategory.USER_ERROR,
+    ),
     7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
     8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
@@ -386,7 +394,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     23: ErrorCodeMeta("CANNOT_READ_FROM_ISTREAM"),
     24: ErrorCodeMeta("CANNOT_WRITE_TO_OSTREAM"),
     25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE"),
-    26: ErrorCodeMeta("CANNOT_PARSE_QUOTED_STRING"),
+    # Type-coercion parse family: see code 6.
+    26: ErrorCodeMeta(
+        "CANNOT_PARSE_QUOTED_STRING",
+        user_safe="Cannot parse a value in the query as a quoted string. Check the types in your comparisons and IN clauses.",
+        category=QueryErrorCategory.USER_ERROR,
+    ),
     27: ErrorCodeMeta("CANNOT_PARSE_INPUT_ASSERTION_FAILED"),
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
@@ -434,8 +447,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         user_safe="Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
     ),
     71: ErrorCodeMeta("CANNOT_WRITE_AFTER_END_OF_BUFFER"),
-    # 72 stays internal: the CH message embeds the failing data value (see code 6 note).
-    72: ErrorCodeMeta("CANNOT_PARSE_NUMBER", category=QueryErrorCategory.USER_ERROR),
+    # Type-coercion parse family: see code 6.
+    72: ErrorCodeMeta(
+        "CANNOT_PARSE_NUMBER",
+        user_safe="Cannot parse a value in the query as a number. Check the types in your comparisons and IN clauses.",
+        category=QueryErrorCategory.USER_ERROR,
+    ),
     73: ErrorCodeMeta("UNKNOWN_FORMAT"),
     74: ErrorCodeMeta("CANNOT_READ_FROM_FILE_DESCRIPTOR"),
     75: ErrorCodeMeta("CANNOT_WRITE_TO_FILE_DESCRIPTOR"),
@@ -486,7 +503,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
     128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
-    130: ErrorCodeMeta("CANNOT_READ_ARRAY_FROM_TEXT"),
+    # Type-coercion parse family: see code 6.
+    130: ErrorCodeMeta(
+        "CANNOT_READ_ARRAY_FROM_TEXT",
+        user_safe="Cannot parse a value in the query as an array. Check the types in your comparisons and IN clauses.",
+        category=QueryErrorCategory.USER_ERROR,
+    ),
     131: ErrorCodeMeta("TOO_LARGE_STRING_SIZE"),
     133: ErrorCodeMeta("AGGREGATE_FUNCTION_DOESNT_ALLOW_PARAMETERS"),
     134: ErrorCodeMeta("PARAMETERS_TO_AGGREGATE_FUNCTIONS_MUST_BE_LITERALS"),
