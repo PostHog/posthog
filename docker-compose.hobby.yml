@@ -112,6 +112,9 @@ services:
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
+            # evaluation otherwise fails with "Internal request token not configured".
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -175,6 +178,9 @@ services:
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
+            # evaluation otherwise fails with "Internal request token not configured".
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -473,6 +479,9 @@ services:
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
+            # evaluation otherwise fails with "Internal request token not configured".
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -572,6 +581,16 @@ services:
             file: docker-compose.base.yml
             service: feature-flags
         logging: *default-logging
+        environment:
+            # HyperCache's S3 tier. With no endpoint the AWS SDK dials real S3 on every Redis
+            # miss and waits out its retries (~4s) before falling back to Postgres, which pushes
+            # /flags past REQUEST_TIMEOUT_MS. Use the stack's object store, like web and worker.
+            OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            AWS_ACCESS_KEY_ID: 'object_storage_root_user'
+            AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            # Shared secret for authenticated Django → flags calls (flag test evaluation);
+            # must match INTERNAL_REQUEST_TOKEN on web and worker.
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-$POSTHOG_SECRET}
         depends_on:
             - db
             - redis7
