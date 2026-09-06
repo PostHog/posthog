@@ -1,5 +1,4 @@
 import re
-import socket
 import ipaddress
 import urllib.parse as urlparse
 from collections.abc import Iterable, Mapping
@@ -65,6 +64,12 @@ INTERNAL_DOMAIN_PATTERNS = (
 
 def resolve_host_ips(host: str) -> ResolvedIPs:
     """Resolve a hostname to its IP addresses."""
+    # Resolving a value that is not a host would put it in the warning below, and dnspython
+    # repeats the queried name in its error text, so both fields would carry whatever the
+    # caller passed. Callers reject this shape first; this keeps a new one from leaking.
+    if _host_shape_error(host) is not None:
+        return set()
+
     try:
         return {ipaddress.ip_address(host)}
     except ValueError:
@@ -173,6 +178,75 @@ def _is_private_ip_literal(host: str) -> bool:
         or host.startswith("172.30.")
         or host.startswith("172.31.")
     )
+
+
+# Labels joined by dots, with an optional root dot. Underscores are not valid in a hostname
+# under RFC 1123, but they resolve in practice, so the pattern keeps them: the job here is to
+# reject the parts of a URL, not to enforce the RFC.
+_HOSTNAME_LABEL = r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+_BARE_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?", re.ASCII)
+_MAX_HOSTNAME_LENGTH = 253
+
+
+def _host_shape_error(host: object) -> str | None:
+    """Reason to reject a host on its form alone, or None when the form is usable.
+
+    A host field takes a hostname or an IP address. Customers paste whole connection strings
+    into it, so anything carrying credentials, a scheme, a port or a path is rejected before
+    it reaches DNS or a log line. Takes ``object`` because callers read the value out of
+    untyped config.
+    """
+    if not isinstance(host, str):
+        return "Host must be a string"
+    if not host.strip():
+        return "Host is empty"
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        pass
+    if len(host) > _MAX_HOSTNAME_LENGTH or not _BARE_HOSTNAME.fullmatch(host):
+        return "Host must be a hostname or IP address"
+    return None
+
+
+def _url_shape_error(raw_url: str) -> str | None:
+    """Reason to reject a URL on its form alone, or None when the form is usable."""
+    if has_authority_bypass_chars(raw_url):
+        return "Invalid URL: ambiguous authority"
+    try:
+        parsed = urlparse.urlparse(raw_url)
+    except Exception:
+        return "Invalid URL"
+    if parsed.scheme not in {"http", "https"} or parsed.scheme in DISALLOWED_SCHEMES:
+        return f"Disallowed scheme: {parsed.scheme}"
+    if not parsed.netloc:
+        return "Missing host"
+    return None
+
+
+def _blocked_host_reason(host: str) -> str | None:
+    """Reason to reject a host on its name alone, or None when the name is acceptable.
+
+    These checks run before resolution, so they also catch a name that resolves to a public
+    IP: split-horizon DNS, and a registered domain shaped like an internal one.
+
+    Normalizes the host itself rather than trusting the caller to. Matching below is exact
+    or by suffix, so an un-normalized host fails these checks open.
+    """
+    # An absolute FQDN carries the DNS root dot ("db.corp."), which every client accepts and
+    # resolves to the same target. Without this, suffix and exact matching both miss it.
+    host = host.lower().rstrip(".")
+    if host in METADATA_HOSTS:
+        return "Local/metadata host"
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return "Local/Loopback host not allowed"
+    for pattern in INTERNAL_DOMAIN_PATTERNS:
+        if host.endswith(pattern):
+            return f"Internal domain pattern blocked: {pattern}"
+    if _is_private_ip_literal(host):
+        return "Private IP address not allowed"
+    return None
 
 
 def has_ambiguous_authority(url: str) -> bool:
@@ -311,13 +385,11 @@ def resolve_url_hosts_ips(raw_urls: Iterable[str]) -> dict[str, ResolvedIPs]:
             host = (parsed_url.hostname or "").lower()
         except Exception:
             continue
+        # Skip what the validator will reject anyway. This shares the rule rather than restating it.
         if (
             parsed_url.scheme not in {"http", "https"}
             or not parsed_url.netloc
-            or host in METADATA_HOSTS
-            or host in {"localhost", "127.0.0.1", "::1"}
-            or any(host.endswith(pattern) for pattern in INTERNAL_DOMAIN_PATTERNS)
-            or _is_private_ip_literal(host)
+            or _blocked_host_reason(host) is not None
         ):
             continue
         hosts.add(host)
@@ -366,30 +438,14 @@ def _validate_url_with_ips(
         logger.warning("url_validation.blocked", reason=reason, **log_kwargs)
         return PinnedUrlVerdict(allowed=False, reason=reason, pinned_ips=empty)
 
-    if has_authority_bypass_chars(raw_url):
-        return _blocked("Invalid URL: ambiguous authority")
-    try:
-        u = urlparse.urlparse(raw_url)
-    except Exception:
-        return _blocked("Invalid URL")
-    if u.scheme not in {"http", "https"} or u.scheme in DISALLOWED_SCHEMES:
-        return _blocked("Disallowed scheme", scheme=u.scheme)
-    if not u.netloc:
-        return _blocked("Missing host")
+    shape_reason = _url_shape_error(raw_url)
+    if shape_reason is not None:
+        return _blocked(shape_reason)
+    u = urlparse.urlparse(raw_url)
     host = (u.hostname or "").lower()
-    if host in METADATA_HOSTS:
-        return _blocked("Local/metadata host", host=host)
-    if host in {"localhost", "127.0.0.1", "::1"}:
-        return _blocked("Local/Loopback host not allowed", host=host)
-
-    # Check internal domain patterns
-    for pattern in INTERNAL_DOMAIN_PATTERNS:
-        if host.endswith(pattern):
-            return _blocked(f"Internal domain pattern blocked: {pattern}", host=host, pattern=pattern)
-
-    # Quick check for private IP literals (avoids DNS lookup)
-    if _is_private_ip_literal(host):
-        return _blocked("Private IP address not allowed", host=host)
+    name_reason = _blocked_host_reason(host)
+    if name_reason is not None:
+        return _blocked(name_reason, host=host)
 
     ips = resolve_host_ips(host) if resolved_ips_by_host is None else resolved_ips_by_host.get(host, empty)
     if not ips:
@@ -410,78 +466,53 @@ def should_block_url(u: str) -> bool:
     return not allowed
 
 
-# The destination-host check below guards a batch export or warehouse-import target that a
-# customer supplies and our servers later connect to. It duplicates the concern the rest of
-# this module already covers, with its own ranges and its own resolver, and it is kept
-# unchanged here only so the move carries no behavior change. Unifying it with
-# `is_url_allowed` changes what we reject, so that lands separately.
-
-INTERNAL_NETWORKS = (
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("0.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
-)
+def _test_bypass_enabled() -> bool:
+    return settings.TEST and not settings.FORCE_URL_VALIDATION
 
 
-def is_ip_internal(ip: str) -> bool:
-    """Check if IP belongs to an internal network."""
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        raise ValueError("Could not parse IP")
+def validate_external_url(url: str) -> None:
+    """Raise ``ValueError`` unless ``url`` is safe for our servers to reach.
 
-    if any(addr in network for network in INTERNAL_NETWORKS):
-        return True
-    return False
+    SSRF guard for a stored URL a destination later fetches (an S3-compatible endpoint,
+    a webhook). Bypassed in local dev and in tests, unless the
+    ``FORCE_URL_VALIDATION`` setting is true.
+    """
 
+    if not isinstance(url, str):
+        raise ValueError("URL must be a string")
+    shape_reason = _url_shape_error(url)
+    if shape_reason is not None:
+        raise ValueError(shape_reason)
 
-def resolve_and_validate_url(url: str) -> None:
-    """Ensure provided url point to a non-internal IP."""
-    try:
-        parsed = urlparse.urlparse(url)
-    except Exception as e:
-        raise ValueError(f"Invalid URL'{url}': {e}") from e
-
-    host = parsed.hostname
-    if not host:
-        raise ValueError("URL has no hostname")
-
-    resolve_and_validate_host(host)
-
-
-def is_local_dev_or_test() -> bool:
-    return settings.DEBUG or settings.TEST
-
-
-def resolve_and_validate_host(host: str) -> None:
-    """Ensure provided host resolves to a non-internal IP."""
-    if host == "localhost" and is_local_dev_or_test():
+    if _dev_bypass_enabled() or _test_bypass_enabled():
         return
 
-    # Host may already be an IP literal
-    try:
-        if is_ip_internal(host) and not is_local_dev_or_test():
-            raise ValueError("Host resolved to internal IP")
+    allowed, reason = is_url_allowed(url)
+    if not allowed:
+        raise ValueError(reason or "URL is not allowed")
+
+
+def validate_external_host(host: str) -> None:
+    """Raise ``ValueError`` unless ``host`` is safe for our servers to reach.
+
+    SSRF guard for a destination that stores a bare host rather than a URL (Postgres,
+    Redshift). Applies the same name and IP rules as ``validate_external_url``, so the two
+    cannot drift apart. Bypassed in local dev and in tests, unless the
+    ``FORCE_URL_VALIDATION`` setting is true.
+    """
+    shape_reason = _host_shape_error(host)
+    if shape_reason is not None:
+        raise ValueError(shape_reason)
+
+    if _dev_bypass_enabled() or _test_bypass_enabled():
         return
-    except ValueError:
-        # Not an IP literal, requires DNS
-        pass
 
-    try:
-        # getaddrinfo supports both ipv4 and ipv6
-        results = socket.getaddrinfo(host, None)
-    except socket.gaierror as e:
-        raise ValueError(f"Could not resolve '{host}': {e}") from e
+    name_reason = _blocked_host_reason(host)
+    if name_reason is not None:
+        raise ValueError(name_reason)
 
-    # Keeps only unique ips from the result tuple
-    resolved_ips = {str(r[4][0]) for r in results}
-
-    for ip in resolved_ips:
-        if is_ip_internal(ip) and not is_local_dev_or_test():
-            raise ValueError("Host resolved to internal IP")
+    ips = resolve_host_ips(host)
+    if not ips:
+        raise ValueError("Could not resolve host")
+    if any(_is_internal_ip(ip) for ip in ips):
+        raise ValueError("Host resolves to an internal IP")

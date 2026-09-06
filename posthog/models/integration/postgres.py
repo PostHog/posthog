@@ -3,7 +3,7 @@
 from typing import ClassVar, Literal, NamedTuple
 
 from posthog.models.user import User
-from posthog.security.url_validation import resolve_and_validate_host
+from posthog.security.url_validation import validate_external_host
 
 from . import common, model
 
@@ -78,9 +78,14 @@ class PostgreSQLServerIntegration:
     ) -> model.Integration:
         host = common._return_non_empty_str_from_config(config, "host", friendly_name="Host", kind=cls.integration_kind)
         try:
-            resolve_and_validate_host(host)
+            validate_external_host(host)
         except ValueError:
-            raise common.IntegrationError(f"Provided host '{host}' is not valid")
+            # One message for every reason. The value can be a pasted connection string
+            # carrying a password, so it is not echoed, and reporting whether a host resolved
+            # internally would answer that question for someone probing the network.
+            raise common.IntegrationError(
+                "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
+            )
 
         port = config.get("port", None)
         try:
