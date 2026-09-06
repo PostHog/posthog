@@ -170,7 +170,13 @@ returns `404 Not Found`. The workflow below gives the supported order.
 9. If the preview reports the query is eligible, call `endpoint-update` with
    `is_materialized: true`.
 10. Confirm by calling `endpoint-run` with a sample payload to verify the response shape.
-11. Hand off to `consuming-endpoints-from-client-code` if the user is about to wire it up.
+11. If you enabled materialisation, call `endpoint-materialization-status` before you report the
+    endpoint as materialised. The enable call only schedules the first build, so `ready` stays
+    false until that build finishes, and runs fall back to the inline query until then. Step 10
+    therefore proves the endpoint works, not that materialisation works. Re-run once `ready` is
+    true. If the status reports a failure, or the build is still pending, tell the user that
+    instead of reporting a materialised endpoint.
+12. Hand off to `consuming-endpoints-from-client-code` if the user is about to wire it up.
 
 `endpoint-create` also accepts `is_materialized: true` directly, and creation is atomic — an
 ineligible query rolls the whole create back with the rejection reason, leaving no endpoint
