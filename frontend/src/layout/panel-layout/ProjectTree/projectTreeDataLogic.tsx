@@ -1254,6 +1254,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             continue
                         }
                         for (const item of itemsByPath[action.path]) {
+                            // A move acts on one entry. When a folder and a file share this path, only the
+                            // entry the action targets may move; any sibling must stay where it was.
+                            if (item.id !== action.item.id) {
+                                continue
+                            }
                             const itemTarget = itemsByPath[action.newPath]?.[0]
                             if (item.type === 'folder') {
                                 if (!itemTarget || itemTarget.type === 'folder') {
@@ -1279,8 +1284,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                         { ...item, path: action.newPath, _loading: true },
                                     ]
                                 }
-                                delete itemsByPath[action.path]
-                            } else if (item.id === action.item.id) {
+                                // Drop only the moved folder; a file sharing this path keeps its entry.
+                                if ((itemsByPath[action.path]?.length ?? 0) > 1) {
+                                    itemsByPath[action.path] = itemsByPath[action.path].filter((i) => i.id !== item.id)
+                                } else {
+                                    delete itemsByPath[action.path]
+                                }
+                            } else {
                                 if (!itemsByPath[action.newPath]) {
                                     itemsByPath[action.newPath] = []
                                 }
@@ -1288,7 +1298,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     ...itemsByPath[action.newPath],
                                     { ...item, path: action.newPath, _loading: true },
                                 ]
-                                if (itemsByPath[action.path].length > 1) {
+                                // Drop only the moved file; a folder sharing this path keeps its entry.
+                                if ((itemsByPath[action.path]?.length ?? 0) > 1) {
                                     itemsByPath[action.path] = itemsByPath[action.path].filter((i) => i.id !== item.id)
                                 } else {
                                     delete itemsByPath[action.path]
