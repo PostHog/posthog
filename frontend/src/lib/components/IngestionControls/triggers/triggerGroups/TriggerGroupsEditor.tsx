@@ -14,6 +14,7 @@ import {
 
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { EventTriggerSelect } from 'lib/components/IngestionControls/triggers/EventTrigger'
+import { getUrlPatternWarning } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -331,6 +332,8 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
         setExpandedEvent,
     } = useActions(logic)
 
+    const newUrlWarning = getUrlPatternWarning(newUrl)
+
     const handleAddEvent = (events: string[]): void => {
         const existingNames = new Set(triggerGroup.events.map((e) => e.name))
         const newEvents = events.filter((name) => !existingNames.has(name)).map((name) => ({ name }))
@@ -458,6 +461,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         Save
                                     </LemonButton>
                                 </div>
+                                {newUrlWarning && <div className="text-danger text-xs mt-1">{newUrlWarning}</div>}
                                 {triggerGroup.urls.length > 0 && (
                                     <div className="mt-3 pt-3 border-t">
                                         <LemonLabel className="text-xs mb-1 block">
