@@ -1,3 +1,4 @@
+from datetime import datetime
 from textwrap import dedent
 from typing import Any, Literal
 
@@ -5,10 +6,14 @@ import structlog
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
+from posthog.schema import DateRange, MaxRecordingUniversalFilters, RecordingsQuery
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
 from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
@@ -22,6 +27,8 @@ from products.replay.backend.prompts import (
 )
 
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tools.replay import empty_result_diagnosis as diagnosis
+from ee.hogai.tools.replay.empty_result_diagnosis import EventSessionLinkage
 
 logger = structlog.get_logger(__name__)
 
@@ -180,6 +187,7 @@ class FilterSessionRecordingsTool(MaxTool):
             total_count = len(query_results.results)
             if total_count == 0:
                 content = "✅ Filtered session recordings. No recordings found matching these criteria."
+                content += await self._diagnose_empty_result(recordings_query)
             elif total_count == 1:
                 content = "✅ Filtered session recordings. Found 1 recording matching these criteria:\n\n"
                 content += self._format_recording_metadata(query_results.results[0])
@@ -191,6 +199,82 @@ class FilterSessionRecordingsTool(MaxTool):
                 if total_count > 5:
                     content += f"\n...and {total_count - 5} more recordings"
         return content, None
+
+    async def _diagnose_empty_result(self, recordings_query: RecordingsQuery) -> str:
+        """Work out why an event-filtered search found nothing, as guidance appended for the agent."""
+        event_names = self._filtered_event_names(recordings_query)
+        if not event_names:
+            # Without an event filter the empty result is about the other filters, and
+            # session id coverage has nothing to say about it.
+            return ""
+
+        try:
+            linkages = await database_sync_to_async(self._get_event_session_linkage, thread_sensitive=False)(
+                recordings_query, event_names
+            )
+        except Exception as e:
+            # The search itself succeeded, so a failed explanation must not turn it into an error.
+            capture_exception(e)
+            logger.warning("failed_to_diagnose_empty_recordings_result", error=str(e))
+            return ""
+
+        return diagnosis.describe(diagnosis.diagnose(linkages))
+
+    @staticmethod
+    def _filtered_event_names(recordings_query: RecordingsQuery) -> list[str]:
+        """Event names the query filters on. Actions are skipped, they resolve to many events."""
+        names = []
+        for event in recordings_query.events or []:
+            if not isinstance(event, dict):
+                continue
+            # A null id means "any event", which carries no name to measure coverage for.
+            name = event.get("id") or event.get("name")
+            if isinstance(name, str) and name and name not in names:
+                names.append(name)
+        return names
+
+    def _get_event_session_linkage(
+        self, recordings_query: RecordingsQuery, event_names: list[str]
+    ) -> tuple[EventSessionLinkage, ...]:
+        """Measure how many of these events carry the session id the recordings join needs."""
+        date_range = SessionRecordingsQueryDateRange(
+            date_range=DateRange(date_from=recordings_query.date_from, date_to=recordings_query.date_to),
+            team=self._team,
+            interval=None,
+            now=datetime.now(),
+        )
+
+        with tags_context(
+            product=Product.MAX_AI,
+            feature=Feature.POSTHOG_AI,
+            team_id=self._team.pk,
+            org_id=self._team.organization_id,
+        ):
+            response = execute_hogql_query(
+                query_type="FilterSessionRecordingsEmptyResultDiagnosis",
+                query="""
+                    SELECT event, count() AS total, countIf(notEmpty(properties.$session_id)) AS linked
+                    FROM events
+                    WHERE event IN {event_names}
+                      AND timestamp >= {date_from}
+                      AND timestamp <= {date_to}
+                    GROUP BY event
+                """,
+                team=self._team,
+                user=self._user,
+                placeholders={
+                    "event_names": ast.Constant(value=event_names),
+                    "date_from": ast.Constant(value=date_range.date_from()),
+                    "date_to": ast.Constant(value=date_range.date_to()),
+                },
+            )
+
+        counts = {row[0]: (row[1], row[2]) for row in response.results or []}
+        # Events absent from the results had no volume at all, which is itself a diagnosis.
+        return tuple(
+            EventSessionLinkage(event=name, total=counts.get(name, (0, 0))[0], linked=counts.get(name, (0, 0))[1])
+            for name in event_names
+        )
 
     def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> SessionRecordingQueryResult:
         """Get recordings from DB with filters"""
@@ -207,8 +291,6 @@ class FilterSessionRecordingsTool(MaxTool):
 
     def _format_recording_metadata(self, recording: dict[str, Any]) -> str:
         """Format recording metadata for display."""
-        from datetime import datetime
-
         parts = []
 
         # Person/distinct_id
