@@ -11,11 +11,45 @@ export const template: HogFunctionTemplate = {
     category: ['Customer Success'],
     code_language: 'hog',
     code: `
+// Slack rejects the whole message if a block is longer than its limit, so shorten the content
+// instead of losing the notification. See https://api.slack.com/reference/block-kit/blocks
+let MAX_BLOCKS := 50;
+let MAX_SECTION_TEXT := 3000;
+let MAX_BUTTON_TEXT := 75;
+
+fun clip(value, limit) {
+  if (typeof(value) == 'string' and length(value) > limit) {
+    return f'{substring(value, 1, limit - 1)}…';
+  }
+  return value;
+}
+
+fun clipText(node, limit) {
+  if (typeof(node) == 'object' and typeof(node.text) == 'object') {
+    node.text.text := clip(node.text.text, limit);
+  }
+}
+
+let blocks := inputs.blocks;
+if (typeof(blocks) == 'array') {
+  let clipped := [];
+  for (let block in blocks) {
+    if (length(clipped) < MAX_BLOCKS) {
+      clipText(block, MAX_SECTION_TEXT);
+      for (let element in block.elements ?? []) {
+        clipText(element, MAX_BUTTON_TEXT);
+      }
+      clipped := arrayPushBack(clipped, block);
+    }
+  }
+  blocks := clipped;
+}
+
 let body := {
   'channel': inputs.channel,
   'icon_emoji': inputs.icon_emoji,
   'username': inputs.username,
-  'blocks': inputs.blocks,
+  'blocks': blocks,
   'text': inputs.text
 };
 
