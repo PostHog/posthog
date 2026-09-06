@@ -274,6 +274,18 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     )
 }
 
+function EnabledCta({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element | null {
+    const label = FEATURE_PREVIEW_ENABLED_CTA_LABELS[feature.flagKey]
+    if (!feature.enabled || !label || !feature.documentationUrl) {
+        return null
+    }
+    return (
+        <LemonButton type="primary" size="small" to={feature.documentationUrl} targetBlank className="w-fit">
+            {label}
+        </LemonButton>
+    )
+}
+
 interface FeaturePreviewProps {
     feature: EnrichedEarlyAccessFeature
     /** Optional warning rendered under the description (e.g. plan/add-on requirements). */
@@ -294,7 +306,6 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
 
     const { flagKey, enabled, name, description, documentationUrl } = feature
     const isFeedbackActive = activeFeedbackFlagKey === flagKey
-    const enabledCtaLabel = FEATURE_PREVIEW_ENABLED_CTA_LABELS[flagKey]
 
     const [feedback, setFeedback] = useState('')
 
@@ -341,11 +352,7 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
             }
             actions={
                 <div className="flex flex-col gap-2">
-                    {enabled && enabledCtaLabel && documentationUrl && (
-                        <LemonButton type="primary" size="small" to={documentationUrl} targetBlank className="w-fit">
-                            {enabledCtaLabel}
-                        </LemonButton>
-                    )}
+                    <EnabledCta feature={feature} />
                     <div className="whitespace-nowrap">
                         {documentationUrl && (
                             <Link to={documentationUrl} target="_blank">
