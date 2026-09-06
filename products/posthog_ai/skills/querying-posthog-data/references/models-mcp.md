@@ -37,6 +37,12 @@ And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent
 
 **HogQL is the path for everything else** — cross-tool rankings (the tool-quality matrix), custom breakdowns, errored-session filtering, effective tool names within a session — query them with `execute-sql`. It is also the fallback when the `mcp-analytics` flag is off: every typed tool above is gated behind it, `execute-sql` is not.
 
+## Contents
+
+- Key properties
+- Example queries
+- Harness (client) bucketing
+
 ## Key properties
 
 `Source` says where the property comes from: **SDK** — set by `@posthog/mcp` (`packages/mcp/src/extensions/constants.ts`), present on any instrumented customer server; **server** — stamped only by PostHog's own hosted MCP server (`services/mcp`), so it exists only for PostHog's dogfood data; **exec** — only present when the server runs in single-exec mode (one `exec` dispatcher tool instead of one tool per name).
