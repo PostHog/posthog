@@ -17172,6 +17172,17 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for replacing a private channel's member set.
+     */
+    export interface ChannelMembersWrite {
+      /**
+         * The full set of member user ids. The creator is always kept, so removing them has no effect. Every id must be a project member.
+         * @maxItems 100
+         */
+      user_ids?: number[];
+    }
+
+    /**
      * Request body for starring/unstarring a channel for the requesting user.
      */
     export interface ChannelStarWrite {
@@ -17199,7 +17210,21 @@ export namespace Schemas {
     }
 
     /**
-     * Request body for creating (resolve-or-create) or renaming a public channel.
+     * * `public` - public
+     * * `private` - private
+     */
+    export type TaskChannelWriteTypeEnum = typeof TaskChannelWriteTypeEnum[keyof typeof TaskChannelWriteTypeEnum];
+
+
+    export const TaskChannelWriteTypeEnum = {
+      Public: 'public',
+      Private: 'private',
+    } as const;
+
+    /**
+     * Request body for creating a channel. A public channel is resolve-or-create by name;
+     * a private channel is always created fresh with the requester and ``member_ids`` as its
+     * members.
      */
     export interface ChannelWrite {
       /**
@@ -17207,6 +17232,16 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
+      /** Visibility of the channel. 'public' (default) is visible to every project member. 'private' is visible only to its members. Personal #me spaces are not created here.
+       *
+       * * `public` - public
+       * * `private` - private */
+      channel_type?: TaskChannelWriteTypeEnum;
+      /**
+         * User ids to add to a private channel besides the requester, who is always a member. Ignored for a public channel. Ids without project access are dropped.
+         * @maxItems 100
+         */
+      member_ids?: number[];
       /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
       star?: boolean;
     }
@@ -59586,6 +59621,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaskThreadMessageDTO[];
+    }
+
+    export interface PaginatedTaskUserBasicInfoList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskUserBasicInfo[];
     }
 
     /**

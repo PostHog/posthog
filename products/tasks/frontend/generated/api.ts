@@ -15,6 +15,7 @@ import type {
     ChannelFeedMessageWriteApi,
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
+    ChannelMembersWriteApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
     ConnectionTokenResponseApi,
@@ -48,6 +49,7 @@ import type {
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
+    PaginatedTaskUserBasicInfoListApi,
     PatchedChannelInstructionsWriteApi,
     PatchedChannelUpdateApi,
     PatchedLoopWriteApi,
@@ -803,8 +805,8 @@ export const getTaskChannelsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false. The general name returns the team's general space; names that read as a private space ("me", "personal") are rejected.
- * @summary Resolve or create a public channel
+ * For a public channel (default), returns the existing channel with the (normalized) name, creating it if needed; the general name returns the team's general space. For a private channel, always creates a fresh space with the requester and member_ids as its members. A channel created here is starred for the requester unless star is false. Names that read as a private #me space ("me", "personal") are rejected.
+ * @summary Create a channel
  */
 export const taskChannelsCreate = async (
     projectId: string,
@@ -1099,6 +1101,47 @@ export const taskChannelsInstructionsVersionsRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getTaskChannelsMembersRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/members/`
+}
+
+/**
+ * The members of a private channel. Public and personal channels have no members and read as an empty list. 404 when the channel is not visible to the requester.
+ * @summary List a channel's members
+ */
+export const taskChannelsMembersRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PaginatedTaskUserBasicInfoListApi> => {
+    return apiMutator<PaginatedTaskUserBasicInfoListApi>(getTaskChannelsMembersRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsMembersUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/members/`
+}
+
+/**
+ * Replace a private space's member set. Any member can manage members. The creator is always kept. Public and personal channels have no members and are rejected.
+ * @summary Replace a private channel's members
+ */
+export const taskChannelsMembersUpdate = async (
+    projectId: string,
+    id: string,
+    channelMembersWriteApi?: ChannelMembersWriteApi,
+    options?: RequestInit
+): Promise<PaginatedTaskUserBasicInfoListApi> => {
+    return apiMutator<PaginatedTaskUserBasicInfoListApi>(getTaskChannelsMembersUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelMembersWriteApi),
+    })
 }
 
 export const getTaskChannelsStarCreateUrl = (projectId: string, id: string) => {

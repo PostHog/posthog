@@ -1126,7 +1126,20 @@ export interface PaginatedChannelDTOListApi {
 }
 
 /**
- * Request body for creating (resolve-or-create) or renaming a public channel.
+ * * `public` - public
+ * * `private` - private
+ */
+export type TaskChannelWriteTypeEnumApi = (typeof TaskChannelWriteTypeEnumApi)[keyof typeof TaskChannelWriteTypeEnumApi]
+
+export const TaskChannelWriteTypeEnumApi = {
+    Public: 'public',
+    Private: 'private',
+} as const
+
+/**
+ * Request body for creating a channel. A public channel is resolve-or-create by name;
+ * a private channel is always created fresh with the requester and ``member_ids`` as its
+ * members.
  */
 export interface ChannelWriteApi {
     /**
@@ -1134,6 +1147,16 @@ export interface ChannelWriteApi {
      * @maxLength 128
      */
     name: string
+    /** Visibility of the channel. 'public' (default) is visible to every project member. 'private' is visible only to its members. Personal #me spaces are not created here.
+     *
+     * * `public` - public
+     * * `private` - private */
+    channel_type?: TaskChannelWriteTypeEnumApi
+    /**
+     * User ids to add to a private channel besides the requester, who is always a member. Ignored for a public channel. Ids without project access are dropped.
+     * @maxItems 100
+     */
+    member_ids?: number[]
     /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
     star?: boolean
 }
@@ -1281,6 +1304,26 @@ export interface PaginatedChannelInstructionsDTOListApi {
     /** @nullable */
     previous?: string | null
     results: ChannelInstructionsDTOApi[]
+}
+
+export interface PaginatedTaskUserBasicInfoListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskUserBasicInfoApi[]
+}
+
+/**
+ * Request body for replacing a private channel's member set.
+ */
+export interface ChannelMembersWriteApi {
+    /**
+     * The full set of member user ids. The creator is always kept, so removing them has no effect. Every id must be a project member.
+     * @maxItems 100
+     */
+    user_ids?: number[]
 }
 
 /**

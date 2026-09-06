@@ -178,6 +178,7 @@ class Channel(TeamScopedRootMixin):
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"
         PERSONAL = "personal", "Personal"
+        PRIVATE = "private", "Private"
 
     class SystemRole(models.TextChoices):
         """Identifies a channel as one of the two system-provisioned spaces, independent
@@ -193,10 +194,10 @@ class Channel(TeamScopedRootMixin):
 
     @classmethod
     def visible_to_q(cls, user_id: int | None, *, relation: Literal["", "channel", "task__channel"] = "") -> models.Q:
-        """The channel-visibility rule as a queryset filter: a personal channel is
-        visible only to its creator. ``relation`` names the join to ``Channel`` when
-        filtering another model's queryset (e.g. ``"channel"``); empty filters
-        ``Channel`` rows directly."""
+        """The channel-visibility rule as a queryset filter: a public channel is visible
+        to everyone, a personal channel only to its creator, and a private channel only to
+        members. ``relation`` names the join to ``Channel`` when filtering another model's
+        queryset (e.g. ``"channel"``); empty filters ``Channel`` rows directly."""
         prefix = {"": "", "channel": "channel__", "task__channel": "task__channel__"}[relation]
         visible_q = models.Q(**{f"{prefix}channel_type": cls.ChannelType.PUBLIC})
         if user_id is not None:
@@ -204,6 +205,18 @@ class Channel(TeamScopedRootMixin):
                 **{
                     f"{prefix}channel_type": cls.ChannelType.PERSONAL,
                     f"{prefix}created_by_id": user_id,
+                }
+            )
+            visible_q |= models.Q(
+                **{
+                    f"{prefix}channel_type": cls.ChannelType.PRIVATE,
+                    # unscoped() is safe here: the outer query is already team-scoped and joins
+                    # on channel id, so a membership in another team can never match a channel
+                    # row. An id__in subquery (not a join) works for every relation prefix and
+                    # needs no distinct().
+                    f"{prefix}id__in": ChannelMembership.objects.unscoped()
+                    .filter(user_id=user_id)
+                    .values("channel_id"),
                 }
             )
         return models.Q(**{f"{prefix}deleted": False}) & visible_q
@@ -265,6 +278,28 @@ class Channel(TeamScopedRootMixin):
 
     def __str__(self):
         return f"#{self.name}"
+
+
+class ChannelMembership(TeamScopedRootMixin):
+    """One person's access to a private channel. Membership is the only thing that makes a
+    private channel visible; public and personal channels do not use it. Any member can add
+    or remove members, so there is no role or added-by column to carry."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: posthog_team and posthog_user are written on
+    # virtually every request, and an FK constraint takes a SHARE ROW EXCLUSIVE lock on them
+    # that stalls deploys. Django still enforces the relation and on_delete at the app level.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_channel_membership"
+        constraints = [
+            models.UniqueConstraint(fields=["channel", "user"], name="task_channel_membership_unique"),
+        ]
 
 
 @receiver(pre_delete, sender=Integration)

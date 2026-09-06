@@ -111,6 +111,7 @@ from products.tasks.backend.models import (
     ChannelContextGeneration,
     ChannelFeedMessage,
     ChannelInstructions,
+    ChannelMembership,
     ChannelStar,
     DesktopBetaTermsAcceptance,
     InvalidTaskOriginError,
@@ -6080,10 +6081,14 @@ def handoff_task(
 
         channel = locked.channel
         if channel is None or channel.channel_type == Channel.ChannelType.PERSONAL:
-            # Never widen: a task in one private space moves to the other private
-            # space rather than becoming visible to the whole project, and a legacy
-            # channel-less task joins the recipient's #me where they'll find it.
+            # Never widen: a task in the actor's #me (or a legacy channel-less task)
+            # joins the recipient's #me where they'll find it.
             locked.channel = _ensure_personal_channel(team_id, target.id)[0]
+        elif channel.channel_type == Channel.ChannelType.PRIVATE:
+            # Keep the task in its shared private space; add the recipient so they can see it.
+            ChannelMembership.objects.for_team(team_id).get_or_create(
+                channel_id=channel.id, user_id=target.id, defaults={"team_id": team_id}
+            )
         locked.created_by = target
         # The stored GitHub-user preference names the old owner's installation; the
         # recipient picks their own on their next run. Carrying it across would
@@ -7868,6 +7873,93 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool)
         if star:
             _set_channel_star(channel.id, team_id, user_id, starred=True)
     return _channel_to_dto(channel, starred=starred)
+
+
+def _channel_member_infos(channel: Channel, team_id: int) -> list[contracts.TaskUserBasicInfo]:
+    members = (
+        ChannelMembership.objects.for_team(team_id)
+        .filter(channel_id=channel.id)
+        .select_related("user")
+        .order_by("created_at")
+    )
+    return [info for member in members if (info := _user_basic_info(member.user)) is not None]
+
+
+def create_private_channel(
+    team_id: int, user_id: int, *, name: str, member_ids: list[int], star: bool
+) -> contracts.ChannelDTO | None:
+    """Create a private channel and seed its membership. ``None`` for an empty or reserved
+    name. The creator is always a member; ``member_ids`` add others (deduped, and dropped when
+    they lack project access). Private channels are UUID-keyed, so their names need not be
+    unique. Stars the channel for the creator when ``star``."""
+    normalized = normalize_channel_name(name)
+    if not normalized or is_reserved_channel_name(normalized):
+        return None
+    team = Team.objects.get(id=team_id)
+    accessible = set(team.all_users_with_access().filter(id__in=member_ids).values_list("id", flat=True))
+    target_ids = {user_id, *accessible}
+    with transaction.atomic():
+        channel = Channel.objects.for_team(team_id).create(
+            team_id=team_id,
+            name=normalized,
+            channel_type=Channel.ChannelType.PRIVATE,
+            created_by_id=user_id,
+        )
+        for member_id in target_ids:
+            # for_team filters reads; create still needs team_id passed in (scoping caveat).
+            ChannelMembership.objects.for_team(team_id).create(
+                team_id=team_id, channel_id=channel.id, user_id=member_id
+            )
+    _emit_channel_created(channel, user_id)
+    starred = False
+    if star:
+        _set_channel_star(channel.id, team_id, user_id, starred=True)
+        starred = True
+    return _channel_to_dto(channel, starred=starred)
+
+
+def list_channel_members(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.TaskUserBasicInfo] | None:
+    """The members of a channel the requester can see, as display info. ``None`` when the
+    channel is not visible. Public and personal channels carry no membership, so they read
+    as an empty list."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    return _channel_member_infos(channel, team_id)
+
+
+def set_channel_members(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, member_ids: list[int]
+) -> list[contracts.TaskUserBasicInfo] | str:
+    """Replace a private channel's membership with ``member_ids`` plus the creator, who can
+    never be removed. Returns the updated members, or a status string: ``"not_found"`` when
+    the channel is not visible, ``"not_private"`` for a public or personal channel,
+    ``"invalid_member"`` when a target is not a project member. Removing a member who owns
+    tasks leaves those tasks in place; they just lose visibility, Slack-like."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return "not_found"
+    if channel.channel_type != Channel.ChannelType.PRIVATE:
+        return "not_private"
+    target_ids = {*member_ids}
+    if channel.created_by_id is not None:
+        target_ids.add(channel.created_by_id)
+    accessible = set(channel.team.all_users_with_access().filter(id__in=target_ids).values_list("id", flat=True))
+    if accessible != target_ids:
+        return "invalid_member"
+    with transaction.atomic():
+        memberships = ChannelMembership.objects.for_team(team_id).filter(channel_id=channel.id)
+        existing = set(memberships.values_list("user_id", flat=True))
+        for member_id in target_ids - existing:
+            ChannelMembership.objects.for_team(team_id).create(
+                team_id=team_id, channel_id=channel.id, user_id=member_id
+            )
+        to_remove = existing - target_ids
+        if to_remove:
+            memberships.filter(user_id__in=to_remove).delete()
+    return _channel_member_infos(channel, team_id)
 
 
 def update_channel(

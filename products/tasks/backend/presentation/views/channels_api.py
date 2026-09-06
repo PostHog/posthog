@@ -35,6 +35,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelInstructionsSerializer,
     ChannelInstructionsWriteSerializer,
+    ChannelMembersWriteSerializer,
     ChannelSerializer,
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
@@ -53,6 +54,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunErrorResponseSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
+    TaskUserBasicInfoSerializer,
     TeachingCanvasSerializer,
 )
 
@@ -99,9 +101,17 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # GET /instructions/ and /context_generation/ are reads; the PUT/PATCH/DELETE
     # method mappings resolve to their own action names, so they go in the write
     # bucket by name.
-    scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions", "context_generation"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "instructions",
+        "instructions_versions",
+        "context_generation",
+        "members",
+    ]
     scope_object_write_actions = [
         "create",
+        "set_members",
         "provision_defaults",
         "onboarding_session",
         "onboarding_session_test",
@@ -233,23 +243,32 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
-        summary="Resolve or create a public channel",
+        summary="Create a channel",
         description=(
-            "Returns the existing public channel with the (normalized) name, creating it if needed. "
-            "A channel created here is starred for the requester unless star is false. "
-            "The general name returns the team's general space; names that read as a private "
-            'space ("me", "personal") are rejected.'
+            "For a public channel (default), returns the existing channel with the (normalized) "
+            "name, creating it if needed; the general name returns the team's general space. For a "
+            "private channel, always creates a fresh space with the requester and member_ids as its "
+            "members. A channel created here is starred for the requester unless star is false. "
+            'Names that read as a private #me space ("me", "personal") are rejected.'
         ),
     )
     def create(self, request, **kwargs):
         serializer = ChannelWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        channel = tasks_facade.resolve_channel(
-            self.team_id,
-            self._user_id(),
-            name=serializer.validated_data["name"],
-            star=serializer.validated_data["star"],
-        )
+        data = serializer.validated_data
+        user_id = self._user_id()
+        if data["channel_type"] == "private":
+            if user_id is None:
+                raise PermissionDenied("Creating a private space requires a user.")
+            channel = tasks_facade.create_private_channel(
+                self.team_id,
+                user_id,
+                name=data["name"],
+                member_ids=data["member_ids"],
+                star=data["star"],
+            )
+        else:
+            channel = tasks_facade.resolve_channel(self.team_id, user_id, name=data["name"], star=data["star"])
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ChannelSerializer(channel).data)
@@ -448,6 +467,51 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not tasks_facade.star_channel(pk, self.team_id, user_id, starred=serializer.validated_data["starred"]):
             raise NotFound("Channel not found")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=TaskUserBasicInfoSerializer(many=True), description="Channel members")
+        },
+        summary="List a channel's members",
+        description=(
+            "The members of a private channel. Public and personal channels have no members and "
+            "read as an empty list. 404 when the channel is not visible to the requester."
+        ),
+    )
+    @action(methods=["GET"], detail=True)
+    def members(self, request, pk=None, **kwargs):
+        members = tasks_facade.list_channel_members(pk, self.team_id, self._user_id())
+        if members is None:
+            raise NotFound("Channel not found")
+        return Response(TaskUserBasicInfoSerializer(members, many=True).data)
+
+    @extend_schema(
+        request=ChannelMembersWriteSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskUserBasicInfoSerializer(many=True), description="Updated members")
+        },
+        summary="Replace a private channel's members",
+        description=(
+            "Replace a private space's member set. Any member can manage members. The creator is "
+            "always kept. Public and personal channels have no members and are rejected."
+        ),
+    )
+    @members.mapping.put
+    def set_members(self, request, pk=None, **kwargs):
+        serializer = ChannelMembersWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = tasks_facade.set_channel_members(
+            pk, self.team_id, self._user_id(), member_ids=serializer.validated_data["user_ids"]
+        )
+        if isinstance(result, str):
+            if result == "not_found":
+                raise NotFound()
+            if result == "not_private":
+                return Response({"detail": "Only private spaces have members."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Every member must have access to this project."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response(TaskUserBasicInfoSerializer(result, many=True).data)
 
 
 class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

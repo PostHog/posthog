@@ -15,6 +15,7 @@ class Channel(models.Model):
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"        # visible to the whole team
         PERSONAL = "personal", "Personal"  # the user's private "#me" channel
+        PRIVATE = "private", "Private"     # visible only to its members (below)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -40,6 +41,24 @@ class Channel(models.Model):
                 condition=Q(channel_type="personal", deleted=False),
                 name="task_channel_team_user_personal_unique",
             ),
+        ]
+
+
+class ChannelMembership(models.Model):
+    """One person's access to a private channel. Membership is the only thing that
+    makes a private channel visible; public and personal channels do not use it.
+    Any member can add or remove members, so there is no role or added-by column."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_channel_membership"
+        constraints = [
+            models.UniqueConstraint(fields=["channel", "user"], name="task_channel_membership_unique"),
         ]
 
 
@@ -77,12 +96,13 @@ A task with a channel uses only channel visibility:
 
 - `PUBLIC` is readable by project members.
 - `PERSONAL` is readable only by `Channel.created_by` and is shown as a private space.
+- `PRIVATE` is readable only by users with a `ChannelMembership` row for it.
 - Task origin and creator fallbacks never widen a task with a channel.
 
 A null-channel task uses the legacy creator and team-readable origin rules. Thread
 messages, runs, artifacts, conversations, and task activity inherit task visibility.
-A future selected-member private space can extend `Channel.visible_to_q` with channel
-membership without adding permissions to Task.
+All of this flows through `Channel.visible_to_q`, so the private-membership clause
+extends visibility without adding any permission to `Task`.
 
 ## API
 
@@ -93,17 +113,29 @@ membership without adding permissions to Task.
   `provision_defaults` to create the default channels. Paging is opt-in:
   `?limit=&offset=` returns one page in a `count`/`next`/`previous` envelope,
   and a request without `limit` returns every channel as a plain array.
-- `POST / {name}` — resolve-or-create a public channel by name
-  (`get_or_create`, so concurrent creates and name-bridging are race-safe).
+- `POST / {name, channel_type, member_ids, star}` — create a channel. `channel_type`
+  defaults to `public` (resolve-or-create by name, so concurrent creates and
+  name-bridging are race-safe). `channel_type: private` always creates a fresh space
+  keyed by UUID (names need not be unique) with the requester plus `member_ids` as its
+  members; ids without project access are dropped.
 - `PATCH /{id}/ {name}` - any project member can rename or configure a public channel. Private `#me` spaces cannot be renamed.
 - `DELETE /{id}/` - any project member can delete an empty public channel. Private `#me` and non-empty spaces cannot be deleted.
+- `GET /{id}/members/` — the members of a private channel (empty for public and
+  personal channels), as user display info. 404 when the channel is not visible.
+- `PUT /{id}/members/ {user_ids}` — replace a private channel's member set. Any member
+  can manage members; the creator is always kept. 400 for a public or personal channel,
+  or when a target lacks project access. Removing a member who owns tasks leaves those
+  tasks in place; they simply lose visibility.
 
 ### Task endpoints
 
 - `TaskCreateSerializer` accepts `channel` (UUID). It must belong to the team. A
-  private `#me` space is accepted only from its owner.
+  personal `#me` space is accepted only from its owner, and a private space only from
+  a member.
 - Omitting `channel` for an ordinary user task files it into the user's `#me` space.
-- A task controller can move a task by updating `channel` to a public or owned private space. Existing callers can still clear `channel` for legacy compatibility.
+- A task controller can move a task by updating `channel` to a public space, their own
+  `#me` space, or a private space they belong to. Existing callers can still clear
+  `channel` for legacy compatibility.
 - `TaskSerializer` / `TaskDetailDTO` emit `channel`.
 - `GET /tasks/?channel=<uuid>` filters the list to a channel's feed.
 - `POST /tasks/{task_id}/handoff/ {user}`: hand a task off to a colleague. The
@@ -111,9 +143,10 @@ membership without adding permissions to Task.
   be the current owner. Ownership (`created_by`)
   moves to the recipient, so they drive the task afterwards and future runs
   resolve GitHub authorship and notification recipients from them. A task in a
-  private `#me` space (or with no channel) moves into the recipient's `#me`, so a
-  handoff never strands a task the recipient can't open; a task in a shared space
-  stays there. All task runs must be terminal and every sandbox session must be
+  personal `#me` space (or with no channel) moves into the recipient's `#me`, so a
+  handoff never strands a task the recipient can't open. A task in a private space
+  stays put and the recipient is added as a member. A task in a public space stays
+  put. All task runs must be terminal and every sandbox session must be
   closed before a handoff. The handoff rotates the task's server-owned ownership
   version, revokes task-bound sandbox OAuth tokens, and makes runs from the old
   ownership version read-only. The recipient must start a fresh run. The handoff
@@ -171,6 +204,9 @@ An exact task-to-Canvas link does not grant additional write access. Canvas crea
 
 ## Out of scope (v1)
 
-- Selected-member private spaces and channel membership.
+- Per-member roles or permissions (any member manages membership).
+- Activity-log entries for membership changes.
+- Real-time push of membership changes (clients poll).
+- Converting an existing public space to private.
 - Message editing and emoji reactions.
 - Real-time push for feed/thread updates (clients poll; SSE can come later).

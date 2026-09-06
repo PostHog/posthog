@@ -42,6 +42,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
+from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
 from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -792,10 +793,19 @@ class TaskWriteSerializer(serializers.Serializer):
     def validate_channel(self, value):
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if value is not None and (value.deleted or value.channel_type not in {"public", "personal"}):
+        user_id = getattr(user, "id", None)
+        if value is None:
+            return value
+        if value.deleted or value.channel_type not in {"public", "personal", "private"}:
             raise serializers.ValidationError("Space not found")
-        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
+        if value.channel_type == "personal" and value.created_by_id != user_id:
             raise serializers.ValidationError("Private spaces can only be used by their owner")
+        # A private channel is usable only by its members; report it as missing to a non-member
+        # so its existence never leaks.
+        if value.channel_type == "private" and not tasks_facade.channel_exists(
+            self.context["team"].id, value.id, user_id
+        ):
+            raise serializers.ValidationError("Space not found")
         return value
 
     def validate_github_integration(self, value):
@@ -2170,11 +2180,34 @@ class ChannelDeleteConflictSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the space cannot be deleted.")
 
 
+CHANNEL_MEMBERS_MAX = 100
+
+
 class ChannelWriteSerializer(serializers.Serializer):
-    """Request body for creating (resolve-or-create) or renaming a public channel."""
+    """Request body for creating a channel. A public channel is resolve-or-create by name;
+    a private channel is always created fresh with the requester and ``member_ids`` as its
+    members."""
 
     name = serializers.CharField(
         max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+    )
+    channel_type = serializers.ChoiceField(
+        choices=CHANNEL_WRITE_TYPE_CHOICES,
+        default="public",
+        help_text=(
+            "Visibility of the channel. 'public' (default) is visible to every project member. "
+            "'private' is visible only to its members. Personal #me spaces are not created here."
+        ),
+    )
+    member_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+        max_length=CHANNEL_MEMBERS_MAX,
+        help_text=(
+            "User ids to add to a private channel besides the requester, who is always a member. "
+            "Ignored for a public channel. Ids without project access are dropped."
+        ),
     )
     star = serializers.BooleanField(
         required=False,
@@ -2191,6 +2224,20 @@ class ChannelWriteSerializer(serializers.Serializer):
         if tasks_facade.is_personal_space_name(value):
             raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
         return value
+
+
+class ChannelMembersWriteSerializer(serializers.Serializer):
+    """Request body for replacing a private channel's member set."""
+
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        default=list,
+        max_length=CHANNEL_MEMBERS_MAX,
+        help_text=(
+            "The full set of member user ids. The creator is always kept, so removing them has "
+            "no effect. Every id must be a project member."
+        ),
+    )
 
 
 class ChannelUpdateSerializer(serializers.Serializer):
