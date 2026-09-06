@@ -336,13 +336,17 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
-            // Redirect to pending deletion page if organization deletion is in progress
-            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
-                router.actions.replace(urls.organizationPendingDeletion())
+            // Client-side navigation adds a /project/:id prefix, so match these lockout paths by suffix.
+            // Pending deletion takes priority over inactive, mirroring OrganizationActiveMiddleware. When both
+            // flags are set, handling pending deletion here and returning stops the two guards ping-ponging.
+            if (values.currentOrganization?.is_pending_deletion) {
+                if (!pathname.endsWith(urls.organizationPendingDeletion())) {
+                    router.actions.replace(urls.organizationPendingDeletion())
+                }
                 return
             }
             // Redirect to deactivated page if organization is inactive (client-side navigation)
-            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
+            if (values.currentOrganization?.is_active === false && !pathname.endsWith(urls.organizationDeactivated())) {
                 router.actions.replace(urls.organizationDeactivated())
             }
         },
