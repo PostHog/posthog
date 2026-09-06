@@ -138,6 +138,7 @@ export function PiSessionModelControls({
           : undefined
       }
       thinkingLevels={thinkingLevels}
+      analyticsSurface="session"
       disabled={disabled}
       onChange={setModel}
       onThinkingLevelChange={setThinkingLevel}

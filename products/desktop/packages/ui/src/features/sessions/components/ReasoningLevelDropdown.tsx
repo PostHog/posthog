@@ -213,12 +213,14 @@ export function ReasoningSliderFace({
   stops,
   currentKey,
   onSelect,
+  onSelectCommitted,
   onAdvanced,
   fastToggle,
 }: {
   stops: ReasoningSliderStop[];
   currentKey?: string;
   onSelect: (key: string) => void;
+  onSelectCommitted?: (key: string, changed: boolean) => void;
   onAdvanced: () => void;
   fastToggle?: {
     active: boolean;
@@ -234,6 +236,7 @@ export function ReasoningSliderFace({
   // a drag the thumb derives from the current selection, so releasing snaps
   // it to the notch the live-applied selection landed on.
   const [dragPosition, setDragPosition] = useState<number | null>(null);
+  const dragStartKeyRef = useRef<string | undefined>(undefined);
   const position = dragPosition ?? activeIndex;
   const nearestIndex = Math.min(
     stops.length - 1,
@@ -245,10 +248,17 @@ export function ReasoningSliderFace({
     if (stop && stop.key !== currentKey) onSelect(stop.key);
   };
 
+  const commitNotch = (notch: number, startKey: string | undefined) => {
+    const stop = stops[notch];
+    if (!stop) return;
+    onSelectCommitted?.(stop.key, stop.key !== startKey);
+  };
+
   const nudge = (delta: number) => {
     const next = Math.min(stops.length - 1, Math.max(0, nearestIndex + delta));
     setDragPosition(null);
     applyNotch(next);
+    commitNotch(next, stops[nearestIndex]?.key);
   };
 
   return (
@@ -324,6 +334,9 @@ export function ReasoningSliderFace({
       </div>
       <div
         className="relative py-1"
+        onPointerDownCapture={() => {
+          dragStartKeyRef.current = stops[activeIndex]?.key;
+        }}
         onKeyDownCapture={(event) => {
           if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
             event.preventDefault();
@@ -352,10 +365,12 @@ export function ReasoningSliderFace({
           onValueCommitted={(next: number | readonly number[]) => {
             const raw = Array.isArray(next) ? next[0] : next;
             if (typeof raw === "number") {
-              applyNotch(
+              commitNotch(
                 Math.min(stops.length - 1, Math.max(0, Math.round(raw))),
+                dragStartKeyRef.current ?? stops[activeIndex]?.key,
               );
             }
+            dragStartKeyRef.current = undefined;
             setDragPosition(null);
           }}
         />

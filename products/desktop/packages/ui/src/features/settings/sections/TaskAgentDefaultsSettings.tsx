@@ -144,6 +144,7 @@ function MyDefaultPicker({
         modelOption={modelOption}
         thoughtOption={thoughtOption}
         adapter={adapter}
+        analyticsSurface="task_agent_defaults"
         anchor={anchorRef}
         // Mid-switch the pill shows the new harness's own default, which is a
         // browse, not the inherited project default — no "Default ·" marker.

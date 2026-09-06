@@ -6,7 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 import { PiSessionModelControls } from "./PiSessionModelControls";
 
 const setConfig = vi.hoisted(() => vi.fn());
+const track = vi.hoisted(() => vi.fn());
 
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("./piPendingConfigStore", () => ({
   getPiPendingConfig: () => undefined,
   usePiPendingConfigStore: (

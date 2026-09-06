@@ -1644,6 +1644,7 @@ export function TaskInput({
                             : undefined
                         }
                         thinkingLevels={piThinkingLevels}
+                        analyticsSurface="task_input"
                         disabled={isCreatingTask || isPiConfigLoading}
                         isLoading={isPiConfigLoading}
                         onChange={handlePiModelChange}
@@ -1671,6 +1672,7 @@ export function TaskInput({
                         adapter={adapter ?? "claude"}
                         contextWindowOption={contextWindowOption}
                         fastModeOption={fastModeOption}
+                        analyticsSurface="task_input"
                         onChange={handleThoughtChange}
                         onModelChange={handleModelChange}
                         onAdapterChange={setAdapter}

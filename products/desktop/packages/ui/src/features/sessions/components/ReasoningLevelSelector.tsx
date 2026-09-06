@@ -27,6 +27,10 @@ import {
   selectOptionHarness,
 } from "@posthog/shared";
 import {
+  ANALYTICS_EVENTS,
+  type ModelPickerSurface,
+} from "@posthog/shared/analytics-events";
+import {
   EFFORT_LEVEL_LABELS,
   FAST_MODE_DOCS_URLS,
 } from "@posthog/shared/domain-types";
@@ -41,6 +45,7 @@ import type { WorkspaceModeForAccess } from "@posthog/ui/features/settings/adapt
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { track } from "@posthog/ui/shell/analytics";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRef, useState } from "react";
 import { flattenSelectOptions } from "../sessionStore";
@@ -107,6 +112,7 @@ interface ReasoningLevelSelectorProps {
    * trigger's "Default ·" marker — the two diverge when no default applies.
    */
   resetToDefaultDisabled?: boolean;
+  analyticsSurface?: ModelPickerSurface;
   /**
    * Position and size the popup against this element instead of the trigger.
    *
@@ -160,6 +166,7 @@ export function ReasoningLevelSelector({
   isDefaultSelection,
   onResetToDefault,
   resetToDefaultDisabled,
+  analyticsSurface,
   anchor,
 }: ReasoningLevelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
@@ -198,6 +205,15 @@ export function ReasoningLevelSelector({
   const handleHarnessSelect = (harness: AgentHarness) => {
     if (harness === adapter) {
       return;
+    }
+
+    if (analyticsSurface) {
+      track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+        surface: analyticsSurface,
+        runtime: "acp",
+        action: "selection",
+        control: "advanced_harness",
+      });
     }
 
     if (harness === "pi") {
@@ -362,6 +378,14 @@ export function ReasoningLevelSelector({
           docsUrl: FAST_MODE_DOCS_URLS[adapter],
           onToggle: () => {
             if (fastSelect) {
+              if (analyticsSurface) {
+                track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                  surface: analyticsSurface,
+                  runtime: "acp",
+                  action: "selection",
+                  control: "fast_mode_toggle",
+                });
+              }
               onConfigOptionChange(fastSelect.id, fastActive ? "off" : "on");
             }
           },
@@ -399,6 +423,14 @@ export function ReasoningLevelSelector({
   const defaultEffortOption = effortOptions.find((option) => option.isDefault);
 
   const resetToDefaults = () => {
+    if (analyticsSurface) {
+      track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+        surface: analyticsSurface,
+        runtime: "acp",
+        action: "selection",
+        control: "reset_default",
+      });
+    }
     // One reset for both meanings of "default": drop the pick so the configured
     // project/user default applies where the surface knows about one, else land
     // on the ladder's balanced notch.
@@ -478,8 +510,24 @@ export function ReasoningLevelSelector({
         // Only on the closed-to-open transition: submenu opens re-fire this
         // with true and must not yank the view back.
         if (nextOpen && !open) {
+          const initialView = onNotch ? "slider" : "advanced";
           setAdvanced(!onNotch);
           setShowBack(false);
+          if (analyticsSurface) {
+            track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+              surface: analyticsSurface,
+              runtime: "acp",
+              action: "opened",
+              initial_view: initialView,
+            });
+            if (!onNotch) {
+              track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                surface: analyticsSurface,
+                runtime: "acp",
+                action: "advanced_opened",
+              });
+            }
+          }
         }
         setOpen(nextOpen);
       }}
@@ -566,6 +614,14 @@ export function ReasoningLevelSelector({
                         onGated={() => setOpen(false)}
                         unavailableReason={unavailableReason}
                         onSelect={(value) => {
+                          if (analyticsSurface) {
+                            track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                              surface: analyticsSurface,
+                              runtime: "acp",
+                              action: "selection",
+                              control: "advanced_model",
+                            });
+                          }
                           // A model the current harness cannot run switches
                           // the harness and keeps the pick.
                           if (adapter && onHarnessModelChange) {
@@ -598,6 +654,16 @@ export function ReasoningLevelSelector({
                   <SubscriptionSubmenu
                     adapter={adapter}
                     workspaceMode={workspaceMode}
+                    onSelection={() => {
+                      if (analyticsSurface) {
+                        track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                          surface: analyticsSurface,
+                          runtime: "acp",
+                          action: "selection",
+                          control: "advanced_billing",
+                        });
+                      }
+                    }}
                   />
                 )}
                 {hasEffort && (
@@ -611,7 +677,17 @@ export function ReasoningLevelSelector({
                     <DropdownMenuSubContent>
                       <DropdownMenuRadioGroup
                         value={currentEffort ?? ""}
-                        onValueChange={(value) => onChange?.(value)}
+                        onValueChange={(value) => {
+                          if (analyticsSurface) {
+                            track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                              surface: analyticsSurface,
+                              runtime: "acp",
+                              action: "selection",
+                              control: "advanced_reasoning",
+                            });
+                          }
+                          onChange?.(value);
+                        }}
                       >
                         {effortOptions.map((option) => (
                           <LevelItem
@@ -635,9 +711,17 @@ export function ReasoningLevelSelector({
                     <DropdownMenuSubContent>
                       <DropdownMenuRadioGroup
                         value={row.value}
-                        onValueChange={(value) =>
-                          onConfigOptionChange?.(row.id, value)
-                        }
+                        onValueChange={(value) => {
+                          if (analyticsSurface) {
+                            track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                              surface: analyticsSurface,
+                              runtime: "acp",
+                              action: "selection",
+                              control: "advanced_context_window",
+                            });
+                          }
+                          onConfigOptionChange?.(row.id, value);
+                        }}
                       >
                         {row.options.map((option) => (
                           <LevelItem
@@ -664,7 +748,25 @@ export function ReasoningLevelSelector({
                   stops={stops}
                   currentKey={currentStopKey}
                   onSelect={handleStopSelect}
+                  onSelectCommitted={(_key, changed) => {
+                    if (analyticsSurface) {
+                      track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                        surface: analyticsSurface,
+                        runtime: "acp",
+                        action: "selection",
+                        control: "slider",
+                        changed,
+                      });
+                    }
+                  }}
                   onAdvanced={() => {
+                    if (analyticsSurface) {
+                      track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                        surface: analyticsSurface,
+                        runtime: "acp",
+                        action: "advanced_opened",
+                      });
+                    }
                     setShowBack(true);
                     setAdvanced(true);
                   }}

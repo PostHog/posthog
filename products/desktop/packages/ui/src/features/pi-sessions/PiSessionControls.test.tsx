@@ -1,4 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { configure, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -7,6 +8,9 @@ import { PiModelSelector } from "./PiSessionControls";
 // Menu open/close and submenu reveals ride animations that starve under
 // parallel suite load; the default 1s async timeout flakes.
 configure({ asyncUtilTimeout: 5000 });
+
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 
 const piModels = [
   { provider: "posthog" as const, id: "claude-opus-5", name: "Claude Opus 5" },
@@ -61,6 +65,7 @@ async function openSub(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
 
 describe("PiModelSelector", () => {
   it("offers the full catalog and reports picks by gateway model id", async () => {
+    track.mockClear();
     const onChange = vi.fn();
     const onGatewayModelSelect = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
@@ -71,6 +76,7 @@ describe("PiModelSelector", () => {
         onChange={onChange}
         modelOption={groupedModelOption()}
         onGatewayModelSelect={onGatewayModelSelect}
+        analyticsSurface="task_input"
       />,
     );
 
@@ -85,5 +91,26 @@ describe("PiModelSelector", () => {
     expect(onGatewayModelSelect).toHaveBeenCalledWith("gpt-5.5");
     expect(onGatewayModelSelect).toHaveBeenCalledTimes(1);
     expect(onChange).not.toHaveBeenCalled();
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(track).toHaveBeenNthCalledWith(
+      1,
+      ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION,
+      {
+        surface: "task_input",
+        runtime: "pi",
+        action: "opened",
+        initial_view: "menu",
+      },
+    );
+    expect(track).toHaveBeenNthCalledWith(
+      2,
+      ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION,
+      {
+        surface: "task_input",
+        runtime: "pi",
+        action: "selection",
+        control: "pi_model",
+      },
+    );
   });
 });

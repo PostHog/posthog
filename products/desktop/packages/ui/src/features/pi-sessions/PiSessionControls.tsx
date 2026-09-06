@@ -18,6 +18,10 @@ import {
   MenuLabel,
 } from "@posthog/quill";
 import {
+  ANALYTICS_EVENTS,
+  type ModelPickerSurface,
+} from "@posthog/shared/analytics-events";
+import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
@@ -28,6 +32,7 @@ import {
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { track } from "@posthog/ui/shell/analytics";
 import { useState } from "react";
 
 type PiModelOption = PiModelSelection & { name?: string };
@@ -49,6 +54,7 @@ interface PiModelSelectorProps {
    */
   modelOption?: SessionConfigOption;
   onGatewayModelSelect?: (modelId: string) => void;
+  analyticsSurface?: ModelPickerSurface;
   menuOpen?: boolean;
   onMenuOpenChange?: (open: boolean) => void;
 }
@@ -83,6 +89,7 @@ export function PiModelSelector({
   onHarnessChange,
   modelOption,
   onGatewayModelSelect,
+  analyticsSurface,
   menuOpen,
   onMenuOpenChange,
 }: PiModelSelectorProps) {
@@ -93,6 +100,29 @@ export function PiModelSelector({
     modelOption?.type === "select" && onGatewayModelSelect
       ? modelOption
       : undefined;
+  const handleMenuOpenChange = (nextOpen: boolean) => {
+    if (nextOpen && !open && analyticsSurface) {
+      track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+        surface: analyticsSurface,
+        runtime: "pi",
+        action: "opened",
+        initial_view: "menu",
+      });
+    }
+    setOpen(nextOpen);
+  };
+  const handleHarnessChange = (harness: AgentHarness) => {
+    if (harness === "pi") return;
+    if (analyticsSurface) {
+      track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+        surface: analyticsSurface,
+        runtime: "pi",
+        action: "selection",
+        control: "pi_harness",
+      });
+    }
+    onHarnessChange?.(harness);
+  };
 
   if (models.length === 0) {
     if (isLoading) {
@@ -100,7 +130,7 @@ export function PiModelSelector({
       // harness switch to Pi): unmounting it closes a menu the user is
       // mid-interaction with.
       return (
-        <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenu open={open} onOpenChange={handleMenuOpenChange}>
           <DropdownMenuTrigger
             render={
               <Button type="button" variant="default" size="sm">
@@ -127,11 +157,7 @@ export function PiModelSelector({
                 value="pi"
                 includePi
                 closeOnChange={false}
-                onChange={(harness) => {
-                  if (harness !== "pi") {
-                    onHarnessChange(harness);
-                  }
-                }}
+                onChange={handleHarnessChange}
               />
             )}
           </DropdownMenuContent>
@@ -150,7 +176,7 @@ export function PiModelSelector({
     : undefined;
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={handleMenuOpenChange}>
       <DropdownMenuTrigger
         render={
           <Button
@@ -200,7 +226,17 @@ export function PiModelSelector({
                 options={gatewayModelSelect.options}
                 currentValue={selectedModel?.id}
                 onGated={() => setOpen(false)}
-                onSelect={(value) => onGatewayModelSelect?.(value)}
+                onSelect={(value) => {
+                  if (analyticsSurface) {
+                    track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                      surface: analyticsSurface,
+                      runtime: "pi",
+                      action: "selection",
+                      control: "pi_model",
+                    });
+                  }
+                  onGatewayModelSelect?.(value);
+                }}
               />
             ) : (
               <>
@@ -211,6 +247,14 @@ export function PiModelSelector({
                       (candidate) => modelKey(candidate) === value,
                     );
                     if (model) {
+                      if (analyticsSurface) {
+                        track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                          surface: analyticsSurface,
+                          runtime: "pi",
+                          action: "selection",
+                          control: "pi_model",
+                        });
+                      }
                       onChange(model);
                     }
                   }}
@@ -238,11 +282,7 @@ export function PiModelSelector({
             value="pi"
             includePi
             closeOnChange={false}
-            onChange={(harness) => {
-              if (harness !== "pi") {
-                onHarnessChange(harness);
-              }
-            }}
+            onChange={handleHarnessChange}
           />
         )}
         {thinkingLevel &&
@@ -258,9 +298,17 @@ export function PiModelSelector({
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
                   value={thinkingLevel}
-                  onValueChange={(value) =>
-                    onThinkingLevelChange(value as PiThinkingLevel)
-                  }
+                  onValueChange={(value) => {
+                    if (analyticsSurface) {
+                      track(ANALYTICS_EVENTS.MODEL_PICKER_INTERACTION, {
+                        surface: analyticsSurface,
+                        runtime: "pi",
+                        action: "selection",
+                        control: "pi_reasoning",
+                      });
+                    }
+                    onThinkingLevelChange(value as PiThinkingLevel);
+                  }}
                 >
                   {thinkingLevels.map((level) => (
                     <DropdownMenuRadioItem
