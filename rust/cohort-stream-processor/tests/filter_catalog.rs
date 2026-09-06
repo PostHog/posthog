@@ -1,6 +1,9 @@
 //! Public-API integration tests for the filter catalog. The exhaustive per-field discrimination
 //! matrix and classifier edge cases live in the in-crate `#[cfg(test)]` modules.
 
+use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
+
 use cohort_stream_processor::filters::{
     build_catalog_from_rows, CohortId, CohortLeaf, CohortRow, FilterCatalog, FilterNode, TeamId,
 };
@@ -148,6 +151,63 @@ fn dropped_leaves_are_skipped_while_survivors_stay_indexed() {
     let team = catalog.team(TeamId(7)).expect("team 7 present");
     assert_eq!(team.unique_condition_hashes.len(), 1);
     assert_eq!(team.by_condition_to_lsk[&BEHAVIORAL_HASH].len(), 1);
+}
+
+#[test]
+fn malformed_leaves_warn_once_per_cohort_per_build() {
+    struct LogWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().write(bytes)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let writer = output.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .without_time()
+        .with_writer(move || LogWriter(writer.clone()))
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let mut malformed = person_leaf();
+    malformed["bytecode"] = json!(["_X", 1]);
+
+    for _ in 0..2 {
+        let catalog = build_catalog(vec![
+            row(1, 7, cohort(vec![malformed.clone(); 10])),
+            row(2, 7, cohort(vec![malformed.clone(); 3])),
+            row(3, 7, cohort(vec![behavioral_performed_event(7)])),
+        ]);
+        let team = catalog.team(TeamId(7)).unwrap();
+        for id in [1, 2] {
+            assert_eq!(
+                team.eligibility[&CohortId(id)],
+                CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+            );
+        }
+        assert_eq!(team.by_condition_to_program.len(), 1);
+    }
+
+    let output = output.lock().unwrap();
+    let mut warnings: Vec<(i64, u64)> = String::from_utf8_lossy(&output)
+        .lines()
+        .map(|line| {
+            let event: Value = serde_json::from_str(line).unwrap();
+            assert_eq!(event["level"], "WARN");
+            (
+                event["fields"]["cohort_id"].as_i64().unwrap(),
+                event["fields"]["malformed_leaves"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    warnings.sort_unstable();
+    assert_eq!(warnings, vec![(1, 10), (1, 10), (2, 3), (2, 3)]);
 }
 
 #[test]

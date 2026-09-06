@@ -71,7 +71,6 @@ pub struct BehavioralKeyInputs<'a> {
 mod tests {
     use super::*;
     use crate::filters::tree::BehavioralLeafConfig;
-    use crate::hogvm::ConditionProgram;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 
@@ -138,7 +137,6 @@ mod tests {
             explicit_datetime_to: Some("2026-02-01T00:00:00Z".to_string()),
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
-            program: ConditionProgram::bare_header(),
             negated: false,
         }
         .with_state_key()

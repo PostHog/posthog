@@ -125,6 +125,7 @@ pub struct TeamFiltersBuilder {
     cohorts: HashMap<CohortId, CohortTree>,
     /// Per-cohort eligibility signals captured during parse.
     flags: HashMap<CohortId, CohortParseFlags>,
+    malformed_leaves: HashMap<CohortId, u64>,
     behavioral_shape_hashes: HashMap<CohortId, BehavioralShapeHash>,
     person_shape_hashes: HashMap<CohortId, PersonShapeHash>,
 }
@@ -135,7 +136,7 @@ impl LeafSink for TeamFiltersBuilder {
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
-        program: &ConditionProgram,
+        bytecode: &[Value],
     ) {
         self.by_condition_to_lsk
             .entry(condition_hash)
@@ -147,7 +148,10 @@ impl LeafSink for TeamFiltersBuilder {
             .insert(cohort_id);
         self.by_condition_to_program
             .entry(condition_hash)
-            .or_insert_with(|| program.clone());
+            .or_insert_with(|| {
+                ConditionProgram::from_stored(bytecode)
+                    .expect("the leaf classifier validated the program header")
+            });
         self.unique_condition_hashes.insert(condition_hash);
 
         let flags = self.flags.entry(cohort_id).or_default();
@@ -160,13 +164,8 @@ impl LeafSink for TeamFiltersBuilder {
 
     fn record_dropped(&mut self, cohort_id: CohortId, reason: LeafDropReason) {
         counter!(FILTER_CATALOG_SKIPPED_LEAVES, "reason" => reason.as_str()).increment(1);
-        // The other drop reasons are routine shapes we do not support yet, and logging them would
-        // spam every refresh. Bytecode the VM refuses to load is corruption: name the cohort.
         if reason == LeafDropReason::MalformedBytecode {
-            warn!(
-                cohort_id = cohort_id.0,
-                "cohort leaf has bytecode the HogVM cannot load; excluding the cohort",
-            );
+            *self.malformed_leaves.entry(cohort_id).or_default() += 1;
         }
         self.flags.entry(cohort_id).or_default().has_dropped_leaf = true;
     }
@@ -204,6 +203,13 @@ impl TeamFiltersBuilder {
     /// ref-bearing cohorts become [`CohortEligibility::Stage2ComposableRef`] and join the composable
     /// emit-map by their own leaves; otherwise they stay `Excluded(HasCohortRef)`.
     pub fn freeze_with(self, timezone: Tz, cascade_enabled: bool) -> TeamFilters {
+        // Aggregate corrupt leaves per cohort so one large filter tree cannot flood each refresh.
+        for (cohort_id, malformed_leaves) in &self.malformed_leaves {
+            warn!(
+                cohort_id = cohort_id.0,
+                malformed_leaves, "cohort has bytecode the HogVM cannot load; excluding the cohort",
+            );
+        }
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut behavioral_by_event_name: HashMap<String, HashSet<[u8; 16]>> = HashMap::new();
@@ -576,19 +582,46 @@ mod tests {
 
     #[test]
     fn identical_leaves_dedupe_to_single_entries() {
-        let mut builder = TeamFiltersBuilder::default();
-        let filters = wrap(vec![
-            behavioral_performed_event(7),
-            behavioral_performed_event(7),
-        ]);
-        builder
-            .add_cohort(CohortId(1), TeamId(7), &filters)
-            .unwrap();
-        let frozen = builder.freeze(UTC);
+        for (mut leaf, hash) in [
+            (behavioral_performed_event(7), HASH),
+            (person_leaf(), PERSON_HASH),
+        ] {
+            let mut bytecode = vec![json!("_H"), json!(1)];
+            for i in 0..8000 {
+                bytecode.extend([json!(32), json!(format!("value-{i}"))]);
+            }
+            leaf["bytecode"] = json!(bytecode);
+            let filters = wrap(vec![leaf.clone(), leaf]);
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &filters)
+                .unwrap();
+            let first_program = builder.by_condition_to_program[&hash].clone();
+            builder
+                .add_cohort(CohortId(2), TeamId(7), &filters)
+                .unwrap();
+            let frozen = builder.freeze(UTC);
 
-        assert_eq!(frozen.by_condition_to_lsk[&HASH].len(), 1);
-        assert_eq!(frozen.by_condition_to_cohorts[&HASH], vec![CohortId(1)]);
-        assert_eq!(frozen.unique_condition_hashes.len(), 1);
+            assert_eq!(frozen.by_condition_to_lsk[&hash].len(), 1);
+            assert_eq!(
+                frozen.by_condition_to_cohorts[&hash],
+                vec![CohortId(1), CohortId(2)]
+            );
+            assert_eq!(frozen.unique_condition_hashes.len(), 1);
+            assert_eq!(frozen.by_condition_to_program.len(), 1);
+            assert!(std::ptr::eq(
+                first_program.program().body_tokens(),
+                frozen.by_condition_to_program[&hash]
+                    .program()
+                    .body_tokens(),
+            ));
+            for tree in frozen.cohorts.values() {
+                let FilterNode::Group { children, .. } = &tree.root else {
+                    panic!("expected a group");
+                };
+                assert_eq!(children.len(), 2);
+            }
+        }
     }
 
     #[test]
@@ -667,6 +700,26 @@ mod tests {
         assert!(!frozen.person_property_conditions.contains(&PERSON_HASH));
         // The healthy sibling still indexed, so the drop is scoped to the malformed leaf.
         assert!(frozen.by_condition_to_program.contains_key(&HASH));
+
+        for malformed_first in [true, false] {
+            let mut malformed = person_leaf();
+            malformed["bytecode"] = json!(["not-a-header", 1, 29]);
+            let mut leaves = vec![malformed, person_leaf()];
+            if !malformed_first {
+                leaves.reverse();
+            }
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &wrap(leaves))
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+            assert_eq!(
+                frozen.eligibility[&CohortId(1)],
+                CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+                "a valid duplicate must not mask a malformed leaf",
+            );
+            assert_eq!(frozen.by_condition_to_program.len(), 1);
+        }
     }
 
     #[test]

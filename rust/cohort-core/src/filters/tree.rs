@@ -5,7 +5,6 @@ use serde_json::Value;
 
 use crate::filters::leaf_classifier::{classify_leaf, LeafClass, LeafDropReason};
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::hogvm::ConditionProgram;
 use crate::leaf_state::key::LeafStateKey;
 use crate::leaf_state::variant::StateVariant;
 
@@ -68,7 +67,6 @@ pub struct BehavioralLeafConfig {
     pub explicit_datetime_to: Option<String>,
     pub leaf_state_key: LeafStateKey,
     pub state_variant: Option<StateVariant>,
-    pub program: ConditionProgram,
     /// Excluded from [`LeafStateKey`] -- state is shared between positive and negated instances.
     pub negated: bool,
 }
@@ -91,8 +89,6 @@ impl BehavioralLeafConfig {
 pub struct PersonLeafConfig {
     pub condition_hash: [u8; 16],
     pub leaf_state_key: LeafStateKey,
-    pub program: ConditionProgram,
-    pub raw: Value,
     pub negated: bool,
 }
 
@@ -135,15 +131,6 @@ impl CohortLeaf {
             Self::CohortRef(_) => None,
         }
     }
-
-    /// The leaf's loaded program, or `None` for a cohort reference.
-    pub fn program(&self) -> Option<&ConditionProgram> {
-        match self {
-            Self::PersonProperty(leaf) => Some(&leaf.program),
-            Self::Behavioral(leaf) => Some(&leaf.program),
-            Self::CohortRef(_) => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,7 +163,7 @@ pub trait LeafSink {
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
-        program: &ConditionProgram,
+        bytecode: &[Value],
     );
 
     fn record_cohort_ref(&mut self, cohort_id: CohortId);
@@ -223,10 +210,11 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
 
     match classify_leaf(node) {
         LeafClass::Keep(leaf) => {
-            if let (Some(hash), Some(lsk), Some(program)) =
-                (leaf.condition_hash(), leaf.leaf_state_key(), leaf.program())
-            {
-                sink.record_state_keyed(cohort_id, hash, lsk, program);
+            if let (Some(hash), Some(lsk)) = (leaf.condition_hash(), leaf.leaf_state_key()) {
+                let bytecode = node["bytecode"]
+                    .as_array()
+                    .expect("a kept state-keyed leaf has validated bytecode");
+                sink.record_state_keyed(cohort_id, hash, lsk, bytecode);
             }
             Some(FilterNode::Leaf(leaf))
         }
@@ -270,7 +258,7 @@ mod tests {
             cohort_id: CohortId,
             hash: [u8; 16],
             lsk: LeafStateKey,
-            _program: &ConditionProgram,
+            _bytecode: &[Value],
         ) {
             self.state_keyed.push((cohort_id, hash, lsk));
         }

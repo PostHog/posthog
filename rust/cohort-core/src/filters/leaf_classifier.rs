@@ -80,10 +80,9 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         return LeafClass::Drop(LeafDropReason::MissingConditionHash);
     };
 
-    let program = match load_program(node.get("bytecode")) {
-        Ok(program) => program,
-        Err(reason) => return LeafClass::Drop(reason),
-    };
+    if let Err(reason) = validate_bytecode(node.get("bytecode")) {
+        return LeafClass::Drop(reason);
+    }
 
     let Some(event_key) = node
         .get("key")
@@ -105,7 +104,6 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         explicit_datetime_to: opt_string(node.get("explicit_datetime_to")),
         leaf_state_key: LeafStateKey([0u8; 16]),
         state_variant: None,
-        program,
         negated: explicit_negation(node),
     }
     .with_state_key();
@@ -146,15 +144,12 @@ fn classify_person(node: &Value) -> LeafClass {
     let Some(condition_hash) = condition_hash_bytes(node.get("conditionHash")) else {
         return LeafClass::Drop(LeafDropReason::MissingConditionHash);
     };
-    let program = match load_program(node.get("bytecode")) {
-        Ok(program) => program,
-        Err(reason) => return LeafClass::Drop(reason),
-    };
+    if let Err(reason) = validate_bytecode(node.get("bytecode")) {
+        return LeafClass::Drop(reason);
+    }
     LeafClass::Keep(CohortLeaf::PersonProperty(PersonLeafConfig {
         condition_hash,
         leaf_state_key: LeafStateKey::for_person_property(&condition_hash),
-        program,
-        raw: node.clone(),
         negated: explicit_negation(node),
     }))
 }
@@ -172,13 +167,16 @@ fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
     }
 }
 
-/// Load a leaf's inline `bytecode` into the form the evaluator runs. Decoding here rather than in
-/// the index builder keeps a corrupt program on the same drop path as every other unusable leaf.
-fn load_program(value: Option<&Value>) -> Result<ConditionProgram, LeafDropReason> {
+/// Validate every leaf before hash deduplication so a healthy duplicate cannot hide a corrupt one.
+fn validate_bytecode(value: Option<&Value>) -> Result<(), LeafDropReason> {
     let array = value
         .and_then(Value::as_array)
         .ok_or(LeafDropReason::MissingBytecode)?;
-    ConditionProgram::from_stored(array).map_err(|_| LeafDropReason::MalformedBytecode)
+    if ConditionProgram::has_valid_stored_header(array) {
+        Ok(())
+    } else {
+        Err(LeafDropReason::MalformedBytecode)
+    }
 }
 
 /// A referenced cohort id as a JSON number or string-encoded int.
@@ -206,19 +204,10 @@ mod tests {
     use serde_json::json;
 
     const HASH: &str = "0123456789abcdef";
-    /// HogVM `RETURN`, which [`ConditionProgram::from_stored`] appends to every loaded program.
-    const OP_RETURN: i64 = 38;
 
     /// A representative bytecode program, as compiled (no trailing `RETURN`).
     fn bytecode() -> Value {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
-    }
-
-    /// The stored form of [`bytecode`]: the loader appends a trailing `RETURN` (opcode 38).
-    fn bytecode_loaded() -> Vec<Value> {
-        let mut bc = bytecode().as_array().unwrap().clone();
-        bc.push(json!(OP_RETURN));
-        bc
     }
 
     fn hash_bytes() -> [u8; 16] {
@@ -244,7 +233,6 @@ mod tests {
         assert_eq!(leaf.event_key, "$pageview");
         assert_eq!(leaf.time_value, Some(7));
         assert_eq!(leaf.leaf_state_key, LeafStateKey::for_behavioral(&leaf));
-        assert_eq!(leaf.program.tokens(), &bytecode_loaded());
         assert_eq!(
             leaf.state_variant,
             Some(crate::leaf_state::variant::StateVariant::BehavioralSingle),
@@ -485,8 +473,6 @@ mod tests {
         };
         assert_eq!(leaf.condition_hash, hash_bytes());
         assert_eq!(leaf.leaf_state_key, LeafStateKey(hash_bytes()));
-        assert_eq!(leaf.program.tokens(), &bytecode_loaded());
-        assert_eq!(leaf.raw, node);
     }
 
     #[test]

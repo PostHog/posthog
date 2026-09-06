@@ -86,9 +86,6 @@ pub fn evaluate_tree(
 
 #[cfg(test)]
 mod tests {
-    use cohort_core::hogvm::ConditionProgram;
-    use serde_json::Value;
-
     use super::*;
     use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, CohortTree, PersonLeafConfig};
     use crate::filters::{CohortId, TeamId};
@@ -104,15 +101,9 @@ mod tests {
     }
 
     fn person_leaf_neg(key: LeafStateKey, negated: bool) -> FilterNode {
-        // These fixtures exercise composition, never evaluation: a bare header is enough of a
-        // program to build the leaf around.
-        let program = ConditionProgram::from_stored(&[Value::from("_H"), Value::from(1)])
-            .expect("a bare bytecode header is a valid program");
         FilterNode::Leaf(CohortLeaf::PersonProperty(PersonLeafConfig {
             condition_hash: key.0,
             leaf_state_key: key,
-            program,
-            raw: Value::Null,
             negated,
         }))
     }

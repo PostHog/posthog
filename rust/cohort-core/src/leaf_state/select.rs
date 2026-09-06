@@ -402,7 +402,6 @@ mod tests {
     use chrono_tz::UTC;
 
     use super::*;
-    use crate::hogvm::ConditionProgram;
 
     use crate::leaf_state::key::LeafStateKey;
 
@@ -437,7 +436,6 @@ mod tests {
             explicit_datetime_to: None,
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
-            program: ConditionProgram::bare_header(),
             negated: false,
         }
         .with_state_key()

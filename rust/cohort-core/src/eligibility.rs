@@ -228,12 +228,9 @@ fn single_supported_leaf(root: &FilterNode) -> Option<LeafStateKey> {
 #[cfg(test)]
 mod tests {
 
-    use serde_json::Value;
-
     use super::*;
     use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, PersonLeafConfig};
     use crate::filters::{CohortId, TeamId};
-    use crate::hogvm::ConditionProgram;
 
     const HASH_A: [u8; 16] = *b"aaaaaaaaaaaaaaaa";
     const HASH_B: [u8; 16] = *b"bbbbbbbbbbbbbbbb";
@@ -247,8 +244,6 @@ mod tests {
         FilterNode::Leaf(CohortLeaf::PersonProperty(PersonLeafConfig {
             condition_hash: hash,
             leaf_state_key: LeafStateKey::for_person_property(&hash),
-            program: ConditionProgram::bare_header(),
-            raw: Value::Null,
             negated,
         }))
     }

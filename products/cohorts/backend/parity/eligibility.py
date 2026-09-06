@@ -252,7 +252,7 @@ def _valid_condition_hash(value: Any) -> bool:
 
 
 def _loads_as_hog_program(bytecode: list[Any]) -> bool:
-    """Mirror of hogvm `Program::from_shared`, which the catalog loader now runs per leaf.
+    """Mirror of hogvm `Program::from_shared` header acceptance, checked per leaf by the catalog.
 
     The loader appends a trailing RETURN before loading, so an empty stored program presents that
     opcode as its marker and is rejected; a bare `["_H"]` takes the appended opcode as its version.
@@ -261,7 +261,7 @@ def _loads_as_hog_program(bytecode: list[Any]) -> bool:
     if marker != "_H":
         return False
     version = bytecode[1] if len(bytecode) > 1 else _OP_RETURN
-    return isinstance(version, int) and not isinstance(version, bool) and version >= 0
+    return isinstance(version, int) and not isinstance(version, bool) and 0 <= version <= 2**64 - 1
 
 
 def _classify_leaf(node: Mapping[str, Any]) -> Union[_Leaf, str]:
