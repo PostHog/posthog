@@ -1,3 +1,4 @@
+import math
 from typing import cast
 
 from posthog.test.base import APIBaseTest
@@ -6,17 +7,32 @@ from parameterized import parameterized
 
 from posthog.schema import (
     EventsNode,
+    ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentStatsBase,
+    ExperimentTrendsQuery,
+    ExperimentVariantFunnelsBaseStats,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
+    ExperimentVariantTrendsBaseStats,
+    FunnelsQuery,
+    TrendsQuery,
 )
 
+from products.experiments.backend.hogql_queries.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+from products.experiments.backend.hogql_queries.funnels_statistics_v2 import calculate_credible_intervals_v2
+from products.experiments.backend.hogql_queries.trends_statistics_v2_continuous import (
+    calculate_credible_intervals_v2_continuous,
+)
+from products.experiments.backend.hogql_queries.trends_statistics_v2_count import calculate_credible_intervals_v2_count
 from products.experiments.backend.hogql_queries.utils import (
+    get_bayesian_ci_level,
     get_bayesian_experiment_result,
+    get_bayesian_interval_bounds,
     get_frequentist_experiment_result,
     split_baseline_and_test_variants,
 )
@@ -45,6 +61,31 @@ class TestStatsConfig(APIBaseTest):
             sum=sum_val,
             sum_squares=sum_squares,
             number_of_samples=samples,
+        )
+
+    def create_feature_flag(self, key: str = "test-flag") -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            name=f"Test flag: {key}",
+            key=key,
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+
+    def create_experiment(self, stats_config: dict | None = None) -> Experiment:
+        return Experiment.objects.create(
+            name="test-experiment",
+            team=self.team,
+            feature_flag=self.create_feature_flag(),
+            stats_config=stats_config,
         )
 
     @parameterized.expand(
@@ -180,6 +221,161 @@ class TestStatsConfig(APIBaseTest):
         width_99 = variant_99.credible_interval[1] - variant_99.credible_interval[0]
 
         self.assertGreater(width_99, width_90, "99% CI should be wider than 90% CI")
+
+    def test_legacy_funnel_ci_level_actually_affects_interval_width(self) -> None:
+        variants = [
+            ExperimentVariantFunnelsBaseStats(key="control", success_count=100, failure_count=900),
+            ExperimentVariantFunnelsBaseStats(key="test", success_count=150, failure_count=850),
+        ]
+        lower_90, upper_90 = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.90}})
+        lower_99, upper_99 = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.99}})
+
+        result_90 = calculate_credible_intervals_v2(variants, lower_bound=lower_90, upper_bound=upper_90)
+        result_99 = calculate_credible_intervals_v2(variants, lower_bound=lower_99, upper_bound=upper_99)
+
+        width_90 = result_90["test"][1] - result_90["test"][0]
+        width_99 = result_99["test"][1] - result_99["test"][0]
+
+        self.assertGreater(width_99, width_90, "99% CI should be wider than 90% CI")
+
+    def test_legacy_trends_ci_level_actually_affects_interval_width(self) -> None:
+        variants = [
+            ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1, absolute_exposure=1000),
+            ExperimentVariantTrendsBaseStats(key="test", count=150, exposure=1, absolute_exposure=1000),
+        ]
+        lower_90, upper_90 = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.90}})
+        lower_99, upper_99 = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.99}})
+
+        count_result_90 = calculate_credible_intervals_v2_count(variants, lower_bound=lower_90, upper_bound=upper_90)
+        count_result_99 = calculate_credible_intervals_v2_count(variants, lower_bound=lower_99, upper_bound=upper_99)
+        continuous_result_90 = calculate_credible_intervals_v2_continuous(
+            variants, lower_bound=lower_90, upper_bound=upper_90
+        )
+        continuous_result_99 = calculate_credible_intervals_v2_continuous(
+            variants, lower_bound=lower_99, upper_bound=upper_99
+        )
+
+        count_width_90 = count_result_90["test"][1] - count_result_90["test"][0]
+        count_width_99 = count_result_99["test"][1] - count_result_99["test"][0]
+        continuous_width_90 = continuous_result_90["test"][1] - continuous_result_90["test"][0]
+        continuous_width_99 = continuous_result_99["test"][1] - continuous_result_99["test"][0]
+
+        self.assertGreater(count_width_99, count_width_90, "99% count CI should be wider than 90% CI")
+        self.assertGreater(continuous_width_99, continuous_width_90, "99% continuous CI should be wider than 90% CI")
+
+    @parameterized.expand(
+        [
+            ("ninety", {"bayesian": {"ci_level": 0.90}}, 0.90),
+            ("fractional", {"bayesian": {"ci_level": 0.925}}, 0.925),
+            ("ninety_nine", {"bayesian": {"ci_level": 0.99}}, 0.99),
+            ("numeric_string", {"bayesian": {"ci_level": "0.925"}}, 0.925),
+        ]
+    )
+    def test_bayesian_ci_level_accepts_valid_open_interval_values(self, _name, stats_config, expected) -> None:
+        self.assertAlmostEqual(get_bayesian_ci_level(stats_config), expected)
+
+    @parameterized.expand(
+        [
+            ("zero", {"bayesian": {"ci_level": 0}}),
+            ("one", {"bayesian": {"ci_level": 1}}),
+            ("below_range", {"bayesian": {"ci_level": -0.1}}),
+            ("above_range", {"bayesian": {"ci_level": 1.5}}),
+            ("none", {"bayesian": {"ci_level": None}}),
+            ("nan", {"bayesian": {"ci_level": math.nan}}),
+            ("infinity", {"bayesian": {"ci_level": math.inf}}),
+            ("negative_infinity", {"bayesian": {"ci_level": -math.inf}}),
+            ("derived_upper_endpoint", {"bayesian": {"ci_level": 0.9999999999999999}}),
+            ("not_a_number", {"bayesian": {"ci_level": "not-a-number"}}),
+            ("bayesian_none", {"bayesian": None}),
+            ("bayesian_list", {"bayesian": []}),
+            ("bayesian_string", {"bayesian": "bad"}),
+            ("bayesian_int", {"bayesian": 123}),
+            ("root_list", []),
+        ]
+    )
+    def test_bayesian_ci_level_invalid_values_use_default(self, _name, stats_config) -> None:
+        self.assertEqual(get_bayesian_ci_level(stats_config), 0.95)
+
+    def test_bayesian_interval_bounds_use_fractional_ci_level(self) -> None:
+        lower, upper = get_bayesian_interval_bounds({"bayesian": {"ci_level": 0.925}})
+
+        self.assertAlmostEqual(lower, 0.0375)
+        self.assertAlmostEqual(upper, 0.9625)
+
+    @parameterized.expand(
+        [
+            ("zero", {"bayesian": {"ci_level": 0}}),
+            ("one", {"bayesian": {"ci_level": 1}}),
+            ("above_range", {"bayesian": {"ci_level": 1.5}}),
+            ("derived_upper_endpoint", {"bayesian": {"ci_level": 0.9999999999999999}}),
+            ("malformed_bayesian", {"bayesian": []}),
+        ]
+    )
+    def test_bayesian_interval_bounds_invalid_values_use_default(self, _name, stats_config) -> None:
+        lower, upper = get_bayesian_interval_bounds(stats_config)
+
+        self.assertAlmostEqual(lower, 0.025)
+        self.assertAlmostEqual(upper, 0.975)
+
+    def test_legacy_funnels_cache_payload_includes_bayesian_ci_level(self) -> None:
+        experiment = self.create_experiment({"bayesian": {"ci_level": 0.9}})
+        query = ExperimentFunnelsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentFunnelsQuery",
+            funnels_query=FunnelsQuery(series=[EventsNode(event="$pageview"), EventsNode(event="purchase")]),
+        )
+
+        payload_90 = ExperimentFunnelsQueryRunner(query=query, team=self.team).get_cache_payload()
+        experiment.stats_config = {"bayesian": {"ci_level": 0.99}}
+        experiment.save(update_fields=["stats_config"])
+        payload_99 = ExperimentFunnelsQueryRunner(query=query, team=self.team).get_cache_payload()
+
+        self.assertEqual(payload_90["bayesian_ci_level"], 0.9)
+        self.assertEqual(payload_99["bayesian_ci_level"], 0.99)
+        self.assertEqual(payload_90 | {"bayesian_ci_level": 0.99}, payload_99)
+
+    def test_legacy_trends_cache_payload_includes_bayesian_ci_level(self) -> None:
+        experiment = self.create_experiment({"bayesian": {"ci_level": 0.9}})
+        query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=TrendsQuery(series=[EventsNode(event="$pageview")]),
+            exposure_query=None,
+        )
+
+        payload_90 = ExperimentTrendsQueryRunner(query=query, team=self.team).get_cache_payload()
+        experiment.stats_config = {"bayesian": {"ci_level": 0.99}}
+        experiment.save(update_fields=["stats_config"])
+        payload_99 = ExperimentTrendsQueryRunner(query=query, team=self.team).get_cache_payload()
+
+        self.assertEqual(payload_90["bayesian_ci_level"], 0.9)
+        self.assertEqual(payload_99["bayesian_ci_level"], 0.99)
+        self.assertEqual(payload_90 | {"bayesian_ci_level": 0.99}, payload_99)
+
+    @parameterized.expand(
+        [
+            ("bayesian_none", {"bayesian": None}),
+            ("bayesian_list", {"bayesian": []}),
+            ("bayesian_string", {"bayesian": "bad"}),
+            ("bayesian_int", {"bayesian": 123}),
+        ]
+    )
+    def test_bayesian_malformed_nested_config_falls_back_to_defaults(self, _name, stats_config) -> None:
+        metric = self.create_mean_metric()
+        control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
+        test = self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000)
+
+        result = get_bayesian_experiment_result(
+            metric=metric,
+            control_variant=control,
+            test_variants=[test],
+            stats_config=stats_config,
+        )
+
+        assert result.variant_results is not None
+        variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
+        assert variant.credible_interval is not None
+        self.assertEqual(len(variant.credible_interval), 2)
 
     def test_numeric_validation_alpha_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()

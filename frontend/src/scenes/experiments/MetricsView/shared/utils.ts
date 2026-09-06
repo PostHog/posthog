@@ -21,7 +21,8 @@ import {
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal } from '~/types'
+import { ExperimentMetricGoal, ExperimentStatsMethod } from '~/types'
+import type { Experiment } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -210,6 +211,81 @@ export function getVariantInterval(result: ExperimentVariantResult): [number, nu
 
 export function getIntervalLabel(result: ExperimentVariantResult): string {
     return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
+}
+
+const DEFAULT_BAYESIAN_CI_LEVEL = 0.95
+const DEFAULT_FREQUENTIST_ALPHA = 0.05
+
+function isStatsConfigRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function getStatsConfig(experiment: Pick<Experiment, 'stats_config'>): Record<string, unknown> {
+    return isStatsConfigRecord(experiment.stats_config) ? experiment.stats_config : {}
+}
+
+function getNestedStatsConfig(experiment: Pick<Experiment, 'stats_config'>, key: string): Record<string, unknown> {
+    const nestedConfig = getStatsConfig(experiment)[key]
+    return isStatsConfigRecord(nestedConfig) ? nestedConfig : {}
+}
+
+function normalizeOpenIntervalValue(value: unknown, fallback: number): number {
+    const numericValue = typeof value === 'number' || typeof value === 'string' ? Number(value) : Number.NaN
+    return Number.isFinite(numericValue) && numericValue > 0 && numericValue < 1 ? numericValue : fallback
+}
+
+function hasStrictBayesianIntervalBounds(intervalLevel: number): boolean {
+    const lowerBound = (1 - intervalLevel) / 2
+    const upperBound = 1 - lowerBound
+    return lowerBound > 0 && lowerBound < upperBound && upperBound < 1
+}
+
+function normalizeBayesianCiLevel(value: unknown): number {
+    const intervalLevel = normalizeOpenIntervalValue(value, DEFAULT_BAYESIAN_CI_LEVEL)
+    return hasStrictBayesianIntervalBounds(intervalLevel) ? intervalLevel : DEFAULT_BAYESIAN_CI_LEVEL
+}
+
+function getExperimentStatsMethod(experiment: Pick<Experiment, 'stats_config'>): ExperimentStatsMethod {
+    return getStatsConfig(experiment).method === ExperimentStatsMethod.Frequentist
+        ? ExperimentStatsMethod.Frequentist
+        : ExperimentStatsMethod.Bayesian
+}
+
+function formatIntervalLevelPercentage(intervalLevel: number): string {
+    return `${Number((intervalLevel * 100).toFixed(10))}%`
+}
+
+export function getExperimentIntervalLevel(
+    experiment: Pick<Experiment, 'stats_config'>,
+    statsMethod: ExperimentStatsMethod = getExperimentStatsMethod(experiment)
+): number {
+    if (statsMethod === ExperimentStatsMethod.Frequentist) {
+        const frequentistConfig = getNestedStatsConfig(experiment, 'frequentist')
+        return 1 - normalizeOpenIntervalValue(frequentistConfig.alpha, DEFAULT_FREQUENTIST_ALPHA)
+    }
+    const bayesianConfig = getNestedStatsConfig(experiment, 'bayesian')
+    return normalizeBayesianCiLevel(bayesianConfig.ci_level)
+}
+
+export function getExperimentIntervalLevelPercentage(
+    experiment: Pick<Experiment, 'stats_config'>,
+    statsMethod?: ExperimentStatsMethod
+): string {
+    return formatIntervalLevelPercentage(getExperimentIntervalLevel(experiment, statsMethod))
+}
+
+export function getExperimentIntervalTitle(
+    result: ExperimentVariantResult | undefined,
+    experiment: Pick<Experiment, 'stats_config'>
+): string {
+    const statsMethod =
+        result?.method === ExperimentStatsMethod.Frequentist
+            ? ExperimentStatsMethod.Frequentist
+            : result?.method === ExperimentStatsMethod.Bayesian
+              ? ExperimentStatsMethod.Bayesian
+              : undefined
+    const intervalLevel = getExperimentIntervalLevelPercentage(experiment, statsMethod)
+    return result ? `${getIntervalLabel(result)} (${intervalLevel})` : `Confidence interval (${intervalLevel})`
 }
 
 export function getIntervalBounds(result: ExperimentVariantResult): [number, number] {

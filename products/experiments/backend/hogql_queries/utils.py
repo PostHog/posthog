@@ -1,4 +1,5 @@
 import math
+from collections.abc import Mapping
 from enum import Enum
 from typing import Any, Optional, TypeVar
 
@@ -49,6 +50,7 @@ from products.experiments.stats.shared.statistics import (
 logger = structlog.get_logger(__name__)
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
+DEFAULT_BAYESIAN_CI_LEVEL = 0.95
 
 
 def get_experiment_query_debug(
@@ -106,6 +108,47 @@ def _validate_numeric_range(value: Any, min_val: float, max_val: float, default:
         return default
     except (TypeError, ValueError):
         return default
+
+
+def _coerce_mapping(value: object | None) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _get_bayesian_config(stats_config: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+    return _coerce_mapping(_coerce_mapping(stats_config).get("bayesian"))
+
+
+def _validate_open_numeric_range(value: Any, min_val: float, max_val: float, default: float) -> float:
+    try:
+        float_value = float(value)
+    except (TypeError, ValueError):
+        return default
+
+    if math.isfinite(float_value) and min_val < float_value < max_val:
+        return float_value
+    return default
+
+
+def _get_interval_bounds_for_level(ci_level: float) -> tuple[float, float]:
+    tail_probability = (1 - ci_level) / 2
+    return tail_probability, 1 - tail_probability
+
+
+def _has_strict_interval_bounds(ci_level: float) -> bool:
+    lower_bound, upper_bound = _get_interval_bounds_for_level(ci_level)
+    return 0.0 < lower_bound < upper_bound < 1.0
+
+
+def get_bayesian_ci_level(stats_config: Mapping[str, Any] | None = None) -> float:
+    bayesian_config = _get_bayesian_config(stats_config)
+    ci_level = _validate_open_numeric_range(
+        bayesian_config.get("ci_level", DEFAULT_BAYESIAN_CI_LEVEL), 0.0, 1.0, DEFAULT_BAYESIAN_CI_LEVEL
+    )
+    return ci_level if _has_strict_interval_bounds(ci_level) else DEFAULT_BAYESIAN_CI_LEVEL
+
+
+def get_bayesian_interval_bounds(stats_config: Mapping[str, Any] | None = None) -> tuple[float, float]:
+    return _get_interval_bounds_for_level(get_bayesian_ci_level(stats_config))
 
 
 def sanitize_non_finite(value: Any) -> Any:
@@ -612,11 +655,12 @@ def get_bayesian_experiment_result(
     """
     Get experiment results using the new Bayesian method with the new format
     """
-    bayesian_config = stats_config.get("bayesian", {}) if stats_config else {}
-    resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
+    bayesian_config = _get_bayesian_config(stats_config)
+    stats_config_for_cuped = stats_config if isinstance(stats_config, dict) else None
+    resolved_cuped_config = cuped_config or get_cuped_config(stats_config_for_cuped, metric)
 
     config = BayesianConfig(
-        ci_level=_validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95),
+        ci_level=get_bayesian_ci_level(stats_config),
         difference_type=_parse_enum_config(
             bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
