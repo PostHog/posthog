@@ -39,6 +39,7 @@ import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysE
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { heatmapsEmptyState } from 'products/web_analytics/frontend/heatmaps/emptyState/heatmapsEmptyState'
 import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -376,6 +377,8 @@ export const DataCatalogNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
 export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(notebooksEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/notebooks/': [200, { count: 0, results: [] }] } },
 })
+
+export const HeatmapsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(heatmapsEmptyState, 'needs-setup')
 
 // Data warehouse detection lists sources and tables on mount - answer "none yet".
 export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
