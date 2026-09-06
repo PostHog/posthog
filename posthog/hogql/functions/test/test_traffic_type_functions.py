@@ -39,13 +39,17 @@ class TestTrafficTypeFunctions:
         assert isinstance(result, ast.Call)
         assert result.name == "if"
         assert len(result.args) == 3
-        # First arg: comparison (multiMatchAnyIndex(...) = 0)
-        assert isinstance(result.args[0], ast.CompareOperation)
-        # Second arg: default value
+        # First arg: cookieless-mode check (and(empty_ua, cookieless_mode))
+        assert isinstance(result.args[0], ast.Call)
+        assert result.args[0].name == "and"
+        # Second arg: default value when cookieless mode applies -> "Regular"
         assert isinstance(result.args[1], ast.Constant)
         assert result.args[1].value == "Regular"
-        # Third arg: array access
-        assert isinstance(result.args[2], ast.ArrayAccess)
+        # Third arg: inner if (original pattern matching logic) -> array access
+        inner_if = result.args[2]
+        assert isinstance(inner_if, ast.Call)
+        assert inner_if.name == "if"
+        assert isinstance(inner_if.args[2], ast.ArrayAccess)
 
     @parameterized.expand(
         [
@@ -73,8 +77,11 @@ class TestTrafficTypeFunctions:
         result = get_traffic_type(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        # Check the comparison contains multiMatchAnyIndex
-        comparison = result.args[0]
+        # Result is now: if(cookieless_check, default, inner_if)
+        # multiMatchAnyIndex is in the inner_if
+        inner_if = result.args[2]
+        assert isinstance(inner_if, ast.Call)
+        comparison = inner_if.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert isinstance(comparison.left, ast.Call)
         assert comparison.left.name == "multiMatchAnyIndex"
@@ -86,8 +93,10 @@ class TestTrafficTypeFunctions:
         result = get_traffic_type(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        # Get the multiMatchAnyIndex call from the comparison
-        comparison = result.args[0]
+        # Result is: if(cookieless_check, default, inner_if)
+        inner_if = result.args[2]
+        # Get the multiMatchAnyIndex call from the inner if comparison
+        comparison = inner_if.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         index_call = comparison.left
         assert isinstance(index_call, ast.Call)
@@ -98,8 +107,8 @@ class TestTrafficTypeFunctions:
         # Should have len(BOT_DEFINITIONS) + 1 (empty UA) patterns
         assert len(patterns_array.exprs) == len(BOT_DEFINITIONS) + 1
 
-        # Get labels from the array access
-        array_access = result.args[2]
+        # Get labels from the inner if array access
+        array_access = inner_if.args[2]
         assert isinstance(array_access, ast.ArrayAccess)
         labels_array = array_access.array
         assert isinstance(labels_array, ast.Array)
@@ -131,8 +140,10 @@ class TestTrafficTypeFunctions:
         result = get_traffic_category(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        # Get labels from the array access
-        array_access = result.args[2]
+        # Result is: if(cookieless_check, default, inner_if)
+        inner_if = result.args[2]
+        # Get labels from the inner if array access
+        array_access = inner_if.args[2]
         assert isinstance(array_access, ast.ArrayAccess)
         labels_array = array_access.array
         assert isinstance(labels_array, ast.Array)
@@ -155,8 +166,13 @@ class TestIsBotFunction:
         result = is_bot(node=node, args=[user_agent_arg])
 
         assert isinstance(result, ast.Call)
-        assert result.name == "toBool"
-        comparison = result.args[0]
+        # Result is: if(cookieless_check, false, inner_result)
+        # inner_result is toBool(CompareOperation)
+        assert result.name == "if"
+        inner_result = result.args[2]
+        assert isinstance(inner_result, ast.Call)
+        assert inner_result.name == "toBool"
+        comparison = inner_result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert comparison.op == ast.CompareOperationOp.NotEq
 
@@ -166,7 +182,11 @@ class TestIsBotFunction:
 
         result = is_bot(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
-        comparison = result.args[0]
+        # Result is: if(cookieless_check, false, inner_result)
+        inner_result = result.args[2]
+        assert isinstance(inner_result, ast.Call)
+        assert inner_result.name == "toBool"
+        comparison = inner_result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert isinstance(comparison.left, ast.Call)
         assert comparison.left.name == "multiMatchAnyIndex"
@@ -177,7 +197,11 @@ class TestIsBotFunction:
 
         result = is_bot(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
-        comparison = result.args[0]
+        # Result is: if(cookieless_check, false, inner_result)
+        inner_result = result.args[2]
+        assert isinstance(inner_result, ast.Call)
+        assert inner_result.name == "toBool"
+        comparison = inner_result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert isinstance(comparison.right, ast.Constant)
         assert comparison.right.value == 0
@@ -205,8 +229,10 @@ class TestGetBotTypeFunction:
         result = get_bot_type(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        # Get labels from the array access
-        array_access = result.args[2]
+        # Result is: if(cookieless_check, default, inner_if)
+        inner_if = result.args[2]
+        # Get labels from the inner if array access
+        array_access = inner_if.args[2]
         assert isinstance(array_access, ast.ArrayAccess)
         labels_array = array_access.array
         assert isinstance(labels_array, ast.Array)
@@ -247,8 +273,10 @@ class TestGetBotNameFunction:
         result = get_bot_name(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        # Get labels from the array access
-        array_access = result.args[2]
+        # Result is: if(cookieless_check, default, inner_if)
+        inner_if = result.args[2]
+        # Get labels from the inner if array access
+        array_access = inner_if.args[2]
         assert isinstance(array_access, ast.ArrayAccess)
         labels_array = array_access.array
         assert isinstance(labels_array, ast.Array)
@@ -342,8 +370,10 @@ class TestNullHandling:
         result = get_traffic_type(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        # Get the multiMatchAnyIndex call from the comparison
-        comparison = result.args[0]
+        # Result is: if(cookieless_check, default, inner_if)
+        # The multiMatchAnyIndex is inside the inner_if
+        inner_if = result.args[2]
+        comparison = inner_if.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         index_call = comparison.left
         assert isinstance(index_call, ast.Call)
@@ -363,7 +393,13 @@ class TestNullHandling:
 
         result = is_bot(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
-        comparison = result.args[0]
+        # Result is: if(cookieless_check, false, inner_result)
+        # inner_result is toBool(...)
+        inner_result = result.args[2]
+        assert isinstance(inner_result, ast.Call)
+        assert inner_result.name == "toBool"
+        # The multiMatchAnyIndex is inside the toBool
+        comparison = inner_result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
 
         index_call = comparison.left
@@ -377,6 +413,86 @@ class TestNullHandling:
         assert empty_string_arg.value == ""
 
 
+
+
+class TestCookielessModeClassification:
+    """Tests for cookieless-mode traffic classification.
+
+    In cookieless mode, the user agent is stripped from events after hashing for identity
+    purposes. Empty user agents should NOT be classified as automation/bots in this case.
+    """
+
+    def test_get_traffic_type_cookieless_mode_returns_regular_for_empty_ua(self):
+        """When cookieless_mode is true and UA is empty, getTrafficType returns 'Regular'."""
+        from posthog.hogql.functions.traffic_type import _cookieless_mode_property
+
+        node = ast.Call(name="getTrafficType", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$raw_user_agent"])
+
+        result = get_traffic_type(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
+        assert result.name == "if"
+        # Structure: if(cookieless_check, "Regular", inner_expr)
+        assert result.args[1].value == "Regular"
+
+        # The cookieless check should be: and(ua = "", ifNull($cookieless_mode, false))
+        cookieless_check = result.args[0]
+        assert isinstance(cookieless_check, ast.Call)
+        assert cookieless_check.name == "and"
+
+    def test_get_traffic_type_custom_field_no_cookieless_wrapper(self):
+        """When user agent is not from a properties object, no cookieless wrapper is added."""
+        node = ast.Call(name="getTrafficType", args=[])
+        user_agent_arg = ast.Field(chain=["custom", "ua_field"])
+
+        result = get_traffic_type(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
+        # No outer wrapper for custom fields (cookieless_prop is None)
+        # Result is just the inner if: if(multiMatchAnyIndex(...)=0, fallback, arrayAccess)
+        assert result.name == "if"
+        assert len(result.args) == 3
+
+    def test_is_bot_cookieless_mode_returns_false_for_empty_ua(self):
+        """When cookieless_mode is true and UA is empty, isLikelyBot returns false."""
+        node = ast.Call(name="isLikelyBot", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$raw_user_agent"])
+
+        result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
+        # Structure: if(cookieless_check, false, inner_result)
+        assert result.name == "if"
+        assert isinstance(result.args[1], ast.Constant)
+        assert result.args[1].value == False
+
+    def test_is_bot_custom_field_no_cookieless_wrapper(self):
+        """When user agent is not from a properties object, no cookieless wrapper is added."""
+        node = ast.Call(name="isLikelyBot", args=[])
+        user_agent_arg = ast.Field(chain=["custom", "ua_field"])
+
+        result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
+        # No outer wrapper for custom fields
+        assert result.name == "toBool"
+
+    def test_cookieless_mode_property_infers_from_properties_ua(self):
+        """_cookieless_mode_property correctly infers $cookieless_mode from properties.$raw_user_agent."""
+        from posthog.hogql.functions.traffic_type import _cookieless_mode_property
+
+        ua = ast.Field(chain=["properties", "$raw_user_agent"])
+        result = _cookieless_mode_property(ua)
+        assert result is not None
+        assert isinstance(result, ast.Field)
+        assert result.chain == ["properties", "$cookieless_mode"]
+
+    def test_cookieless_mode_property_returns_none_for_non_properties_ua(self):
+        """_cookieless_mode_property returns None for non-properties user agent."""
+        from posthog.hogql.functions.traffic_type import _cookieless_mode_property
+
+        ua = ast.Field(chain=["custom", "ua_field"])
+        result = _cookieless_mode_property(ua)
+        assert result is None
+
+
 class TestBotIPClassification:
     def test_is_bot_with_ip_arg_ors_ip_match_after_ua_match(self):
         node = ast.Call(name="isLikelyBot", args=[])
@@ -386,8 +502,12 @@ class TestBotIPClassification:
         result = is_bot(node=node, args=[user_agent_arg, ip_arg])
 
         assert isinstance(result, ast.Call)
-        assert result.name == "toBool"
-        or_expr = result.args[0]
+        # Result is: if(cookieless_check, false, inner_result)
+        # inner_result is toBool(or(...))
+        inner_result = result.args[2]
+        assert isinstance(inner_result, ast.Call)
+        assert inner_result.name == "toBool"
+        or_expr = inner_result.args[0]
         assert isinstance(or_expr, ast.Or)
         assert len(or_expr.exprs) == 2
         # UA branch comes first so or() short-circuits the IP check for UA-matched rows
@@ -409,7 +529,12 @@ class TestBotIPClassification:
         result = is_bot(node=node, args=[ast.Field(chain=["properties", "$user_agent"])])
 
         assert isinstance(result, ast.Call)
-        assert isinstance(result.args[0], ast.CompareOperation)
+        # Result is: if(cookieless_check, false, inner_result)
+        # inner_result is toBool(CompareOperation)
+        inner_result = result.args[2]
+        assert isinstance(inner_result, ast.Call)
+        assert inner_result.name == "toBool"
+        assert isinstance(inner_result.args[0], ast.CompareOperation)
 
     @parameterized.expand(
         [
