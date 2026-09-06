@@ -20,8 +20,13 @@ const initResult = posthog.init(
             featureFlags: {},
         },
         autocapture: false,
-        // The toolbar runs on customer pages and must not install global exception handlers.
+        // The toolbar runs on customer pages, so all autocapture stays off. Remote config for this
+        // token comes from PostHog's own project and turns each of these on unless the client sets
+        // it explicitly, which would send the customer's page data to an internal project.
         capture_exceptions: false,
+        capture_dead_clicks: false,
+        capture_heatmaps: false,
+        capture_performance: false,
         capture_pageview: false,
         capture_pageleave: false,
         disable_surveys: true,
