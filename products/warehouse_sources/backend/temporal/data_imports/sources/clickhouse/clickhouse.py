@@ -1281,6 +1281,38 @@ def _build_select_list(columns: list[ClickHouseColumn]) -> str:
     return ", ".join(parts)
 
 
+def _cast_array_to_type(array: pa.ChunkedArray, target_type: pa.DataType) -> pa.ChunkedArray:
+    """Cast one streamed column to its discovered Arrow type.
+
+    clickhouse-connect streams Date as a uint16 day-count and DateTime as a
+    uint32 epoch-second count — ClickHouse's physical representation. Arrow has
+    no direct integer-to-date32 or integer-to-timestamp cast, so route the
+    integer through its signed same-width counterpart first (date32 is an int32
+    day-count, a timestamp an int64). Columns already at their target type are
+    returned untouched.
+    """
+    if array.type.equals(target_type):
+        return array
+    if pa.types.is_date(target_type) and pa.types.is_integer(array.type):
+        return array.cast(pa.int32()).cast(target_type)
+    if pa.types.is_timestamp(target_type) and pa.types.is_integer(array.type):
+        return array.cast(pa.int64()).cast(target_type)
+    return array.cast(target_type)
+
+
+def _cast_table_to_schema(table: pa.Table, schema: pa.Schema) -> pa.Table:
+    """Cast a streamed Arrow table to the discovered schema.
+
+    Without this the Delta writer stores Date and DateTime columns as their raw
+    integer physical representation, so date filters and time-series queries on
+    the synced table return wrong results.
+    """
+    if table.schema.equals(schema):
+        return table
+    columns = [_cast_array_to_type(table.column(field.name), field.type) for field in schema]
+    return pa.Table.from_arrays(columns, schema=schema)
+
+
 def _project_columns(
     columns: list[ClickHouseColumn],
     enabled_columns: Optional[list[str]],
@@ -1446,6 +1478,12 @@ def clickhouse_source(
             # Project to the user-selected columns (always keeping PK + cursor).
             projected_columns = _project_columns(list(table.columns), enabled_columns, primary_keys, incremental_field)
 
+            # The discovered Arrow schema for the projected SELECT. The stream
+            # yields ClickHouse's physical representation (Date as uint16,
+            # DateTime as uint32), so each accumulated table is cast to this
+            # before yielding — matching the MySQL and Postgres sources.
+            projected_arrow_schema = pa.schema(column.to_arrow_field() for column in projected_columns)
+
             # Warn when the incremental cursor isn't the sorting-key prefix.
             # ClickHouse can only skip the sort if the ORDER BY column leads
             # the sorting key; otherwise every incremental run does a full
@@ -1557,13 +1595,13 @@ def clickhouse_source(
                         pending_rows += chunk.num_rows
                         pending_bytes += chunk.nbytes
                         if pending_rows >= YIELD_TARGET_ROWS or pending_bytes >= YIELD_TARGET_BYTES:
-                            yield pa.Table.from_batches(pending)
+                            yield _cast_table_to_schema(pa.Table.from_batches(pending), projected_arrow_schema)
                             pending = []
                             pending_rows = 0
                             pending_bytes = 0
 
                 if pending:
-                    yield pa.Table.from_batches(pending)
+                    yield _cast_table_to_schema(pa.Table.from_batches(pending), projected_arrow_schema)
             finally:
                 stream_client.close()
 

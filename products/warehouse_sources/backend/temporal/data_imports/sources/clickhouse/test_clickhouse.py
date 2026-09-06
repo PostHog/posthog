@@ -3,6 +3,7 @@ import socket
 import threading
 from collections.abc import AsyncIterable, Iterator
 from contextlib import contextmanager
+from datetime import date, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -1429,10 +1430,9 @@ class TestGetPartitionSettings:
         mock_capture.assert_called_once()
 
 
-class TestGetRowsBatching:
-    """The source accumulates small Arrow blocks into larger pa.Tables before
-    yielding so Delta gets fewer, larger commits. Verify the accumulation
-    boundaries."""
+class _GetRowsHarness:
+    """Shared scaffolding to drive `clickhouse_source(...).items()` against a
+    fake Arrow stream. Not collected as tests (no `Test` prefix)."""
 
     def _stream_context(self, blocks):
         """Build a fake `query_arrow_stream(...)` that returns `blocks`."""
@@ -1441,16 +1441,20 @@ class TestGetRowsBatching:
         cm.__exit__.return_value = False
         return cm
 
-    def _run_get_rows(self, blocks):
+    def _run_get_rows(self, blocks, columns=None):
         """Invoke `clickhouse_source(...).items()` against a stream of `blocks`."""
         from contextlib import contextmanager
 
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 
         # Minimal discovery stubs so clickhouse_source builds a SourceResponse.
+        # The projected Arrow schema is built from these columns, so they must
+        # match the streamed blocks.
+        columns = columns or [ClickHouseColumn(name="id", data_type="Int64", nullable=False)]
         mock_client = MagicMock()
         mock_table = MagicMock()
-        mock_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        mock_table.columns = columns
+        mock_table.to_arrow_schema.return_value = pa.schema([col.to_arrow_field() for col in columns])
 
         stream_client = MagicMock()
         stream_client.query_arrow_stream.return_value = self._stream_context(blocks)
@@ -1488,6 +1492,12 @@ class TestGetRowsBatching:
             assert not isinstance(items, AsyncIterable)
             return list(items)
 
+
+class TestGetRowsBatching(_GetRowsHarness):
+    """The source accumulates small Arrow blocks into larger pa.Tables before
+    yielding so Delta gets fewer, larger commits. Verify the accumulation
+    boundaries."""
+
     def _block(self, rows):
         return pa.RecordBatch.from_arrays([pa.array(list(range(rows)), type=pa.int64())], names=["id"])
 
@@ -1516,6 +1526,70 @@ class TestGetRowsBatching:
 
     def test_empty_stream_yields_nothing(self):
         assert self._run_get_rows([]) == []
+
+
+class TestGetRowsCastsToDiscoveredSchema(_GetRowsHarness):
+    """ClickHouse streams Date and DateTime as their raw integer physical
+    representation (Date as uint16 day-counts, DateTime as uint32 epoch
+    seconds). The source must cast each yielded table to the discovered Arrow
+    schema, or the Delta writer stores integers and date filters and
+    time-series queries on the synced table return wrong results."""
+
+    @parameterized.expand(
+        [
+            (
+                "date",
+                ClickHouseColumn(name="d", data_type="Date", nullable=False),
+                pa.array([0, 1], pa.uint16()),
+                pa.date32(),
+                [date(1970, 1, 1), date(1970, 1, 2)],
+            ),
+            (
+                "nullable_date",
+                ClickHouseColumn(name="d", data_type="Nullable(Date)", nullable=True),
+                pa.array([0, None], pa.uint16()),
+                pa.date32(),
+                [date(1970, 1, 1), None],
+            ),
+            (
+                "datetime",
+                ClickHouseColumn(name="d", data_type="DateTime", nullable=False),
+                pa.array([0, 1700000000], pa.uint32()),
+                pa.timestamp("s"),
+                [datetime(1970, 1, 1, 0, 0, 0), datetime(2023, 11, 14, 22, 13, 20)],
+            ),
+            (
+                "nullable_datetime",
+                ClickHouseColumn(name="d", data_type="Nullable(DateTime)", nullable=True),
+                pa.array([0, None], pa.uint32()),
+                pa.timestamp("s"),
+                [datetime(1970, 1, 1, 0, 0, 0), None],
+            ),
+        ]
+    )
+    def test_casts_integer_temporal_column(self, _name, column, raw_array, expected_type, expected_values):
+        block = pa.RecordBatch.from_arrays([raw_array], names=["d"])
+        yielded = self._run_get_rows([block], columns=[column])
+
+        assert len(yielded) == 1
+        assert yielded[0].schema.field("d").type == expected_type
+        assert yielded[0].column("d").to_pylist() == expected_values
+
+    def test_casts_across_both_yield_paths(self):
+        # The cast lives in both the mid-stream yield and the final flush, so a
+        # multi-batch stream must exercise both. With a row target of 2 and three
+        # one-row blocks, the first two rows flush mid-stream and the third
+        # flushes at stream end.
+        column = ClickHouseColumn(name="d", data_type="Date", nullable=False)
+        blocks = [pa.RecordBatch.from_arrays([pa.array([n], pa.uint16())], names=["d"]) for n in (0, 1, 2)]
+
+        with patch.object(ch_module, "YIELD_TARGET_ROWS", 2):
+            yielded = self._run_get_rows(blocks, columns=[column])
+
+        assert len(yielded) == 2
+        assert all(table.schema.field("d").type == pa.date32() for table in yielded)
+        assert yielded[0].column("d").to_pylist() == [date(1970, 1, 1), date(1970, 1, 2)]
+        assert yielded[1].column("d").to_pylist() == [date(1970, 1, 3)]
 
 
 class TestClickHouseReconcileSchemaMetadata(BaseTest):
