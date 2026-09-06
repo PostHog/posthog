@@ -343,7 +343,6 @@ export interface dashboardLogicValues {
     layoutZoom: number
     layouts: Partial<Record<DashboardLayoutSize, Layout>>
     loadLayoutFromServerOnPreview: boolean
-    loadTimer: Date | null
     loadingPreview: boolean
     maxContext: MaxContextInput[]
     nextAllowedDashboardRefresh: Dayjs | null
@@ -1001,15 +1000,6 @@ export interface dashboardLogicMeta {
     key: number | 'invalid'
     sharedListeners: {
         reportRefreshTiming: (
-            payload: any,
-            breakpoint: BreakPointFunction,
-            action: {
-                type: string
-                payload: any
-            },
-            previousState: any
-        ) => void | Promise<void>
-        reportLoadTiming: (
             payload: any,
             breakpoint: BreakPointFunction,
             action: {
@@ -2135,7 +2125,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
-        loadTimer: [null as Date | null, { loadDashboard: () => new Date(), loadDashboardStreaming: () => new Date() }],
         dashboardLoadData: [
             {
                 action: undefined,
@@ -3281,19 +3270,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.tileIdsBeforeInsertion = undefined
         },
     })),
-    sharedListeners(({ values, props, actions }) => ({
+    sharedListeners(({ values, actions }) => ({
         reportRefreshTiming: ({ shortId }) => {
             const refreshStatus = values.refreshStatus[shortId]
 
             if (refreshStatus?.timer) {
                 const loadingMilliseconds = new Date().getTime() - refreshStatus.timer.getTime()
                 eventUsageLogic.actions.reportInsightRefreshTime(loadingMilliseconds, shortId)
-            }
-        },
-        reportLoadTiming: () => {
-            if (values.loadTimer) {
-                const loadingMilliseconds = new Date().getTime() - values.loadTimer.getTime()
-                eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
             }
         },
         handleDashboardLoadComplete: () => {
@@ -4056,6 +4039,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
 
+            // Snapshot the load-start time before the tile wait below. A concurrent load resets
+            // dashboardLoadData.startTime, so both load-time reports must measure from this
+            // initial load's start, not a later one's.
+            const dashboardLoadData = values.dashboardLoadData
+
             if (sortedTilesToRefresh.length > 0) {
                 // Mark tiles as queued before the breakpoint's await, so there's no render gap
                 // between the refreshDashboardItems reducer wiping refreshStatus to {} and it
@@ -4078,14 +4066,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
                 // only cancels on newer invocations, not on unmount).
-                const {
-                    currentTeamId,
-                    effectiveRefreshFilters,
-                    urlFilters,
-                    urlVariables,
-                    dashboardLoadData,
-                    lastDashboardRefresh,
-                } = values
+                const { currentTeamId, effectiveRefreshFilters, urlFilters, urlVariables, lastDashboardRefresh } =
+                    values
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
@@ -4192,6 +4174,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tilesAbortedCount,
                         refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
                     }
+                )
+            }
+
+            if (isInitialLoad) {
+                // Report the load time from load start until every stale tile has settled, not just until
+                // the dashboard metadata resolves. insights_fetched lets the size correlation be read directly.
+                eventUsageLogic.actions.reportDashboardLoadingTime(
+                    Math.floor(performance.now() - dashboardLoadData.startTime),
+                    dashboardId,
+                    sortedTilesToRefresh.length
                 )
             }
 
@@ -4571,7 +4563,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         loadDashboardSuccess: [
-            sharedListeners.reportLoadTiming,
             () => {
                 if (!values.dashboard) {
                     actions.dashboardNotFound()
