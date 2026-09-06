@@ -199,7 +199,7 @@
     "hono": "^4.11.7",
     "jsonwebtoken": "^9.0.2",
     "lru-cache": "^11.1.0",
-    "minimatch": "^10.0.3",
+    "minimatch": "^10.2.5",
     "@modelcontextprotocol/sdk": "1.29.0",
     "uuid": "13.0.0",
     "yoga-wasm-web": "^0.3.3",
