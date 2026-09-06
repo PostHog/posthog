@@ -338,6 +338,28 @@ export const resolveDateRange = (filters: {
 }
 
 /**
+ * A running invocation writes one lifecycle row at creation and none more until it
+ * finishes, so its `scheduled_at` is frozen at start time. A workflow parked on a
+ * delay for longer than the default 24h window would fall outside it and never show —
+ * even under the "Running" filter. `HOG_INVOCATION_RESULTS_TTL_DAYS = 30` in
+ * `posthog/models/hog_invocation_results/sql.py` drops older rows, so 30d is the cap.
+ */
+const RUNNING_ONLY_DATE_FROM = '-30d'
+
+export const isRunningOnlyFilter = (filters: HogInvocationsFilters): boolean =>
+    filters.status?.length === 1 && filters.status[0] === 'running'
+
+/**
+ * Widen the query window to the table retention when the status filter is exactly
+ * "Running", so long-parked in-flight runs still appear. `date_to` is cleared so the
+ * window anchors to now — a running row is stamped at creation (<= now), and a past
+ * `date_to` would re-clip it. Applied once per fetch so the runs table and its
+ * sparkline read the same window.
+ */
+export const withRunningLookback = (filters: HogInvocationsFilters): HogInvocationsFilters =>
+    isRunningOnlyFilter(filters) ? { ...filters, date_from: RUNNING_ONLY_DATE_FROM, date_to: undefined } : filters
+
+/**
  * Inline date predicate for the inner subquery's WHERE clause. `filtersOverride`
  * doesn't bind to a timestamp field on `hog_invocation_results` (no marker on
  * the schema), so we apply the window directly. UTC + the CH DateTime64 literal
@@ -549,6 +571,7 @@ const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
 }
 
 async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
+    filters = withRunningLookback(filters)
     const tier = pickSparklineTier(filters)
     const { bucketExpr } = tier
 
@@ -645,6 +668,7 @@ async function fetchRunsPage(
     filters: HogInvocationsFilters,
     offset: number
 ): Promise<HogInvocationRow[]> {
+    filters = withRunningLookback(filters)
     // HAVING clauses reference the SELECT aliases below — wrapping the column
     // again as `argMax(status, version)` makes HogQL substitute `status` for
     // its alias and produce a nested aggregate.
