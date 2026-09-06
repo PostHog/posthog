@@ -1,5 +1,6 @@
 import os
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
@@ -7,6 +8,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
 from django.db import connection
+from django.db.models import Model
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -1730,13 +1732,27 @@ class TestErrorTracking(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/releases/hash/nonexistent-hash")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_releases_list_paginates_in_sql(self) -> None:
+    def _seed_releases(self) -> None:
         for i in range(5):
             ErrorTrackingRelease.objects.create(team=self.team, hash_id=f"hash-{i}", version=f"1.0.{i}", project="proj")
 
+    def _seed_fingerprints(self) -> None:
+        self.create_issue(fingerprints=[f"fingerprint-{i}" for i in range(5)])
+
+    @parameterized.expand(
+        [
+            ("releases", _seed_releases, ErrorTrackingRelease),
+            ("fingerprints", _seed_fingerprints, ErrorTrackingIssueFingerprintV2),
+        ]
+    )
+    def test_list_paginates_in_sql(
+        self, resource: str, seed: Callable[["TestErrorTracking"], None], model: type[Model]
+    ) -> None:
+        seed(self)
+
         with CaptureQueriesContext(connection) as ctx:
             response = self.client.get(
-                f"/api/environments/{self.team.id}/error_tracking/releases", data={"limit": 2, "offset": 1}
+                f"/api/environments/{self.team.id}/error_tracking/{resource}", data={"limit": 2, "offset": 1}
             )
 
         assert response.status_code == status.HTTP_200_OK
@@ -1745,8 +1761,8 @@ class TestErrorTracking(APIBaseTest):
         assert len(body["results"]) == 2
 
         # The page is sliced in SQL (LIMIT 2), not by materializing all rows and slicing in Python.
-        table = ErrorTrackingRelease._meta.db_table
+        table = model._meta.db_table
         limited_selects = [
             q["sql"] for q in ctx.captured_queries if table in q["sql"] and "LIMIT 2" in q["sql"].upper()
         ]
-        assert limited_selects, "expected a LIMIT 2 SELECT on the release table"
+        assert limited_selects, f"expected a LIMIT 2 SELECT on the {resource} table"
