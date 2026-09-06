@@ -14,6 +14,7 @@ import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/to
 import { ActionType } from '~/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
+import { addRectUpdateListeners } from '../utils/rectUpdateListeners'
 import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 
@@ -817,21 +818,10 @@ export const elementsLogic = kea<elementsLogicType>([
                 return () => window.removeEventListener('click', onClick)
             }, 'clickListener')
 
-            const onScrollResize = (): void => {
-                if (!cache.rectUpdateScheduled) {
-                    cache.rectUpdateScheduled = true
-                    actions.updateRects()
-                    cache.updateRelativePosition()
-                    requestAnimationFrame(() => {
-                        cache.rectUpdateScheduled = false
-                    })
-                }
-            }
-
-            cache.disposables.add(() => {
-                window.addEventListener('resize', onScrollResize)
-                return () => window.removeEventListener('resize', onScrollResize)
-            }, 'resizeListener')
+            addRectUpdateListeners(cache.disposables, () => {
+                actions.updateRects()
+                cache.updateRelativePosition()
+            })
 
             cache.disposables.add(() => {
                 const onKeyDown = (e: KeyboardEvent): void => {
@@ -866,10 +856,6 @@ export const elementsLogic = kea<elementsLogicType>([
                 return () => window.removeEventListener('keydown', onKeyDown)
             }, 'keydownListener')
 
-            cache.disposables.add(() => {
-                window.document.addEventListener('scroll', onScrollResize, { capture: true, passive: true })
-                return () => window.document.removeEventListener('scroll', onScrollResize, { capture: true })
-            }, 'scrollListener')
             cache.updateRelativePosition()
         },
     })),

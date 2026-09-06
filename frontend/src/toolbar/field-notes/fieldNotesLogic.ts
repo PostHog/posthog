@@ -11,6 +11,7 @@ import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPost
 import { isToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
+import { addRectUpdateListeners } from '~/toolbar/utils/rectUpdateListeners'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
 
 export interface PageContext {
@@ -368,64 +369,52 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
 
     events(({ actions, values, cache }) => ({
         afterMount: () => {
-            cache.onMouseOver = (e: MouseEvent): void => {
-                if (!values.isFieldNoting) {
-                    return
+            cache.disposables.add(() => {
+                const onMouseOver = (e: MouseEvent): void => {
+                    if (!values.isFieldNoting) {
+                        return
+                    }
+                    const target = e.target as HTMLElement
+                    if (target && !isToolbarElement(target)) {
+                        actions.setHoverElement(target)
+                    }
                 }
-                const target = e.target as HTMLElement
-                if (target && !isToolbarElement(target)) {
-                    actions.setHoverElement(target)
+                document.addEventListener('mouseover', onMouseOver, true)
+                return () => document.removeEventListener('mouseover', onMouseOver, true)
+            }, 'mouseOverListener')
+
+            cache.disposables.add(() => {
+                const onClick = (e: MouseEvent): void => {
+                    if (!values.isFieldNoting) {
+                        return
+                    }
+                    const target = e.target as HTMLElement
+                    if (!target || isToolbarElement(target)) {
+                        return
+                    }
+                    e.preventDefault()
+                    e.stopPropagation()
+                    actions.selectElement(target)
                 }
-            }
-            cache.onClick = (e: MouseEvent): void => {
-                if (!values.isFieldNoting) {
-                    return
-                }
-                const target = e.target as HTMLElement
-                if (!target || isToolbarElement(target)) {
-                    return
-                }
-                e.preventDefault()
-                e.stopPropagation()
-                actions.selectElement(target)
-            }
-            cache.onScroll = (): void => {
+                document.addEventListener('click', onClick, true)
+                return () => document.removeEventListener('click', onClick, true)
+            }, 'clickListener')
+
+            addRectUpdateListeners(cache.disposables, () => {
                 if (values.hoverElement || values.selectedElement) {
                     actions.updateRects()
                 }
-            }
-            cache.onResize = (): void => {
-                if (values.hoverElement || values.selectedElement) {
-                    actions.updateRects()
+            })
+
+            cache.disposables.add(() => {
+                const onKeyDown = (e: KeyboardEvent): void => {
+                    if (e.key === 'Escape' && values.isFieldNoting) {
+                        actions.stopFieldNote()
+                    }
                 }
-            }
-            cache.onKeyDown = (e: KeyboardEvent): void => {
-                if (e.key === 'Escape' && values.isFieldNoting) {
-                    actions.stopFieldNote()
-                }
-            }
-            document.addEventListener('mouseover', cache.onMouseOver, true)
-            document.addEventListener('click', cache.onClick, true)
-            document.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
-            window.addEventListener('resize', cache.onResize)
-            window.addEventListener('keydown', cache.onKeyDown)
-        },
-        beforeUnmount: () => {
-            if (cache.onMouseOver) {
-                document.removeEventListener('mouseover', cache.onMouseOver, true)
-            }
-            if (cache.onClick) {
-                document.removeEventListener('click', cache.onClick, true)
-            }
-            if (cache.onScroll) {
-                document.removeEventListener('scroll', cache.onScroll, { capture: true })
-            }
-            if (cache.onResize) {
-                window.removeEventListener('resize', cache.onResize)
-            }
-            if (cache.onKeyDown) {
-                window.removeEventListener('keydown', cache.onKeyDown)
-            }
+                window.addEventListener('keydown', onKeyDown)
+                return () => window.removeEventListener('keydown', onKeyDown)
+            }, 'keyDownListener')
         },
     })),
 ])

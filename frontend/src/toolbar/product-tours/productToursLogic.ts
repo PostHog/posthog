@@ -29,6 +29,7 @@ import { ToolbarRequestError, isToolbarRequestError } from '~/toolbar/toolbarReq
 import { ElementRect } from '~/toolbar/types'
 import { urls } from '~/toolbar/urls'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
+import { addRectUpdateListeners } from '~/toolbar/utils/rectUpdateListeners'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
 import { ProductTour, ProductTourStep, ProductTourStepType } from '~/types'
 
@@ -993,115 +994,114 @@ export const productToursLogic = kea<productToursLogicType>([
             actions.loadTours()
 
             // Watch for DOM changes to update highlights when elements appear/disappear
-            cache.mutationTimeout = null as ReturnType<typeof setTimeout> | null
-            cache.mutationObserver = new MutationObserver(() => {
-                // Debounce updates to avoid performance issues
-                if (cache.mutationTimeout) {
-                    clearTimeout(cache.mutationTimeout)
-                }
-                cache.mutationTimeout = setTimeout(() => {
-                    actions.updateRects()
-                }, 50)
-            })
-            cache.mutationObserver.observe(document.body, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['style', 'class', 'hidden'],
-            })
+            cache.disposables.add(
+                () => {
+                    // Debounce updates to avoid performance issues
+                    let mutationTimeout: ReturnType<typeof setTimeout> | null = null
+                    const mutationObserver = new MutationObserver(() => {
+                        if (mutationTimeout) {
+                            clearTimeout(mutationTimeout)
+                        }
+                        mutationTimeout = setTimeout(() => {
+                            actions.updateRects()
+                        }, 50)
+                    })
+                    mutationObserver.observe(document.body, {
+                        childList: true,
+                        subtree: true,
+                        attributes: true,
+                        attributeFilter: ['style', 'class', 'hidden'],
+                    })
+                    return () => {
+                        if (mutationTimeout) {
+                            clearTimeout(mutationTimeout)
+                        }
+                        mutationObserver.disconnect()
+                    }
+                },
+                'mutationObserver',
+                // The page keeps mutating while the tab is hidden, and highlights must match it on return
+                { pauseOnPageHidden: false }
+            )
 
-            cache.onMouseOver = (e: MouseEvent): void => {
-                // During preview, don't track hover
-                if (values.isPreviewing) {
-                    return
+            cache.disposables.add(() => {
+                const onMouseOver = (e: MouseEvent): void => {
+                    // During preview, don't track hover
+                    if (values.isPreviewing) {
+                        return
+                    }
+                    // Only show hover highlight when in selecting mode
+                    if (values.editorState.mode !== 'selecting') {
+                        return
+                    }
+                    const target = e.target as HTMLElement
+                    if (target && !isToolbarElement(target)) {
+                        actions.setHoverElement(target)
+                    }
                 }
-                // Only show hover highlight when in selecting mode
-                if (values.editorState.mode !== 'selecting') {
-                    return
-                }
-                const target = e.target as HTMLElement
-                if (target && !isToolbarElement(target)) {
-                    actions.setHoverElement(target)
-                }
-            }
+                document.addEventListener('mouseover', onMouseOver, true)
+                return () => document.removeEventListener('mouseover', onMouseOver, true)
+            }, 'mouseOverListener')
 
-            cache.onClick = (e: MouseEvent): void => {
-                if (values.isPreviewing) {
-                    return
-                }
+            cache.disposables.add(() => {
+                const onClick = (e: MouseEvent): void => {
+                    if (values.isPreviewing) {
+                        return
+                    }
 
-                const target = e.target as HTMLElement
-                if (!target || isToolbarElement(target)) {
-                    return
-                }
+                    const target = e.target as HTMLElement
+                    if (!target || isToolbarElement(target)) {
+                        return
+                    }
 
-                // In selecting mode: capture the element
-                if (values.editorState.mode === 'selecting') {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    actions.selectElement(target)
-                    return
+                    // In selecting mode: capture the element
+                    if (values.editorState.mode === 'selecting') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        actions.selectElement(target)
+                        return
+                    }
                 }
-            }
+                document.addEventListener('click', onClick, true)
+                return () => document.removeEventListener('click', onClick, true)
+            }, 'clickListener')
 
-            cache.onScroll = (): void => {
+            addRectUpdateListeners(cache.disposables, () => {
                 if (values.hoverElement || values.selectedElement) {
                     actions.updateRects()
                 }
-            }
+            })
 
-            cache.onResize = (): void => {
-                if (values.hoverElement || values.selectedElement) {
-                    actions.updateRects()
+            cache.disposables.add(() => {
+                const onKeyDown = (e: KeyboardEvent): void => {
+                    if (e.key === 'Escape' && values.editorState.mode !== 'idle') {
+                        actions.setEditorState({ mode: 'idle' })
+                    }
                 }
-            }
+                window.addEventListener('keydown', onKeyDown)
+                return () => window.removeEventListener('keydown', onKeyDown)
+            }, 'keyDownListener')
 
-            cache.onKeyDown = (e: KeyboardEvent): void => {
-                if (e.key === 'Escape' && values.editorState.mode !== 'idle') {
-                    actions.setEditorState({ mode: 'idle' })
-                }
-            }
-
-            document.addEventListener('mouseover', cache.onMouseOver, true)
-            document.addEventListener('click', cache.onClick, true)
-            document.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
-            window.addEventListener('resize', cache.onResize)
-            window.addEventListener('keydown', cache.onKeyDown)
-
-            cache.onTourEnded = (): void => {
-                if (values.isPreviewing) {
-                    actions.stopPreview()
-                }
-            }
-            window.addEventListener('PHProductTourCompleted', cache.onTourEnded)
-            window.addEventListener('PHProductTourDismissed', cache.onTourEnded)
+            cache.disposables.add(
+                () => {
+                    const onTourEnded = (): void => {
+                        if (values.isPreviewing) {
+                            actions.stopPreview()
+                        }
+                    }
+                    window.addEventListener('PHProductTourCompleted', onTourEnded)
+                    window.addEventListener('PHProductTourDismissed', onTourEnded)
+                    return () => {
+                        window.removeEventListener('PHProductTourCompleted', onTourEnded)
+                        window.removeEventListener('PHProductTourDismissed', onTourEnded)
+                    }
+                },
+                'tourEndedListener',
+                // A tour can end while the tab is hidden, and a missed event leaves the preview stuck
+                { pauseOnPageHidden: false }
+            )
         },
         beforeUnmount: () => {
-            if (cache.mutationTimeout) {
-                clearTimeout(cache.mutationTimeout)
-            }
-            if (cache.mutationObserver) {
-                cache.mutationObserver.disconnect()
-            }
-            if (cache.onMouseOver) {
-                document.removeEventListener('mouseover', cache.onMouseOver, true)
-            }
-            if (cache.onClick) {
-                document.removeEventListener('click', cache.onClick, true)
-            }
-            if (cache.onScroll) {
-                document.removeEventListener('scroll', cache.onScroll, { capture: true })
-            }
-            if (cache.onResize) {
-                window.removeEventListener('resize', cache.onResize)
-            }
-            if (cache.onKeyDown) {
-                window.removeEventListener('keydown', cache.onKeyDown)
-            }
-            if (cache.onTourEnded) {
-                window.removeEventListener('PHProductTourCompleted', cache.onTourEnded)
-                window.removeEventListener('PHProductTourDismissed', cache.onTourEnded)
-            }
             toolbarPosthogJS.stopSessionRecording()
         },
     })),
