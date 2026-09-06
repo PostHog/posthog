@@ -431,6 +431,24 @@ export const visionObservationsRetryCreate = async (
     })
 }
 
+export const getVisionObservationsViewedCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/viewed/`
+}
+
+/**
+ * Record that the calling user opened this observation. Idempotent.
+ */
+export const visionObservationsViewedCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsViewedCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionObservationsSearchRetrieveUrl = (
     projectId: string,
     params: VisionObservationsSearchRetrieveParams
