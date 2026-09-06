@@ -35,6 +35,8 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             "# Doc\n\n"
             '<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />\n\n'
             '<PythonV2 nodeId="p1" code="out = df.head()" returnVariable="out" />\n\n'
+            '<PythonV2 nodeId="p2" code="import pandas as pd\n\nout = pd.DataFrame()" returnVariable="multiline" />\n\n'
+            '\\<PythonV2 nodeId="p3" code="\\# Build the frame\n\nout = df.head()" returnVariable="recovered" />\n\n'
             '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />\n\n'
             '<SQLV2 code="select 2" returnVariable="anon" />\n\n'
             '<RevenueCard metric="arr" />\n'
@@ -43,8 +45,40 @@ class TestCellExtractionAndEdges(SimpleTestCase):
         assert [(c.node_id, c.cell_type, c.dataframe_name) for c in cells] == [
             ("s1", "sql", "df"),
             ("p1", "python", "out"),
+            ("p2", "python", "multiline"),
+            ("p3", "python", "recovered"),
             ("q1", "saved_insight", ""),
         ]
+        assert cells[2].code == "import pandas as pd\n\nout = pd.DataFrame()"
+        assert cells[3].code == "# Build the frame\n\nout = df.head()"
+
+    @parameterized.expand(
+        [
+            ("unquoted_prop", "<PythonV2 nodeId=p\n\ncode=print(1) />", []),
+            (
+                "unterminated_quoted_prop",
+                '<PythonV2 nodeId="p\n\nFollowing paragraph',
+                [],
+            ),
+        ]
+    )
+    def test_malformed_component_does_not_cross_a_blank_line(
+        self, _name: str, markdown: str, expected_node_ids: list[str]
+    ) -> None:
+        content = markdown_content(markdown)
+
+        assert [cell.node_id for cell in extract_cells(content)] == expected_node_ids
+
+    def test_malformed_single_line_component_keeps_parsed_props(self) -> None:
+        content = markdown_content('<PythonV2 nodeId="p" code="print(1)" returnVariable="out" broken="unterminated />')
+
+        cells = extract_cells(content)
+        assert [(cell.node_id, cell.code, cell.dataframe_name) for cell in cells] == [("p", "print(1)", "out")]
+
+    def test_component_scan_is_bounded(self) -> None:
+        markdown = "\n".join(['<PythonV2 nodeId="p" code="', *(["x"] * 1_001), '" />'])
+
+        assert extract_cells(markdown_content(markdown)) == []
 
     def test_rich_text_content_yields_no_cells(self) -> None:
         assert extract_cells({"type": "doc", "content": [{"type": "paragraph"}]}) == []

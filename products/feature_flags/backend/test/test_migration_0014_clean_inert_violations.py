@@ -119,10 +119,25 @@ class CleanInertFilterViolationsMigrationTest(TestMigrations):
         FeatureFlag = self.apps.get_model("feature_flags", "FeatureFlag")
         return FeatureFlag.objects.get(id=flag_id).filters
 
-    def test_drops_payload_keys_no_evaluation_can_resolve(self) -> None:
+    def test_migration_cleans_inert_violations(self) -> None:
+        for check in (
+            self._check_clears_only_dangling_variant_overrides,
+            self._check_covers_soft_deleted_and_inactive_flags,
+            self._check_drops_payload_keys_no_evaluation_can_resolve,
+            self._check_keeps_payload_keys_the_evaluator_resolves,
+            self._check_leaves_an_already_clean_flag_untouched,
+            self._check_leaves_encrypted_flags_alone,
+            self._check_leaves_violations_it_does_not_own,
+            self._check_skips_malformed_filters_without_raising,
+            self._check_still_cleans_flags_with_a_null_encrypted_marker,
+        ):
+            with self.subTest(check=check.__name__):
+                check()
+
+    def _check_drops_payload_keys_no_evaluation_can_resolve(self) -> None:
         assert self._filters(self.orphan_payload_id)["payloads"] == {"control": "1"}
 
-    def test_keeps_payload_keys_the_evaluator_resolves(self) -> None:
+    def _check_keeps_payload_keys_the_evaluator_resolves(self) -> None:
         # "false" is reached by a boolean result and "holdout-N" by the synthesised holdout variant.
         assert self._filters(self.resolvable_payloads_id)["payloads"] == {
             "control": "1",
@@ -135,36 +150,36 @@ class CleanInertFilterViolationsMigrationTest(TestMigrations):
             "holdout-9": "3",
         }
 
-    def test_clears_only_dangling_variant_overrides(self) -> None:
+    def _check_clears_only_dangling_variant_overrides(self) -> None:
         groups = self._filters(self.dangling_variant_id)["groups"]
         assert groups[0]["variant"] is None
         assert groups[1]["variant"] == "control"
 
-    def test_covers_soft_deleted_and_inactive_flags(self) -> None:
+    def _check_covers_soft_deleted_and_inactive_flags(self) -> None:
         assert self._filters(self.soft_deleted_id)["groups"][0]["variant"] is None
         assert self._filters(self.inactive_id)["groups"][0]["variant"] is None
 
-    def test_leaves_an_already_clean_flag_untouched(self) -> None:
+    def _check_leaves_an_already_clean_flag_untouched(self) -> None:
         assert self._filters(self.already_clean_id) == {
             "groups": [group(variant="control")],
             "multivariate": MULTIVARIATE,
             "payloads": {"control": "1"},
         }
 
-    def test_leaves_violations_it_does_not_own(self) -> None:
+    def _check_leaves_violations_it_does_not_own(self) -> None:
         filters = self._filters(self.non_inert_id)
         assert filters["groups"][0]["properties"][0]["operator"] == "exact"
         assert [variant["rollout_percentage"] for variant in filters["multivariate"]["variants"]] == [40, 40, 40]
 
-    def test_leaves_encrypted_flags_alone(self) -> None:
+    def _check_leaves_encrypted_flags_alone(self) -> None:
         assert self._filters(self.encrypted_id)["payloads"] == {"true": "cipher-1", "staging": "cipher-2"}
 
-    def test_still_cleans_flags_with_a_null_encrypted_marker(self) -> None:
+    def _check_still_cleans_flags_with_a_null_encrypted_marker(self) -> None:
         filters = self._filters(self.encrypted_legacy_null_id)
         assert filters["payloads"] == {"control": "1"}
         assert filters["groups"][0]["variant"] is None
 
-    def test_skips_malformed_filters_without_raising(self) -> None:
+    def _check_skips_malformed_filters_without_raising(self) -> None:
         # Reaching any assertion here means the scan completed; these rows stay as they were.
         assert self._filters(self.junk_ids[0]) == {"groups": {}}
         assert self._filters(self.junk_ids[2])["payloads"] == {"x": "1"}

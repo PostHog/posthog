@@ -22,7 +22,7 @@ CREATE TABLE posthog.kafka_metrics_avro (
   instrumentation_scope Nullable(String),
   attributes Map(String, String),
   series_fingerprint Nullable(Int64)
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_metrics', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-metrics-avro-new\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_metrics\'';
+) ENGINE = Kafka(warpstream_metrics) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro-new', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_trace_spans_avro (
   uuid String,
   trace_id String,
@@ -45,7 +45,7 @@ CREATE TABLE posthog.kafka_trace_spans_avro (
   links Array(String),
   dropped_links_count Int32,
   status_code Int32
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_traces', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-traces-avro\'', kafka_num_consumers = 2, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_traces\'';
+) ENGINE = Kafka(warpstream_traces) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 2, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
 CREATE TABLE posthog.log_attributes2 (
   team_id Int32,
   time_bucket DateTime64(0),
@@ -1116,10 +1116,10 @@ GROUP BY
   _partition, _topic;
 CREATE VIEW posthog.custom_metrics_backups AS WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
-  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
   ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
   ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('instance', hostname()) AS labels,
@@ -1174,10 +1174,10 @@ FROM
   );
 CREATE VIEW posthog.custom_metrics_replication_queue AS WITH
   ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
-  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
   ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
   ['gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('table', `table`, 'instance', hostname()) AS labels,

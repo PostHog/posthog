@@ -51,14 +51,15 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS, get_incremental_config
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
+    DataModelingJobEngine,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
+    Edge,
+    Node,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.facade.api import saved_query_workflow_exists, unpause_saved_query_schedule
 from products.data_warehouse.backend.presentation.views.column_annotation_base import (
     DESCRIPTION_HELP_TEXT,
     upsert_annotation,
@@ -452,16 +453,46 @@ class DataWarehouseSavedQuerySerializerMixin:
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
 
+    def _serving_run(self, view: DataWarehouseSavedQuery) -> DataModelingJob | None:
+        """The newest materialization run that serves this view, or None if it has never run.
+
+        Prefers the prefetched job so a list of views costs one query. Falls back to a lookup for
+        the detail route, which has no prefetch.
+        """
+        try:
+            jobs = view.jobs  # type: ignore[attr-defined]
+            return jobs[0] if jobs else None
+        except AttributeError:
+            return (
+                DataModelingJob.objects.filter(saved_query_id=view.id)
+                .exclude(engine=DataModelingJobEngine.DUCKGRES)
+                .order_by("-last_run_at")
+                .first()
+            )
+
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
-        try:
-            jobs = view.jobs  # type: ignore
-            if len(jobs) > 0:
-                return jobs[0].last_run_at
-        except Exception:
-            pass
+        run = self._serving_run(view)
+        return run.last_run_at if run is not None else view.last_run_at
 
-        return view.last_run_at
+    @extend_schema_field(serializers.ChoiceField(choices=DataWarehouseSavedQuery.Status.choices, allow_null=True))
+    def get_status(self, view: DataWarehouseSavedQuery) -> str | None:
+        run = self._serving_run(view)
+        if run is None:
+            return view.status
+        # Modified means "edited and not materialized since", which no run can express. A run that
+        # happened after the edit answers it, so the column only wins while the edit is the newer fact.
+        edited_since_the_run = (
+            view.status == DataWarehouseSavedQuery.Status.MODIFIED
+            and view.updated_at is not None
+            and view.updated_at > run.last_run_at
+        )
+        return view.status if edited_since_the_run else run.status
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, view: DataWarehouseSavedQuery) -> str | None:
+        run = self._serving_run(view)
+        return run.error if run is not None else view.latest_error
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
@@ -541,6 +572,8 @@ class DataWarehouseSavedQueryMinimalSerializer(
         read_only=True, help_text=SYNC_FREQUENCY_MANAGED_BY_DAG_HELP_TEXT
     )
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
     folder_name = serializers.CharField(source="folder.name", read_only=True, allow_null=True)
@@ -687,6 +720,8 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(read_only=True, help_text=SYNC_FREQUENCY_BOUNDS_HELP_TEXT)
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     suspended = serializers.SerializerMethodField(read_only=True)
     folder_id = TeamScopedPrimaryKeyRelatedField(
@@ -871,7 +906,7 @@ class DataWarehouseSavedQuerySerializer(
                     }
                     view.set_columns(columns)
 
-                view.external_tables = view.s3_tables
+                view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
@@ -1055,7 +1090,7 @@ class DataWarehouseSavedQuerySerializer(
                         }
                         view.set_columns(columns)
 
-                    view.external_tables = view.s3_tables
+                    view.external_tables = view.get_s3_tables(database=self.context["database"])
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
                 except Exception as e:
@@ -1349,6 +1384,50 @@ class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
 
 
+class SavedQueryResumeSchedulesRequestSerializer(serializers.Serializer):
+    """Body of the `resume_schedules` action."""
+
+    view_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text=(
+            "Ids of the saved queries to resume. An id is ignored when it is not in this project, "
+            "has been deleted, or you cannot edit it."
+        ),
+    )
+
+
+class SavedQueryLineageRequestSerializer(serializers.Serializer):
+    """Body of the `ancestors` and `descendants` actions."""
+
+    level = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="How many hops to walk, so 1 gives the immediate neighbours. Omit to walk the whole cone.",
+    )
+
+
+class SavedQueryAncestorsSerializer(serializers.Serializer):
+    ancestors = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Ids of the saved queries and warehouse tables this query reads from, directly or "
+        "through other queries, and the names of the PostHog tables among them.",
+    )
+
+
+class SavedQueryDescendantsSerializer(serializers.Serializer):
+    descendants = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Ids of the saved queries that read from this query, directly or through other queries.",
+    )
+
+
+class SavedQueryDependenciesSerializer(serializers.Serializer):
+    upstream_count = serializers.IntegerField(help_text="How many tables and queries this query reads from directly.")
+    downstream_count = serializers.IntegerField(help_text="How many queries read from this query directly.")
+
+
 class IncrementalEligibilitySerializer(serializers.Serializer):
     """Whether a query can be materialized incrementally, and what stands in the way."""
 
@@ -1497,7 +1576,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "managed_viewset",
                 "column_annotations",
                 Prefetch(
-                    "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
+                    "datamodelingjob_set",
+                    queryset=DataModelingJob.objects.exclude(engine=DataModelingJobEngine.DUCKGRES).order_by(
+                        "-last_run_at"
+                    )[:1],
+                    to_attr="jobs",
                 ),
             )
             .exclude(deleted=True)
@@ -1857,82 +1940,56 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False)
+    @extend_schema(request=SavedQueryResumeSchedulesRequestSerializer, responses={202: None})
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
-        Resume paused materialization schedules for multiple matviews.
+        Resume materialization for several models that were suspended after repeated failures.
 
         Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
-        This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+        This endpoint is idempotent - calling it on models that are already running is safe.
         """
-        view_ids = request.data.get("view_ids", [])
-        if not view_ids:
-            return response.Response({"error": "view_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
-        saved_queries = DataWarehouseSavedQuery.objects.filter(id__in=view_ids, team_id=self.team_id)
-        for saved_query in saved_queries:
-            if saved_query_workflow_exists(saved_query):
-                unpause_saved_query_schedule(saved_query)
+        from products.data_modeling.backend.facade.api import resume_saved_query
+
+        serializer = SavedQueryResumeSchedulesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Skip rather than refuse, so one id the caller cannot edit does not cost them the rest of
+        # the batch. Every skipped id looks the same from outside, whether it is absent, in another
+        # project, deleted, or denied - the response would otherwise confirm that a model exists.
+        candidates = list(
+            DataWarehouseSavedQuery.objects.filter(
+                id__in=serializer.validated_data["view_ids"], team_id=self.team_id
+            ).exclude(deleted=True)
+        )
+        self.user_access_control.preload_object_access_controls(cast(list[Model], candidates))
+        for saved_query in candidates:
+            if self.user_access_control.check_access_level_for_object(saved_query, "editor"):
+                resume_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
+    @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryAncestorsSerializer})
     @action(methods=["POST"], detail=True)
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the ancestors of this saved query.
 
-        By default, we return the immediate parents. The `level` parameter can be used to
-        look further back into the ancestor tree. If `level` overshoots (i.e. points to only
-        ancestors beyond the root), we return an empty list.
+        By default, we return every ancestor. The `level` parameter bounds how many hops back
+        to walk, so 1 gives the immediate parents.
         """
-        up_to_level = request.data.get("level", None)
-
         saved_query = self.get_object()
-        saved_query_id = saved_query.id.hex
-        lquery = f"*{{1,}}.{saved_query_id}"
-
-        paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
-
-        if not paths:
-            return response.Response({"ancestors": []})
-
-        ancestors: set[str | uuid.UUID] = set()
-        for model_path in paths:
-            if up_to_level is None:
-                start = 0
-            else:
-                start = (int(up_to_level) * -1) - 1
-
-            ancestors = ancestors.union(map(try_convert_to_uuid, model_path.path[start:-1]))
-
+        ancestors = _related_saved_queries(saved_query, upstream=True, max_depth=_parse_level(request))
         return response.Response({"ancestors": ancestors})
 
+    @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryDescendantsSerializer})
     @action(methods=["POST"], detail=True)
     def descendants(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the descendants of this saved query.
 
-        By default, we return the immediate children. The `level` parameter can be used to
-        look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
-        descendants further than a leaf), we return an empty list.
+        By default, we return every descendant. The `level` parameter bounds how many hops
+        forward to walk, so 1 gives the immediate children.
         """
-        up_to_level = request.data.get("level", None)
-
         saved_query = self.get_object()
-        saved_query_id = saved_query.id.hex
-
-        lquery = f"*.{saved_query_id}.*{{1,}}"
-        paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
-
-        if not paths:
-            return response.Response({"descendants": []})
-
-        descendants: set[str | uuid.UUID] = set()
-        for model_path in paths:
-            start = model_path.path.index(saved_query_id) + 1
-            if up_to_level is None:
-                end = len(model_path.path)
-            else:
-                end = start + up_to_level
-
-            descendants = descendants.union(map(try_convert_to_uuid, model_path.path[start:end]))
-
+        descendants = _related_saved_queries(saved_query, upstream=False, max_depth=_parse_level(request))
         return response.Response({"descendants": descendants})
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
@@ -2010,40 +2067,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses={200: SavedQueryDependenciesSerializer})
     @action(methods=["GET"], detail=True)
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the count of immediate upstream and downstream dependencies for this saved query."""
         saved_query = self.get_object()
-        saved_query_id = saved_query.id.hex
-
-        # Count immediate upstream (parents) - get unique parents from all paths to this node
-        upstream_paths = DataWarehouseModelPath.objects.filter(
-            team=saved_query.team, path__lquery=f"*.{saved_query_id}"
+        return response.Response(
+            {
+                "upstream_count": len(_related_saved_queries(saved_query, upstream=True, max_depth=1)),
+                "downstream_count": len(_related_saved_queries(saved_query, upstream=False, max_depth=1)),
+            }
         )
-        upstream_ids: set[str] = set()
-        for path in upstream_paths:
-            if len(path.path) >= 2:
-                # Get the immediate parent (second to last in path)
-                parent_id = path.path[-2]
-                upstream_ids.add(parent_id)
-
-        # Count immediate downstream (children) - get unique children that reference this node
-        downstream_paths = DataWarehouseModelPath.objects.filter(
-            team=saved_query.team, path__lquery=f"*.{saved_query_id}.*"
-        )
-        downstream_ids: set[str] = set()
-        for path in downstream_paths:
-            # Find position of current view in path
-            try:
-                idx = path.path.index(saved_query_id)
-                if idx + 1 < len(path.path):
-                    # Get immediate child (next node after current)
-                    child_id = path.path[idx + 1]
-                    downstream_ids.add(child_id)
-            except ValueError:
-                continue
-
-        return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
 
     @action(methods=["GET"], detail=True, required_scopes=["warehouse_view:read"])
     def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -2062,8 +2096,78 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return response.Response({"run_history": run_history})
 
 
-def try_convert_to_uuid(s: str) -> uuid.UUID | str:
-    try:
-        return str(uuid.UUID(s))
-    except ValueError:
-        return s
+def _parse_level(request: request.Request) -> int | None:
+    """Read the `level` bound off a lineage request.
+
+    No level means walk the whole cone. Zero or less would walk nothing and return an empty
+    answer, so it is refused, as is anything that is not a whole number.
+    """
+    serializer = SavedQueryLineageRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data.get("level")
+
+
+def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None) -> set[str]:
+    """Walk the data modeling graph from a saved query and identify what it reaches.
+
+    The walk starts from every node that stands for the query and unions what they reach: a
+    saved query can hold a node in more than one DAG, and a query in a managed DAG is also
+    represented by a proxy table node in each DAG that reads from it. Without the proxies a
+    consumer would report the managed query upstream while the managed query reported no
+    consumer downstream.
+
+    Each reached node is identified the way the lineage endpoints have always identified it: a
+    query by its saved-query id, an imported warehouse table by its `DataWarehouseTable` id, a
+    cross-DAG proxy by the id of the saved query it stands in for, and a PostHog system table by
+    its name. A table node carries the id in its properties
+    (`saved_query_dag_sync.resolve_dependency_to_node`) rather than the `saved_query` FK.
+    """
+    start_node_ids = {
+        str(node_id)
+        for node_id in Node.objects.filter(team=saved_query.team)
+        .filter(Q(saved_query=saved_query) | Q(properties__saved_query_id=str(saved_query.id)))
+        .values_list("id", flat=True)
+    }
+    if not start_node_ids:
+        return set()
+
+    reached = _reachable_node_ids(saved_query.team_id, start_node_ids, upstream=upstream, max_depth=max_depth)
+
+    identifiers: set[str] = set()
+    for saved_query_id, name, properties in Node.objects.filter(team=saved_query.team, id__in=reached).values_list(
+        "saved_query_id", "name", "properties"
+    ):
+        properties = properties or {}
+        if saved_query_id is not None:
+            identifiers.add(str(saved_query_id))
+        elif properties.get("saved_query_id"):
+            identifiers.add(str(properties["saved_query_id"]))
+        elif properties.get("warehouse_table_id"):
+            identifiers.add(str(properties["warehouse_table_id"]))
+        else:
+            identifiers.add(name)
+    return identifiers
+
+
+def _reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: bool, max_depth: int | None) -> set[str]:
+    """Node ids reachable from `start_node_ids` within `max_depth` hops, the start nodes excluded.
+
+    One query per hop, each reading the frontier's edges off the `Edge` foreign-key indexes, so
+    the work is bounded by the cone that is reached rather than by every edge the team owns.
+    Upstream follows edges into the frontier back to their sources; downstream follows edges
+    out of it to their targets.
+    """
+    edges = Edge.objects.filter(team_id=team_id)
+
+    reached: set[str] = set()
+    frontier = set(start_node_ids)
+    depth = 0
+    while frontier and (max_depth is None or depth < max_depth):
+        if upstream:
+            neighbor_ids = edges.filter(target_id__in=frontier).values_list("source_id", flat=True)
+        else:
+            neighbor_ids = edges.filter(source_id__in=frontier).values_list("target_id", flat=True)
+        frontier = {str(neighbor_id) for neighbor_id in neighbor_ids} - reached - start_node_ids
+        reached |= frontier
+        depth += 1
+    return reached

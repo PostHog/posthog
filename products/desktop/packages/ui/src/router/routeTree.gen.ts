@@ -49,7 +49,6 @@ import { Route as AgentsScoutsIndexRouteImport } from './routes/agents/scouts.in
 import { Route as ShellSpacesIndexRouteImport } from './routes/_shell/spaces/index'
 import { Route as ShellSettingsIndexRouteImport } from './routes/_shell/settings/index'
 import { Route as ShellFeedsIndexRouteImport } from './routes/_shell/feeds/index'
-import { Route as TasksPendingKeyRouteImport } from './routes/tasks/pending.$key'
 import { Route as LoopsLoopIdEditRouteImport } from './routes/loops/$loopId/edit'
 import { Route as InboxRunsReportIdRouteImport } from './routes/inbox/runs.$reportId'
 import { Route as InboxReportsReportIdRouteImport } from './routes/inbox/reports.$reportId'
@@ -272,11 +271,6 @@ const ShellFeedsIndexRoute = ShellFeedsIndexRouteImport.update({
   path: '/feeds/',
   getParentRoute: () => ShellRoute,
 } as any)
-const TasksPendingKeyRoute = TasksPendingKeyRouteImport.update({
-  id: '/tasks/pending/$key',
-  path: '/tasks/pending/$key',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const LoopsLoopIdEditRoute = LoopsLoopIdEditRouteImport.update({
   id: '/edit',
   path: '/edit',
@@ -440,7 +434,6 @@ export interface FileRoutesByFullPath {
   '/inbox/reports/$reportId': typeof InboxReportsReportIdRoute
   '/inbox/runs/$reportId': typeof InboxRunsReportIdRoute
   '/loops/$loopId/edit': typeof LoopsLoopIdEditRoute
-  '/tasks/pending/$key': typeof TasksPendingKeyRoute
   '/feeds/': typeof ShellFeedsIndexRoute
   '/settings/': typeof ShellSettingsIndexRoute
   '/spaces/': typeof ShellSpacesIndexRoute
@@ -495,7 +488,6 @@ export interface FileRoutesByTo {
   '/inbox/reports/$reportId': typeof InboxReportsReportIdRoute
   '/inbox/runs/$reportId': typeof InboxRunsReportIdRoute
   '/loops/$loopId/edit': typeof LoopsLoopIdEditRoute
-  '/tasks/pending/$key': typeof TasksPendingKeyRoute
   '/feeds': typeof ShellFeedsIndexRoute
   '/settings': typeof ShellSettingsIndexRoute
   '/spaces': typeof ShellSpacesIndexRoute
@@ -561,7 +553,6 @@ export interface FileRoutesById {
   '/inbox/reports/$reportId': typeof InboxReportsReportIdRoute
   '/inbox/runs/$reportId': typeof InboxRunsReportIdRoute
   '/loops/$loopId/edit': typeof LoopsLoopIdEditRoute
-  '/tasks/pending/$key': typeof TasksPendingKeyRoute
   '/_shell/feeds/': typeof ShellFeedsIndexRoute
   '/_shell/settings/': typeof ShellSettingsIndexRoute
   '/_shell/spaces/': typeof ShellSpacesIndexRoute
@@ -627,7 +618,6 @@ export interface FileRouteTypes {
     | '/inbox/reports/$reportId'
     | '/inbox/runs/$reportId'
     | '/loops/$loopId/edit'
-    | '/tasks/pending/$key'
     | '/feeds/'
     | '/settings/'
     | '/spaces/'
@@ -682,7 +672,6 @@ export interface FileRouteTypes {
     | '/inbox/reports/$reportId'
     | '/inbox/runs/$reportId'
     | '/loops/$loopId/edit'
-    | '/tasks/pending/$key'
     | '/feeds'
     | '/settings'
     | '/spaces'
@@ -747,7 +736,6 @@ export interface FileRouteTypes {
     | '/inbox/reports/$reportId'
     | '/inbox/runs/$reportId'
     | '/loops/$loopId/edit'
-    | '/tasks/pending/$key'
     | '/_shell/feeds/'
     | '/_shell/settings/'
     | '/_shell/spaces/'
@@ -787,7 +775,6 @@ export interface RootRouteChildren {
   CodeIndexRoute: typeof CodeIndexRoute
   LoopsIndexRoute: typeof LoopsIndexRoute
   WebsiteIndexRoute: typeof WebsiteIndexRoute
-  TasksPendingKeyRoute: typeof TasksPendingKeyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1071,13 +1058,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/feeds/'
       preLoaderRoute: typeof ShellFeedsIndexRouteImport
       parentRoute: typeof ShellRoute
-    }
-    '/tasks/pending/$key': {
-      id: '/tasks/pending/$key'
-      path: '/tasks/pending/$key'
-      fullPath: '/tasks/pending/$key'
-      preLoaderRoute: typeof TasksPendingKeyRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/loops/$loopId/edit': {
       id: '/loops/$loopId/edit'
@@ -1443,7 +1423,6 @@ const rootRouteChildren: RootRouteChildren = {
   CodeIndexRoute: CodeIndexRoute,
   LoopsIndexRoute: LoopsIndexRoute,
   WebsiteIndexRoute: WebsiteIndexRoute,
-  TasksPendingKeyRoute: TasksPendingKeyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

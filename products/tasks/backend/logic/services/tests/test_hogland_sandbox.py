@@ -24,6 +24,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
+    build_agent_runtime_env_prefix,
     get_sandbox_class_for_sandbox_id,
 )
 
@@ -330,3 +331,20 @@ class TestHoglandAuthPrecedence:
 
         with override_settings(HOGLAND_API_TOKEN_FILE=file_setting, HOGLAND_API_TOKEN=static_token):
             assert get_hogland_api_token() == expected
+
+
+class TestHoglandBedrockDisabled:
+    def test_hogland_opts_out_of_direct_bedrock(self):
+        # hogland boxes boot with the bedrock feature (CLAUDE_CODE_USE_BEDROCK=1);
+        # the sandbox opts in to unsetting it so the agent uses the LLM gateway.
+        assert HoglandSandbox.disable_direct_bedrock is True
+
+    def test_env_prefix_unsets_bedrock_vars_when_requested(self):
+        prefix = build_agent_runtime_env_prefix(unset_bedrock=True)
+        assert "-u CLAUDE_CODE_USE_BEDROCK" in prefix
+        assert "-u AWS_CONTAINER_CREDENTIALS_FULL_URI" in prefix
+
+    def test_env_prefix_keeps_bedrock_vars_by_default(self):
+        prefix = build_agent_runtime_env_prefix()
+        assert "CLAUDE_CODE_USE_BEDROCK" not in prefix
+        assert "AWS_CONTAINER_CREDENTIALS_FULL_URI" not in prefix

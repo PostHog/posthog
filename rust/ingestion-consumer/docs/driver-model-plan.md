@@ -293,15 +293,18 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Interface out: dispatches. One dispatch is one run of one key on one worker.
 - The first implementation preserves today's semantics: pins, the stash, deferral on drain, and the flush pacing. This is code motion from `assign`, `flush_deferred`, and `on_sub_batch_resolved`.
 - The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
-- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
+- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches, the deferral counts, the evicted keys). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
+- The no-locks rule needs the worker world as data: the dispatcher captures a `WorkerSnapshot` (healthy pool, aperture-narrowed candidates, per-worker health, the load table) before each seam call, and the scheduler decides over it. Change 19 already names this shape: the worker-health snapshot stays the only shared read.
+- A failed send settles in one call: the settlement's failure arm carries the failed runs, and the scheduler requeues them before it releases the keys. This is the invariant change 9's key-table needs (requeue before release); the pin-stash implementation preserves today's stash-then-decrement order inside the one call. The two-step resolve methods stay public for the e2e suite, which must pass unedited.
 - The seam makes today's implicit ordering rules explicit and reviewable in one place.
 
 **Interfaces:**
 
-- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; `Vec<Dispatch>` out.
-- Add `Dispatch`: one run of one key, with the chosen worker.
-- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns `PinTable` and `Stash` unchanged.
-- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, and seam calls.
+- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; a `SchedulerEffects` out — the dispatches plus the deferral counts and evicted keys, so metrics and debug events stay in the plumbing. `on_deadline` names the batch to retry while the pacing is per batch; the key-table scheduler generalizes it to a parked-retry deadline.
+- Add `Dispatch`: one run of one key, with the chosen worker and the send kind for the key-order sentinel.
+- Add `WorkerSnapshot` and `Settlement` (with its delivered and failed arms) as the seam's input vocabulary.
+- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns the pins, the `Stash`, and the `Router` unchanged — placement is a scheduling decision.
+- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, sentinel calls, view capture, sub-batch assembly, and seam calls. `settle` is the one production resolve entry point.
 
 ### 9. Build the key-table scheduler (implement)
 
