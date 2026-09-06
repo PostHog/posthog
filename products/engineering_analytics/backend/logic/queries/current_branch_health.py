@@ -6,7 +6,10 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import CurrentBranchHealth
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries._workflow_filters import LATEST_COMPLETED_RUN_FAILED
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    LATEST_COMPLETED_RUN_FAILED,
+    UNPAGED_SCAN_LIMIT,
+)
 
 _FAILING_NAME_LIMIT = 20
 
@@ -18,6 +21,8 @@ _SELECT = f"""
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} AND head_branch = {{branch}}
     GROUP BY workflow_name
+    ORDER BY workflow_name
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 

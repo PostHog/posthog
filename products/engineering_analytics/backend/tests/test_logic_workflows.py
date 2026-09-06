@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from itertools import count
 from types import SimpleNamespace
@@ -61,7 +62,10 @@ class TestWorkflowEndpointMapping(BaseTest):
             if query_type == "engineering_analytics.default_branch":
                 return _resp([(0, 12)])
             assert query_type == "engineering_analytics.current_branch_health"
-            assert "LIMIT" not in sql.upper()
+            # HogQL caps a query naming no LIMIT at 100 rows, so an absent limit is a cap, not the
+            # lack of one. The named limit has to clear the workflow set this test feeds.
+            limit = re.search(r"LIMIT\s+(\d+)", sql)
+            assert limit is not None and int(limit.group(1)) > len(workflow_rows)
             return _resp(workflow_rows)
 
         with mock.patch(_RUN_QUERY, side_effect=run):

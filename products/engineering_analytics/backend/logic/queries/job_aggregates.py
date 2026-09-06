@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowJobA
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DURATION_PERCENTILE_CONDITION,
+    UNPAGED_SCAN_LIMIT,
     branch_filter_clause,
     date_to_filter_clause,
     run_windowed_job_created_floor_constant,
@@ -77,6 +78,7 @@ _COST_SELECT = f"""
     FROM __COST_SOURCE__ AS c
     WHERE workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY job_name
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _RUN_COUNT_SELECT = """

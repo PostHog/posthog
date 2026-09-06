@@ -12,6 +12,12 @@ from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
+# HogQL gives a query that names no LIMIT a default of 100 rows, so a read that never meant to page
+# silently returns a slice of itself. Reads whose row count is bounded by the org's shape (teams,
+# workflows, job names, a PR's runs) rather than by a caller's page size take this ceiling, so
+# truncation only ever happens where someone chose a smaller cap on purpose.
+UNPAGED_SCAN_LIMIT = 100000
+
 # Trunk's merge-queue batch branches. Trunk-specific and hardcoded like KNOWN_BOT_HANDLES;
 # defined once here so every surface breaks queue spend out with the same key.
 MERGE_QUEUE_BRANCH_PREFIX = "trunk-merge/"

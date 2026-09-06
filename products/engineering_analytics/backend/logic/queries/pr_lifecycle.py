@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._pr_header import pr_header_placeholders, pr_header_query
+from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.views import issue_events
 
 # The curated subqueries and the repo filter are filled with str.replace (trusted
@@ -36,20 +37,24 @@ _HEADER = pr_header_query(
     """
 )
 
-_RUNS = """
+# Both reads are ordered ascending, so HogQL's default 100-row cap would drop a PR's *latest* runs
+# and transitions, which is what the timeline is for. Bounded by the PR's own shape, never paged.
+_RUNS = f"""
     SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
     FROM __RUNS_SOURCE__ AS r
-    WHERE head_sha = {head_sha}
+    WHERE head_sha = {{head_sha}}
     ORDER BY run_started_at ASC
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # pr_number alone is the key: a resolved table set is a single repo's, the same repo the
 # PR header was resolved from.
-_STATE_EVENTS = """
+_STATE_EVENTS = f"""
     SELECT event, created_at, actor_login
     FROM __STATE_EVENTS_SOURCE__ AS se
-    WHERE pr_number = {pr_number}
+    WHERE pr_number = {{pr_number}}
     ORDER BY created_at ASC, id ASC
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _STATE_EVENT_KINDS = {

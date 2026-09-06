@@ -18,6 +18,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
+from products.engineering_analytics.backend.logic.ownership import PlacedTest, RepoOwnershipResult
 from products.engineering_analytics.backend.logic.quarantine import (
     QUARANTINE_FILENAME,
     _canonical_entry,
@@ -31,7 +32,10 @@ from products.engineering_analytics.backend.logic.quarantine import (
     render_quarantine_file,
     request_quarantine,
 )
+from products.engineering_analytics.backend.logic.queries.trunk_quarantine import query_trunk_quarantine_debt
 from products.engineering_analytics.backend.presentation.serializers.suite_health import QuarantineRequestSerializer
+
+_TRUNK_QUARANTINE = "products.engineering_analytics.backend.logic.queries.trunk_quarantine"
 
 _TODAY = date(2026, 6, 12)
 _REQUESTS_GET = "products.engineering_analytics.backend.logic.quarantine.requests.get"
@@ -772,3 +776,71 @@ class TestQuarantineRequestValidation(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert serializer.errors[field][0].code == code
+
+
+class _StubCurated:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self.repository = "PostHog/posthog"
+        self._rows = rows
+        self.placeholders: dict[str, Any] = {}
+
+    def trunk_quarantined_tests_source(self) -> str:
+        return "(SELECT 1)"
+
+    def trunk_org_url_slug(self) -> str | None:
+        return None
+
+    def run(self, sql: str, **kwargs: Any) -> SimpleNamespace:
+        self.placeholders = kwargs.get("placeholders", {})
+        return SimpleNamespace(results=self._rows)
+
+
+class TestTrunkQuarantineDebtTruncation(TestCase):
+    @staticmethod
+    def _rows(count: int) -> list[tuple[Any, ...]]:
+        return [
+            (
+                "pytest",
+                f"test_{index}",
+                f"products/a/test_{index}.py",
+                "",
+                "quarantined",
+                "always",
+                f"case-{index}",
+                datetime(2026, 1, 1, tzinfo=UTC),
+            )
+            for index in range(count)
+        ]
+
+    def _debt(self, row_count: int, limit: int) -> tuple[contracts.TrunkQuarantineDebt, _StubCurated]:
+        curated = _StubCurated(self._rows(row_count))
+
+        def place(_repository: str, tests: list[Any]) -> RepoOwnershipResult:
+            return RepoOwnershipResult(tests=[PlacedTest(path="p", owner_team="team-a")] * len(tests), resolved=True)
+
+        with (
+            mock.patch(f"{_TRUNK_QUARANTINE}._LIMIT", limit),
+            mock.patch(f"{_TRUNK_QUARANTINE}.resolve_test_ownership", side_effect=place),
+        ):
+            debt = query_trunk_quarantine_debt(
+                curated=curated,  # type: ignore[arg-type]
+                ttl_days=30,
+                now=datetime(2026, 6, 1, tzinfo=UTC),
+            )
+        return debt, curated
+
+    @parameterized.expand([("under the cap", 3, 5, False, 3), ("over the cap", 8, 5, True, 5)])
+    def test_rollup_never_counts_more_tests_than_it_returns(
+        self, _name: str, row_count: int, limit: int, truncated: bool, kept: int
+    ) -> None:
+        debt, curated = self._debt(row_count, limit)
+
+        assert debt.truncated is truncated
+        assert debt.limit == limit
+        assert len(debt.tests) == kept
+        assert sum(team.test_count for team in debt.teams) == kept
+
+    def test_query_asks_for_one_row_past_the_cap(self) -> None:
+        _, curated = self._debt(3, 5)
+
+        assert curated.placeholders["limit_plus_one"].value == 6
