@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { cleanIssueField, getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -65,6 +65,7 @@ export function ErrorTrackingIssueListRow({
     const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const runtime = getRuntimeFromLib(issue.library)
+    const description = cleanIssueField(issue.description)
     const sparklineKey = issue.id ?? 'issue-unknown'
     const sparklineData = useSparklineData(issue.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
     const occurrences = issue.aggregations?.occurrences ?? 0
@@ -91,11 +92,11 @@ export function ErrorTrackingIssueListRow({
                     onClick={() => prefetchIssueScene(issue)}
                 >
                     <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.75rem" />
-                    <span className="line-clamp-1 font-semibold">{issue.name || 'Unknown Type'}</span>
+                    <span className="line-clamp-1 font-semibold">{cleanIssueField(issue.name) ?? 'Unknown Type'}</span>
                 </Link>
-                {issue.description ? (
-                    <div title={issue.description} className="line-clamp-1 text-xs font-medium text-muted">
-                        {issue.description}
+                {description ? (
+                    <div title={description} className="line-clamp-1 text-xs font-medium text-muted">
+                        {description}
                     </div>
                 ) : null}
                 {issue.function || issue.source ? (

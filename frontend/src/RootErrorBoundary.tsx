@@ -3,6 +3,27 @@ import React from 'react'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 
 /**
+ * Coerce a thrown non-Error value to a readable message. `String(value)` yields "[object Object]"
+ * for a plain object and "undefined" for undefined — neither says what broke, so a fatal beacon
+ * carrying one is noise. Fall back to a JSON view, then to a generic label. Stays dependency-free.
+ */
+function describeThrownValue(value: unknown): string {
+    const asString = String(value)
+    if (asString && asString !== '[object Object]' && asString !== 'undefined' && asString !== 'null') {
+        return asString
+    }
+    try {
+        const asJson = JSON.stringify(value)
+        if (asJson && asJson !== '{}' && asJson !== 'null') {
+            return asJson
+        }
+    } catch {
+        // circular or non-serializable value — use the generic fallback
+    }
+    return 'Unknown error'
+}
+
+/**
  * Report a boot failure straight to the capture API. posthog-js lives inside the App chunk —
  * the very chunk this boundary guards — so when boot fails there is no SDK to report through,
  * and without this beacon a broken deploy would be invisible to error tracking.
@@ -22,7 +43,7 @@ function reportBootFailure(error: unknown): void {
         } catch {
             // storage unavailable or corrupt — report anonymously
         }
-        const err = error instanceof Error ? error : new Error(String(error))
+        const err = error instanceof Error ? error : new Error(describeThrownValue(error))
         const payload = JSON.stringify({
             api_key: apiKey,
             event: '$exception',
