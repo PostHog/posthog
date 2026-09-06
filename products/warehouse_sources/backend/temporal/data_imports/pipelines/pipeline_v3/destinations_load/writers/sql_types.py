@@ -63,3 +63,9 @@ def postgres_type_for(arrow_type: pa.DataType) -> str:
     # An unrecognized type is stored as text rather than failing the sync. The value survives,
     # and the column can be widened later without another full re-sync.
     return "TEXT"
+
+
+def quote_identifier(name: str) -> str:
+    """Quote an identifier for a dialect that uses double quotes."""
+    escaped = name.replace('"', '""')
+    return f'"{escaped}"'
