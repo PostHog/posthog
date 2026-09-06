@@ -2159,6 +2159,11 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
 
     captured: dict = {}
 
+    # sync_execute fills product/feature on the shared tag contextvar, and only the middleware's own
+    # post-response reset clears it. Driving the middleware directly skips that, so start clean or an
+    # earlier test's leftover product tag reads as one this middleware set.
+    reset_query_tags()
+
     def get_response(req):
         tags = get_query_tags()
         captured["source"] = tags.source
