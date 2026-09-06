@@ -451,10 +451,13 @@ tools:
             `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that
             scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
             found over time; to see every scanner's observations for one session, use `vision-observations-list`. Rows
-            are trimmed to keep a page small. `scanner_snapshot.scanner_config.prompt` and `scanner_snapshot.query` are
-            the same on every row, and `model_output.reasoning_segments` restates the flat `reasoning`, so none of the
-            three are on a row. Call `vision-scanners-observations-get` for one observation's full prompt and citation
-            segments, or `vision-scanners-get` for the scanner's current prompt.
+            are trimmed to keep a page small. `scanner_snapshot.scanner_config.prompt` and `scanner_snapshot.query`
+            repeat on every row of one scanner version, and `model_output.reasoning_segments` restates the flat
+            `reasoning`, so none of the three are on a row. Editing a scanner's prompt or query bumps
+            `scanner_snapshot.scanner_version`, and a page can hold rows from either side of that edit. Call
+            `vision-scanners-observations-get` for one observation's full prompt, query, and citation segments. When a
+            page spans more than one `scanner_version`, read one observation per version before you compare findings.
+            Call `vision-scanners-get` for the scanner's current prompt.
         agent_note: >
             Each observation's `_posthogUrl` opens the recording it analysed. When you report a finding to someone,
             deep-link the one or two moments it turns on rather than only describing them: read that observation with
