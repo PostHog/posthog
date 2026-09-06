@@ -62,6 +62,13 @@ pub struct ProcessArgs {
         default_value = "event"
     )]
     pub release_mode: ReleaseMode,
+
+    /// In `event` release mode, do not embed `_posthogReleaseId` into the chunks, so identical
+    /// input produces identical output on every deploy. Use this for content-hashed bundles.
+    /// Trade-off: exceptions from web and Node bundles then carry no release. Symbolication is
+    /// unaffected, because frames resolve by chunk id. No effect in `symbol-set` mode.
+    #[arg(long)]
+    pub no_embed_release: bool,
 }
 
 impl ProcessArgs {
@@ -79,6 +86,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             release: args.release.clone(),
             public_path_prefix: args.public_path_prefix.clone(),
             release_mode: args.release_mode,
+            no_embed_release: args.no_embed_release,
         };
         let upload_args = upload::Args {
             file_selection: args.file_selection,
