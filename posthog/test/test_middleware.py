@@ -2028,6 +2028,18 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
             ),
+            (
+                "sso_missing_email",
+                "/complete/saml/",
+                AuthFailed(_social_auth_backend(), "sso_missing_email"),
+                "/login?error_code=sso_missing_email",
+            ),
+            (
+                "sso_missing_name",
+                "/complete/saml/",
+                AuthFailed(_social_auth_backend(), "sso_missing_name"),
+                "/login?error_code=sso_missing_name",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):

@@ -18,6 +18,7 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from social_core.exceptions import AuthFailed
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
@@ -1037,10 +1038,14 @@ def social_create_user(
         missing_attr = "email" if not email else "name"
         posthoganalytics.tag("email", email)
         posthoganalytics.tag("name", full_name)
-        raise ValidationError(
-            {missing_attr: "This field is required and was not provided by the IdP."},
-            code="required",
+        logger.warning(
+            "social_create_user_missing_idp_attribute",
+            missing_attribute=missing_attr,
+            backend=backend.name,
         )
+        # AuthFailed is a social_core exception, so SocialAuthExceptionMiddleware turns it into a
+        # login redirect with a readable message. A plain ValidationError would escape as a 500.
+        raise AuthFailed(backend, f"sso_missing_{missing_attr}")
 
     # If we get here then it's a new user. We'll check for outstanding invites for them
     # on the organization domain or if JIT provisioning is enabled, we'll provision them.
