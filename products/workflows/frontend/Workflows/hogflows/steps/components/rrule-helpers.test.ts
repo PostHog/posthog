@@ -207,6 +207,16 @@ describe('rrule-helpers', () => {
             expect(result).toHaveLength(4)
         })
 
+        it('expands a one-time schedule to its single date', () => {
+            // The workflow runs tab previews a one-time schedule through this pair, so it must
+            // yield the one date rather than an empty list.
+            const result = computePreviewOccurrences(parseRRuleToState(ONE_TIME_RRULE), startsAt)
+            expect(result).toHaveLength(1)
+            expect(result[0].getUTCFullYear()).toBe(2030)
+            expect(result[0].getUTCMonth()).toBe(0) // January
+            expect(result[0].getUTCDate()).toBe(15)
+        })
+
         it('returns dates in ascending order starting from startsAt', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', endType: 'never' }
             const result = computePreviewOccurrences(state, startsAt)

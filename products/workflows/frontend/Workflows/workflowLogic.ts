@@ -194,6 +194,21 @@ interface SaveContext {
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
 }
 
+type ScheduleWrite = 'set' | 'removed' | null
+
+// Saving used to deploy immediately, so the changed contract needs a loud cue at the moment of
+// saving, not only the status bar. The schedule sits outside the draft, so a schedule save is
+// already live and the toast has to say so.
+function draftSavedMessage(scheduleWrite: ScheduleWrite): string {
+    if (scheduleWrite === 'set') {
+        return 'Draft saved. The new schedule applies to the live workflow now. Your other changes go live when you publish.'
+    }
+    if (scheduleWrite === 'removed') {
+        return 'Draft saved. The live workflow is no longer scheduled. Your other changes go live when you publish.'
+    }
+    return 'Draft saved. The live version keeps running until you publish.'
+}
+
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
     for (const field of WORKFLOW_CONTENT_FIELDS) {
@@ -2973,7 +2988,8 @@ export interface workflowLogicMeta {
         publishDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: 'discard' | 'publish' | null,
+            currentSchedule: HogFlowSchedule | null
         ) => string | undefined
         discardDisabledReason: (
             hasStagedDraft: boolean,
@@ -3762,11 +3778,12 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         publishDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.currentSchedule],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null
+                draftActionPending: 'publish' | 'discard' | null,
+                currentSchedule: HogFlowSchedule | null
             ): string | undefined => {
                 if (draftActionPending === 'discard') {
                     return 'Discarding is in progress'
@@ -3776,7 +3793,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (hasUnsavedChanges) {
                     return 'Save your changes first'
                 }
-                return hasStagedDraft ? undefined : 'No changes staged to publish'
+                if (hasStagedDraft) {
+                    return undefined
+                }
+                // A schedule save writes to the live workflow and stages no draft, so without this
+                // the empty publish state reads as if the new date did not take.
+                return currentSchedule
+                    ? 'No changes staged to publish. Schedule changes apply to the live workflow as soon as you save them.'
+                    : 'No changes staged to publish'
             },
         ],
 
@@ -4035,14 +4059,20 @@ export const workflowLogic = kea<workflowLogicType>([
                 const existingScheduleId = values.currentSchedule?.id
                 const hasScheduleChanges = pendingSchedule !== false && !!workflowId
 
+                // What the save did to the live schedule, so the toast can say it.
+                let scheduleWrite: ScheduleWrite = null
+
                 if (hasScheduleChanges) {
                     try {
                         if (pendingSchedule === null && existingScheduleId) {
                             await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+                            scheduleWrite = 'removed'
                         } else if (pendingSchedule !== null && existingScheduleId) {
                             await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+                            scheduleWrite = 'set'
                         } else if (pendingSchedule !== null) {
                             await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                            scheduleWrite = 'set'
                         }
 
                         if (pendingSchedule !== null) {
@@ -4062,9 +4092,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 if (originalWorkflow.draft) {
-                    // Saving used to deploy immediately, so the changed contract needs a loud cue at
-                    // the moment of saving, not only the status bar.
-                    lemonToast.success('Draft saved. The live version keeps running until you publish.', {
+                    lemonToast.success(draftSavedMessage(scheduleWrite), {
                         button: {
                             label: 'Publish',
                             action: () => actions.publishDraft(),
