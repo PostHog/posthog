@@ -522,6 +522,7 @@ describe("resolveGatewayTarget", () => {
       baseUrl: "https://gateway.us.posthog.com/background_agents",
       isAiGateway: false,
       aiProduct: "review_hog",
+      aiStage: "validation-c1",
     });
   });
 
@@ -543,7 +544,12 @@ describe("resolveGatewayTarget", () => {
         posthogHost: PY_HOST,
         env: { AI_GATEWAY_URL: GO, AI_GATEWAY_PRODUCTS: "review_hog" },
       }),
-    ).toEqual({ baseUrl: GO, isAiGateway: true, aiProduct: "review_hog" });
+    ).toEqual({
+      baseUrl: GO,
+      isAiGateway: true,
+      aiProduct: "review_hog",
+      aiStage: "validation-c1",
+    });
   });
 
   it("honours an LLM_GATEWAY_URL override on the unrouted path", () => {
