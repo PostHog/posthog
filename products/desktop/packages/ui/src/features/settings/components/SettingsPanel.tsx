@@ -44,7 +44,6 @@ import {
   type SettingsCategory,
 } from "@posthog/ui/features/settings/types";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { type ReactNode, useState } from "react";
@@ -152,10 +151,8 @@ export function SettingsPanel({
   const { localWorkspaces } = useHostCapabilities();
   const quickAskAvailable = useQuickAskAvailable();
 
-  const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const hiddenCategories = getHiddenSettingsCategories({
     billingEnabled,
-    spendAnalysisEnabled,
     localWorkspaces,
     quickAskAvailable,
   });
