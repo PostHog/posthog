@@ -226,7 +226,7 @@ pub(crate) async fn recompute_stage2(
         writes,
         evaluated,
         composed,
-        repairs: RepairCounts::default(),
+        ..Default::default()
     })
 }
 
@@ -274,7 +274,8 @@ pub(crate) struct RegisterDiff {
 /// Before an emission the row must read the opposite of the truth, so a failed produce is
 /// re-derivable on redelivery; when it does not, stage 1 writes it. A silent apply leaves an
 /// agreeing row alone, so an active reconcile scan is not dirtied, and does not write an absent
-/// one, because nothing downstream needs a row for a person it was never told about.
+/// one, because nothing downstream needs a row for a person it was never told about. A corrupt row
+/// is replaced with a readable bit even on a silent apply so it does not fail every later decode.
 ///
 /// One batched `cf_stage2` read on `lane`. Leaves with no single-leaf cohort keyed on them cost
 /// nothing.
@@ -328,11 +329,15 @@ pub(crate) async fn diff_single_leaf_registers(
 
     let keys: Vec<Stage2Key> = wanted.keys().copied().collect();
     let stored = handle.multi_get_stage2(keys, lane).await?;
-    debug_assert_eq!(
-        wanted.len(),
-        stored.len(),
-        "multi_get_stage2 answers one entry per key, in order",
-    );
+    // A short answer would zip one register's bytes onto another register's key and silently drop
+    // the tail's emissions.
+    if stored.len() != wanted.len() {
+        return Err(StoreError::ShortRead {
+            op: "multi_get_stage2",
+            asked: wanted.len(),
+            answered: stored.len(),
+        });
+    }
 
     let mut changes = Vec::new();
     let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
@@ -407,8 +412,8 @@ pub(crate) async fn diff_single_leaf_registers(
             // The register diff evaluates nothing, so `STAGE2_COHORTS_EVALUATED` keeps meaning
             // composed evaluations.
             evaluated: 0,
-            composed: StatusCounts::default(),
             repairs,
+            ..Default::default()
         },
         stage1_writes,
     })
@@ -1602,17 +1607,73 @@ mod tests {
     #[tokio::test]
     async fn register_diff_emits_on_a_minted_transition_or_a_lagging_register() {
         use MembershipStatus::{Entered, Left};
-        // (stored, truth, minted) -> (change, stage-1 write, post-ack write)
+        // (stored, truth, minted) -> (change, stage-1 write, post-ack write, repairs)
         let cases = [
-            (None, true, false, Some(Entered), Some(false), Some(true)),
-            (None, true, true, Some(Entered), Some(false), Some(true)),
-            (None, false, false, None, None, None),
-            (None, false, true, Some(Left), Some(true), Some(false)),
-            (Some(false), true, false, Some(Entered), None, Some(true)),
-            (Some(false), true, true, Some(Entered), None, Some(true)),
-            (Some(true), false, false, Some(Left), None, Some(false)),
-            (Some(true), false, true, Some(Left), None, Some(false)),
-            (Some(true), true, false, None, None, None),
+            (
+                None,
+                true,
+                false,
+                Some(Entered),
+                Some(false),
+                Some(true),
+                (1, 0, 0),
+            ),
+            (
+                None,
+                true,
+                true,
+                Some(Entered),
+                Some(false),
+                Some(true),
+                (0, 0, 0),
+            ),
+            (None, false, false, None, None, None, (0, 0, 0)),
+            (
+                None,
+                false,
+                true,
+                Some(Left),
+                Some(true),
+                Some(false),
+                (0, 0, 0),
+            ),
+            (
+                Some(false),
+                true,
+                false,
+                Some(Entered),
+                None,
+                Some(true),
+                (0, 0, 1),
+            ),
+            (
+                Some(false),
+                true,
+                true,
+                Some(Entered),
+                None,
+                Some(true),
+                (0, 0, 0),
+            ),
+            (
+                Some(true),
+                false,
+                false,
+                Some(Left),
+                None,
+                Some(false),
+                (0, 0, 1),
+            ),
+            (
+                Some(true),
+                false,
+                true,
+                Some(Left),
+                None,
+                Some(false),
+                (0, 0, 0),
+            ),
+            (Some(true), true, false, None, None, None, (0, 0, 0)),
             (
                 Some(true),
                 true,
@@ -1620,8 +1681,9 @@ mod tests {
                 Some(Entered),
                 Some(false),
                 Some(true),
+                (0, 0, 0),
             ),
-            (Some(false), false, false, None, None, None),
+            (Some(false), false, false, None, None, None, (0, 0, 0)),
             (
                 Some(false),
                 false,
@@ -1629,9 +1691,12 @@ mod tests {
                 Some(Left),
                 Some(true),
                 Some(false),
+                (0, 0, 0),
             ),
         ];
-        for (stored, in_cohort, minted, want_change, want_stage1, want_post_ack) in cases {
+        for (stored, in_cohort, minted, want_change, want_stage1, want_post_ack, want_repairs) in
+            cases
+        {
             let why = format!("stored {stored:?}, truth {in_cohort}, minted {minted}");
             let (_dir, store) = temp_store();
             let filters = freeze(vec![behavioral_leaf(7)]);
@@ -1683,6 +1748,15 @@ mod tests {
                     .collect::<Vec<_>>(),
                 want_post_ack.into_iter().collect::<Vec<_>>(),
                 "{why}",
+            );
+            assert_eq!(repair_totals(diff.recompute.repairs), want_repairs, "{why}");
+            assert_eq!(
+                (
+                    diff.recompute.composed.entered,
+                    diff.recompute.composed.left
+                ),
+                (0, 0),
+                "{why}: register changes are not composed transitions",
             );
         }
     }
@@ -1836,7 +1910,12 @@ mod tests {
     /// emitted, a non-member is not, and either way stage 1 replaces the row with a readable bit.
     #[tokio::test]
     async fn a_corrupt_register_row_reads_as_never_told_and_is_replaced() {
-        for (in_cohort, want_changes) in [(true, 1), (false, 0)] {
+        for (in_cohort, minted, want_changes, want_stage1, want_repairs) in [
+            (true, false, 1, false, (0, 1, 0)),
+            (false, false, 0, false, (0, 0, 0)),
+            (true, true, 1, false, (0, 0, 0)),
+            (false, true, 1, true, (0, 0, 0)),
+        ] {
             let (_dir, store) = temp_store();
             let filters = freeze(vec![behavioral_leaf(7)]);
             let lsk = single_leaf_lsk(&filters, 1);
@@ -1855,7 +1934,12 @@ mod tests {
                 PARTITION,
                 &handle(&store),
                 &filters,
-                &[folded(lsk, alice, in_cohort)],
+                &[FoldedLeaf {
+                    leaf_state_key: lsk,
+                    person_id: alice,
+                    in_cohort,
+                    minted_transition: minted,
+                }],
                 EVENT_MS,
                 TS,
                 ReadLane::Maintenance,
@@ -1866,15 +1950,32 @@ mod tests {
             assert_eq!(
                 diff.recompute.changes.len(),
                 want_changes,
-                "truth {in_cohort}"
+                "truth {in_cohort}, minted {minted}"
             );
             assert_eq!(
                 diff.stage1_writes.len(),
                 1,
-                "truth {in_cohort}: the row is replaced"
+                "truth {in_cohort}, minted {minted}: the row is replaced"
             );
-            assert!(!diff.stage1_writes[0].1.in_cohort);
+            assert_eq!(diff.stage1_writes[0].1.in_cohort, want_stage1);
+            assert_eq!(repair_totals(diff.recompute.repairs), want_repairs);
+            assert_eq!(
+                (
+                    diff.recompute.composed.entered,
+                    diff.recompute.composed.left
+                ),
+                (0, 0),
+            );
         }
+    }
+
+    fn repair_totals(repairs: RepairCounts) -> (u64, u64, u64) {
+        let total = |counts: StatusCounts| counts.entered + counts.left;
+        (
+            total(repairs.absent),
+            total(repairs.corrupt),
+            total(repairs.mismatch),
+        )
     }
 
     /// Two single-leaf cohorts on one leaf both diff, and a leaf the catalog does not back costs

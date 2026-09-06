@@ -181,6 +181,16 @@ pub enum StoreError {
     )]
     SchemaMismatch { found: Option<u32>, expected: u32 },
 
+    /// A batched read answered fewer slots than it was asked keys. RocksDB answers one slot per
+    /// key, so this is a backend contract break rather than a data problem, and pairing a slot
+    /// with the wrong key would attribute one person's stored state to another.
+    #[error("{op}: batched read answered {answered} of {asked} keys")]
+    ShortRead {
+        op: &'static str,
+        asked: usize,
+        answered: usize,
+    },
+
     #[error("store offload cancelled by runtime shutdown")]
     OffloadCancelled,
 }

@@ -4,9 +4,10 @@
 //! ([`handle_seed`]) ordered register diff → stage-1 commit → stage-2 recompute → produce →
 //! stage-2 commit → mark.
 //!
-//! Every membership bit this path writes commits only after its produce acks, so a failed produce
-//! is re-derived on replay rather than lost against an advanced bit. Composed bits come from
-//! [`recompute_stage2`]; single-leaf ones from
+//! Before an emission, this path records the retired membership with stage 1 and advances it only
+//! after the produce acks. A failed produce is therefore re-derived while replay still folds the
+//! leaf. If the leaf expires before replay and is dropped by the fold, sweep or reconcile retires
+//! its stored state. Composed bits come from [`recompute_stage2`]; single-leaf ones from
 //! [`diff_single_leaf_registers`](crate::workers::stage2_path::diff_single_leaf_registers), which
 //! is why `Unchanged` leaves still take part. The replay mints no transition, so the persisted
 //! register is the only record of what downstream was told. Store and produce failures hold the
@@ -29,11 +30,11 @@ use crate::filters::reverse_index::{LeafStateMeta, TeamFilters};
 use crate::filters::TeamId;
 use crate::merge::tombstone_redirect::{self, Resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS};
 use crate::observability::metrics::{
-    COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_JOBS_ENQUEUED_TOTAL,
-    RECONCILE_JOBS_SUPERSEDED_TOTAL, SEED_HELD_OFFSET_GAUGE, SEED_REKEYED_TOTAL,
-    SEED_REKEY_HOP_CAPPED_TOTAL, SEED_REKEY_PRODUCE_FAILURE_TOTAL, SEED_TILES_APPLIED_TOTAL,
-    SEED_TILES_DROPPED_TOTAL, SEED_TILES_SKIPPED_TOTAL, SEED_TILES_UNCHANGED_TOTAL,
-    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
+    COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, OUTPUT_TRANSITIONS_UNMAPPED,
+    RECONCILE_JOBS_ENQUEUED_TOTAL, RECONCILE_JOBS_SUPERSEDED_TOTAL, SEED_HELD_OFFSET_GAUGE,
+    SEED_REKEYED_TOTAL, SEED_REKEY_HOP_CAPPED_TOTAL, SEED_REKEY_PRODUCE_FAILURE_TOTAL,
+    SEED_TILES_APPLIED_TOTAL, SEED_TILES_DROPPED_TOTAL, SEED_TILES_SKIPPED_TOTAL,
+    SEED_TILES_UNCHANGED_TOTAL, STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{ChangeOrigin, CohortMembershipChange, MembershipSink};
@@ -698,12 +699,7 @@ pub(crate) async fn handle_seed(
         }
     }
 
-    // Stage-1 flips, not emissions: the register diff owns what downstream is told.
-    for transition in &transitions {
-        if let Some(kind) = transition_metric_label(filters, transition) {
-            counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-        }
-    }
+    count_stage1_transitions(filters, &transitions);
     let stage2_leaves: Vec<(LeafStateKey, Uuid)> = leaves.iter().map(|leaf| leaf.pair()).collect();
     // `event_ms := now_ms`: `last_evaluated_at_ms` is a freshness stamp, and the worker-batch
     // `last_updated` makes backfill flips win LWW downstream.
@@ -949,6 +945,25 @@ pub(crate) fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
     }
 }
 
+/// Count stage-1 flips without deriving emissions, which the seed register diff owns.
+pub(crate) fn count_stage1_transitions(filters: &TeamFilters, transitions: &[LeafTransition]) {
+    for transition in transitions {
+        if let Some(kind) = transition_metric_label(filters, transition) {
+            counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
+        }
+        if filters
+            .by_lsk_to_single_leaf_cohorts
+            .get(&transition.leaf_state_key)
+            .is_none_or(Vec::is_empty)
+            && !filters
+                .by_lsk_to_composable_cohorts
+                .contains_key(&transition.leaf_state_key)
+        {
+            counter!(OUTPUT_TRANSITIONS_UNMAPPED, "reason" => "no_emitting_cohort").increment(1);
+        }
+    }
+}
+
 /// Advance the seed tracker past `offset`. A mark beyond the dispatch ceiling is capped and counted.
 pub(crate) fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
     if let MarkOutcome::CappedAheadOfDispatch =
@@ -978,6 +993,7 @@ mod tests {
 
     use chrono_tz::America::New_York;
     use chrono_tz::UTC;
+    use metrics_exporter_prometheus::PrometheusBuilder;
     use proptest::prelude::*;
     use serde_json::{json, Value};
     use tempfile::TempDir;
@@ -1004,6 +1020,28 @@ mod tests {
     use super::*;
 
     const TEAM: TeamId = TeamId(7);
+
+    #[test]
+    fn an_unmapped_seed_transition_keeps_its_diagnostic() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let filters = build_filters(Vec::new(), UTC);
+        let transition = LeafIdentity {
+            team_id: TEAM,
+            lsk: LeafStateKey([0xEE; 16]),
+            person_id: Uuid::from_u128(1),
+            condition_hash: [0xDD; 16],
+        }
+        .transition(TransitionKind::Entered);
+
+        metrics::with_local_recorder(&recorder, || {
+            count_stage1_transitions(&filters, &[transition]);
+        });
+
+        assert!(handle
+            .render()
+            .contains("output_transitions_unmapped_total{reason=\"no_emitting_cohort\"} 1"));
+    }
     const HASH: [u8; 16] = *b"0123456789abcdef";
     /// A fixed "now": 2026-06-15 12:00:00 UTC.
     const NOW_MS: i64 = 1_781_524_800_000;
@@ -1485,10 +1523,9 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(64))]
 
-        /// The register diff derives its change from [`leaf_membership`] over the folded state,
-        /// where the derivation it replaced used the transition the merge minted. The two must
-        /// agree over any tile sequence and either comparator direction, or a first apply would
-        /// emit a change stage 1 never flipped, or swallow one it did.
+        /// The register diff and the stage-1 transition must agree over any tile sequence and
+        /// comparator direction. Otherwise, a first apply can emit a change stage 1 never flipped
+        /// or swallow one it did.
         #[test]
         fn leaf_membership_agrees_with_the_transition_the_merge_mints(
             tiles in prop::collection::vec((0i32..=12, 1u32..=5, 0i32..=3), 1..10),

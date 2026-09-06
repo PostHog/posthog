@@ -919,6 +919,7 @@ async fn seed_tile_applies_on_the_owning_worker_and_commits_to_the_hwm() {
 struct FailFirstMembershipSink {
     inner: Arc<dyn MembershipSink>,
     fail_next: AtomicBool,
+    failed: AtomicBool,
 }
 
 #[async_trait]
@@ -928,6 +929,7 @@ impl MembershipSink for FailFirstMembershipSink {
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), common_kafka::kafka_producer::KafkaProduceError>> {
         if self.fail_next.swap(false, Ordering::SeqCst) {
+            self.failed.store(true, Ordering::SeqCst);
             return changes
                 .iter()
                 .map(|_| Err(common_kafka::kafka_producer::KafkaProduceError::KafkaProduceCanceled))
@@ -1007,13 +1009,14 @@ async fn a_failed_seed_produce_is_re_emitted_after_a_restart() {
         let handles = register_instance(&mut manager);
         let shutdown = handles[0].clone();
         let monitor = manager.monitor_background();
-        let failing: Arc<dyn MembershipSink> = Arc::new(FailFirstMembershipSink {
+        let failing = Arc::new(FailFirstMembershipSink {
             inner: Arc::new(
                 KafkaMembershipSink::new(&producer_kafka_config(), topics.shadow.clone())
                     .await
                     .expect("create membership sink"),
             ),
             fail_next: AtomicBool::new(true),
+            failed: AtomicBool::new(false),
         });
         let instance = spawn_instance(
             &topics,
@@ -1022,7 +1025,7 @@ async fn a_failed_seed_produce_is_re_emitted_after_a_restart() {
             seed_catalog(),
             handles,
             2_000,
-            Some(failing),
+            Some(failing.clone()),
         )
         .await;
         wait_for(
@@ -1047,6 +1050,12 @@ async fn a_failed_seed_produce_is_re_emitted_after_a_restart() {
         .await;
 
         let seed_partition = part(alice);
+        wait_for(
+            "the first membership produce to fail",
+            Duration::from_secs(60),
+            || failing.failed.load(Ordering::SeqCst),
+        )
+        .await;
         assert!(
             !await_register(&instance, &register).await.in_cohort,
             "the bit must not advance past a failed produce",

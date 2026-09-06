@@ -24,7 +24,7 @@ use crate::observability::metrics::{
     PERSON_SEEDS_APPLIED_TOTAL, PERSON_SEEDS_DROPPED_TOTAL, PERSON_SEEDS_SKIPPED_TOTAL,
     PERSON_SEEDS_UNCHANGED_TOTAL, PERSON_SEED_HASHES_DROPPED_TOTAL,
     PERSON_SEED_PRIOR_CORRUPT_TOTAL, PERSON_SEED_REKEYED_TOTAL, PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
-    PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
+    PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
 };
 use crate::producer::{CohortMembershipChange, MembershipSink};
 use crate::stage1::key::LeafStateKey;
@@ -40,13 +40,13 @@ use crate::store::{
     StoreHandle,
 };
 use crate::workers::merge_path::MergeWorkerDeps;
-use crate::workers::seed_path::{hold, mark_processed, route_seed, tag_seed, SeedRoute};
+use crate::workers::seed_path::{
+    count_stage1_transitions, hold, mark_processed, route_seed, tag_seed, SeedRoute,
+};
 use crate::workers::stage2_path::{
     commit_stage2_writes, diff_single_leaf_registers, recompute_stage2, FoldedLeaf, Stage2Recompute,
 };
-use crate::workers::worker::{
-    first_cascades, produce_cascades, produce_membership, transition_metric_label,
-};
+use crate::workers::worker::{first_cascades, produce_cascades, produce_membership};
 
 /// Person-property seed admission for the partition workers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -546,15 +546,6 @@ fn folded_leaves(
         .collect()
 }
 
-/// Stage-1 flips, not emissions: the register diff owns what downstream is told.
-fn count_stage1_transitions(filters: &TeamFilters, transitions: &[LeafTransition]) {
-    for transition in transitions {
-        if let Some(kind) = transition_metric_label(filters, transition) {
-            counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-        }
-    }
-}
-
 /// The seed's hashes projected onto the team's live person-property catalog.
 struct EffectiveHashes {
     /// Sorted and distinct, so [`effective_hashes`] can binary-search it.
@@ -849,6 +840,13 @@ mod tests {
                 .unwrap();
         }
 
+        fn put_corrupt_record(&self, partition_id: u16, person: Uuid) {
+            let key = PersonPrefix::new(partition_id, TEAM.0 as u64, person).record_key();
+            self.store
+                .write_batch(|batch| batch.put::<PersonRecords>(&key, b"not a person record"))
+                .unwrap();
+        }
+
         /// A new tenure over the same store, catalog, and sinks: fresh offset trackers, the way a
         /// restart or rebalance re-assigns the partition at `Offset::Stored` and replays whatever a
         /// hold pinned.
@@ -977,6 +975,7 @@ mod tests {
             live,
             "the record is byte-identical: no write at all",
         );
+        assert!(shell.stage2(partition_id, person, 1).unwrap().in_cohort);
         assert!(shell.sink.changes().is_empty());
         assert_eq!(shell.committable(partition_id), Some(1));
     }
@@ -1011,6 +1010,23 @@ mod tests {
             .is_empty());
         let changes = shell.sink.changes();
         assert_eq!(changes.len(), 1, "cohort 1 only: cohort 2 was never in");
+        assert_eq!(changes[0].cohort_id, 1);
+        assert_eq!(changes[0].status, MembershipStatus::Left);
+        assert!(!shell.stage2(partition_id, person, 1).unwrap().in_cohort);
+    }
+
+    #[tokio::test]
+    async fn a_nonmatching_seed_retracts_a_true_register_over_a_corrupt_record() {
+        let (person, partition_id) = dormant_person();
+        let mut shell = Shell::new(mixed_cohorts());
+        shell.put_corrupt_record(partition_id, person);
+        shell.put_register(partition_id, person, 1, true);
+
+        let seed = seed_for(person, &[PERSON_HASH], &[], now_ms());
+        shell.run(partition_id, &seed, 0).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].cohort_id, 1);
         assert_eq!(changes[0].status, MembershipStatus::Left);
         assert!(!shell.stage2(partition_id, person, 1).unwrap().in_cohort);
