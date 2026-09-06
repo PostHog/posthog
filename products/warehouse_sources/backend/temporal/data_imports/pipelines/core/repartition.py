@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
+import pyarrow.dataset as pads
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
@@ -854,6 +855,54 @@ def select_coarsen_target(
     return None, "unsupported_mode"
 
 
+def _rows_per_source_file(old_delta: deltalake.DeltaTable) -> dict[str, int]:
+    """Row count per data file, keyed by file name, read from the Delta log (metadata only)."""
+    actions = old_delta.get_add_actions(flatten=True)
+    names = actions.schema.names
+    if "path" not in names or "num_records" not in names:
+        return {}
+    paths = actions.column("path").to_pylist()
+    counts = actions.column("num_records").to_pylist()
+    return {path.rsplit("/", 1)[-1]: count or 0 for path, count in zip(paths, counts) if path}
+
+
+def _drop_copied_source_files(
+    old_delta: deltalake.DeltaTable, dataset: pads.Dataset, skip_rows: int
+) -> tuple[pads.Dataset, int]:
+    """Trim the source files a resumed rewrite already copied, returning the rows left to skip.
+
+    The scan hands batches over one file at a time in the order `get_fragments` lists them, so the
+    `skip_rows` prefix temp already holds is exactly the leading whole files whose row counts sum
+    under it, plus part of the file that straddles the boundary. Dropping those files costs one
+    Delta-log read; discarding their rows batch by batch costs a full decode of every one of them, on
+    the same activity budget as the rows the attempt still has to write. So on a table that needs
+    several budgets the prefix grows until re-reading it fills a budget on its own, and an attempt that
+    appends nothing is what the controller counts against its give-up cap.
+
+    Only whole files are dropped, so the boundary file is still skipped row by row.
+    """
+    if not isinstance(dataset, pads.FileSystemDataset):
+        return dataset, skip_rows
+
+    per_file = _rows_per_source_file(old_delta)
+    fragments = list(dataset.get_fragments())
+    copied = 0
+    boundary = 0
+    for fragment in fragments:
+        rows = per_file.get(fragment.path.rsplit("/", 1)[-1])
+        if rows is None:
+            rows = fragment.count_rows()
+        if copied + rows > skip_rows:
+            break
+        copied += rows
+        boundary += 1
+
+    if boundary == 0:
+        return dataset, skip_rows
+    trimmed = pads.FileSystemDataset(fragments[boundary:], dataset.schema, dataset.format, dataset.filesystem)
+    return trimmed, skip_rows - copied
+
+
 def _read_next_batch(reader: pa.RecordBatchReader) -> pa.RecordBatch | None:
     try:
         return reader.read_next_batch()
@@ -902,9 +951,11 @@ async def _rewrite_into_temp(
     `total_rows` is the source row count, used only to report progress as a percentage and an ETA.
 
     `skip_rows` resumes a prior attempt that ran out of budget: temp already holds a scan-ordered
-    prefix of `skip_rows` rows, so this call reads-and-discards that many source rows (the source is
-    immutable during the rewrite, so the scan order is stable) and appends only the remainder. The
-    rewrite writes in `append` mode, so resuming builds on the existing temp rather than replacing it.
+    prefix of `skip_rows` rows, so this call skips that many source rows (the source is immutable
+    during the rewrite, so the scan order is stable) and appends only the remainder. Whole source files
+    inside the prefix are dropped from the scan on their recorded row counts, so only the file that
+    straddles the boundary is read-and-discarded. The rewrite writes in `append` mode, so resuming
+    builds on the existing temp rather than replacing it.
     """
     await logger.ainfo(
         f"repartition: rewrite starting target_scheme={_format_scheme(target)} total_rows={total_rows} "
@@ -916,6 +967,12 @@ async def _rewrite_into_temp(
     )
 
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
+    if skip_rows:
+        dataset, skip_rows = await asyncio.to_thread(_drop_copied_source_files, old_delta, dataset, skip_rows)
+        await logger.ainfo(
+            f"repartition: resume dropped the source files already copied, {skip_rows} rows left to skip",
+            rows_to_skip=skip_rows,
+        )
     reader = await asyncio.to_thread(
         lambda: dataset.scanner(
             batch_size=batch_size,
