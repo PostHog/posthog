@@ -674,11 +674,14 @@ def _active_feature_flags_json(
     )
 
 
-def _active_feature_flags_present(raw: ast.Expr, feature_flags: ast.Expr, restricted_keys: list[str]) -> ast.Expr:
+def _active_feature_flags_present(
+    raw: ast.Expr, stored_flags: ast.Expr, feature_flags: ast.Expr, restricted_keys: list[str]
+) -> ast.Expr:
     return _call(
-        "or",
+        "if",
         [
             _call("notEmpty", [raw]),
+            _call("or", [_call("equals", [clone_expr(raw), _const("[]")]), _call("notEmpty", [stored_flags])]),
             _call("notEmpty", [_filter_feature_flags(feature_flags, restricted_keys)]),
         ],
     )
@@ -1292,8 +1295,8 @@ class ClickHousePropertyResolver(CloningVisitor):
                         *[self.visit(arg) for arg in node.args[2:]],
                     ],
                 )
-            raw, _, _ = _active_feature_flags(field_type, feature_flags, restricted_keys)
-            return _active_feature_flags_present(raw, feature_flags, restricted_keys)
+            raw, stored_flags, _ = _active_feature_flags(field_type, feature_flags, restricted_keys)
+            return _active_feature_flags_present(raw, stored_flags, feature_flags, restricted_keys)
         if first_key == "$feature_flags":
             return ast.Call(
                 name="notEmpty",
@@ -1832,8 +1835,8 @@ class ClickHousePropertyResolver(CloningVisitor):
 
             if constant_expr.value is None:
                 if active_feature_flags is not None:
-                    raw, _, _, feature_flags, restricted_keys = active_feature_flags
-                    is_set = _active_feature_flags_present(raw, feature_flags, restricted_keys)
+                    raw, stored_flags, _, feature_flags, restricted_keys = active_feature_flags
+                    is_set = _active_feature_flags_present(raw, stored_flags, feature_flags, restricted_keys)
                     return is_set if node.op == ast.CompareOperationOp.NotEq else _call("not", [is_set])
                 assert array_expr is not None
                 is_set = _call("notEmpty", [clone_expr(array_expr)])
