@@ -770,6 +770,16 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* A drag region covers every pixel in its bounds that does not opt out. A text
+   field inside one gives the press to the window manager, so the caret does not
+   move and the drag moves the window. Text editing wins over window dragging
+   here, which keeps a new field near the top of the window safe by default. */
+input,
+textarea,
+[contenteditable]:not([contenteditable="false"]) {
+  -webkit-app-region: no-drag;
+}
+
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
