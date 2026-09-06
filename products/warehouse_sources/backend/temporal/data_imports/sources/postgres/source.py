@@ -1312,8 +1312,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 api_version=api_version,
                 require_ssl=require_ssl,
             )
-        except SSLRequiredError:
-            return False, _SSL_UNSUPPORTED_ERROR
+        except SSLRequiredError as e:
+            # Real callers only raise this when `require_ssl` is set (see `_connect_to_postgres`),
+            # so the setup-time actionable copy belongs here. A caller that explicitly probed with
+            # `require_ssl=False` and still got this exception (only reachable in tests that mock
+            # the connection directly) keeps the exception's own wording rather than claiming an SSH
+            # tunnel opt-out that was never relevant to the probe just made.
+            if require_ssl:
+                return False, _SSL_UNSUPPORTED_ERROR
+            return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in PostgresErrors.items():
