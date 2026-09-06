@@ -11,7 +11,8 @@
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, and paths-filter mirror the canonical
-#   composites; any deltas are documented in each mirror's header)
+#   composites; any deltas are documented in each mirror's header). setup-turbo has no
+#   mirror because there is nothing Depot needs to strip from it.
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -865,10 +866,8 @@ jobs:
             # pnpm-install and setup-python; mint stripped here (secret not
             # available on Depot), so setup-python keeps the bot PAT.
             - parallel:
-                  - name: Install pnpm dependencies
-                    uses: ./.depot/actions/pnpm-install
-                    with:
-                        install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  - name: Set up pnpm and Node
+                    uses: ./.depot/actions/setup-pnpm
                   - name: Set up Python
                     uses: ./.depot/actions/setup-python-cached
                     with:
@@ -879,6 +878,10 @@ jobs:
                     with:
                         toolchain: 1.91.1
                         components: cargo
+            # Needs pnpm from the block above, so it cannot run inside it.
+            - name: Install turbo
+              uses: ./.github/actions/setup-turbo
+
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -1049,7 +1052,7 @@ jobs:
                       echo "::group::turbo backend:test $leg_filters $leg_args"
                       # Word splitting is intended here: both variables carry several flags.
                       # shellcheck disable=SC2086
-                      pnpm turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
+                      turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
                       exit_code=$?
                       echo "::endgroup::"
                       if [ $exit_code -eq 5 ]; then
@@ -2301,7 +2304,7 @@ jobs:
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
-                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_targets="./posthog/clickhouse/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086

@@ -8,12 +8,13 @@ import { LemonButton, LemonInput, LemonTag, Link, Spinner } from '@posthog/lemon
 import { TZLabel } from 'lib/components/TZLabel'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
+import { observationDetailUrl } from '../observations/replayObservationLogic'
+import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 import type { ReplayScanner } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
 import { observationSearchLogic } from './observationSearchLogic'
@@ -95,17 +96,19 @@ function SearchResultCard({
     searchedQuery,
     showScanner,
     strongMatch,
+    returnParams,
 }: {
     result: ObservationSearchResultApi
     searchedQuery: string
     showScanner: boolean
     strongMatch: boolean
+    returnParams: Record<string, string>
 }): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
         <Link
-            to={urls.replayVisionObservation(observation.id)}
+            to={observationDetailUrl(observation.id, returnParams)}
             className="block border rounded p-3 bg-surface-primary hover:border-accent space-y-2 text-primary"
             data-attr="vision-search-result"
         >
@@ -168,6 +171,9 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
     } = useValues(logic)
     const { setQuery, search } = useActions(logic)
     const crossScanner = scanner === null
+    // A scanner-scoped search lives in the scanner URL, so a result can point back at the query it came from.
+    const returnParams: Record<string, string> =
+        crossScanner || !searchedQuery ? {} : { tab: ReplayScannerTab.Search, q: searchedQuery }
     const tryQueries = suggestedQueries.length > 0 ? suggestedQueries : exampleQueries(scanner)
     const runQuery = (value: string): void => {
         setQuery(value)
@@ -258,6 +264,7 @@ export function ObservationSearchTab({ scanner }: { scanner: ReplayScanner | nul
                                         result={result}
                                         searchedQuery={searchedQuery ?? ''}
                                         showScanner={crossScanner}
+                                        returnParams={returnParams}
                                         strongMatch={
                                             strongMatchDistanceCutoff !== null &&
                                             result.distance <= strongMatchDistanceCutoff

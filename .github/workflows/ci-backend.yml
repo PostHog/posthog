@@ -825,10 +825,11 @@ jobs:
                   skip-token-revoke: true
 
             - parallel:
-                  - name: Install pnpm dependencies
-                    uses: ./.github/actions/pnpm-install
+                  # turbo launches each backend:test script through pnpm, so pnpm and
+                  # Node must stay on PATH even though nothing here reads the workspace.
+                  - name: Set up pnpm and Node
+                    uses: ./.github/actions/setup-pnpm
                     with:
-                        install-command: pnpm install --frozen-lockfile --filter=@posthog/root
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
                   - name: Set up Python
@@ -842,6 +843,10 @@ jobs:
                     with:
                         toolchain: 1.91.1
                         components: cargo
+
+            # Needs pnpm from the block above, so it cannot run inside it.
+            - name: Install turbo
+              uses: ./.github/actions/setup-turbo
 
             - name: Install uv
               id: setup-uv
@@ -1070,7 +1075,7 @@ jobs:
                       echo "::group::turbo backend:test $leg_filters $leg_args"
                       # Word splitting is intended here: both variables carry several flags.
                       # shellcheck disable=SC2086
-                      pnpm turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
+                      turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
                       exit_code=$?
                       echo "::endgroup::"
                       if [ $exit_code -eq 5 ]; then
@@ -3352,7 +3357,7 @@ jobs:
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
-                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_targets="./posthog/clickhouse/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086

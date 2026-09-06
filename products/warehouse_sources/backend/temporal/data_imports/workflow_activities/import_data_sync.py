@@ -148,9 +148,19 @@ WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
+# Opening the parent's Delta table costs a few seconds that paging the vendor listing does not:
+# resolve the table, read the transaction log, start the scan. That cost is fixed, while the
+# listing it replaces grows with the parent, so a small parent pays more than it saves. Measured
+# after the conversion shipped, the swap costs ~3s a run against a listing of ~0.5s per 100-row
+# page, putting break-even near 700 rows. This floor sits above it with margin.
+MIN_WAREHOUSE_PARENT_ROWS = 1_000
+
 
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
-    """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
+    """Why a fan-out child can't read this parent from the warehouse, or None when it can.
+
+    Reads the parent's row count, so callers have to run this where a query is allowed.
+    """
     if parent is None:
         return "missing"
     if not parent.should_sync:
@@ -159,6 +169,11 @@ def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
         return "unsupported_sync_type"
     if not parent.initial_sync_complete:
         return "no_initial_sync"
+    parent_rows = parent.table.row_count if parent.table else None
+    if parent_rows is None or parent_rows < MIN_WAREHOUSE_PARENT_ROWS:
+        # An unknown count is treated as too small: it cannot be shown to pay for the read, and
+        # the API path it falls back to is what the child does today anyway.
+        return "parent_too_small"
     return None
 
 
@@ -188,7 +203,7 @@ async def _warehouse_parent_reuse_available(
 
     for parent_name in required_parents:
         parent = await database_sync_to_async_pool(get_schema_if_exists)(parent_name, team_id, source_id)
-        unusable_reason = _parent_unusable_reason(parent)
+        unusable_reason = await database_sync_to_async_pool(_parent_unusable_reason)(parent)
         if unusable_reason is not None:
             await logger.ainfo(
                 "data_imports.fanout_parent_unusable",
@@ -530,6 +545,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
+                activity_attempt=activity.info().attempt if activity.in_activity() else 1,
             )
 
             try:

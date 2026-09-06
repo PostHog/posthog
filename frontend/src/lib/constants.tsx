@@ -180,14 +180,6 @@ export const FEATURE_FLAGS = {
     CHRISTMAS_OVERRIDE: 'christmas-override', // owner: #team-growth, overrides the checks for Christmas to return true when this is enabled
     HALLOWEEN_OVERRIDE: 'halloween-override', // owner: #team-growth, overrides the checks for Halloween to return true when this is enabled
 
-    // UX flags, used to control the UX of the app
-    CREATE_BUTTON_NAV_EXPERIMENT: 'create-button-nav-experiment', // owner: #team-platform-ux multivariate=control,test — adds a Create dropdown to the top of the Browse tab in the left nav
-    FLAT_NAV: 'flat-nav', // owner: @rafaeelaudibert #team-growth, swaps the tree-based left nav for the flat sidebar, see FlatNav.tsx
-    GITHUB_FIRST_SELF_DRIVING_ONBOARDING: 'github-first-self-driving-onboarding', // owner: #team-self-driving
-    INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',
-    STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
-    UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
-
     // Feature flags used to control opt-in for different behaviors, should not be removed
     ACCESS_CONTROL_DETAIL_PANEL: 'access-control-detail-panel', // owner: @a-lider #team-platform-features, gates the member and role access detail side panel
     ACCESS_CONTROL_RESOLUTION_PREVIEW: 'access-control-resolution-preview', // owner: @a-lider #team-platform-features, gates the access resolution preview settings section and its banner
@@ -208,14 +200,12 @@ export const FEATURE_FLAGS = {
     PERSON_PROPERTY_INCIDENT_ANNOTATION_JAN_2026: 'person-property-incident-annotation-jan-2026', // owner: #team-platform-features, shows system annotation for Jan 6-7 2026 person property incident
     REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU: 'replay-exclude-from-hide-recordings-menu', // owner: #team-replay, used to exclude what other people are seeing in Replay
     SHOW_UPGRADE_TO_MANAGED_ACCOUNT: 'show-upgrade-to-managed-account', // owner: #team-billing, used to give free accounts a way to force upgrade to managed account
-    SQL_BOX_PLOT_INSIGHT: 'sql-box-plot-insight', // owner: @pauldambra #team-product-analytics
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion, used to disable webhooks for certain companies
 
     // Legacy flags, TBD if they need to be removed
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports', // owner: #team-batch-exports
     BEHAVIORAL_PROPERTY_FILTER: 'behavioral-property-filter', // owner: #team-product-analytics, inline "performed event" filter on insights
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
-    BOX_PLOT_INSIGHT: 'box-plot-insight', // owner: @pauldambra #team-product-analytics
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
     HEATMAPS_CLICKMAP_DISCRIMINATORS: 'heatmaps-clickmap-discriminators', // owner: #team-web-analytics
@@ -223,7 +213,6 @@ export const FEATURE_FLAGS = {
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
     HEATMAPS_CREATION_FLOW: 'heatmaps-creation-flow', // owner: #team-web-analytics, gates the guided heatmap creation wizard at /heatmaps/new
     HEATMAPS_EVENT_FILTER: 'heatmaps-event-filter', // owner: #team-web-analytics
-    HEATMAPS_RECORDING_CLICKMAP: 'heatmaps-recording-clickmap', // owner: #team-web-analytics
     HEATMAPS_SCREENSHOT_PREWARM: 'heatmaps-screenshot-prewarm', // owner: #team-web-analytics, pre-renders the screenshot while entering a URL in the wizard
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: #team-data-modeling
@@ -236,6 +225,7 @@ export const FEATURE_FLAGS = {
     REPLAY_PLAYER_PERSON_SESSIONS_TAB: 'replay-player-person-sessions-tab', // owner: @ksvat #team-replay
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
     SCOUTS_MODEL_CONFIG: 'scouts-model-config', // owner: #team-self-driving, gates the per-scout model pin in the inbox scout settings (also checked server-side)
+    SCOUTS_SUGGESTIONS_UI: 'scouts-suggestions-ui', // owner: #team-self-driving, gates the pre-computed scout suggestions strip on the inbox scouts tab (the producer is the separate signals-scout-suggestions flag)
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
@@ -294,6 +284,7 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_ACCOUNT_SCENE: 'customer-analytics-account-scene', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_CSP: 'customer-analytics-csp', // owner: @arthurdedeus #team-customer-analytics, gates the Customer analytics > Accounts settings tab (account_group_type_index dropdown)
+    CUSTOMER_ANALYTICS_CUSTOMER_TASKS: 'customer-analytics-customer-tasks', // owner: @arthurdedeus #team-web-analytics
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS: 'customer-analytics-feature-requests',
     CUSTOMER_ANALYTICS_JOURNEYS: 'customer-analytics-journeys', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_TRACK_RULES: 'customer-analytics-track-rules', // owner: @arthurdedeus #team-customer-analytics
@@ -352,12 +343,15 @@ export const FEATURE_FLAGS = {
     FIELD_NOTES: 'field-notes', // owner: @adamleith
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
+    FLAT_NAV: 'flat-nav', // owner: @rafaeelaudibert #team-growth multivariate=control,test, swaps the tree-based Browse tab for the flat sidebar, see FlatNavBrowse.tsx
+    GITHUB_FIRST_SELF_DRIVING_ONBOARDING: 'github-first-self-driving-onboarding', // owner: #team-self-driving
     GITHUB_WORKFLOW_TRIGGERS: 'github-workflow-triggers', // owner: #team-workflows-cdp
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_REDESIGN: 'inbox-redesign', // owner: #team-self-driving, gates the inbox redesign: report sections, triage mode, the Settings tab, and scout cards
+    INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
     INSIGHT_EXPORT_NUDGE: 'insight-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported an insight toward a recurring subscription
@@ -387,7 +381,6 @@ export const FEATURE_FLAGS = {
     LOGS_TRANSFORMATIONS: 'logs-transformations', // owner: #team-logs
     MANAGED_MIGRATIONS_IAM_ROLE_AUTH: 'managed-migrations-iam-role-auth', // owner: #team-ingestion, gates IAM role auth for S3 batch imports
     MANAGED_MIGRATIONS_TRIAL_RUNS: 'managed-migrations-trial-runs', // owner: #team-ingestion, gates trial runs for managed migrations
-    MANAGED_REVERSE_PROXY_ROOT_REDIRECT: 'managed-reverse-proxy-root-redirect', // owner: @reecejones #team-platform-features
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_ATTRIBUTION: 'marketing-analytics-attribution', // owner: @jabahamondes #team-web-analytics — gates the Attribution tab
@@ -447,9 +440,9 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG: 'posthog-ai-conversation-feedback-config', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
-    POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-posthog-code
+    POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-desktop
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
-    POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-posthog-code
+    POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-desktop
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
@@ -523,10 +516,8 @@ export const FEATURE_FLAGS = {
     TASKS: 'tasks', // owner: #team-ai-observability
     TASKS_STREAM_VIA_PROXY: 'tasks-stream-via-proxy', // owner: #team-ai-observability
     TAXONOMIC_FILTER_CATEGORY_DROPDOWN: 'taxonomic-filter-category-dropdown', // owner: @pauldambra #team-product-analytics multivariate=control,pill
-    TAXONOMIC_FILTER_DEFAULT_PINS: 'taxonomic-filter-default-pins', // owner: @pauldambra #team-product-analytics, seeds $current_url/email default pinned filters
     TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the rebuilt TaxonomicFilter — headless filter panel + new popover menu (column / preview-pane)
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
-    TOOLBAR_HEATMAP_AREA_FILTER: 'toolbar-heatmap-area-filter', // owner: @pauldambra #team-replay, gates the target button that filters the toolbar heatmap/clickmap to a chosen page area
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRACING_FACET_RAIL: 'tracing-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in tracing
     TRACING_LATENCY_HEATMAP: 'tracing-latency-heatmap', // owner: #team-apm — gates the latency-over-time heatmap chart in tracing
@@ -538,6 +529,7 @@ export const FEATURE_FLAGS = {
     UI_CUSTOMIZATION: 'ui-customization-enabled', // owner: @fercgomes #team-self-driving, gates sidebar/homepage UI customization
     UNIFIED_APM_PRODUCT: 'unified-apm-product', // owner: #team-apm (@jonmcwest, @frankh), gates the shared APM product backing logs, tracing, and metrics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
+    UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_ENTRYPOINT_EXPERIMENTS: 'vision-entrypoint-experiments', // owner: #team-replay, cross-sell entry points from experiments
     VISION_GOAL_BASED_CREATION_FLOW: 'vision-goal-based-creation-flow', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too

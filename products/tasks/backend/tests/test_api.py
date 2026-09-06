@@ -156,10 +156,10 @@ vbMnD1ZQKgL8LHgb02cbTsc=
 -----END PRIVATE KEY-----"""
 
 
-# A discuss-report kickoff prompt: the report URL line the frontend prepends, then the user's question.
+# A discuss-report kickoff prompt: the report URL line the web app prepends, then the user's question.
 _DISCUSS_PROMPT = (
-    "Let's discuss this PostHog Inbox report: "
-    "https://us.posthog.com/project/2/inbox/reports/x\n\nIs this still happening?"
+    "Answer this question about the PostHog Inbox report at "
+    "https://us.posthog.com/project/2/inbox/reports/x:\n\nIs this still happening?"
 )
 
 
@@ -1970,16 +1970,19 @@ class TestTaskAPI(BaseTaskAPITest):
         else:
             self.assertFalse(notes.exists())
 
-    def _post_discussion_task(self, report_id, description=_DISCUSS_PROMPT):
+    def _post_discussion_task(self, report_id, description=_DISCUSS_PROMPT, discussion_question=None):
+        data = {
+            "title": "Discuss report",
+            "description": description,
+            "origin_product": "signal_report",
+            "signal_report": str(report_id),
+            "signal_report_task_relationship": "discussion",
+        }
+        if discussion_question is not None:
+            data["signal_report_discussion_question"] = discussion_question
         return self.client.post(
             "/api/projects/@current/tasks/",
-            {
-                "title": "Discuss report",
-                "description": description,
-                "origin_product": "signal_report",
-                "signal_report": str(report_id),
-                "signal_report_task_relationship": "discussion",
-            },
+            data,
             format="json",
         )
 
@@ -2098,6 +2101,25 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(self._discussion_notes().exists())
+
+    @parameterized.expand([("question", "Why now?", True), ("blank", "", False)])
+    def test_explicit_discussion_question_controls_forwarding(self, _name, question, should_forward):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="New report title")
+        response = self._post_discussion_task(
+            report.id,
+            description="Discuss report: Old report title — stale question",
+            discussion_question=question,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        if should_forward:
+            note = self._discussion_notes().get()
+            self.assertIn("Why now?", note.content)
+            self.assertNotIn("stale question", note.content)
+        else:
+            self.assertFalse(self._discussion_notes().exists())
 
     def test_create_task_with_signal_report_accepts_free_form_relationship(self):
         from products.signals.backend.models import SignalReport, SignalReportTask

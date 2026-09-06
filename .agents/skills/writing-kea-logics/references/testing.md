@@ -87,6 +87,23 @@ Common assertion methods from `kea-test-utils`:
 | `.toFinishListener(actionName)`       | Awaits a specific listener.                                   |
 | `partial({ ... })` / `truth(fn)`      | Helpers for value matching.                                   |
 
+## Breakpoint timing in Jest
+
+The frontend Jest setup keeps kea breakpoint cancellation but shortens
+`breakpoint(ms)` to a zero-delay timer task. A bare `breakpoint()` is unchanged. When
+Jest fake timers are active, delayed breakpoints keep their requested duration.
+
+- If the delay itself is behavior, call `jest.useFakeTimers()` before dispatching the
+  action, advance the exact duration, and restore real timers after the test.
+- If the test must observe an API request while it is pending, do not depend on the
+  breakpoint delay. Make the HTTP mock await a test-controlled promise, assert the
+  pending state, then resolve the promise and assert the settled state.
+- If only the settled result matters, await that result with `expectLogic`, `waitFor`,
+  or the matching loader action.
+
+See [writing-tests](../../writing-tests/SKILL.md) for the general async state-transition
+rule. Never add logic-path exceptions to the Jest breakpoint wrapper.
+
 ## Parameterise
 
 Per repo convention ([CLAUDE.md](../../../../CLAUDE.md)), parameterise variations of the

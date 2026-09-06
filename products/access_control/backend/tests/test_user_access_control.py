@@ -1775,6 +1775,22 @@ class TestResourceInheritance(BaseUserAccessControlTest):
         assert resource_access and resource_access.access_level == "none"
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is False
 
+    def test_customer_task_inherits_customer_analytics_access(self):
+        assert RESOURCE_INHERITANCE_MAP["customer_task"] == "customer_analytics"
+
+        self._create_access_control(
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        customer_task_access = self.user_access_control.access_level_for_resource("customer_task")
+        assert customer_task_access and customer_task_access.access_level == "viewer"
+        assert self.user_access_control.check_access_level_for_resource("customer_task", "viewer") is True
+        assert self.user_access_control.check_access_level_for_resource("customer_task", "editor") is False
+
     def test_support_ticket_rule_does_not_gate_the_posthog_ai_conversation_scope(self):
         """`conversation` must not inherit from `ticket`.
 
