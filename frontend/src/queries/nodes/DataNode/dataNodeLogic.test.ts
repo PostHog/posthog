@@ -754,4 +754,143 @@ describe('dataNodeLogic', () => {
             undefined
         )
     })
+
+    it('refreshCounts re-runs the total count and forces a fresh recompute', async () => {
+        // Guards two defects on the persons list header: the count ran once as a lazy loader and
+        // never refreshed on reload, and it served a cached value because no refresh was forced.
+        mockedQuery.mockResolvedValue({ results: [[42]] })
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.ActorsQuery, select: ['id'] })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query, autoLoad: false })
+        logic.mount()
+
+        // First access of the lazy loader triggers the initial count load.
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess']).toMatchValues({ totalCount: 42 })
+
+        // The count query must bypass the cache so it reflects current data.
+        expect(performQuery).toHaveBeenCalledWith(
+            expect.objectContaining({ kind: NodeKind.HogQLQuery }),
+            undefined,
+            'force_blocking'
+        )
+
+        // A user reload must re-run the count instead of leaving the header frozen.
+        logic.actions.refreshCounts()
+        await expectLogic(logic).toDispatchActions(['refreshCounts', 'loadTotalCount'])
+    })
+
+    it('does not re-run the total count on a plain data reload', async () => {
+        // The unfiltered total does not change on mount, sort, search, or filter, so loadData must
+        // not re-fire the forced full-table count for those. Only refreshCounts does.
+        mockedQuery.mockResolvedValue({ results: [[42]] })
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.ActorsQuery, select: ['id'] })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query, autoLoad: false })
+        logic.mount()
+
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess'])
+
+        logic.actions.loadData('force_blocking')
+        await expectLogic(logic)
+            .toDispatchActions(['loadDataSuccess'])
+            .toNotHaveDispatchedActions(['refreshCounts', 'loadTotalCount'])
+    })
+
+    it('keeps the last good total count when a later refresh fails', async () => {
+        // A reload re-runs the count. A transient failure must not blank the header by nulling a
+        // count that already displayed correctly.
+        mockedQuery.mockResolvedValueOnce({ results: [[42]] })
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.ActorsQuery, select: ['id'] })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query, autoLoad: false })
+        logic.mount()
+
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess']).toMatchValues({ totalCount: 42 })
+
+        // The next count query fails; the loader keeps the previous value instead of returning null.
+        mockedQuery.mockRejectedValueOnce(new Error('count query failed'))
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess']).toMatchValues({ totalCount: 42 })
+    })
+
+    it('re-runs the total count on a group tab switch but not on a deep-equal rebuild', async () => {
+        // Group tabs share one logic instance (constant uniqueKey) while group_type_index changes, so
+        // the unfiltered total differs per tab and must refresh. A search, sort, or filter rebuilds
+        // props.query but leaves the stripped count query deep-equal, so those must not re-run it.
+        mockedQuery.mockResolvedValue({ results: [[42]] })
+        const firstTab = setLatestVersionsOnQuery({
+            kind: NodeKind.GroupsQuery,
+            group_type_index: 0,
+            select: ['group_name'],
+        })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query: firstTab })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        // The count's lazy loader arms shouldCalculateCount, as the header rendering it would.
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess'])
+
+        // A search-only change reloads the rows but leaves the stripped count query deep-equal: no re-run.
+        await expectLogic(logic, () => {
+            dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({
+                    kind: NodeKind.GroupsQuery,
+                    group_type_index: 0,
+                    select: ['group_name'],
+                    search: 'acme',
+                }),
+            })
+        })
+            .toDispatchActions(['loadDataSuccess'])
+            .toNotHaveDispatchedActions(['loadTotalCount'])
+
+        // Switching to another group type must re-run the total so the header matches the new rows.
+        await expectLogic(logic, () => {
+            dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({
+                    kind: NodeKind.GroupsQuery,
+                    group_type_index: 1,
+                    select: ['group_name'],
+                }),
+            })
+        }).toDispatchActions(['loadTotalCount', 'loadTotalCountSuccess'])
+    })
+
+    it('treats filterTestAccounts as an active Actors filter and keeps it in the count query', async () => {
+        // The persons list rows honor filterTestAccounts, so the count must too. Dropping it counts
+        // test accounts the rows exclude, so the matched number disagrees with the rows below it.
+        mockedQuery.mockResolvedValue({ results: [[7]] })
+
+        // The toggle alone counts as an active filter, so the header shows a filtered count.
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.ActorsQuery,
+                select: ['id'],
+                filterTestAccounts: true,
+            }),
+        })
+        logic.mount()
+        expect(logic.values.hasActiveFilters).toBe(true)
+        expect(logic.values.filteredCountQuery).toMatchObject({ filterTestAccounts: true })
+
+        // With a search too, the count query keeps both, so it excludes test accounts like the rows.
+        dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.ActorsQuery,
+                select: ['id'],
+                search: 'acme',
+                filterTestAccounts: true,
+            }),
+        })
+        expect(logic.values.filteredCountQuery).toMatchObject({ search: 'acme', filterTestAccounts: true })
+    })
 })

@@ -23,6 +23,7 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
@@ -577,6 +578,9 @@ export interface dataNodeLogicActions {
         totalCount: number | null
         payload?: any
     }
+    refreshCounts: () => {
+        value: true
+    }
     resetLoadingTimer: () => {
         value: true
     }
@@ -959,6 +963,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
+        refreshCounts: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -1390,12 +1395,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        const response = await performQuery(query)
+                        // Force a fresh recompute so the count matches the rows, not a stale cached value.
+                        const response = await performQuery(query, undefined, 'force_blocking')
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
                         posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
-                        return null
+                        // Keep the last good count so a transient failure does not blank the header.
+                        return values.totalCount
                     }
                 },
             },
@@ -1411,7 +1418,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        const response = await performQuery(query)
+                        // Force a fresh recompute so the count matches the rows, not a stale cached value.
+                        const response = await performQuery(query, undefined, 'force_blocking')
                         breakpoint()
                         return response?.results?.[0]?.[0] || 0
                     } catch (error: any) {
@@ -1419,7 +1427,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             throw error
                         }
                         posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
-                        return null
+                        // Keep the last good count so a transient failure does not show "0 matched".
+                        return values.filteredCount
                     }
                 },
             },
@@ -1851,6 +1860,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 if (isActorsQuery(query)) {
                     return !!(
                         query.search ||
+                        query.filterTestAccounts ||
                         (query.properties && Array.isArray(query.properties) && query.properties.length > 0) ||
                         (query.fixedProperties &&
                             Array.isArray(query.fixedProperties) &&
@@ -1946,6 +1956,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         search: query.search,
                         properties: query.properties,
                         fixedProperties: query.fixedProperties,
+                        filterTestAccounts: query.filterTestAccounts,
                         orderBy: undefined,
                         limit: undefined,
                         offset: undefined,
@@ -2017,6 +2028,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
         },
+        refreshCounts: () => {
+            // The count runs once as a lazy loader, so without this a reload leaves the header frozen
+            // while new rows arrive. Re-run the counts that the header already shows, so they stay in
+            // sync with the rows. A filter or sort change does not come through here: the unfiltered
+            // total does not change for those, and the filtered count refreshes from filteredCountQuery.
+            if (!values.shouldCalculateCount) {
+                return
+            }
+            actions.loadTotalCount()
+            if (values.filteredCountQuery) {
+                actions.loadFilteredCount()
+            }
+        },
         loadDataFailure: () => {
             actions.collectionNodeLoadDataFailure(props.key)
         },
@@ -2067,6 +2091,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         filteredCountQuery: () => {
             if (values.shouldCalculateCount) {
                 actions.loadFilteredCount()
+            }
+        },
+        totalCountQuery: (totalCountQuery, oldTotalCountQuery) => {
+            // A group tab switch keeps the same logic instance but changes group_type_index, so the
+            // unfiltered total differs per tab while the rows reload. Re-run it when the normalized
+            // count query changes. A sort, search, or filter rebuilds props.query but leaves this
+            // query deep-equal (those fields are stripped for the total), so the deep compare keeps
+            // them off the full-table count.
+            if (
+                values.shouldCalculateCount &&
+                oldTotalCountQuery &&
+                !objectsEqual(totalCountQuery, oldTotalCountQuery)
+            ) {
+                actions.loadTotalCount()
             }
         },
     })),
