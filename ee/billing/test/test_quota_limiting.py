@@ -13,6 +13,10 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    TimeoutError as RedisTimeoutError,
+)
 
 from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
@@ -30,6 +34,7 @@ from ee.billing.quota_limiting import (
     _patch_todays_usage,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
+    invalidate_llm_gateway_quota_cache,
     list_limited_team_attributes,
     org_quota_limited_until,
     refresh_org_self_driving_quota,
@@ -1004,6 +1009,35 @@ class TestQuotaLimiting(BaseTest):
             assert gateway_redis.get(other_generation_key) == b"4"
             assert self.redis_client.get(billing_key) == b"central"
         self.redis_client.delete(billing_key)
+
+    @parameterized.expand(
+        [
+            ("connection_error", RedisConnectionError("connection refused")),
+            ("timeout_error", RedisTimeoutError("timed out")),
+        ]
+    )
+    @patch("ee.billing.quota_limiting.capture_exception")
+    @patch("ee.billing.quota_limiting.get_client")
+    def test_llm_gateway_cache_invalidation_does_not_report_redis_unavailability(
+        self, _name: str, error: Exception, mock_get_client: Any, mock_capture_exception: Any
+    ) -> None:
+        mock_get_client.return_value.pipeline.return_value.execute.side_effect = error
+
+        invalidate_llm_gateway_quota_cache([self.team.id])
+
+        mock_capture_exception.assert_not_called()
+
+    @patch("ee.billing.quota_limiting.capture_exception")
+    @patch("ee.billing.quota_limiting.get_client")
+    def test_llm_gateway_cache_invalidation_reports_unexpected_failures(
+        self, mock_get_client: Any, mock_capture_exception: Any
+    ) -> None:
+        error = ValueError("unexpected")
+        mock_get_client.return_value.pipeline.return_value.execute.side_effect = error
+
+        invalidate_llm_gateway_quota_cache([self.team.id])
+
+        mock_capture_exception.assert_called_once_with(error)
 
     def test_update_org_billing_quotas(self):
         with freeze_time("2021-01-01T12:59:59Z"):
