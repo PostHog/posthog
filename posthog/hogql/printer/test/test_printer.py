@@ -1912,6 +1912,10 @@ class TestPrinter(BaseTest):
             'The HogQL identifier "as%d" is not permitted as it contains the "%" character',
         )
 
+    @parameterized.expand([[">"], [">="], ["<"], ["<="]])
+    def test_constant_fold_type_mismatch_raises_query_error(self, op: str):
+        self._assert_expr_error(f"'a' {op} 1", "Cannot compare 'str' and 'int' values")
+
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
     def test_percentile_within_group_printer(self, function_name: str):
         self.assertEqual(
