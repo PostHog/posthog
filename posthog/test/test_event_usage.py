@@ -66,6 +66,26 @@ class TestReportUserAction(BaseTest):
                 },
             ),
             (
+                "malformed_referer_yields_null_url_fields",
+                {"Referer": "http://[broken", "X-Posthog-Session-Id": "sess-123"},
+                None,
+                {
+                    "source": "api",
+                    "$current_url": None,
+                    "$host": None,
+                    "$pathname": None,
+                    "$session_id": "sess-123",
+                    "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
+                },
+            ),
+            (
                 "includes_mcp_user_agent_from_header",
                 {
                     "Referer": "http://app.posthog.com/insights",
@@ -566,6 +586,26 @@ class TestSignupCrmExclusion(BaseTest):
             )
         else:
             mock_group_identify.assert_not_called()
+
+
+class TestReportUserSignedUp(BaseTest):
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_analytics_props_reach_event_but_not_set(self, mock_capture):
+        user = self._create_user("owner@example.com")
+
+        report_user_signed_up(
+            user,
+            is_instance_first_user=False,
+            is_organization_first_user=False,
+            analytics_props={"source": EventSource.WEB, "user_agent": "Mozilla/5.0"},
+        )
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["source"] == EventSource.WEB
+        assert props["user_agent"] == "Mozilla/5.0"
+        # Request-source properties are transient, so they must not land on the person.
+        assert "source" not in props["$set"]
+        assert "user_agent" not in props["$set"]
 
 
 class TestSanitizeHeaderValue(BaseTest):
