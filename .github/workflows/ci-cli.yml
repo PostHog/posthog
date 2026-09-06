@@ -25,7 +25,7 @@ concurrency:
 jobs:
     tests:
         name: Run tests
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
         # constituent PR already ran this in full.
@@ -41,6 +41,13 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              with:
+                  shared-key: 'v1-cli-ci'
+                  workspaces: cli
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
             - name: Check Cargo.lock is up to date
               run: |
                   cargo update --workspace --locked
@@ -51,7 +58,7 @@ jobs:
 
     clippy:
         name: Clippy
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
@@ -66,12 +73,19 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              with:
+                  shared-key: 'v1-cli-ci'
+                  workspaces: cli
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
             - name: Run clippy
               run: cargo clippy --all-targets --all-features -- -D warnings
 
     format:
         name: Format
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
@@ -91,7 +105,7 @@ jobs:
 
     api-cli-release-bundle:
         name: API CLI release bundle
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         steps:
