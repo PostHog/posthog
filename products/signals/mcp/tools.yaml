@@ -243,6 +243,9 @@ tools:
             id:
                 aliases:
                     - report_id
+        response:
+            exclude:
+                - validation_prompt
     inbox-reports-set-state:
         operation: signals_reports_state_create
         enabled: true

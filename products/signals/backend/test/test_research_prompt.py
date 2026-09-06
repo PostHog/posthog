@@ -4,12 +4,14 @@ import pytest
 
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    ReportPresentationOutput,
     SignalFinding,
     _render_signal_for_research,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
 )
+from products.signals.backend.report_validation import MAX_VALIDATION_PROMPT_LENGTH, normalize_validation_prompt
 from products.signals.backend.temporal.types import SignalData
 
 
@@ -185,3 +187,56 @@ class TestBuildReportPresentationPrompt:
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
         assert "Charts this report already shows" not in off
+
+    # `source_product` reaches this builder as a plain string off SignalData, while the taxonomy is
+    # a StrEnum — so a lookup keyed on the wrong thing still renders a prompt, just the generic one.
+    # A pganalyze report would then quietly stop asking for the plan, the replica, and the query's
+    # home in the code, which is the whole reason the per-source block exists.
+    @pytest.mark.parametrize(
+        "source_products, expected_present",
+        [
+            (["conversations", "pganalyze"], True),
+            (["conversations", "github"], False),
+            ([], False),
+        ],
+    )
+    def test_pganalyze_guidance_rendered_only_for_pganalyze_reports(self, source_products, expected_present):
+        prompt = build_report_presentation_prompt(2, source_products=source_products)
+        # The generic guidance is unconditional; only the database-specific block is gated.
+        assert "The local validation prompt" in prompt
+        assert ("EXPLAIN (ANALYZE, BUFFERS)" in prompt) is expected_present
+        assert ("Signals from pganalyze" in prompt) is expected_present
+
+    # The reader pastes this prompt into an agent that runs it, so a step that writes is a change
+    # nobody reviewed. The pganalyze guidance shipped once telling them to build a candidate index
+    # with `CREATE INDEX CONCURRENTLY`, which takes locks and real I/O on a production table — a
+    # human caught it. Nothing but the guidance text stops that going back in.
+    @pytest.mark.parametrize("statement", ["CREATE INDEX", "ALTER TABLE", "DROP INDEX", "VACUUM FULL"])
+    def test_guidance_never_asks_the_reader_to_write_to_a_database(self, statement):
+        prompt = build_report_presentation_prompt(2, source_products=["pganalyze"])
+        assert statement not in prompt
+        assert "Never tell the reader to create the index" in prompt
+        assert "Every step must be read-only against anything shared" in prompt
+
+    # Without this the reader loses their validation prompt every time a re-research rewrites the
+    # prose: the presentation turn never sees the stored one, so it cannot re-send it.
+    def test_previous_validation_prompt_offered_back_when_the_report_has_one(self):
+        with_previous = build_report_presentation_prompt(1, previous_validation_prompt="Run EXPLAIN on the replica.")
+        without = build_report_presentation_prompt(1)
+        assert "Run EXPLAIN on the replica." in with_previous
+        assert "The validation prompt this report already carries" in with_previous
+        assert "The validation prompt this report already carries" not in without
+
+
+class TestValidationPromptBounds:
+    # The title, summary, charts, and validation prompt are validated as one response, so a
+    # rejecting bound here ends the run with no report at all. An over-long prompt has to cost the
+    # prompt and nothing else.
+    def test_oversized_prompt_is_dropped_rather_than_failing_the_presentation_response(self):
+        oversized = "x" * (MAX_VALIDATION_PROMPT_LENGTH + 1)
+        result = ReportPresentationOutput(title="fix(db): add index", summary="tl;dr", validation_prompt=oversized)
+        assert normalize_validation_prompt(result.validation_prompt) == ""
+
+    @pytest.mark.parametrize("authored, expected", [("   \n ", ""), ("  Run EXPLAIN.  ", "Run EXPLAIN.")])
+    def test_stored_prompt_is_trimmed(self, authored, expected):
+        assert normalize_validation_prompt(authored) == expected

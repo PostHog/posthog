@@ -79,6 +79,9 @@ export interface SignalReport {
     charts?: ReportChartApi[]
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
+    /** Prompt to paste into a coding agent on your own machine to recreate the finding and test a fix.
+     * Report-only: it may name internal hosts and tools, so it never reaches the implementation PR. */
+    validation_prompt?: string | null
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** P0–P4 from the priority judgment when the report is researched. */

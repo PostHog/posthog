@@ -15,6 +15,7 @@ import {
     withPostHogUrl,
     withAgentNote,
     pickResponseFields,
+    omitResponseFields,
     withInformationalResponse,
     type WithPostHogUrl,
     type WithAgentNote,
@@ -329,8 +330,9 @@ const inboxReportsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/`,
         })
+        const filtered = omitResponseFields(result, ['validation_prompt']) as typeof result
         return withAgentNote(
-            await withPostHogUrl(context, result, `/inbox/${result.id}`),
+            await withPostHogUrl(context, filtered, `/inbox/${filtered.id}`),
             'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },

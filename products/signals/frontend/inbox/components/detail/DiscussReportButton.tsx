@@ -8,8 +8,9 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 import { InboxQuestionSource, captureInboxReportAction, discussQuestionProperties } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic, isActionCapableReport } from '../../inboxTaskKickoffLogic'
+import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
+import { isActionCapableReport } from '../../utils/kickoffPrompts'
 
 // How much of a suggestion a draft has to keep, at one end or the other, to still count as an edit
 // of it. Long enough that two suggestions opening on the same few words ("Which teams…", "Why did…")
