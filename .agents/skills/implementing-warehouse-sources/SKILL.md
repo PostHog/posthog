@@ -119,6 +119,12 @@ Follow this order. Each step maps to TODOs in `source.template`.
     `lists_tables_without_credentials = True` (see below) so the doc's Supported tables section
     renders. A finished source ships with a consistent doc, not a stub.
 15. **Delete the template TODO comments** before PR.
+16. **Optionally, evaluate where CI cannot.** `/evaluating-warehouse-sources` is available when you
+    want confidence beyond mocked tests — a contract-assumption audit, plus a live smoke sync when
+    credentials exist. It is opt-in, not a merge gate; it earns its cost most on a brand-new source,
+    a pagination/cursor/incremental change, or anything auth-shaped. Run it or not, keep the house
+    convention of listing vendor-behavior claims whose only evidence is your own fixture in the PR
+    body as unverified — that list is what a post-merge watch or the next live tester works from.
 
 ## Source architecture contract
 
@@ -531,7 +537,7 @@ skill — don't hand-roll version handling.
 - Register with `@SourceRegistry.register`.
 - Inherit `SimpleSource[GeneratedConfig]` unless resumable/webhook behavior is required.
 - API sources should usually return `table_format="delta"` in endpoint resources.
-- `primary_keys` are endpoint-specific (declare in `settings.py`, not always `id`). Use composite keys when no single field is unique. **The key must be unique across the whole table, not per parent**: fan-out child endpoints aggregate rows from every parent, so include the parent identifier in the key (e.g. `["form_id", "token"]`) unless the API explicitly documents global uniqueness. Non-unique keys seed duplicate rows in the Delta table, and every later merge multi-matches them — merges get slower each sync until the pod OOMs.
+- `primary_keys` are endpoint-specific (declare in `settings.py`, not always `id`). Use composite keys when no single field is unique. **The key must be unique across the whole table, not per parent**: fan-out child endpoints aggregate rows from every parent, so include the parent identifier in the key (e.g. `["form_id", "token"]`) unless the API explicitly documents global uniqueness. Non-unique keys seed duplicate rows in the Delta table, and every later merge multi-matches them — merges get slower each sync until the pod OOMs. Changing a declared key reaches new connections only: `resolve_primary_keys` prefers the key already persisted in `sync_type_config`, so a schema that has synced keeps merging on the old one until an operator changes it (`/evaluating-warehouse-sources`, Tier 0 step 4).
 - Add partitioning for new sources where possible:
   - API sources: `partition_mode="datetime"` with a **stable** datetime field.
   - Database sources: `partition_count` and `partition_size`.
@@ -853,6 +859,8 @@ Tests & handoff:
 - [ ] Source tests (test_<source>_source.py) — branches only, no declaration restatements
 - [ ] Transport tests (test_<source>.py) — paginators, error mapping, request shaping
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
+- [ ] (Optional) /evaluating-warehouse-sources run when the change warrants it; unverified
+      vendor-behavior claims listed in the PR body either way
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff
 - [ ] (Only if the source syncs an issues/tickets/conversations table) Note it as a Self-driving Inbox
