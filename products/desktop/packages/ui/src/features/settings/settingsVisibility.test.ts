@@ -6,7 +6,6 @@ describe("getHiddenSettingsCategories", () => {
     {
       name: "shows all categories when every capability is available",
       input: {
-        billingEnabled: true,
         localWorkspaces: true,
         quickAskAvailable: true,
       },
@@ -15,7 +14,6 @@ describe("getHiddenSettingsCategories", () => {
     {
       name: "hides host-specific categories without local workspaces",
       input: {
-        billingEnabled: true,
         localWorkspaces: false,
         quickAskAvailable: true,
       },
@@ -27,7 +25,6 @@ describe("getHiddenSettingsCategories", () => {
       // packaged desktop without the prototype gate).
       name: "hides quick-ask when the panel is unavailable",
       input: {
-        billingEnabled: true,
         localWorkspaces: true,
       },
       expected: ["quick-ask"],

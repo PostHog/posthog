@@ -98,5 +98,5 @@ export const OrganizationLimitReached: Story = {
 };
 
 export const Loading: Story = {
-  args: { usage: null, usageLoading: true }
+  args: { usage: null, usageLoading: true },
 };

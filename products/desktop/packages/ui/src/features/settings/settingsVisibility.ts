@@ -12,7 +12,6 @@ const LOCAL_ONLY_CATEGORIES: ReadonlySet<SettingsCategory> = new Set([
 ]);
 
 interface SettingsVisibility {
-  billingEnabled: boolean;
   localWorkspaces: boolean;
   /**
    * The quick-ask panel exists on this host and build. Off (web, and packaged
@@ -23,7 +22,6 @@ interface SettingsVisibility {
 }
 
 export function getHiddenSettingsCategories({
-  billingEnabled,
   localWorkspaces,
   quickAskAvailable = false,
 }: SettingsVisibility): ReadonlySet<SettingsCategory> {

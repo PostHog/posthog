@@ -24,12 +24,10 @@ import {
   Wrench,
 } from "@phosphor-icons/react";
 import { Input, MenuLabel } from "@posthog/quill";
-import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -147,12 +145,10 @@ export function SettingsPanel({
   );
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client });
-  const billingEnabled = useFeatureFlag(BILLING_FLAG);
   const { localWorkspaces } = useHostCapabilities();
   const quickAskAvailable = useQuickAskAvailable();
 
   const hiddenCategories = getHiddenSettingsCategories({
-    billingEnabled,
     localWorkspaces,
     quickAskAvailable,
   });

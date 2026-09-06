@@ -213,9 +213,7 @@ export function PlanUsageContent({
         </SettingsSubsection>
       )}
 
-      <PersonalSpendDisclosure>
-        {personalSpendAnalysis}
-      </PersonalSpendDisclosure>
+      <PersonalSpendDisclosure>{personalSpendAnalysis}</PersonalSpendDisclosure>
     </Flex>
   );
 }
