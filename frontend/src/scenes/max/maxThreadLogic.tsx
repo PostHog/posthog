@@ -1415,6 +1415,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
 
             let caughtException = false
+            // True once the POST returns response headers — the server has accepted this message and
+            // will run the turn. A later drop is only on the response, so recovery must reconnect, not
+            // re-send the message (which starts a duplicate generation).
+            let messageAcceptedByServer = false
 
             try {
                 cache.generationController = new AbortController()
@@ -1435,6 +1439,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
                 })
+                messageAcceptedByServer = true
 
                 const reader = response.body?.getReader()
                 if (!reader) {
@@ -1520,6 +1525,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         if (values.conversation?.status === ConversationStatus.InProgress) {
                             if (generationAttempt > 15) {
                                 relevantErrorMessage.content = offlineMessage
+                            } else if (messageAcceptedByServer && streamData.content != null) {
+                                // The server already accepted this message, so reconnect and replay the
+                                // run instead of re-sending it. Re-sending would start a second
+                                // generation — the duplicate answer seen when a mobile tab is
+                                // backgrounded mid-stream. Mirrors the 409 reconnect below.
+                                cache.clearThreadOnReplay = true
+                                await breakpoint(1000 * (generationAttempt + 1))
+                                actions.decrActiveStreamingThreads()
+                                actions.streamConversation(
+                                    {
+                                        content: null,
+                                        conversation: streamData.conversation,
+                                        agent_mode: agentMode,
+                                        is_sandbox: isSandbox || undefined,
+                                    },
+                                    generationAttempt + 1
+                                )
+                                return
                             } else {
                                 await retry()
                                 return
@@ -1615,6 +1638,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             }
+            // A reconnect returns early, so reaching here means no replay is pending. Clear
+            // clearThreadOnReplay in case a failed or empty replay left it set, to stop it from
+            // wiping the thread on the next unrelated turn's first event.
+            cache.clearThreadOnReplay = false
             actions.decrActiveStreamingThreads()
             if (values.isAnotherAgenticIterationScheduled) {
                 // Continue generation after applying tool - null message in askMax "just resume generation with current context"
