@@ -43,7 +43,12 @@ class FunnelsExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        max_cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         funnels_query = FunnelsQuery.model_validate(query)
         viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
@@ -76,6 +81,7 @@ class FunnelsExtractor:
             insight,
             team=alert.team,
             execution_mode=execution_mode,
+            max_cache_age_seconds=max_cache_age_seconds,
             user=alert.created_by,
             filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},

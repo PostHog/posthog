@@ -4,7 +4,16 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
+from posthog.schema import (
+    AlertState,
+    ChartDisplayType,
+    DateRange,
+    EventsNode,
+    IntervalType,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+)
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.instance_setting import set_instance_setting
@@ -69,6 +78,56 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
                 "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 1}}},
             },
         ).json()
+
+    def test_hourly_alert_on_single_number_insight_does_not_reuse_a_stale_cache(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        # A single-number display discards the configured interval for `day` (TrendsQueryRunner
+        # .query_date_range), so this minute-interval, one-hour insight lands on day's six-hour
+        # staleness window. Its check reuses the insight's own query, so both read that one cached
+        # entry and an hourly check kept re-reading a number from hours earlier. The interval is
+        # explicitly `minute` here to pin that the configured value does not save it: only the
+        # cadence ceiling forces the recompute.
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$exception")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+            interval=IntervalType.MINUTE,
+            dateRange=DateRange(date_from="-1h"),
+        ).model_dump()
+        insight = self.dashboard_api.create_insight(data={"name": "errors last hour", "query": query_dict})[1]
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "errors last hour",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "hourly",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 1}}},
+            },
+        ).json()
+
+        # Quiet hour: this check caches a below-threshold value.
+        with freeze_time("2024-06-02T08:55:00.000Z"):
+            run_alert_check(alert["id"])
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.NOT_FIRING
+
+        with freeze_time("2024-06-02T09:30:00.000Z"):
+            for distinct_id in range(3):
+                _create_event(team=self.team, event="$exception", distinct_id=str(distinct_id))
+            flush_persons_and_events()
+
+        # 59 minutes on. Hourly checks are scheduled a cadence apart but run when a worker picks
+        # them up, so the gap between two results jitters either side of the hour. This is the
+        # under-an-hour side of that jitter, where a ceiling of one whole cadence would serve the
+        # cached zero.
+        with freeze_time("2024-06-02T09:54:00.000Z"):
+            run_alert_check(alert["id"])
+
+        check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert check.calculated_value == 3
+        assert check.state == AlertState.FIRING
 
     def test_alert_is_set_to_not_firing_when_threshold_changes(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock

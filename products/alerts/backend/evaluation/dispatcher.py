@@ -6,7 +6,12 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
-from products.alerts.backend.evaluation.contract import DetectorExtractor, Extractor, execution_mode_for_alert
+from products.alerts.backend.evaluation.contract import (
+    DetectorExtractor,
+    Extractor,
+    execution_mode_for_alert,
+    max_cache_age_for_cadence,
+)
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
@@ -36,7 +41,8 @@ DETECTOR_EXTRACTORS: dict[NodeKind, DetectorExtractor] = {
 def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: object) -> ExecutionMode:
     # Compute the cache/recompute decision once for every kind. Only time-axis kinds (trends/detector)
     # escalate to a fresh recompute on hourly buckets; SQL/funnels have no hourly axis, so for them
-    # only the alert cadence (every-15-minutes) forces fresh.
+    # only the alert cadence (every-15-minutes) forces fresh. The cadence bound below is what covers
+    # the kinds this escalation can't speak for.
     raw_interval = get_from_dict_or_attr(query, "interval") if kind == NodeKind.TRENDS_QUERY else None
     interval = IntervalType(raw_interval) if raw_interval is not None else None
     return execution_mode_for_alert(interval, high_frequency=alert.is_high_frequency_interval)
@@ -55,7 +61,13 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
     detector_extractor = DETECTOR_EXTRACTORS.get(kind)
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
-    result = detector_extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
+    result = detector_extractor.extract(
+        alert,
+        insight,
+        query,
+        _resolve_execution_mode(alert, kind, query),
+        max_cache_age_seconds=max_cache_age_for_cadence(alert.calculation_interval),
+    )
     return evaluate_with_detector(result, detector_config)
 
 
@@ -90,5 +102,11 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
             return AlertEvaluationResult(value=0, breaches=[])
 
         condition = AlertCondition.model_validate(alert.condition)
-        result = extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
+        result = extractor.extract(
+            alert,
+            insight,
+            query,
+            _resolve_execution_mode(alert, kind, query),
+            max_cache_age_seconds=max_cache_age_for_cadence(alert.calculation_interval),
+        )
         return evaluate_threshold(result, condition, threshold)

@@ -48,8 +48,7 @@ export function alertIntervalDisplayLabel(interval: AlertCalculationInterval): s
     return INTERVAL_DISPLAY_LABELS[interval]
 }
 
-// Twin of _CADENCE_DURATION_MINUTES / _INTERVAL_DURATION_MINUTES in
-// products/alerts/backend/evaluation/validation.py — keep the two in sync.
+// Twin of CADENCE_MINUTES in products/alerts/backend/scheduling.py — keep the two in sync.
 const CADENCE_DURATION_MINUTES: Record<AlertCalculationInterval, number> = {
     [AlertCalculationInterval.REAL_TIME]: 2,
     [AlertCalculationInterval.EVERY_15_MINUTES]: 15,
@@ -63,6 +62,8 @@ export function alertCadenceMinutes(interval: AlertCalculationInterval): number 
     return CADENCE_DURATION_MINUTES[interval]
 }
 
+// Twin of _INTERVAL_DURATION_MINUTES in products/alerts/backend/evaluation/validation.py —
+// keep the two in sync.
 const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
     second: 1 / 60,
     minute: 1,

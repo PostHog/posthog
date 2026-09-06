@@ -76,6 +76,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        max_cache_age_seconds: Optional[int] = None,
         analytics_props: Optional["AnalyticsProps"] = None,
     ):
         # This runner takes the run() user verbatim, including None. A bare assignment would
@@ -91,6 +92,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             insight_id,
             dashboard_id,
             cache_age_seconds,
+            max_cache_age_seconds=max_cache_age_seconds,
             analytics_props=analytics_props,
         )
 

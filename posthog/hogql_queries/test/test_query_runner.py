@@ -1,6 +1,7 @@
 import time
 import threading
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -665,6 +666,55 @@ class TestQueryRunner(BaseTest):
             response = OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 cache_age_seconds=1800,
+            )
+        self.assertEqual(response.is_cached, expected_is_cached)
+
+    @parameterized.expand(
+        [
+            # Unlike cache_age_seconds, the ceiling only ever tightens. The second case is the one
+            # that matters: collapsing the two parameters into one would serve cache here, silently
+            # widening every daily and SQL alert from its own policy out to a whole cadence.
+            ("past_ceiling_recomputes", False, timedelta(minutes=61), False, False),
+            ("within_ceiling_keeps_stricter_subclass_policy", True, timedelta(minutes=1), False, False),
+            ("within_ceiling_and_subclass_fresh_serves_cache", False, timedelta(minutes=1), False, True),
+            # A finished date range returns the same rows however often it reruns, so the ceiling
+            # steps aside. Without this, an alert on a fixed historical range recomputes forever.
+            ("closed_window_outranks_the_ceiling", False, timedelta(minutes=61), True, True),
+        ]
+    )
+    def test_max_cache_age_override_only_tightens_staleness(
+        self,
+        _name: str,
+        subclass_says_stale: bool,
+        cache_age: timedelta,
+        window_closed: bool,
+        expected_is_cached: bool,
+    ):
+        base = self.setup_test_query_runner_class()
+
+        class OpinionatedQueryRunner(base):  # type: ignore[misc, valid-type]
+            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+                return subclass_says_stale
+
+            def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+                return last_refresh + timedelta(hours=24) if last_refresh else None
+
+            @property
+            def query_date_range(self) -> Optional[SimpleNamespace]:
+                if not window_closed:
+                    return None
+                return SimpleNamespace(date_to=lambda: datetime(2020, 1, 1, tzinfo=UTC), interval_name="day")
+
+        start = datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)
+        with freeze_time(start):
+            OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+
+        with freeze_time(start + cache_age):
+            response = OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                max_cache_age_seconds=3600,
             )
         self.assertEqual(response.is_cached, expected_is_cached)
 

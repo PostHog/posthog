@@ -109,6 +109,24 @@ class CalendarInterval(StrEnum):
 REAL_TIME_CADENCE_MINUTES = 2
 EVERY_15_MINUTES_CADENCE_MINUTES = 15
 
+# Nominal spacing between checks at each cadence. Monthly approximates a month as 30 days: this
+# feeds duration comparisons and freshness bounds, not the calendar anchors below, which do exact
+# month arithmetic via relativedelta.
+# Twin of CADENCE_DURATION_MINUTES in products/alerts/frontend/logic/alertIntervalHelpers.ts —
+# keep the two in sync.
+CADENCE_MINUTES: dict[CalendarInterval, int] = {
+    CalendarInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
+    CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
+    CalendarInterval.HOURLY: 60,
+    CalendarInterval.DAILY: 60 * 24,
+    CalendarInterval.WEEKLY: 60 * 24 * 7,
+    CalendarInterval.MONTHLY: 60 * 24 * 30,
+}
+
+
+def cadence_seconds(interval: CalendarInterval) -> int:
+    return CADENCE_MINUTES[interval] * 60
+
 
 def to_calendar_interval(value: str | None) -> CalendarInterval:
     if value is None:

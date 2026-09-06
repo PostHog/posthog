@@ -44,7 +44,7 @@ def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
 
 
 def _calculate_rows_and_columns(
-    insight: Insight, team: Any, *, user: Any, execution_mode: ExecutionMode
+    insight: Insight, team: Any, *, user: Any, execution_mode: ExecutionMode, max_cache_age_seconds: int | None
 ) -> tuple[list, list[str] | None]:
     """Run a SQL insight and return (rows, column_names) — the fetch-and-validate prologue shared by
     the threshold and detector extractors. A ``None`` result means the query layer swallowed an error
@@ -54,6 +54,7 @@ def _calculate_rows_and_columns(
         insight,
         team=team,
         execution_mode=execution_mode,
+        max_cache_age_seconds=max_cache_age_seconds,
         user=user,
         analytics_props={"source": EventSource.ALERT},
     )
@@ -123,7 +124,12 @@ class HogQLExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        max_cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         # ``query`` is unused (Protocol signature): the extractor recomputes via the insight.
         condition = AlertCondition.model_validate(alert.condition)
@@ -131,7 +137,11 @@ class HogQLExtractor:
         evaluation = config.evaluation
 
         rows, column_names = _calculate_rows_and_columns(
-            insight, alert.team, user=alert.created_by, execution_mode=execution_mode
+            insight,
+            alert.team,
+            user=alert.created_by,
+            execution_mode=execution_mode,
+            max_cache_age_seconds=max_cache_age_seconds,
         )
         if len(rows) == 0:
             # No rows means the metric is genuinely 0 this check (matching trends), so a lower
@@ -203,6 +213,7 @@ def extract_hogql_detector_series(
     detector_config: dict[str, Any],
     *,
     execution_mode: ExecutionMode,
+    max_cache_age_seconds: int | None = None,
     user: Any = None,
 ) -> ExtractionResult:
     """Build the full ordered value series an anomaly detector scores from a SQL/HogQL insight.
@@ -220,7 +231,9 @@ def extract_hogql_detector_series(
             "entities, not a time series. Use last-row or first-row evaluation."
         )
 
-    rows, column_names = _calculate_rows_and_columns(insight, team, user=user, execution_mode=execution_mode)
+    rows, column_names = _calculate_rows_and_columns(
+        insight, team, user=user, execution_mode=execution_mode, max_cache_age_seconds=max_cache_age_seconds
+    )
     if len(rows) == 0:
         return ExtractionResult(
             series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False, empty_query_result=True
@@ -275,19 +288,31 @@ class HogQLDetectorExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        max_cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
             raise ValueError("HogQLDetectorExtractor requires detector_config — dispatcher invariant violated")
         config = hogql_config_or_default(alert.config)
         return extract_hogql_detector_series(
-            insight, alert.team, config, detector_config, execution_mode=execution_mode, user=alert.created_by
+            insight,
+            alert.team,
+            config,
+            detector_config,
+            execution_mode=execution_mode,
+            max_cache_age_seconds=max_cache_age_seconds,
+            user=alert.created_by,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         # SQL rows are their own series, so there's no chart interval — return None alongside. SQL has
         # no time axis to force fresh on, so the read-only simulation uses the cache-friendly mode.
+        # No cadence exists outside an alert, so the simulation takes no freshness bound.
         result = extract_hogql_detector_series(
             insight,
             ctx.team,

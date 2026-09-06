@@ -9,6 +9,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.scheduling import cadence_seconds, to_calendar_interval
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -101,6 +102,30 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
+def max_cache_age_for_cadence(cadence: str | None) -> int | None:
+    """The oldest cached result an alert on this cadence may evaluate, in seconds.
+
+    ``execution_mode_for_alert`` keys freshness off the insight's bucket granularity, which says
+    nothing about how often the alert runs. A single-number display forces ``day`` on the date
+    range whatever the insight's own interval says, so its check would accept a six-hour-old
+    value. This bound adds the guarantee the cadence implies, and only ever tightens, so a query
+    whose own policy is already stricter keeps it.
+
+    Half a cadence, not a whole one. Checks are scheduled on a fixed grid one cadence apart
+    (``next_calendar_check_time``), but each one runs whenever the worker picks it up, so the gap
+    between two results jitters either side of the cadence. A full-cadence bound sits exactly on
+    that boundary and would make reuse a coin flip on worker lag. Halving it does not raise the
+    ceiling on query volume, which is bounded by the number of checks either way.
+
+    A bound rather than an unconditional recompute, because an alert that falls behind advances
+    its due time by only one cadence per check. Its catch-up checks run back to back, and those
+    should share one result instead of each running its own query.
+    """
+    if not cadence:
+        return None
+    return cadence_seconds(to_calendar_interval(cadence)) // 2
+
+
 @dataclass
 class SimulationContext:
     """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
@@ -116,10 +141,19 @@ class SimulationContext:
 
 
 class Extractor(Protocol):
-    # The dispatcher resolves execution_mode once (via execution_mode_for_alert) and passes it in, so
-    # the cache/recompute decision lives at one site instead of being re-derived in each extractor.
+    # The dispatcher resolves both freshness inputs once and passes them in, so the cache/recompute
+    # decision lives at one site instead of being re-derived in each extractor. max_cache_age_seconds
+    # defaults to None (no bound) only so tests can drive an extractor without a cadence; the
+    # dispatcher always supplies it. Because that default makes a dropped bound silent rather than a
+    # type error, test_extractor_forwards_freshness drives every kind in the EXTRACTORS registry and
+    # asserts the value reaches the query layer.
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: object, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: object,
+        execution_mode: ExecutionMode,
+        max_cache_age_seconds: int | None = None,
     ) -> ExtractionResult: ...
 
 

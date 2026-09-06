@@ -113,7 +113,13 @@ from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
 from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, get_api_queries_bytes, next_counter_reset
-from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.caching.utils import (
+    ThresholdMode,
+    cache_target_age,
+    is_stale,
+    last_refresh_from_cached_result,
+    window_closed_before,
+)
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
@@ -2119,6 +2125,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        max_cache_age_seconds: Optional[int] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         # Set user for access control during query execution. Some subclasses
@@ -2134,6 +2141,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Resolve per-call state before observability so SLO + analytics agree on the values.
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
+        self._max_cache_age_override = max_cache_age_seconds
 
         # Some queries read live, mutable state that must never be served stale — e.g. HogQL against
         # system.information_schema.*, which mirrors data-catalog approval/certification status, so a
@@ -2308,6 +2316,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                                 "cache_key": cache_key,
                                 "cache_hit": isinstance(results, CachedResponse),
                                 "cache_age_override": cache_age_seconds,
+                                "max_cache_age_override": max_cache_age_seconds,
                                 "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                                 **cache_tracking_props,
                             }
@@ -2506,6 +2515,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "dashboard_id": dashboard_id,
                 "cache_hit": False,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
+                "max_cache_age_override": getattr(self, "_max_cache_age_override", None),
                 "cache_key": cache_key,
                 "calculation_trigger": trigger,
                 "execution_mode": execution_mode.value,
@@ -2837,21 +2847,44 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Overridden by subclasses to add validation rules."""
         return ()
 
-    def _is_stale_for_request(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
-        """Staleness decision for this request, honoring `_cache_age_override` when set.
+    def _older_than(self, last_refresh: Optional[datetime], max_age_seconds: int) -> bool:
+        return last_refresh is None or datetime.now(UTC) > last_refresh + timedelta(seconds=max_age_seconds)
 
-        The override (shared force refresh, endpoint data freshness) replaces the runner's
-        own staleness policy. It is applied here, at the call site, rather than inside the
-        polymorphic `_is_stale`/`cache_target_age` hooks, so subclasses overriding those
-        cannot silently weaken or tighten the requested window — and it governs this one
-        staleness decision only, never the target age persisted on a cache write.
+    def _window_already_closed(self, last_refresh: Optional[datetime]) -> bool:
+        if last_refresh is None:
+            return False
+        query_date_range = getattr(self, "query_date_range", None)
+        return window_closed_before(query_date_range.date_to() if query_date_range else None, last_refresh)
+
+    def _is_stale_for_request(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        """Staleness decision for this request, honoring the two age overrides when set.
+
+        `_cache_age_override` (shared force refresh, endpoint data freshness) *replaces* the
+        runner's own staleness policy, in either direction, because both its callers use it to
+        widen. `_max_cache_age_override` is a ceiling instead: it can only make the answer
+        staler, never fresher, so a caller can bound how old a result it will accept without
+        knowing (or weakening) the policy that applies. Alert checks use it to keep a result
+        from outliving the cadence that asked for it.
+
+        The ceiling asks for a fresher read of a moving window, so it defers to a window that
+        has already closed: recomputing a finished date range returns the same rows, and
+        bounding it would recompute forever for no new answer.
+
+        Both are applied here, at the call site, rather than inside the polymorphic
+        `_is_stale`/`cache_target_age` hooks, so subclasses overriding those cannot silently
+        weaken or tighten the requested window, and they govern this one staleness decision
+        only, never the target age persisted on a cache write.
         """
         override = getattr(self, "_cache_age_override", None)
-        if override is None:
-            return self._is_stale(last_refresh, lazy=lazy)
-        if last_refresh is None:
-            return True
-        return datetime.now(UTC) > last_refresh + timedelta(seconds=override)
+        ceiling = getattr(self, "_max_cache_age_override", None)
+        stale = (
+            self._older_than(last_refresh, override)
+            if override is not None
+            else self._is_stale(last_refresh, lazy=lazy)
+        )
+        if stale or ceiling is None or self._window_already_closed(last_refresh):
+            return stale
+        return self._older_than(last_refresh, ceiling)
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)

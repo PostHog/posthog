@@ -58,6 +58,17 @@ staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
 }
 
 
+def window_closed_before(date_to: Optional[datetime], last_refresh: datetime) -> bool:
+    """Whether the query's window had already ended when the cached result was computed.
+
+    Such a result cannot go stale, because recomputing it returns the same rows. Every staleness
+    decision has to respect that, including a caller that tightens the window for its own
+    reasons, so the rule is shared rather than living inside one of them.
+    """
+    # Use a buffer in case last_refresh from cache.set happened slightly after the actual query
+    return bool(date_to and date_to < (last_refresh - timedelta(seconds=10)))
+
+
 def cache_target_age(
     interval: Optional[str], last_refresh: datetime, mode: ThresholdMode = ThresholdMode.DEFAULT
 ) -> Optional[datetime]:
@@ -85,9 +96,7 @@ def is_stale(
     if target_age is not None:
         return datetime.now(UTC) > target_age
 
-    # If the date_to is in the past of the last refresh, the data cannot be stale
-    # Use a buffer in case last_refresh from cache.set happened slightly after the actual query
-    if date_to and date_to < (last_refresh - timedelta(seconds=10)):
+    if window_closed_before(date_to, last_refresh):
         return False
 
     max_age = cache_target_age(interval, last_refresh, mode)
