@@ -95,6 +95,23 @@ class TestProperty(BaseTest):
         self.assertEqual(has_aggregation(self._parse_expr("count()")), True)
         self.assertEqual(has_aggregation(self._parse_expr("sum(properties.bla)")), True)
 
+    @parameterized.expand(
+        [
+            ("is_not", []),
+            ("not_icontains", ""),
+            ("not_regex", []),
+            # An empty needle matches every URL, so these must no-op rather than hide everything.
+            ("not_icontains", [""]),
+            ("not_icontains", [None]),
+            ("is_not", [None, ""]),
+        ]
+    )
+    def test_property_to_expr_visited_page_negated_with_empty_value_is_noop(self, operator, value):
+        self.assertEqual(
+            self._property_to_expr({"type": "recording", "key": "visited_page", "operator": operator, "value": value}),
+            ast.Constant(value=1),
+        )
+
     def test_property_to_expr_hogql(self):
         self.assertEqual(self._property_to_expr({"type": "hogql", "key": "1"}), ast.Constant(value=1))
         self.assertEqual(

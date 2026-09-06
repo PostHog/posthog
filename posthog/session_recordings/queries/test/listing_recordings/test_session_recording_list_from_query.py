@@ -3737,6 +3737,52 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_one, session_id_two],
         )
 
+    @parameterized.expand(
+        [
+            ("not_icontains", '"pricing"'),
+            ("not_icontains_multi", '["pricing"]'),
+            ("is_not", '["https://example.com/pricing"]'),
+            ("not_regex", '"pricing$"'),
+            ("not_starts_with", '"https://example.com/pri"'),
+            ("not_ends_with", '"/pricing"'),
+            # A single-element list is not covered: `in`/`not_in` collapse it to a scalar and then
+            # reject it, positive form included, so that break is not specific to negation.
+            ("not_in", '["https://example.com/pricing", "https://example.com/plans"]'),
+        ]
+    )
+    def test_negated_visited_page_excludes_the_whole_session(self, operator: str, value: str) -> None:
+        # Every negated operator must mean "no recorded URL matches", not "some URL does not match".
+        user = "test_negated_visited_page-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        # The second URL does not match, so an existential negation would wrongly return this session.
+        matching = f"negated-matching-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=matching,
+            team_id=self.team.id,
+            all_urls=["https://example.com/pricing", "https://example.com/home"],
+        )
+
+        other = f"negated-other-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=other,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home"],
+        )
+
+        # A recording with no captured URLs has nothing to match, so every negated filter keeps it.
+        no_urls = f"negated-no-urls-{str(uuid4())}"
+        produce_replay_summary(distinct_id=user, session_id=no_urls, team_id=self.team.id, all_urls=[])
+
+        self._assert_query_matches_session_ids(
+            {
+                "properties": f'[{{"key": "visited_page", "value": {value}, "operator": "{operator}", "type": "recording"}}]'
+            },
+            [other, no_urls],
+        )
+
     def test_duration_always_anded_with_visited_page_under_or(self):
         user = "test_duration_visited_page-user"
         create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})

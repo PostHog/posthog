@@ -62,6 +62,7 @@ from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
+from posthog.models.property.property import OperatorType
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
@@ -78,6 +79,19 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 # and the per-field injection in rust/feature-flags/src/flags/flag_matching_utils.rs.
 # `test_person_metadata_fields_match_taxonomy` enforces the Python ↔ taxonomy half.
 PERSON_METADATA_FIELDS = {"created_at"}
+
+# Negated operators paired with the match they invert, for wrapping negation around a whole array
+# match rather than the comparison inside it. Only `visited_page` uses this so far: the
+# EXCEPTION_STRING_ARRAY_PROPERTIES still negate per element inside arrayExists.
+NEGATED_TO_POSITIVE_OPERATORS: dict[PropertyOperator, PropertyOperator] = {
+    PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+    PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+    PropertyOperator.NOT_ICONTAINS_MULTI: PropertyOperator.ICONTAINS_MULTI,
+    PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
+    PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+    PropertyOperator.NOT_IN: PropertyOperator.IN_,
+}
 
 
 @frozen
@@ -1303,6 +1317,39 @@ def property_to_expr(
         if is_visited_page_property:
             # Use the all_urls array field to filter for pages visited during recording.
             all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
+
+            # Every match below compiles to arrayExists over the recording's URLs, so negating the
+            # comparison inside the lambda asks "some URL does not match", which is true for any
+            # recording with a second page. Build the positive match and negate the whole thing
+            # instead, so the filter means "no URL matches". Negating out here also keeps the
+            # multi-value paths correct, which recurse on property.operator and pick AND vs OR from it.
+            if operator in NEGATED_TO_POSITIVE_OPERATORS:
+                # An empty value is an unfinished filter. The positive form compiles to a match-all
+                # no-op, and negating that would hide every recording, so no-op here too. A list of
+                # empty values counts as empty: an empty needle matches every URL, so negating it
+                # would hide every recording that has one.
+                is_empty = value is None or value == ""
+                if isinstance(value, list):
+                    is_empty = all(item is None or item == "" for item in value)
+                if is_empty:
+                    return ast.Constant(value=1)
+                return ast.Not(
+                    expr=property_to_expr(
+                        Property(
+                            type=property.type,
+                            key=property.key,
+                            # Property.operator is typed narrower than the operator set handled here
+                            # (it leaves out the multi-contains pair), and this function casts the
+                            # other way when it reads the field back, so cast to match it.
+                            operator=cast(OperatorType, NEGATED_TO_POSITIVE_OPERATORS[operator].value),
+                            group_type_index=property.group_type_index,
+                            value=value,
+                        ),
+                        team,
+                        scope,
+                        strict=strict,
+                    )
+                )
 
         is_exception_string_array_property = (
             property.type == "event" and property.key in EXCEPTION_STRING_ARRAY_PROPERTIES
