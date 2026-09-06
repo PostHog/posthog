@@ -26,7 +26,7 @@ function groupedModelOption(currentValue: string): SessionConfigOption {
         group: "anthropic",
         name: "Anthropic",
         options: [
-          option("claude", "claude-fable-5", "Claude Fable 5"),
+          option("claude", "claude-fable-5-1", "Claude Fable 5.1"),
           option("claude", "claude-opus-5", "Claude Opus 5"),
           option("claude", "claude-sonnet-5", "Claude Sonnet 5"),
         ],
