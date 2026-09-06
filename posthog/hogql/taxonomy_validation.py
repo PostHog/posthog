@@ -3,10 +3,8 @@ from difflib import get_close_matches
 from logging import getLogger
 from typing import Literal
 
-from django.contrib.postgres.search import TrigramSimilarity
 from django.db import DatabaseError
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
-from django.db.models.functions import Greatest
+from django.db.models import QuerySet
 
 from posthog.schema import HogQLNotice
 
@@ -25,16 +23,17 @@ logger = getLogger(__name__)
 # `property` → a `properties.<identifier>` field. Both escape the suggestion (see `_build_fix`).
 FixContext = Literal["string", "property"]
 
-# How many similar names the suggestion lookup reads per typed name. Postgres ranks candidates by
-# trigram similarity, so the best match is in the first rows and difflib does not need every name.
-SUGGESTION_CANDIDATE_LIMIT = 20
+# How many project names one suggestion lookup reads. A project holds hundreds to low thousands of
+# definitions, so the cap only bites on an unusually large taxonomy, where the names past it would
+# cost more to compare than a suggestion is worth.
+MAX_CANDIDATE_NAMES = 2000
 
 # The `name` column of both definition models is `CharField(max_length=400)`.
 MAX_SUGGESTION_INPUT_LENGTH = 400
 
-# How many unknown names in one query get a suggestion. One lookup covers the whole batch, but
-# pg_trgm compares every name in it, and a caller controls how many unknown names one query carries.
-# Names past this cap still warn, only without "Did you mean".
+# How many unknown names in one query get a suggestion. One lookup covers the whole batch, but each
+# name is compared against every candidate, and a caller controls how many unknown names one query
+# carries. Names past this cap still warn, only without "Did you mean".
 MAX_SUGGESTED_NAMES = 5
 
 # Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
@@ -248,14 +247,21 @@ def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
     One candidate read covers the whole batch. A read per name would cost a round trip per name, and
     a typical project holds a few hundred definitions, where those round trips cost more than the
     comparison they save.
+
+    A name longer than the `name` column can never equal a definition, and comparison cost grows
+    with the input, so an oversized literal is dropped rather than compared.
     """
-    candidates = _similar_names(taxonomy, names)
+    comparable = [name for name in names if len(name) <= MAX_SUGGESTION_INPUT_LENGTH]
+    if not comparable:
+        return {}
+
+    candidates = _candidate_names(taxonomy)
     if not candidates:
         return {}
 
     candidate_set = set(candidates)
     suggestions: dict[str, str] = {}
-    for name in names:
+    for name in comparable:
         dollar_prefixed = f"${name}"
         if not name.startswith("$") and dollar_prefixed in candidate_set:
             suggestions[name] = dollar_prefixed
@@ -268,54 +274,20 @@ def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
     return suggestions
 
 
-def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
-    """Read the names most similar to any of `names`, ranked and capped by Postgres.
+def _candidate_names(taxonomy: QuerySet) -> list[str]:
+    """Read the project's definition names, in index order.
 
-    `name__trigram_similar` is the pg_trgm `%` operator, which the GIN trigram indexes
-    `index_event_definition_name` and `index_property_definition_name` answer directly. Postgres
-    still intersects that match with the project scope, so this call is bounded by what it returns,
-    not by what it reads.
-
-    The `$`-prefixed form of each name is matched exactly as well, and sorts ahead of the ranked
-    candidates. A caller who typed a name without its `$` therefore keeps that suggestion however
-    many other candidates the batch pulls in.
-
-    A name longer than the `name` column can never equal a definition, and pg_trgm cost grows with
-    the input, so an oversized literal is dropped rather than compared.
+    This reads the project scope, not a similarity match. The only trigram index on `name` is
+    global, so a `name__trigram_similar` filter matches every team's taxonomy and ranks that whole
+    set before the project scope narrows it. The unique index of each definition table leads with
+    the coalesced project id and then `name`, so this read walks one project's slice of that index
+    and stops at the cap. `difflib` then picks the closest name from that slice.
     """
-    comparable = [name for name in names if len(name) <= MAX_SUGGESTION_INPUT_LENGTH]
-    if not comparable:
-        return []
-
-    dollar_prefixed = [f"${name}" for name in comparable if not name.startswith("$")]
-
-    matches = Q(name__in=dollar_prefixed) if dollar_prefixed else Q()
-    for name in comparable:
-        matches |= Q(name__trigram_similar=name)
-
-    similarities = [TrigramSimilarity("name", name) for name in comparable]
-    ranked = taxonomy.filter(matches).annotate(
-        # `Greatest` needs two expressions, and one unknown name is the common case.
-        name_similarity=Greatest(*similarities) if len(similarities) > 1 else similarities[0]
-    )
-
-    ordering = ["-name_similarity", "name"]
-    if dollar_prefixed:
-        ranked = ranked.annotate(
-            name_is_dollar_prefixed=Case(
-                When(name__in=dollar_prefixed, then=Value(1)), default=Value(0), output_field=IntegerField()
-            )
-        )
-        ordering.insert(0, "-name_is_dollar_prefixed")
-
-    return list(
-        ranked.order_by(*ordering).values_list("name", flat=True)[: SUGGESTION_CANDIDATE_LIMIT * len(comparable)]
-    )
+    return list(taxonomy.order_by("name").values_list("name", flat=True)[:MAX_CANDIDATE_NAMES])
 
 
 def _closest_name(name: str, candidates: list[str]) -> str | None:
-    # pg_trgm selects candidates at the server's `pg_trgm.similarity_threshold` (0.3 by default),
-    # which is loose enough to return names a reader would not accept as a typo. difflib makes the
-    # final call at a stricter cutoff, so a suggestion needs both measures to agree.
+    # The cutoff must stay strict: a candidate is any name in the project, so a loose match offers a
+    # suggestion for a name no reader would accept as a typo.
     matches = get_close_matches(name, candidates, n=1, cutoff=0.6)
     return matches[0] if matches else None
