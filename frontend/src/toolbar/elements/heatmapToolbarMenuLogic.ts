@@ -343,7 +343,6 @@ export interface heatmapToolbarMenuLogicValues {
     heatmapElements: HeatmapElement[] // heatmapDataLogic
     heatmapFilters: HeatmapFilters // heatmapDataLogic
     heatmapFixedPositionMode: HeatmapFixedPositionMode // heatmapDataLogic
-    heatmapTooltipLabel: string // heatmapDataLogic
     rawHeatmapLoading: boolean // heatmapDataLogic
     viewportRange: {
         max: number
@@ -668,7 +667,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'viewportRange',
                 'heatmapFilters',
                 'heatmapElements',
-                'heatmapTooltipLabel',
                 'dateRange',
             ],
         ],
