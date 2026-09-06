@@ -27,7 +27,7 @@ class AdvancedActivityLogFieldDiscovery:
         self.organization_id = organization_id
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
-        record_count = self._get_org_record_count()
+        record_count = self._get_capped_org_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
             cached = get_cached_fields(str(self.organization_id))
@@ -104,6 +104,19 @@ class AdvancedActivityLogFieldDiscovery:
     def _get_org_record_count(self) -> int:
         return ActivityLog.objects.filter(organization_id=self.organization_id).count()
 
+    def _get_capped_org_record_count(self) -> int:
+        """Count the organization's activity rows, but stop one row past SMALL_ORG_THRESHOLD.
+
+        The callers only compare the result with SMALL_ORG_THRESHOLD, so a larger number changes no
+        decision. An exact count reads every row the organization has, and that read keeps growing
+        with the log.
+        """
+        return (
+            ActivityLog.objects.filter(organization_id=self.organization_id)
+            .values("id")[: SMALL_ORG_THRESHOLD + 1]
+            .count()
+        )
+
     def get_activity_logs_queryset(self, hours_back: int | None = None) -> QuerySet:
         """Get the base queryset for activity logs, optionally filtered by time."""
         queryset = ActivityLog.objects.filter(organization_id=self.organization_id, detail__isnull=False)
@@ -178,7 +191,7 @@ class AdvancedActivityLogFieldDiscovery:
             "detail_fields": current_detail_fields,
         }
 
-        record_count = self._get_org_record_count()
+        record_count = self._get_capped_org_record_count()
         cache_fields(str(self.organization_id), cache_data, record_count)
 
     def _get_base_queryset(self):
