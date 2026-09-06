@@ -339,6 +339,58 @@ class TestHogQLQueryRecordBatchModel:
         assert f"equals(events.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
         assert "log_comment" in query_parameters
+        # without a data interval field the query runs as-is, as of now
+        assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
+        assert model.wait_for_data_interval_end is False
+
+    @pytest.mark.parametrize("has_data_interval_start", [True, False], ids=["with-start", "without-start"])
+    async def test_as_query_with_parameters_applies_data_interval(
+        self, ateam, data_interval_start, data_interval_end, has_data_interval_start
+    ):
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.id,
+            hogql_query="SELECT event AS event, timestamp AS timestamp FROM events WHERE event = 'test'",
+            data_interval_field="timestamp",
+        )
+        printed_query, _ = await model.as_query_with_parameters(
+            data_interval_start if has_data_interval_start else None, data_interval_end
+        )
+
+        upper_bound = f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+        lower_bound = f"toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+        # the bounds resolve to the query's own `timestamp` alias
+        assert f"less(timestamp, {upper_bound})" in printed_query
+        assert (f"greaterOrEquals(timestamp, {lower_bound})" in printed_query) is has_data_interval_start
+        # the user's own filters are kept
+        assert "equals(event, %(hogql_val_" in printed_query
+        assert model.wait_for_data_interval_end is True
+
+    async def test_as_query_with_parameters_selects_only_rows_in_data_interval(self, clickhouse_client, ateam):
+        await truncate_events(clickhouse_client)
+        data_interval_start = dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
+        data_interval_end = dt.datetime(2021, 1, 15, 11, 0, 0, tzinfo=dt.UTC)
+        events_in_range, _, _ = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=10,
+            count_outside_range=5,
+            count_other_team=0,
+            table="sharded_events",
+        )
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.pk,
+            hogql_query="SELECT uuid AS uuid, timestamp AS timestamp FROM events",
+            data_interval_field="timestamp",
+        )
+
+        printed_query, parameters = await model._print_query(
+            data_interval_start, data_interval_end, output_format="JSONEachRow"
+        )
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+
+        assert {row["uuid"] for row in rows} == {event["uuid"] for event in events_in_range}
 
     async def test_as_insert_into_s3_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
         model = HogQLQueryRecordBatchModel(
@@ -436,7 +488,10 @@ class TestHogQLQueryRecordBatchModel:
 
     async def test_resolve_batch_exports_model_returns_hogql_model(self):
         batch_export_model = BatchExportModel(
-            name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"
+            name="hogql",
+            schema=None,
+            hogql_query="SELECT event AS event, timestamp AS timestamp FROM events",
+            data_interval_field="timestamp",
         )
 
         _, record_batch_model, model_name, _, _, _ = resolve_batch_exports_model(
@@ -446,6 +501,7 @@ class TestHogQLQueryRecordBatchModel:
         assert isinstance(record_batch_model, HogQLQueryRecordBatchModel)
         assert model_name == "hogql"
         assert record_batch_model.hogql_query == batch_export_model.hogql_query
+        assert record_batch_model.data_interval_field == "timestamp"
 
     async def test_resolve_batch_exports_model_raises_without_hogql_query(self):
         """Without this, a missing query would fall through to the events template path and export the wrong data."""

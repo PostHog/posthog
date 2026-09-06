@@ -35,6 +35,7 @@ tools:
             - latest_runs
             - filters
             - hogql_query
+            - data_interval_field
             - start_at
             - end_at
             - integration
@@ -88,6 +89,7 @@ tools:
             - latest_runs
             - filters
             - hogql_query
+            - data_interval_field
             - integration
     batch-exports-backfills-cancel-create:
         operation: batch_exports_backfills_cancel_create

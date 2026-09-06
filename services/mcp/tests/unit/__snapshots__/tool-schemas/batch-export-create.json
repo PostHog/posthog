@@ -532,7 +532,7 @@
             "type": "string"
         },
         "model": {
-            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions\n* `hogql` - Hogql",
+            "description": "Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query and requires data_interval_field.\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions\n* `hogql` - Hogql",
             "enum": ["events", "persons", "sessions", "hogql"],
             "type": "string"
         },

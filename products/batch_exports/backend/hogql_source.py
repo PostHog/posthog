@@ -5,6 +5,7 @@ should not import from `products.batch_exports.backend.temporal` or any DRF code
 """
 
 import typing
+import datetime as dt
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -16,6 +17,9 @@ from posthog.hogql.printer import prepare_ast_for_printing
 
 if typing.TYPE_CHECKING:
     from posthog.models import Team
+
+_VALIDATION_DATA_INTERVAL_START = dt.datetime(2000, 1, 1, tzinfo=dt.UTC)
+_VALIDATION_DATA_INTERVAL_END = dt.datetime(2000, 1, 2, tzinfo=dt.UTC)
 
 
 class UnsupportedHogQLQueryError(Exception):
@@ -89,12 +93,69 @@ def _validate_select_columns_are_named(parsed: ast.SelectQuery | ast.SelectSetQu
             )
 
 
-def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> None:
+def _iter_leaf_select_queries(
+    parsed: ast.SelectQuery | ast.SelectSetQuery,
+) -> typing.Iterator[ast.SelectQuery]:
+    """Yield every top-level SELECT of a query, descending through set operations (e.g. UNION ALL)."""
+    if isinstance(parsed, ast.SelectQuery):
+        yield parsed
+        return
+    for select_query in parsed.select_queries():
+        yield from _iter_leaf_select_queries(select_query)
+
+
+def apply_data_interval_filter(
+    parsed: ast.SelectQuery | ast.SelectSetQuery,
+    data_interval_field: str,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Bound a query to `[data_interval_start, data_interval_end)` on `data_interval_field`.
+
+    The bounds are added to the WHERE clause of every top-level SELECT, so the field must
+    resolve in each SELECT's own scope: a column of the tables it reads from, or one of its
+    aliases. Filtering there, rather than around the whole query, keeps the predicate on the
+    source table where ClickHouse can use it to skip data.
+
+    A `None` start means a backfill from the beginning of time, so only the upper bound applies.
+
+    The query is modified in place and returned.
+    """
+    for select_query in _iter_leaf_select_queries(parsed):
+        bounds: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=[data_interval_field]),
+                right=ast.Constant(value=data_interval_end),
+            )
+        ]
+        if data_interval_start is not None:
+            bounds.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=[data_interval_field]),
+                    right=ast.Constant(value=data_interval_start),
+                )
+            )
+
+        if select_query.where is None:
+            select_query.where = ast.And(exprs=bounds)
+        else:
+            select_query.where = ast.And(exprs=[select_query.where, *bounds])
+
+    return parsed
+
+
+def validate_hogql_query_for_batch_export(
+    hogql_query: str, team: "Team", data_interval_field: str | None = None
+) -> None:
     """Validate a HogQL query can power a batch export for the given team.
 
     Parses the query, checks output columns are named, and resolves types against the
     team's database (catching unknown tables/fields) with the same context the worker
-    will execute with.
+    will execute with. When a `data_interval_field` is given, the query is resolved with
+    the data interval bounds applied, exactly as a scheduled run would print it, so a
+    field that cannot be resolved is caught here instead of failing every run.
 
     Raises:
         UnsupportedHogQLQueryError: If the query cannot power a batch export.
@@ -102,6 +163,12 @@ def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> Non
     """
     parsed = parse_hogql_select_for_batch_export(hogql_query)
     _validate_select_columns_are_named(parsed)
+
+    if data_interval_field is not None:
+        # For validation purposes, we fill up hardcoded values for start, end.
+        parsed = apply_data_interval_filter(
+            parsed, data_interval_field, _VALIDATION_DATA_INTERVAL_START, _VALIDATION_DATA_INTERVAL_END
+        )
 
     context = create_hogql_context_for_batch_export(team)
     try:

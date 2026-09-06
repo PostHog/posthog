@@ -665,8 +665,16 @@ export interface BatchExportApi {
     end_at?: string | null
     /** The 10 most recent runs of this batch export, ordered newest first. */
     readonly latest_runs: readonly BatchExportRunApi[]
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
+    /**
+     * Column or alias in hogql_query that bounds each run to its data interval: a run exports the rows where this field is greater than or equal to the run's start and less than its end. Required when model is 'hogql'. Not supported for other models.
+     * @nullable
+     */
+    data_interval_field?: string | null
     /** A schema of custom fields to select when exporting data. */
     readonly schema: unknown
     filters?: unknown
@@ -1450,7 +1458,7 @@ export type BatchExportDestinationRequestApi =
 export interface BatchExportRequestApi {
     /** Human-readable name for the batch export. */
     name: string
-    /** Which data model to export (events, persons, sessions).
+    /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query and requires data_interval_field.
      *
      * * `events` - Events
      * * `persons` - Persons
@@ -1469,8 +1477,16 @@ export interface BatchExportRequestApi {
     interval: BatchExportIntervalEnumApi
     /** Whether the batch export is paused. */
     paused?: boolean
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
+    /**
+     * Column or alias in hogql_query that bounds each run to its data interval: a run exports the rows where this field is greater than or equal to the run's start and less than its end. Required when model is 'hogql'. Not supported for other models.
+     * @nullable
+     */
+    data_interval_field?: string | null
     /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
@@ -1611,7 +1627,7 @@ export interface PaginatedBatchExportRunListApi {
 export interface PatchedBatchExportRequestApi {
     /** Human-readable name for the batch export. */
     name?: string
-    /** Which data model to export (events, persons, sessions).
+    /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query and requires data_interval_field.
      *
      * * `events` - Events
      * * `persons` - Persons
@@ -1630,8 +1646,16 @@ export interface PatchedBatchExportRequestApi {
     interval?: BatchExportIntervalEnumApi
     /** Whether the batch export is paused. */
     paused?: boolean
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
+    /**
+     * Column or alias in hogql_query that bounds each run to its data interval: a run exports the rows where this field is greater than or equal to the run's start and less than its end. Required when model is 'hogql'. Not supported for other models.
+     * @nullable
+     */
+    data_interval_field?: string | null
     /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
