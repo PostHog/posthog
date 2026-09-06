@@ -1,11 +1,14 @@
 from collections.abc import Collection
 
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.functions.mapping import find_hogql_function
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from products.warehouse_sources.backend.models.external_table_definitions import (
     _MOVED_COLUMN_FIELDS,
@@ -129,3 +132,100 @@ class TestCuratedExpressionsCallRealFunctions:
                 unknown |= {name for name in collector.names if find_hogql_function(name) is None}
 
         assert unknown == set()
+
+
+class _SubstituteColumns(CloningVisitor):
+    """Replaces the column references in a curated expression with literal values."""
+
+    def __init__(self, values: dict[str, object]) -> None:
+        super().__init__()
+        self._values = values
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if len(node.chain) == 1 and node.chain[0] in self._values:
+            return ast.Constant(value=self._values[node.chain[0]])
+        return super().visit_field(node)
+
+
+def _evaluate(table: str, key: str, columns: dict[str, object], team) -> object:
+    field = _resolve(table, _plain_columns(table))[key]
+    assert isinstance(field, ast.ExpressionField)
+    query = ast.SelectQuery(select=[_SubstituteColumns(columns).visit(field.expr)])
+    return execute_hogql_query(query, team).results[0][0]
+
+
+_PERIOD = 1743159813
+
+
+class TestRelocatedFieldsResolveTheSameValue(ClickhouseTestMixin, BaseTest):
+    # The resolver tests above only compare column names, so a wrong JSON path, a mishandled empty
+    # list or a broken numeric conversion would still pass them. These run the real expression.
+    @parameterized.expand(
+        [
+            ("legacy", {"__subscription": "sub_x", "parent": None}, "sub_x"),
+            (
+                "relocated",
+                {"__subscription": None, "parent": '{"subscription_details":{"subscription":"sub_x"}}'},
+                "sub_x",
+            ),
+            ("neither", {"__subscription": None, "parent": None}, None),
+        ]
+    )
+    def test_invoice_subscription_id(self, _name, columns, expected) -> None:
+        assert _evaluate("stripe_invoice", "subscription_id", columns, self.team) == expected
+
+    @parameterized.expand(
+        [
+            ("legacy wins", {"__paid": False, "status": "paid"}, False),
+            ("relocated", {"__paid": None, "status": "paid"}, True),
+            ("relocated unpaid", {"__paid": None, "status": "open"}, False),
+        ]
+    )
+    def test_invoice_paid(self, _name, columns, expected) -> None:
+        assert _evaluate("stripe_invoice", "paid", columns, self.team) == expected
+
+    @parameterized.expand(
+        [
+            ("legacy", {"__current_period_start": _PERIOD, "items": None}),
+            (
+                "relocated",
+                {"__current_period_start": None, "items": f'{{"data":[{{"current_period_start":{_PERIOD}}}]}}'},
+            ),
+        ]
+    )
+    def test_subscription_period_start(self, _name, columns) -> None:
+        # Both shapes describe the same instant, so they have to render identically.
+        assert _evaluate("stripe_subscription", "current_period_start", columns, self.team) == _evaluate(
+            "stripe_subscription", "current_period_start", {"__current_period_start": _PERIOD, "items": None}, self.team
+        )
+
+    def test_subscription_period_start_without_any_item(self) -> None:
+        # An empty item list must read as nothing rather than as the epoch.
+        assert (
+            _evaluate(
+                "stripe_subscription",
+                "current_period_start",
+                {"__current_period_start": None, "items": '{"data":[]}'},
+                self.team,
+            )
+            is None
+        )
+
+    @parameterized.expand(
+        [
+            ("legacy", {"__unit_amount": 1500, "pricing": None}, 1500),
+            ("relocated", {"__unit_amount": None, "pricing": '{"unit_amount_decimal":"1500"}'}, 1500),
+            ("neither", {"__unit_amount": None, "pricing": None}, None),
+        ]
+    )
+    def test_invoice_item_unit_amount(self, _name, columns, expected) -> None:
+        assert _evaluate("stripe_invoiceitem", "unit_amount", columns, self.team) == expected
+
+    @parameterized.expand(
+        [
+            ("legacy", {"__unit_amount_decimal": "1500", "pricing": None}, "1500"),
+            ("relocated", {"__unit_amount_decimal": None, "pricing": '{"unit_amount_decimal":"1500"}'}, "1500"),
+        ]
+    )
+    def test_invoice_item_unit_amount_decimal(self, _name, columns, expected) -> None:
+        assert _evaluate("stripe_invoiceitem", "unit_amount_decimal", columns, self.team) == expected
