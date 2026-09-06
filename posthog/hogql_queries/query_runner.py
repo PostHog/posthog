@@ -1672,6 +1672,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # leaving a `results=[]` placeholder on the returned model.
     serve_raw_cached_results: bool = False
     raw_cached_results_bytes: Optional[bytes] = None
+    # Time spent dispatching async recalculation inline, set by enqueue_async_calculation and reset
+    # per run(). A stale cache hit pays this cost before returning the stale entry, so it must not
+    # land in the cache-hit response_time_ms sample.
+    _async_dispatch_ms: Optional[float] = None
 
     def __init__(
         self,
@@ -1841,17 +1845,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
+        dispatch_start = perf_counter()
+        dispatch_properties: dict[str, Any] = {
+            "query_type": getattr(self.query, "kind", "Other"),
+            "cache_key": cache_manager.cache_key,
+            "insight_id": cache_manager.insight_id,
+            "dashboard_id": cache_manager.dashboard_id,
+            "refresh_requested": refresh_requested,
+            "user_id": user.id if user else None,
+        }
+        # Merge request analytics (source, $host, ...) so dispatch volume splits per host,
+        # the same way "query executed" is enriched.
+        if analytics_props:
+            dispatch_properties = {**analytics_props, **dispatch_properties}
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
             event="query async recalculation initiated",
-            properties={
-                "query_type": getattr(self.query, "kind", "Other"),
-                "cache_key": cache_manager.cache_key,
-                "insight_id": cache_manager.insight_id,
-                "dashboard_id": cache_manager.dashboard_id,
-                "refresh_requested": refresh_requested,
-                "user_id": user.id if user else None,
-            },
+            properties=dispatch_properties,
             groups=(groups(self.team.organization, self.team)),
         )
 
@@ -1862,21 +1872,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
 
-        return enqueue_process_query_task(
-            team=self.team,
-            user_id=user.id if user else None,
-            sharing_configuration_id=sharing_configuration_id,
-            insight_id=cache_manager.insight_id,
-            dashboard_id=cache_manager.dashboard_id,
-            query_json=self.query.model_dump(),
-            query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
-            cache_key=cache_manager.cache_key,
-            labels=self.query_status_labels(),
-            refresh_requested=refresh_requested,
-            is_query_service=self.is_query_service,
-            is_posthog_ai=self.limit_context == LimitContext.POSTHOG_AI,
-            analytics_props=analytics_props,
-        )
+        try:
+            return enqueue_process_query_task(
+                team=self.team,
+                user_id=user.id if user else None,
+                sharing_configuration_id=sharing_configuration_id,
+                insight_id=cache_manager.insight_id,
+                dashboard_id=cache_manager.dashboard_id,
+                query_json=self.query.model_dump(),
+                query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
+                cache_key=cache_manager.cache_key,
+                labels=self.query_status_labels(),
+                refresh_requested=refresh_requested,
+                is_query_service=self.is_query_service,
+                is_posthog_ai=self.limit_context == LimitContext.POSTHOG_AI,
+                analytics_props=analytics_props,
+            )
+        finally:
+            self._async_dispatch_ms = round((perf_counter() - dispatch_start) * 1000, 2)
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
         try:
@@ -2130,6 +2143,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.user = user
             self._on_user_changed()
         start_time = perf_counter()
+        self._async_dispatch_ms = None
         cache_key = self.get_cache_key()
         # Resolve per-call state before observability so SLO + analytics agree on the values.
         self.query_id = query_id or self.query_id
@@ -2300,6 +2314,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             else:
                                 slo.tag(execution_path="cache_miss", cache_hit=False)
 
+                            total_ms = round((perf_counter() - start_time) * 1000, 2)
+                            # A stale entry dispatches async recalculation inline before it is
+                            # returned. That dispatch time is not cache-serving latency, so hold it
+                            # in its own property and keep response_time_ms to the cache read.
+                            dispatch_ms = self._async_dispatch_ms
                             query_executed_props = {
                                 "insight_id": insight_id,
                                 "dashboard_id": dashboard_id,
@@ -2308,7 +2327,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                                 "cache_key": cache_key,
                                 "cache_hit": isinstance(results, CachedResponse),
                                 "cache_age_override": cache_age_seconds,
-                                "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                                "response_time_ms": round(total_ms - dispatch_ms, 2) if dispatch_ms else total_ms,
+                                "async_dispatch_ms": dispatch_ms,
                                 **cache_tracking_props,
                             }
                             report_user_or_team_action(

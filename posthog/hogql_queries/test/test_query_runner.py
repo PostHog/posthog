@@ -630,6 +630,56 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_on_commit.assert_called_once()
 
+    def test_stale_cache_hit_splits_async_dispatch_time_out_of_response_time(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        # Seed a fresh cache entry.
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        # A monotonic clock that only advances while dispatch runs, so the 5s dispatch is the
+        # sole contribution to elapsed time on the cache-hit path.
+        clock = {"t": 0.0}
+
+        def fake_dispatch(*args, **kwargs):
+            clock["t"] += 5.0
+            return mock.MagicMock()
+
+        reported: list[tuple[str, dict]] = []
+        dispatch_events: list[dict] = []
+
+        def fake_report(event, properties=None, **kwargs):
+            reported.append((event, properties or {}))
+
+        def fake_capture(*args, **kwargs):
+            if kwargs.get("event") == "query async recalculation initiated":
+                dispatch_events.append(kwargs.get("properties") or {})
+
+        # Stale enough to dispatch async recalculation while still serving the cached entry.
+        with (
+            freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42)),
+            mock.patch("posthog.hogql_queries.query_runner.perf_counter", lambda: clock["t"]),
+            mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task", side_effect=fake_dispatch),
+            mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action", side_effect=fake_report),
+            mock.patch("posthog.hogql_queries.query_runner.posthoganalytics.capture", side_effect=fake_capture),
+        ):
+            runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                analytics_props={"$host": "eu.posthog.com"},
+            )
+
+        query_executed = next(props for event, props in reported if event == "query executed")
+        self.assertTrue(query_executed["cache_hit"])
+        self.assertTrue(query_executed["is_cache_stale"])
+        # Dispatch time is recorded apart and kept out of the cache-hit response_time_ms sample.
+        self.assertEqual(query_executed["async_dispatch_ms"], 5000.0)
+        self.assertEqual(query_executed["response_time_ms"], 0.0)
+
+        # The dispatch event carries $host so its volume can be split per region.
+        self.assertEqual(len(dispatch_events), 1)
+        self.assertEqual(dispatch_events[0]["$host"], "eu.posthog.com")
+
     @parameterized.expand(
         [
             # The override replaces the subclass staleness policy in both directions: a runner
