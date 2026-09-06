@@ -82,7 +82,7 @@ Get it from the user context or from `org-members-list`.
    id, so the user can connect Slack to the wrong project.
 4. If **no Slack integration exists**, tell the user:
    > Slack isn't connected to this project yet. You can set it up in
-   > [Project settings > Integrations](<_posthogUrl>).
+   > [Project settings > Integrations](_posthogUrl).
    > In the meantime, would you like to receive this via email instead?
 
 Slack setup requires an OAuth flow in the browser — it cannot be done via MCP.
