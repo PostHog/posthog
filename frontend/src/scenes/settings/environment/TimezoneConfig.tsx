@@ -37,6 +37,10 @@ export function TimezoneConfig({ displayWarning = true }: { displayWarning?: boo
                 virtualized
                 onChange={([newTimezone]): void => {
                     // This is a string for a single-mode select, but typing is poor
+                    if (!newTimezone) {
+                        // The select was cleared, so there is no zone to change to
+                        return
+                    }
                     if (!preflight?.available_timezones) {
                         throw new Error('No timezones are available')
                     }
