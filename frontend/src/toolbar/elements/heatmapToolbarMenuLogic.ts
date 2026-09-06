@@ -1237,9 +1237,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
 
-        // the feature flag gates only the menu button; the whole selection machine stays
-        // dormant because startAreaSelection is that button's only caller — a second caller
-        // would silently un-gate the feature
         startAreaSelection: () => {
             // product tours' picker also listens for document clicks; two armed pickers
             // would both consume the same page click
