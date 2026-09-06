@@ -13,11 +13,10 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPrompt
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User, effective_project_id_expr
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
-from products.event_definitions.backend.models import effective_project_id_expr
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
