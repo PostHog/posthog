@@ -163,7 +163,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         streamingActive,
         agentMode,
         threadMessageCount,
-        queueingEnabled,
         queuedMessages,
         queueSubmitting,
     } = useValues(maxThreadLogic)
@@ -241,7 +240,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const hasQuestion = inputValue.trim().length > 0
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
     const showFillInHint = !!fillInHint
-    const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
+    const isQueueingSubmission = threadLoading && hasQuestion
     const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
 
     // Mirrors maxThreadLogic's `submissionDisabledReason` selector, but using the local input
@@ -305,7 +304,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             Research mode is a free beta feature with lower daily limits
                         </div>
                     )}
-                    {queueingEnabled && (queuedMessages.length > 0 || queueSubmitting) && (
+                    {(queuedMessages.length > 0 || queueSubmitting) && (
                         <div className="px-3 py-2">
                             <div className="text-xs text-muted mb-1.5 flex items-center gap-1.5">
                                 Up next
@@ -413,11 +412,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             releaseSandboxPrewarm()
                                         }}
                                         onPressEnter={() => {
-                                            if (
-                                                hasQuestion &&
-                                                !submissionDisabledReason &&
-                                                (!threadLoading || queueingEnabled)
-                                            ) {
+                                            if (hasQuestion && !submissionDisabledReason) {
                                                 onSubmit?.()
                                                 submit(inputValue)
                                             }
