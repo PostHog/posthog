@@ -468,20 +468,23 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
         ],
     )
-    def test_slack_app_allows_agent_models(self, model: str):
-        allowed, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+    @pytest.mark.parametrize("product", ["slack_app", "workflows"])
+    def test_billed_agent_products_allow_agent_models(self, product: str, model: str):
+        allowed, error = check_product_access(product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
 
-    def test_slack_app_rejects_api_keys(self):
-        allowed, error = check_product_access("slack_app", "personal_api_key", None, "claude-sonnet-4-6")
+    @pytest.mark.parametrize("product", ["slack_app", "workflows"])
+    def test_billed_agent_products_reject_api_keys(self, product: str):
+        allowed, error = check_product_access(product, "personal_api_key", None, "claude-sonnet-4-6")
         assert allowed is False
         assert error is not None
         assert "requires OAuth" in error
 
-    def test_slack_app_rejects_unauthorized_oauth_app(self):
+    @pytest.mark.parametrize("product", ["slack_app", "workflows"])
+    def test_billed_agent_products_reject_unauthorized_oauth_apps(self, product: str):
         allowed, error = check_product_access(
-            "slack_app", "oauth_access_token", "00000000-0000-0000-0000-000000000000", "claude-sonnet-4-6"
+            product, "oauth_access_token", "00000000-0000-0000-0000-000000000000", "claude-sonnet-4-6"
         )
         assert allowed is False
         assert error is not None
@@ -642,7 +645,7 @@ class TestCheckFreeTierModelAccess:
 
 class TestServerCredentialRequirement:
     """Internal products driven by server-minted sandbox tokens (background_agents, signals,
-    slack_app, conversations, onboarding) must accept only tokens carrying the internal
+    slack_app, workflows, conversations, onboarding) must accept only tokens carrying the internal
     `internal_run:read` marker. Otherwise a user's own OAuth token minted under the same app could
     route around the posthog_code free-tier gate through these products to premium models."""
 
@@ -653,6 +656,7 @@ class TestServerCredentialRequirement:
         ("background_agents", POSTHOG_CODE_US_APP_ID),
         ("signals", SIGNALS_DEV_APP_ID),
         ("slack_app", POSTHOG_CODE_US_APP_ID),
+        ("workflows", POSTHOG_CODE_US_APP_ID),
         ("conversations", POSTHOG_CODE_US_APP_ID),
         ("onboarding", POSTHOG_CODE_US_APP_ID),
     ]

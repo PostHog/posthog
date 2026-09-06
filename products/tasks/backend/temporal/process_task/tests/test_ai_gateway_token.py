@@ -39,6 +39,7 @@ class TestResolveSandboxAiProduct:
             ("signal_report", "match", "signals"),
             ("loop", None, "posthog_code"),
             ("slack", None, "slack_app"),
+            ("workflow", None, "workflows"),
             ("support_reply", None, "conversations"),
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
@@ -253,6 +254,16 @@ class TestAiGatewayEnvVars:
         assert "AI_GATEWAY_PRODUCT" not in env
         assert "AI_GATEWAY_AI_STAGE" not in env
         mint.assert_not_called()
+
+    def test_workflow_run_gets_a_pinned_token_when_routed(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="workflow")
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
 
     # The agent trusts these as the worker's word, so the API must refuse a run-supplied value.
     def test_reserved_keys_cover_the_pinned_product_env(self):

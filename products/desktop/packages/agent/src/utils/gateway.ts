@@ -5,6 +5,7 @@ export type GatewayProduct =
   | "background_agents"
   | "signals"
   | "slack_app"
+  | "workflows"
   | "posthog_ai"
   | "conversations"
   | "onboarding";
@@ -29,6 +30,7 @@ export function resolveGatewayProduct({
     signals_scout: "signals",
     slack: "slack_app",
     support_reply: "conversations",
+    workflow: "workflows",
   };
 
   if (originProduct && originProduct in originProductToGatewayProductMap) {
