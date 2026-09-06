@@ -49,7 +49,9 @@
     overflow: hidden;
     background: var(--color-bg-primary);
 
-    .storybook-test-runner & {
+    // Allow the shell to grow when the storybook test runner adds its class to the body.
+    // .storybook-test-runner is on the body; .Navigation3000 is a direct child.
+    .storybook-test-runner > & {
         height: auto;
         min-height: 100vh;
     }
@@ -732,8 +734,11 @@
     height: 100dvh; // see .Navigation3000 — keep bottom-anchored UI reachable on mobile
     overflow: hidden;
 
-    .storybook-test-runner & {
-        height: fit-content;
+    // Allow the layout to grow when the storybook test runner is active.
+    .storybook-test-runner > & {
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
     }
 
     /* Mobile layout - single column with overlay nav */
