@@ -8,8 +8,22 @@ from pydantic import BaseModel
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, NodeKind
 
 from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+
+from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
+
+
+def test_account_conditions(team: Team, enabled: bool) -> list[ast.Expr]:
+    """The team's test-account filters, for an `events` scan that opted into them.
+
+    Empty when the toggle is off, which keeps the query shape byte-identical: the lazy precompute hashes
+    the insert query's AST, so an unconditional wrapper would repoint every team at a cold job.
+    """
+    if not enabled or not team.test_account_filters:
+        return []
+    return [property_to_expr(prop, team) for prop in team.test_account_filters]
 
 
 def build_source_normalization_expr(source_expr: ast.Expr, source_mappings: dict[str, list[str]]) -> ast.Expr:

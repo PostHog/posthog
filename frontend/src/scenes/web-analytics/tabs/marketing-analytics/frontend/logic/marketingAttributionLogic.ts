@@ -79,6 +79,7 @@ export interface marketingAttributionLogicValues {
         dateTo: string | null
         interval: IntervalType
     } // marketingAnalyticsLogic
+    shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
     attribution_window_days: number // marketingAnalyticsSettingsLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
     allowMultipleConversionsPerVisitor: boolean | null
@@ -147,7 +148,8 @@ export interface marketingAttributionLogicMeta {
                 dateFrom: string | null
                 dateTo: string | null
                 interval: IntervalType
-            }
+            },
+            shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsAttributionQuery | null
         pathsQuery: (
             query: MarketingAnalyticsAttributionQuery | null,
@@ -170,7 +172,7 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
             // The tab renders under the scene's shared filter bar, so it reuses that date range rather
             // than owning a second date control the user would have to keep in sync.
             marketingAnalyticsLogic,
-            ['dateFilter'],
+            ['dateFilter', 'shouldFilterTestAccounts'],
             marketingAnalyticsSettingsLogic,
             ['conversion_goals', 'attribution_window_days'],
         ],
@@ -272,6 +274,7 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                 s.lookbackWindowDays,
                 s.allowMultipleConversionsPerVisitor,
                 s.dateFilter,
+                s.shouldFilterTestAccounts,
             ],
             (
                 selectedGoalId: string | null,
@@ -280,7 +283,8 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                 excludeUnattributed: boolean,
                 lookbackWindowDays: number | null,
                 allowMultipleConversionsPerVisitor: boolean | null,
-                dateFilter: DateFilter
+                dateFilter: DateFilter,
+                shouldFilterTestAccounts: boolean
             ): MarketingAnalyticsAttributionQuery | null => {
                 if (!selectedGoalId) {
                     return null
@@ -297,6 +301,7 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                     ...(allowMultipleConversionsPerVisitor !== null ? { allowMultipleConversionsPerVisitor } : {}),
                     limit: ATTRIBUTION_ROW_LIMIT,
                     properties: [],
+                    filterTestAccounts: shouldFilterTestAccounts,
                 }
             },
         ],
@@ -329,6 +334,7 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                           : {}),
                     limit: PATHS_ROW_LIMIT,
                     properties: [],
+                    filterTestAccounts: query.filterTestAccounts,
                 }
             },
         ],
