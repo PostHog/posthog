@@ -171,9 +171,12 @@ you change one, change the other (or flag to the human that you can't).
 
 **Genuinely shared — change once:** `types.ts` (the enum),
 `utils/promoteProperties.ts` (`PROMOTED_PROPERTIES_BY_SEARCH_TERM`),
-`utils/redistributeTopMatches.ts`, `recentTaxonomicFiltersLogic.ts` and
+`recentTaxonomicFiltersLogic.ts` and
 `taxonomicFilterPinnedPropertiesLogic.ts` (the rebuild reads recents/pinned
 through these via a bridge, it doesn't fork them).
+
+`redistributeTopMatches` is legacy-only, not shared: it lives in
+`taxonomicFilterLogic.tsx` and the rebuild never calls it.
 
 One intentional divergence is already documented in
 `useTaxonomicFilter.ts`: the rebuild **always** leads with SuggestedFilters,

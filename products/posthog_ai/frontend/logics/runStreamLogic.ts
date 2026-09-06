@@ -70,6 +70,7 @@ import {
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
+import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
 import { registerHmrStreamAbort } from './devHmrStreamAbort'
@@ -1189,7 +1190,8 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/turn_complete') {
-            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator' })
+            const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
+            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator', ...(traceId && { traceId }) })
             continue
         }
         if (method === '_posthog/progress') {
@@ -1402,6 +1404,7 @@ export interface runStreamLogicValues {
     hasGitArtifacts: boolean
     isBootstrapResumeRun: boolean
     isThinking: boolean
+    latestTurnTraceId: string | null
     log: RunLog
     logBootstrapLoading: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
@@ -1624,6 +1627,7 @@ export interface runStreamLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
+        latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
         isThinking: (
@@ -2179,6 +2183,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
         foldedThread: [
             (s) => [s.log, s.isBootstrapResumeRun],
             (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+        ],
+        latestTurnTraceId: [
+            (s) => [s.threadItems],
+            (threadItems: ThreadItem[]): string | null => {
+                // Trailer-derived, not the raw last separator: synthetic trailing separators
+                // (idle-resume/error frames) carry no trace id and are not turns.
+                const trailers = computeTurnTrailers(threadItems)
+                const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
+                return lastTurn?.traceId ?? null
+            },
         ],
         threadItems: [
             (s) => [s.foldedThread, s.showDebugLogs],

@@ -166,6 +166,20 @@ describe("adapter subscription gating", () => {
       });
     });
 
+    it("does not run the login check when the flag is off", async () => {
+      const fetchStatus = vi.fn(
+        (): Promise<SubscriptionStatus> =>
+          Promise.resolve({ loginState: "logged-in" }),
+      );
+      await registerSubscriptionAtBoot("claude", fetchStatus, false);
+
+      expect(fetchStatus).not.toHaveBeenCalled();
+      expect(registerAdapterSubscription).toHaveBeenLastCalledWith("claude", {
+        access: "posthog-gateway",
+        connected: false,
+      });
+    });
+
     it("re-reads the setting after the probe so a toggle change is not stale", async () => {
       useSettingsStore.setState({
         _hasHydrated: true,

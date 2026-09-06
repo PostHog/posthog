@@ -318,8 +318,17 @@ export interface NotebookKernelConfigResponseApi {
      * @nullable
      */
     idle_timeout_seconds?: number | null
-    /** True when a kernel is currently active: config applies at sandbox provision time, so the running kernel keeps its old resources until restarted (restarting loses materialized dataframes). */
+    /** True when this call restarted a live kernel to apply a new size. Restarting discards every materialized dataframe, so cells that referenced one must run again. */
+    restarted: boolean
+    /** True when a kernel is live and this call did not restart it, so the running sandbox may not match the saved config. A resize restarts the kernel and reports False on success, or True if that restart fails. An idle-timeout change and a no-op on a live kernel also report True. */
     restart_required: boolean
+    /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It tracks the running sandbox while a kernel is live, otherwise the configured shape. After a failed resize this stays the running sandbox's rate, not the size that failed to apply. */
+    hourly_price: number
+    /**
+     * Compute preset the configured shape matches, or null when it was tuned by hand.
+     * @nullable
+     */
+    preset_key?: string | null
 }
 
 export interface NotebookSQLV2FrameApi {
@@ -392,6 +401,13 @@ export interface NotebookKernelStatusResponseApi {
      * @nullable
      */
     idle_timeout_seconds?: number | null
+    /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the kernel config endpoint restarts a live kernel, so this tracks the running sandbox. */
+    hourly_price: number
+    /**
+     * Compute preset for the shape hourly_price describes: the running sandbox while a kernel is live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset.
+     * @nullable
+     */
+    preset_key?: string | null
 }
 
 /**
@@ -460,6 +476,13 @@ export interface NotebookSQLV2RunRequestApi {
 export interface NotebookSQLV2RunResponseApi {
     /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
     run_id: string
+    /** True when this run has to provision a sandbox because none is live for the caller, checked here rather than inferred from a client's cached kernel status. Tell the user what that costs. */
+    starts_sandbox: boolean
+    /**
+     * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+     * @nullable
+     */
+    sandbox_hourly_price?: number | null
 }
 
 export interface NotebookSQLV2MediaApi {
@@ -703,8 +726,8 @@ export const GenerationOperationEnumApi = {
 
 export interface WidgetGenerateRequestApi {
     /**
-     * Instructions for the generated widget.
-     * @maxLength 20000
+     * Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.
+     * @maxLength 50000
      */
     prompt: string
     /** Idempotency key for this generation job. */
@@ -722,6 +745,8 @@ export interface WidgetGenerateRequestApi {
      * * `regenerate` - regenerate
      * * `improve` - improve */
     generation_operation?: GenerationOperationEnumApi
+    /** Current widget version the improvement is based on. Required for improve operations. */
+    expected_current_version_id?: string
 }
 
 /**
@@ -741,6 +766,21 @@ export const LifecycleStatusEnumApi = {
     Ready: 'ready',
     Failed: 'failed',
     Incompatible: 'incompatible',
+} as const
+
+/**
+ * * `generating_source` - generating_source
+ * * `reviewing_source` - reviewing_source
+ * * `publishing_source` - publishing_source
+ * * `unknown` - unknown
+ */
+export type FailurePhaseEnumApi = (typeof FailurePhaseEnumApi)[keyof typeof FailurePhaseEnumApi]
+
+export const FailurePhaseEnumApi = {
+    GeneratingSource: 'generating_source',
+    ReviewingSource: 'reviewing_source',
+    PublishingSource: 'publishing_source',
+    Unknown: 'unknown',
 } as const
 
 /**
@@ -785,10 +825,10 @@ export interface WidgetJobApi {
  * * `high` - high
  * * `critical` - critical
  */
-export type WidgetSecurityReviewSeverityEnumApi =
-    (typeof WidgetSecurityReviewSeverityEnumApi)[keyof typeof WidgetSecurityReviewSeverityEnumApi]
+export type GeneratedWidgetVersionSecurityReviewSeverityEnumApi =
+    (typeof GeneratedWidgetVersionSecurityReviewSeverityEnumApi)[keyof typeof GeneratedWidgetVersionSecurityReviewSeverityEnumApi]
 
-export const WidgetSecurityReviewSeverityEnumApi = {
+export const GeneratedWidgetVersionSecurityReviewSeverityEnumApi = {
     None: 'none',
     Low: 'low',
     Medium: 'medium',
@@ -834,7 +874,7 @@ export interface WidgetSecurityReviewApi {
      * * `medium` - medium
      * * `high` - high
      * * `critical` - critical */
-    severity: WidgetSecurityReviewSeverityEnumApi
+    severity: GeneratedWidgetVersionSecurityReviewSeverityEnumApi
     /** Concise result from the automated security review. */
     summary: string
     /** Potential security issues found in the source. */
@@ -862,6 +902,18 @@ export interface WidgetStatusApi {
      * @nullable
      */
     error_detail?: string | null
+    /**
+     * Stable failure code for support and diagnostics.
+     * @nullable
+     */
+    error_code?: string | null
+    /** Generation step that failed, if a generation job failed.
+     *
+     * * `generating_source` - generating_source
+     * * `reviewing_source` - reviewing_source
+     * * `publishing_source` - publishing_source
+     * * `unknown` - unknown */
+    failure_phase?: FailurePhaseEnumApi | null
     /**
      * Short-lived URL for the selected widget version's preview.
      * @nullable
@@ -915,9 +967,10 @@ export interface WidgetSourceApi {
  * * `improve` - improve
  * * `revert` - revert
  */
-export type VersionOperationEnumApi = (typeof VersionOperationEnumApi)[keyof typeof VersionOperationEnumApi]
+export type GeneratedWidgetVersionOperationEnumApi =
+    (typeof GeneratedWidgetVersionOperationEnumApi)[keyof typeof GeneratedWidgetVersionOperationEnumApi]
 
-export const VersionOperationEnumApi = {
+export const GeneratedWidgetVersionOperationEnumApi = {
     Initial: 'initial',
     Regenerate: 'regenerate',
     Improve: 'improve',
@@ -958,10 +1011,13 @@ export interface WidgetVersionApi {
      * * `regenerate` - regenerate
      * * `improve` - improve
      * * `revert` - revert */
-    version_operation: VersionOperationEnumApi
+    version_operation: GeneratedWidgetVersionOperationEnumApi
     /** Instructions added by this version. */
     prompt_delta: string
-    /** Complete instructions represented by this version. */
+    /**
+     * Complete instructions represented by this version, up to 50,000 characters.
+     * @maxLength 50000
+     */
     effective_prompt: string
     /**
      * AI model, or null when this version did not run a model.
@@ -1008,6 +1064,40 @@ export interface WidgetVersionPageApi {
      * @nullable
      */
     next_offset: number | null
+}
+
+export interface NotebookComputePresetApi {
+    /** Stable identifier for the preset, e.g. 'balanced'. */
+    key: string
+    /** Preset name as a person reads it, e.g. 'Balanced'. */
+    name: string
+    /** What this preset suits, in one sentence. */
+    description: string
+    /** CPU cores the preset provisions. */
+    cpu_cores: number
+    /** Memory in GB the preset provisions. */
+    memory_gb: number
+    /** What this preset costs per hour in USD while it is alive. */
+    hourly_price: number
+}
+
+export interface NotebookComputeOptionsResponseApi {
+    /** Currency of every price in this response. Always 'USD'. */
+    currency: string
+    /** Price of one CPU core for one hour, in USD. */
+    cpu_rate_per_core_hour: number
+    /** Price of one GB of memory for one hour, in USD. */
+    memory_rate_per_gb_hour: number
+    /** Preset a sandbox starts with when the notebook sets no compute config. */
+    default_preset_key: string
+    /** Sandbox shapes offered as one-click options. */
+    presets: NotebookComputePresetApi[]
+    /** CPU core counts the kernel config endpoint accepts. */
+    allowed_cpu_cores: number[]
+    /** Memory sizes in GB the kernel config endpoint accepts. */
+    allowed_memory_gb: number[]
+    /** Idle timeouts in seconds the kernel config endpoint accepts. */
+    allowed_idle_timeout_seconds: number[]
 }
 
 export type NotebooksListParams = {

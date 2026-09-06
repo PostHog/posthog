@@ -36,13 +36,16 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "review_hog": "review_hog",
     "scout_suggestions": "signals",
     "signal_report": "signals",
+    "signals_chat": "signals",
     "signals_scout": "signals",
     "slack": "slack_app",
     "support_reply": "conversations",
 }
 
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
-_SIGNALS_STAGE_PRODUCTS = frozenset({"scout", "research", "implementation", "repo_selection", "custom_agent"})
+_SIGNALS_STAGE_PRODUCTS = frozenset(
+    {"scout", "research", "implementation", "repo_selection", "custom_agent", "inbox", "chat", "scout_suggestions"}
+)
 _SCOUT_STAGE_PREFIX = "scout:"
 
 _MAX_CAP_USD = Decimal("10000")
@@ -51,8 +54,10 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
 # API-settable, so an unmapped origin marked internal resolves to
-# background_agents and must never mint. Signals products qualify because they
-# are reachable only through the server-stamped, PATCH-protected ai_stage.
+# background_agents and must never mint. Signals products qualify because their
+# stages are set only by server flows: pipeline stages by the flows that start
+# them, `inbox` / `chat` by `Task.create_run`. A caller owning a report can reach
+# `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
 # review_hog qualifies because validate_origin_product reserves the origin and
 # the resolver requires the server-stamped `internal` flag; rows predating the
 # reservation resolve to posthog_code and cannot mint.
@@ -64,8 +69,15 @@ MINTABLE_PRODUCTS = frozenset(
         "signals_implementation",
         "signals_repo_selection",
         "signals_custom_agent",
+        "signals_inbox",
+        "signals_chat",
+        "signals_scout_suggestions",
     }
 )
+
+# Exempt from the background run-duration cap, so their tokens need the longer interactive
+# ceiling. Mirrors the stages `Task.create_run` stamps.
+INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
 
 # Model pins carried on the minted token: the pipeline's stage pins, the
 # implicit agent-SDK calls (the haiku small/fast utility model and the sonnet
@@ -135,16 +147,22 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
     return False
 
 
-def _token_ttl_seconds() -> int:
-    """Token lifetime: the explicit setting, else the run-duration cap plus a settle
-    buffer, so a capped run cannot outlive its token (expiry under a live run fails
-    every remaining LLM call with no fallback). A disabled run cap derives the 24h
-    mint maximum; interactive sessions are cap-exempt and could still outlive it,
-    but only capped background products are routed. Clamped to mint bounds (60s..24h).
+def _token_ttl_seconds(ai_product: str) -> int:
+    """Token lifetime: the explicit setting, else this product's own run-duration cap plus a
+    settle buffer, so a capped run cannot outlive its token (expiry under a live run fails
+    every remaining LLM call with no fallback). Only the interactive products are exempt from
+    the background cap, so only they derive the longer ceiling; giving every token the longest
+    one would widen the window on a leaked background token for no run that could use it.
+    A disabled cap derives the 24h mint maximum. Clamped to mint bounds (60s..24h).
     """
     configured = int(settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS or 0)
     if configured <= 0:
-        run_cap = int(getattr(settings, "TASKS_MAX_RUN_DURATION_SECONDS", 0) or 0)
+        if ai_product in INTERACTIVE_MINTABLE_PRODUCTS:
+            # These runs are exempt from the background cap, so their own ceiling is the only
+            # one that bounds them; zero means unbounded and derives the mint maximum.
+            run_cap = int(getattr(settings, "TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS", 0) or 0)
+        else:
+            run_cap = int(getattr(settings, "TASKS_MAX_RUN_DURATION_SECONDS", 0) or 0)
         configured = run_cap + 3600 if run_cap > 0 else 86400
     return max(60, min(configured, 86400))
 
@@ -212,7 +230,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
 
     body: dict[str, Any] = {
         "cap_usd": _token_cap_usd(team_id, ai_product),
-        "ttl_seconds": _token_ttl_seconds(),
+        "ttl_seconds": _token_ttl_seconds(ai_product),
         "product": ai_product,
         "obo": str(team_id),
     }

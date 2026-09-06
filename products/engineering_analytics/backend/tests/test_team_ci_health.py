@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
+from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
 
 T_REPLAY_PRS = "products/replay/backend/tests/test_snap/TestSnap::test_prs"
@@ -16,6 +17,7 @@ T_UNOWNED = "posthog/api/test/test_shared/TestShared::test_unowned"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
 T_RESTAMPED = "products/moved/backend/tests/test_moved/TestMoved::test_restamped"
 T_PASS_ONLY = "products/quiet/backend/tests/test_quiet/TestQuiet::test_pass_only"
+T_HANDLE_OWNED = "posthog/api/test/test_handle/TestHandle::test_handle_owned"
 
 
 class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
@@ -80,6 +82,8 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(16, T_RESTAMPED, "failed", ts=cls.current_b, owner="team-new", run="602", pr="602"),
             # No owner stamp: buckets under the literal 'unowned'.
             cls._span(12, T_UNOWNED, "rerun_passed", ts=cls.current_b, owner="", run="401", pr="401"),
+            # An '@handle' stamp is a person, not a team (older spans carry them): also 'unowned'.
+            cls._span(19, T_HANDLE_OWNED, "rerun_passed", ts=cls.current_b, owner="@someone", run="801", pr="801"),
             # A re-run pass with no same-run failure: a shard re-executed alongside the flaky one.
             # It pairs with nothing, so its team must not appear in the roster at all.
             cls._span(
@@ -162,7 +166,9 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         assert (replay["same_commit_recovery_run_count"], replay["same_commit_recovery_run_count_prior"]) == (1, 2)
         assert (replay["quarantined_failed_run_count"], replay["quarantined_failed_run_count_prior"]) == (1, 0)
 
-        assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["same_commit_recovery_run_count"]) == (1, 1)
+        # The unstamped test and the '@handle'-stamped one both land here; no '@someone' row exists.
+        assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["same_commit_recovery_run_count"]) == (2, 2)
+        assert "@someone" not in rows
 
         # A re-run attempt went green on the same commit, so it is current-window flaky; the prior
         # window's 3 unrecovered PR failures are a regression, not a flake.
@@ -210,3 +216,39 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
     def test_activity_requires_owner_team(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/team_ci_activity/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_roster_carries_census_counts_and_census_only_teams(self) -> None:
+        now = datetime.now(UTC)
+        for owner, count, days_ago in [
+            ("team-replay", 210, 1),
+            ("team-replay", 190, 16),
+            ("team-quiet-green", 40, 1),
+        ]:
+            _create_event(
+                event=CENSUS_EVENT,
+                team=self.team,
+                distinct_id="census",
+                properties={
+                    "repository": "PostHog/posthog",
+                    "owner_team": owner,
+                    "pytest_file_count": count,
+                    "jest_file_count": 0,
+                    "test_file_count": count,
+                },
+                timestamp=now - timedelta(days=days_ago),
+            )
+
+        rows = self._roster()
+
+        replay = rows["team-replay"]
+        assert (replay["test_file_count"], replay["test_file_count_prior"]) == (210, 190)
+        # No membership snapshot in this fixture: merged-PR context degrades to null, never zero.
+        assert replay["merged_pr_count"] is None
+        # A team with census counts but no CI signal still gets a row, with null last_seen_at.
+        quiet = rows["team-quiet-green"]
+        assert (quiet["test_file_count"], quiet["flaky_test_count"], quiet["last_seen_at"]) == (40, 0, None)
+        assert rows["unowned"]["merged_pr_count"] is None
+
+    def test_roster_filters_to_one_owner_team(self) -> None:
+        data = self._get("team_ci_health", owner_team="team-replay", limit="1")
+        assert [item["owner_team"] for item in data["items"]] == ["team-replay"]

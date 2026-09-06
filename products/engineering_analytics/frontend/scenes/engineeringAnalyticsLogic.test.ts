@@ -198,6 +198,7 @@ describe('engineeringAnalyticsLogic', () => {
         mockSources.mockResolvedValue([])
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
+            owners_resolved: true,
             ttl_days: 15,
             repository: 'PostHog/posthog',
             trunk_url: null,
@@ -705,6 +706,7 @@ describe('engineeringAnalyticsLogic', () => {
     it('maps the trunk quarantine endpoint and filters the tests by team', async () => {
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
+            owners_resolved: true,
             ttl_days: 15,
             repository: 'PostHog/posthog',
             trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',

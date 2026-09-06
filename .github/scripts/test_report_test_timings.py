@@ -120,8 +120,16 @@ def test_find_repo_root_walks_to_repository_markers(tmp_path: Path) -> None:
     assert report_test_timings.find_repo_root(script) == repo_root
 
 
-def test_test_identity_infers_existing_pytest_file_when_junit_omits_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "junit_file",
+    [
+        "",
+        # a decorator's site-packages path (see normalize_pytest_file)
+        "../../../../../opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/unittest/mock.py",
+    ],
+)
+def test_test_identity_infers_existing_pytest_file_when_junit_is_unusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, junit_file: str
 ) -> None:
     test_file = tmp_path / "products/approvals/backend/tests/test_approvals_api.py"
     test_file.parent.mkdir(parents=True)
@@ -130,7 +138,7 @@ def test_test_identity_infers_existing_pytest_file_when_junit_omits_it(
 
     file, nodeid, selector, file_source = report_test_timings.test_identity(
         "pytest",
-        "",
+        junit_file,
         "products.approvals.backend.tests.test_approvals_api.TestApprovalsFeatureGating",
         "test_accessible",
     )
@@ -804,6 +812,22 @@ def test_emit_shard_span_stamps_owner_team_only_for_owned_files(monkeypatch: pyt
     assert tracer.spans[2].attributes["test.file"] == "stray/test_b.py"
     assert tracer.spans[2].attributes["test.file_source"] == "junit"
     assert "test.owner_team" not in tracer.spans[2].attributes
+
+
+def test_owner_team_lookup_skips_individual_handle_owners(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeResolution:
+        owners = ["@someone", "team-devex"]
+
+    class _FakeResolver:
+        def __init__(self, repo_root: Path) -> None:
+            pass
+
+        def resolve(self, file: str) -> _FakeResolution:
+            return _FakeResolution()
+
+    monkeypatch.setattr(report_test_timings, "OwnersResolver", _FakeResolver)
+
+    assert report_test_timings.owner_team_lookup()("products/x/test_a.py") == "team-devex"
 
 
 def test_product_shard_derives_product_suite_and_keeps_repo_relative_paths(

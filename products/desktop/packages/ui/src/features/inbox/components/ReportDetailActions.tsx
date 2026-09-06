@@ -1,16 +1,22 @@
 import {
   ArrowSquareOutIcon,
+  CheckCircleIcon,
   DotsThreeIcon,
+  EyeSlashIcon,
   LinkIcon,
   ReceiptIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
+import { canResolveReport } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   Popover,
   PopoverContent,
@@ -24,9 +30,12 @@ import {
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
+import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
@@ -95,6 +104,8 @@ export function ReportDetailActions({
   const safePrUrl = prUrl && parsePrUrl(prUrl) ? prUrl : null;
   const refund = useRefundReport(report);
   const [refundOpen, setRefundOpen] = useState(false);
+  const dismiss = useInboxReportDismissAction(report);
+  const resolve = useInboxReportResolveAction(report);
 
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [canvasDirection, setCanvasDirection] = useState("");
@@ -125,10 +136,30 @@ export function ReportDetailActions({
         }
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-        <DropdownMenuItem onClick={() => copyInboxReportLink(report)}>
-          <LinkIcon size={13} />
-          Copy link
-        </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <LinkIcon size={13} />
+            Copy link
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent
+            side="right"
+            sideOffset={4}
+            className="min-w-44"
+          >
+            <DropdownMenuItem
+              data-attr="inbox-copy-web-link"
+              onClick={() => copyInboxReportLink(report, "web")}
+            >
+              Copy web link
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-attr="inbox-copy-desktop-link"
+              onClick={() => copyInboxReportLink(report, "desktop")}
+            >
+              Copy desktop link
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         {refund.canRefund && !isResolved && (
           <DropdownMenuItem
             disabled={refund.disabledReason !== null}
@@ -172,23 +203,49 @@ export function ReportDetailActions({
       <>
         {githubButton}
         <ReportChatToggle report={report} />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-xs"
-                className="h-7 w-7"
-                aria-label="Copy link"
-                onClick={() => copyInboxReportLink(report)}
-              />
-            }
+        {canResolveReport(report) && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className={HEADER_ACTION_CLASS}
+            loading={resolve.isPending}
+            disabled={resolve.isPending}
+            data-attr="inbox-report-resolve"
+            onClick={() => resolve.openDialog()}
           >
-            <LinkIcon size={13} />
-          </TooltipTrigger>
-          <TooltipContent>Copy link</TooltipContent>
-        </Tooltip>
+            <CheckCircleIcon size={14} />
+            Resolve
+          </Button>
+        )}
+        {!isResolved && report.status !== "suppressed" && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className={HEADER_ACTION_CLASS}
+            data-attr="inbox-report-dismiss"
+            onClick={() => dismiss.openDialog()}
+          >
+            <EyeSlashIcon size={14} />
+            Dismiss
+          </Button>
+        )}
+        <InboxReportCopyLinkMenu
+          report={report}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-xs"
+              className="h-7 w-7"
+              aria-label="Copy link"
+              title="Copy link"
+            >
+              <LinkIcon size={13} />
+            </Button>
+          }
+        />
         {refund.canRefund && (
           <Tooltip>
             <TooltipTrigger
@@ -224,6 +281,8 @@ export function ReportDetailActions({
             }
           />
         )}
+        {resolve.dialog}
+        {dismiss.dialog}
       </>
     );
   }

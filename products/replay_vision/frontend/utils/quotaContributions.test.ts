@@ -10,9 +10,9 @@ const HALF_PERIOD_QUOTA: VisionQuotaApi = {
     projected_monthly_credits: 400,
     scanners_monthly_credits: 400,
     backfills_committed_credits: 0,
-    // Half the period is left, so a monthly rate lands at half value and a one-off lands whole.
-    period_start: '2026-05-01T00:00:00Z',
-    period_end: '2026-05-03T00:00:00Z',
+    // 15 of 30 days are left, so a 30-day rate lands at half value and a one-off lands whole.
+    period_start: '2026-04-17T00:00:00Z',
+    period_end: '2026-05-17T00:00:00Z',
 } as VisionQuotaApi
 
 const contribution = (overrides: Partial<QuotaContribution>): QuotaContribution => ({

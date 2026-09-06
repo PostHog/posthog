@@ -51,6 +51,7 @@ import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
 import type { SettingsManager } from "./settings";
+import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
 
 export interface ProcessSpawnedInfo {
   pid: number;
@@ -91,6 +92,7 @@ export interface BuildOptionsParams {
   systemPrompt?: Options["systemPrompt"];
   userProvidedOptions?: Options;
   sessionId: string;
+  taskId?: string;
   isResume: boolean;
   forkSession?: boolean;
   additionalDirectories?: string[];
@@ -119,6 +121,9 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
+  /** Session's discriminator for the traceparent hook's stderr; the hook is
+   * skipped when absent (see session/traceparent-hook.ts). */
+  traceparentHookNonce?: string;
   machineAuth?: MachineClaudeAuth;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
@@ -177,7 +182,7 @@ function buildMcpServers(
 
 function buildEnvironment(
   gateway?: GatewayEnv,
-  sessionId?: string,
+  aiSessionId?: string,
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
@@ -195,6 +200,7 @@ function buildEnvironment(
       ELECTRON_RUN_AS_NODE: "1",
     }),
     CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL: "true",
+    CLAUDE_CODE_ENABLE_TODO_TOOLS: "1",
     // Offload all MCP tools by default
     ENABLE_TOOL_SEARCH: "auto:0",
     // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
@@ -207,16 +213,50 @@ function buildEnvironment(
   if (machineAuth) {
     applyMachineClaudeAuth(env, machineAuth);
   } else {
-    applyGatewayAuth(env, gateway, sessionId, bedrockGatewayVariant);
+    applyGatewayAuth(env, gateway, aiSessionId, bedrockGatewayVariant);
   }
   applyContextWikiEnv(env, contextWiki);
   return env;
 }
 
+/**
+ * `CLAUDE_CODE_USE_BEDROCK` puts the CLI on the direct-Bedrock path: it
+ * SigV4-signs its requests and calls bedrock-runtime directly, with no PostHog
+ * LLM gateway in the request path. Any set, non-falsy value enables it
+ * (hogland's guest profile sets it to "1").
+ */
+function usesDirectBedrock(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "" && normalized !== "0" && normalized !== "false";
+}
+
+/**
+ * AWS strips any header whose NAME contains "_" before it validates a SigV4
+ * signature, but the Claude CLI signs custom headers verbatim — so a signed
+ * `x-posthog-property-task_id` makes AWS recompute a different signature and
+ * reject the request with 403 SignatureDoesNotMatch. On the direct-Bedrock
+ * path these `x-posthog-property-*` attribution headers reach no gateway (the
+ * only consumer that reads them), so dropping the underscore-named ones there
+ * unbreaks signing and loses no attribution that path could have captured.
+ * Hyphen-only headers (X-PostHog-Project-Id, x-posthog-use-bedrock-fallback,
+ * x-posthog-provider, x-posthog-flag-*) sign fine and are kept.
+ */
+function dropUnderscoreNamedHeaderLines(customHeaders: string): string {
+  return customHeaders
+    .split("\n")
+    .filter((line) => {
+      const separator = line.indexOf(":");
+      const name = separator === -1 ? line : line.slice(0, separator);
+      return !name.includes("_");
+    })
+    .join("\n");
+}
+
 function applyGatewayAuth(
   env: Record<string, string>,
   gateway: GatewayEnv | undefined,
-  sessionId: string | undefined,
+  aiSessionId: string | undefined,
   bedrockGatewayVariant: BedrockGatewayVariant | undefined,
 ): void {
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
@@ -237,9 +277,9 @@ function applyGatewayAuth(
   if (projectId) {
     headerLines.push(buildPosthogProjectHeaderLines(Number(projectId)));
   }
-  if (sessionId) {
+  if (aiSessionId) {
     headerLines.push(
-      buildPosthogPropertyHeaderLines({ $ai_session_id: sessionId }),
+      buildPosthogPropertyHeaderLines({ $ai_session_id: aiSessionId }),
     );
   }
   // The two Bedrock headers are mutually exclusive at the gateway: it dispatches
@@ -261,7 +301,14 @@ function applyGatewayAuth(
       `x-posthog-flag-${BEDROCK_LLM_GATEWAY_FLAG}: ${bedrockGatewayVariant}`,
     );
   }
-  env.ANTHROPIC_CUSTOM_HEADERS = headerLines.join("\n");
+  const customHeaders = headerLines.join("\n");
+  // On the direct-Bedrock path the CLI SigV4-signs these headers, and AWS
+  // rejects any underscore-named one (see dropUnderscoreNamedHeaderLines). Strip
+  // them there so signing succeeds; every other path keeps them for gateway
+  // attribution.
+  env.ANTHROPIC_CUSTOM_HEADERS = usesDirectBedrock(env.CLAUDE_CODE_USE_BEDROCK)
+    ? dropUnderscoreNamedHeaderLines(customHeaders)
+    : customHeaders;
 
   // Explicit gateway values win over whatever happens to be in process.env.
   // This prevents concurrent Agent instances from clobbering each other's
@@ -528,6 +575,22 @@ function isLegacyJavaScriptClaudeExecutable(executablePath: string): boolean {
 export function buildSessionOptions(params: BuildOptionsParams): Options {
   ensureLocalSettings(params.cwd);
 
+  // Gateway sessions get the traceparent hook (see session/traceparent-hook.ts)
+  // so each turn's gateway trace id reaches the session as a `hook_response`.
+  // `--settings` is the one hook channel that needs no settingSources; skipped
+  // when the caller supplies its own settings (either the SDK `settings`
+  // option or a raw `extraArgs` flag — both reach the same CLI flag, and the
+  // SDK silently drops the extraArgs one on collision) rather than clobbering
+  // it. The hook command is POSIX shell, so Windows Desktop hosts skip it.
+  const traceparentHookSettings =
+    params.gatewayEnv?.anthropicBaseUrl &&
+    params.traceparentHookNonce &&
+    process.platform !== "win32" &&
+    params.userProvidedOptions?.settings === undefined &&
+    params.userProvidedOptions?.extraArgs?.settings === undefined
+      ? buildTraceparentHookSettingsJson(params.traceparentHookNonce)
+      : undefined;
+
   // Resolve which built-in tools to expose.
   // Explicit tools array from userProvidedOptions takes precedence.
   // disableBuiltInTools is a legacy shorthand for tools: [] — kept for
@@ -562,15 +625,23 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
       "replay-user-messages": "",
+      ...(traceparentHookSettings && { settings: traceparentHookSettings }),
     },
+    // Surfaces the traceparent hook's output as `hook_response` messages.
+    includeHookEvents:
+      params.userProvidedOptions?.includeHookEvents ??
+      traceparentHookSettings !== undefined,
     mcpServers: buildMcpServers(
       params.userProvidedOptions?.mcpServers,
       params.mcpServers,
       loadUserClaudeJsonMcpServers(params.cwd, params.logger),
     ),
+    // Feedback events stamp the task id as $ai_session_id, so generations
+    // carry the same id for LLMA to group a task's runs and ratings together.
+    // A session without a task keeps the agent session id.
     env: buildEnvironment(
       params.gatewayEnv,
-      params.sessionId,
+      params.taskId ?? params.sessionId,
       params.bedrockGatewayVariant,
       params.contextWiki,
       params.machineAuth,

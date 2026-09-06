@@ -109,6 +109,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
     '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
     '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+    '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
     '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
     '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
@@ -209,10 +210,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
-    '/replay-vision/actions/:actionId/edit': ['ReplayVisionActionEditor', 'replayVisionActionEdit'],
-    '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
-    '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
     '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
@@ -561,6 +558,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Business knowledge',
         projectBased: true,
         activityScope: 'KnowledgeSource',
+        iconType: 'conversations',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
@@ -598,7 +596,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'cohort',
         docsHref: 'https://posthog.com/docs/customer-analytics',
     },
-    CustomerAnalyticsAccount: { projectBased: true, name: 'Account details', iconType: 'cohort' },
+    CustomerAnalyticsAccount: {
+        projectBased: true,
+        name: 'Account details',
+        iconType: 'cohort',
+        layout: 'app-full-scene-height',
+    },
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
@@ -888,24 +891,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
-    ReplayVisionAction: {
-        name: 'Replay vision action',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
-    ReplayVisionActionEditor: {
-        name: 'Replay vision action editor',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
-    ReplayVisionActionRun: {
-        name: 'Replay vision action run',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
     CodeReview: {
         name: 'Code review',
         projectBased: true,
@@ -935,7 +920,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'llm_prompts',
     },
-    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
+    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: {
@@ -1137,6 +1122,7 @@ export const productUrls = {
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+    customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
     customerAnalyticsFeatureRequests: (requestId?: string): string =>
         `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
@@ -1150,10 +1136,7 @@ export const productUrls = {
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
-    dashboardTextTile: (id: string | number, textTileId: string | number): string =>
-        `${urls.dashboard(id)}/text-tiles/${textTileId}`,
-    dashboardButtonTile: (id: string | number, buttonTileId: string | number): string =>
-        `${urls.dashboard(id)}/button-tiles/${buttonTileId}`,
+    dashboardTile: (id: string | number, tileId: string | number): string => `${urls.dashboard(id)}/tiles/${tileId}`,
     dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
     dashboardSubscriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
@@ -1495,12 +1478,6 @@ export const productUrls = {
     replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
     replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
-    replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
-    replayVisionActionRun: (actionId: string, runId: string): string =>
-        `/replay-vision/actions/${actionId}/runs/${runId}`,
-    replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
-        `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
-    replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
@@ -1733,6 +1710,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
         waitingEvents: ['$mcp_initialize'],
         featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     },
+    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -2047,6 +2025,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
         iconType: 'cohort',
+        iconColor: [
+            'var(--color-product-customer-analytics-light)',
+            'var(--color-product-customer-analytics-dark)',
+        ] as FileSystemIconColor,
         href: urls.customerAnalytics(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,

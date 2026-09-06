@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Optional
@@ -35,6 +36,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_QUERY_FAILURE_TYPE,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -44,7 +46,10 @@ from products.product_analytics.backend.facade.models import Insight
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+
+VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -840,6 +845,77 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
+
+    def test_can_create_teams_subscription_with_a_webhook_url(self):
+        response = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["target_type"] == "teams"
+
+    def test_reading_a_teams_subscription_never_returns_the_webhook_url(self):
+        # The URL authorizes a post to the channel on its own, so subscription read access must not
+        # be enough to obtain it.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions").json()["results"]
+
+        assert response.json()["target_value"] == "prod-25.westeurope.logic.azure.com"
+        assert [s["target_value"] for s in listed if s["id"] == sub_id] == ["prod-25.westeurope.logic.azure.com"]
+        assert "/workflows/" not in json.dumps(response.json())
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    @parameterized.expand([("email", "ben@posthog.com"), ("slack", "C1234|#general")])
+    def test_reading_a_non_teams_subscription_returns_its_target_value(self, target_type, target_value):
+        extra = {}
+        if target_type == "slack":
+            extra["integration_id"] = Integration.objects.create(team=self.team, kind="slack", config={}).id
+        sub_id = self._create_subscription(target_type=target_type, target_value=target_value, **extra).json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+
+        assert response.json()["target_value"] == target_value
+
+    def test_patching_an_unrelated_field_keeps_a_teams_subscription_saveable(self):
+        # target_value is absent from the PATCH body, so the webhook check falls back to the stored
+        # URL. Validating an empty string instead would make every edit of a Teams subscription 400.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Renamed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["title"] == "Renamed"
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_patching_a_teams_subscription_with_the_masked_host_is_rejected(self):
+        # A client that echoes what it read would otherwise overwrite the stored URL with a value
+        # nothing could deliver to.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"target_value": "prod-25.westeurope.logic.azure.com"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "target_value"
+        assert response.json()["detail"] == TEAMS_WEBHOOK_URL_MASKED_ERROR
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_cannot_change_a_teams_subscription_to_another_target_without_replacing_its_webhook_url(self):
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"target_type": "email"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Subscription.objects.get(id=sub_id).target_type == Subscription.SubscriptionTarget.TEAMS
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_cannot_create_teams_subscription_with_a_lookalike_url(self):
+        response = self._create_subscription(target_type="teams", target_value="https://evilpowerautomate.com/x")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "target_value"
+        assert response.json()["detail"] == TEAMS_WEBHOOK_URL_ERROR
 
     def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
         """Re-enabling a disabled Slack subscription whose integration is gone must be
@@ -2307,6 +2383,19 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         generated_hogql = "SELECT count() FROM events"
         # The safe error message on a failed step is query-derived too, so it is scrubbed with the diagnostics.
         scrubbed_error_message = "Unable to resolve field 'adoption_rate'"
+        query_error_code = "hogql_resolution_error"
+        query_failure_error = {
+            "type": AI_REPORT_QUERY_FAILURE_TYPE,
+            "code": query_error_code,
+            "message": "The query the AI generated failed to run (ResolutionError), so the report could not be computed.",
+            "details": [
+                {
+                    "type": "ResolutionError",
+                    "code": query_error_code,
+                    "message": scrubbed_error_message,
+                }
+            ],
+        }
         content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
         if is_ai:
             # AI deliveries also persist the rendered report and per-step query diagnostics; the
@@ -2319,6 +2408,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                     "hogql": "SELECT bad",
                     "ok": False,
                     "error_type": "ResolutionError",
+                    "error_code": query_error_code,
                     "human_readable_error": scrubbed_error_message,
                 },
             ]
@@ -2338,6 +2428,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             content_snapshot=content_snapshot,
             change_summary="Signups up 20% week over week",
             recipient_results=[{"recipient": "ai@posthog.com", "status": "success"}],
+            error=query_failure_error if is_ai else None,
         )
         if restrict:
             self._restrict_query_access()
@@ -2356,7 +2447,12 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert data[AI_REPORT_CHARTS_KEY] is None
             assert generated_hogql not in str(data)
+            assert query_error_code not in str(data)
             assert scrubbed_error_message not in str(data)
+            assert data["error"] == {
+                "type": AI_REPORT_QUERY_FAILURE_TYPE,
+                "message": "The report could not be computed.",
+            }
             # The prompt is user-authored (not query-derived) and already readable on the parent
             # subscription, so it stays visible even for a query-restricted caller.
             assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
@@ -2373,7 +2469,12 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert row[AI_REPORT_CHARTS_KEY] is None
             assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             assert generated_hogql not in str(row)
+            assert query_error_code not in str(row)
             assert scrubbed_error_message not in str(row)
+            assert row["error"] == {
+                "type": AI_REPORT_QUERY_FAILURE_TYPE,
+                "message": "The report could not be computed.",
+            }
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
@@ -2382,9 +2483,11 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 # diagnostics (including the generated HogQL) — the intended debugging surface.
                 assert data[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
                 assert data[AI_REPORT_DIAGNOSTICS_KEY][0]["hogql"] == generated_hogql
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["error_code"] == query_error_code
                 # The safe error message on the failed step is part of the query-access debugging surface.
                 assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["human_readable_error"] == scrubbed_error_message
                 assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
+                assert data["error"] == query_failure_error
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
                 assert data[AI_REPORT_CHARTS_KEY] == [

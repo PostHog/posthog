@@ -10,7 +10,10 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
+from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT
+
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 
 
 class TestActivityLogModel(BaseTest):
@@ -244,6 +247,23 @@ class TestActivityLogModel(BaseTest):
             self.assertEqual(warning.kwargs["team"], 1)
             self.assertEqual(warning.kwargs["activity"], "does not explode")
             self.assertIsInstance(warning.kwargs["exception"], ValueError)
+
+
+class TestModelActivityMixinTeamScoping(BaseTest):
+    def test_update_outside_team_scope_still_logs_the_change(self) -> None:
+        # DashboardWidget reads through a fail-closed manager, and a save from a Celery task or a
+        # management command carries no team context for it to read the before-state with.
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(team=self.team, widget_type="insight", name="Weekly signups")
+
+        widget.name = "Monthly signups"
+        widget.save()
+
+        log: ActivityLog = ActivityLog.objects.filter(
+            scope="DashboardWidget", item_id=str(widget.id), activity="updated"
+        ).latest("id")
+        assert log.detail is not None
+        self.assertIn("name", [change["field"] for change in log.detail["changes"]])
 
 
 class TestActivityLogVisibilityManager(BaseTest):

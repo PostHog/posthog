@@ -272,6 +272,15 @@ export const getEngineeringAnalyticsDoraUrl = (projectId: string, params?: Engin
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
+        const explodeParameters = ['environment']
+
+        if (Array.isArray(value) && explodeParameters.includes(key)) {
+            value.forEach((v) => {
+                normalizedParams.append(key, v === null ? 'null' : String(v))
+            })
+            return
+        }
+
         if (value !== undefined) {
             normalizedParams.append(key, value === null ? 'null' : String(value))
         }
@@ -780,7 +789,7 @@ export const getEngineeringAnalyticsTeamCiHealthUrl = (
 }
 
 /**
- * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (the distributed owners.yaml files); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Each row also carries test_file_count (the daily owners.yaml census denominator, with a window-start twin) and merged_pr_count (merged PRs by the team's members, bots excluded); teams with census counts but no CI signal appear with zero signal counts and a null last_seen_at. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
  */
 export const engineeringAnalyticsTeamCiHealth = async (
     projectId: string,
@@ -846,7 +855,7 @@ export const getEngineeringAnalyticsTrunkQuarantineUrl = (
 }
 
 /**
- * The standing Trunk quarantine debt: every test Trunk currently quarantines (failures suppressed in CI), attributed to its owning team from the per-test CI spans, aged against a TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it never fixes it, so this is the work queue of tests someone still has to repair or delete. `available` is false when no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error.
+ * The standing Trunk quarantine debt: every test Trunk currently quarantines (failures suppressed in CI), attributed to the team that owns its file in the repository, aged against a TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it never fixes it, so this is the work queue of tests someone still has to repair or delete. `available` is false when no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error.
  * @summary Trunk quarantine debt by owning team
  */
 export const engineeringAnalyticsTrunkQuarantine = async (
