@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatHotkeyParts,
   getShortcutsByCategory,
   KEYBOARD_SHORTCUTS,
   panelTabShortcut,
@@ -77,5 +78,22 @@ describe("SHORTCUTS", () => {
     expect(panelTabShortcut(false)).toBe(
       "alt+1,alt+2,alt+3,alt+4,alt+5,alt+6,alt+7,alt+8,alt+9",
     );
+  });
+
+  // react-hotkeys-hook splits a hotkey string on "," (alternatives) and then
+  // on "+" (the keys in one combination). A dangling separator - a trailing
+  // "," or "+" - produces an empty-string key, which used to make SETTINGS
+  // ("mod+,") register a second, degenerate hotkey that matched bare
+  // modifier keydowns (Right Shift, the Windows key).
+  it("never splits into an empty key token", () => {
+    for (const value of Object.values(SHORTCUTS)) {
+      for (const alternative of value.split(",")) {
+        expect(alternative.split("+")).not.toContain("");
+      }
+    }
+  });
+
+  it("still displays settings as a comma, not the key name", () => {
+    expect(formatHotkeyParts(SHORTCUTS.SETTINGS)).toContain(",");
   });
 });
