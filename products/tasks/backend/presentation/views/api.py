@@ -253,7 +253,7 @@ UUID_LOOKUP_REGEX = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
-# Long-lived SSE connections pin NGINX Unit processes during recycle-drain, so
+# Long-lived SSE connections pin worker processes during recycle-drain, so
 # cap each one: emit `event: end` so clients can tell rotation from run
 # completion, then close. Clients resume from their Last-Event-ID cursor.
 TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
