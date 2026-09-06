@@ -118,7 +118,10 @@ describe("sessionSupportsNativeSteer", () => {
 });
 
 describe("sessionSupportsSideQuestion", () => {
-  type Case = Pick<AgentSession, "isCloud" | "sideQuestion" | "adapter">;
+  type Case = Pick<
+    AgentSession,
+    "isCloud" | "sideQuestion" | "adapter" | "cloudStatus"
+  >;
 
   it.each<[string, Case, boolean]>([
     [
@@ -154,6 +157,27 @@ describe("sessionSupportsSideQuestion", () => {
       "cloud codex with no capability",
       { isCloud: true, sideQuestion: undefined, adapter: "codex" },
       false,
+    ],
+    // A finished run has no sandbox left to answer the fork.
+    [
+      "cloud claude on a completed run",
+      {
+        isCloud: true,
+        sideQuestion: undefined,
+        adapter: "claude",
+        cloudStatus: "completed",
+      },
+      false,
+    ],
+    [
+      "cloud claude on a running run",
+      {
+        isCloud: true,
+        sideQuestion: undefined,
+        adapter: "claude",
+        cloudStatus: "in_progress",
+      },
+      true,
     ],
   ])("%s", (_label, session, expected) => {
     expect(sessionSupportsSideQuestion(session)).toBe(expected);

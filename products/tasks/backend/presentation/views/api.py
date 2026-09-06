@@ -2933,6 +2933,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             elif agent_response.status_code == 400:
                 error_msg = error_body.get("error", "Agent server rejected the command")
                 logger.warning(f"Agent server rejected command for task run {pk}: {error_msg}")
+            elif agent_response.status_code == 404:
+                # The agent server answers an unknown method with a 200 JSON-RPC error,
+                # so a 404 means no agent server listens at this sandbox URL any more.
+                error_msg = error_body.get("error", "The sandbox for this task run is no longer reachable")
+                logger.warning(f"No agent server at sandbox URL for task run {pk}")
             else:
                 error_msg = error_body.get("error", f"Agent server returned {agent_response.status_code}")
 

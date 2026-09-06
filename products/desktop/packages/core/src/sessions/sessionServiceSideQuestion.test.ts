@@ -127,6 +127,17 @@ describe("SessionService.askSideQuestion", () => {
     await expect(service.askSideQuestion("task-1", "why?")).rejects.toThrow();
   });
 
+  it("rejects a finished cloud run without sending a command", async () => {
+    const { service, sendCommandMutate } = createHarness(
+      makeSession({ isCloud: true, cloudStatus: "completed" }),
+    );
+
+    await expect(service.askSideQuestion("task-1", "why?")).rejects.toThrow(
+      /sandbox is gone/,
+    );
+    expect(sendCommandMutate).not.toHaveBeenCalled();
+  });
+
   it("rejects when the session is not connected", async () => {
     const { service, sideQuestionMutate } = createHarness(
       makeSession({ status: "connecting" }),
