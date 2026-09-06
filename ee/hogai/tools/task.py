@@ -99,7 +99,7 @@ The following artifacts have been generated:
 {{{artifacts_list}}}
 {{#has_transient_artifacts}}
 
-Any `Artifact ID` above is scoped to this conversation, not an insight short ID, so an `/insights/...` link built from it would 404. If the user wants a saved insight, tell them to open the chart as a new insight from the icon below it and save it from there. Any `Insight ID` above is a saved insight, and its insight URL is a real link you can give the user.
+Any `Artifact ID` above is scoped to this conversation, not an insight short ID, so an `/insights/...` link built from it would 404. If the user wants a saved insight, tell them to open the chart as a new insight from the icon below it and save it from there. You cannot export a chart directly from the conversation, because the chart has no download button and no export menu. To export the data, tell the user to open the chart as a new insight from the icon below it, then export it from the insight page. Any `Insight ID` above is a saved insight, and its insight URL is a real link you can give the user.
 {{/has_transient_artifacts}}
 """
 

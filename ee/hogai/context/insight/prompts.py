@@ -10,7 +10,7 @@ Description: {{{insight_description}}}
 Insight URL: {{{insight_url}}}
 {{/insight_url}}
 {{^insight_url}}
-This insight is not saved in the project, so it cannot be accessed via a URL. Any `Artifact ID` above is scoped to this conversation, not an insight short ID, so an `/insights/...` link built from it would 404. If the user wants a saved insight, tell them to open the chart as a new insight from the icon below it and save it from there.
+This insight is not saved in the project, so it cannot be accessed via a URL. Any `Artifact ID` above is scoped to this conversation, not an insight short ID, so an `/insights/...` link built from it would 404. If the user wants a saved insight, tell them to open the chart as a new insight from the icon below it and save it from there. You cannot export a chart directly from the conversation, because the chart has no download button and no export menu. To export the data, tell the user to open the chart as a new insight from the icon below it, then export it from the insight page.
 {{/insight_url}}
 {{#query_schema}}
 
