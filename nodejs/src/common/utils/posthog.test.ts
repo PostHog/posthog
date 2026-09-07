@@ -33,13 +33,16 @@ describe('captureException', () => {
         process.env = originalEnv
     })
 
-    it('sends every exception under the same distinct id', () => {
+    it('sends every exception under the same distinct id, without person processing', () => {
         captureException(new Error('first failure'))
         captureException(new Error('second failure'), { tags: { team: 'ingestion' } })
 
         expect(capturedExceptions).toEqual([
-            { distinctId: 'plugin-server:test', properties: {} },
-            { distinctId: 'plugin-server:test', properties: { team: 'ingestion' } },
+            { distinctId: 'plugin-server:test', properties: { $process_person_profile: false } },
+            {
+                distinctId: 'plugin-server:test',
+                properties: { team: 'ingestion', $process_person_profile: false },
+            },
         ])
     })
 })

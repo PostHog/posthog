@@ -130,6 +130,12 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
             }
         }
 
-        posthog.captureException(exception, serverDistinctId, additionalProperties)
+        // posthog-node marks an exception personless only when it generates the anonymous
+        // distinct id, so a supplied id must carry the flag itself. Ingestion derives a stable
+        // person id from the distinct id, so the events still group without a person profile.
+        posthog.captureException(exception, serverDistinctId, {
+            ...additionalProperties,
+            $process_person_profile: false,
+        })
     }
 }
