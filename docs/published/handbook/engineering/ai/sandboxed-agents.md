@@ -51,6 +51,17 @@ The agent inside the sandbox gets:
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
 
+## Message presentation
+
+The shared run thread in `products/posthog_ai/frontend` displays human prompts in filled, right-aligned bubbles.
+Assistant prose appears on the left without a visible bubble border or background. Thoughts and tool calls keep their own activity renderers.
+
+Messages relayed from another agent arrive as user input. The thread recognizes the peer-message envelope and displays the body in an outlined, left-aligned bubble with a `From agent: …` label.
+This label is a display hint derived from message text, not authenticated authorship. The original text and input role remain intact for replay and duplicate detection.
+
+`MessageTemplate` supports `default`, `outline`, and `ghost` variants. Human messages default to `default`; AI cards default to `outline`.
+Use `ghost` for assistant prose so approval, failure, and artifact cards retain their borders.
+
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:

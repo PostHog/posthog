@@ -1,6 +1,9 @@
 import { memo } from 'react'
 
 import { IconWrench } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
+
+import { IconRobot } from 'lib/lemon-ui/icons'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
@@ -115,15 +118,29 @@ export const ThreadRow = memo(function ThreadRow({
     turnCancelled,
 }: ThreadRowProps): JSX.Element | null {
     if (item.type === 'human_message') {
+        const peerAgentMessage = item.peerAgentMessage
         return (
-            <MessageTemplate type="human">
-                <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+            <MessageTemplate
+                type={peerAgentMessage ? 'ai' : 'human'}
+                variant={peerAgentMessage ? 'outline' : 'default'}
+                header={
+                    peerAgentMessage && (
+                        <LemonTag icon={<IconRobot />} wrap className="mb-1">
+                            From agent: {peerAgentMessage.senderTaskTitle}
+                        </LemonTag>
+                    )
+                }
+            >
+                <MarkdownMessage
+                    content={(peerAgentMessage ? peerAgentMessage.body : item.text) || '*No text.*'}
+                    id={item.id}
+                />
             </MessageTemplate>
         )
     }
     if (item.type === 'assistant_message') {
         return (
-            <MessageTemplate type="ai">
+            <MessageTemplate type="ai" variant="ghost">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
             </MessageTemplate>
         )
