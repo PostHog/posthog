@@ -176,18 +176,21 @@ export function warnSupportWidgetUnavailable(): void {
     lemonToast.error(SUPPORT_WIDGET_UNAVAILABLE_MESSAGE, { button: EMAIL_SUPPORT_BUTTON, autoClose: false })
 }
 
-// Conversations tickets carry just the user's message (like the side panel composer), but for bug
-// reports we still fold the exception in so it survives on email-channel tickets and when the
-// agent's session-scoped exceptions panel can't resolve it. Mirrors how feature-preview feedback
-// names its feature in the message body.
-export function appendExceptionToMessage(message: string, exception_event?: SupportTicketExceptionEvent): string {
-    if (!exception_event) {
-        return message
-    }
-    const exception = `Exception: ${parseExceptionEvent(exception_event)}`
+// Conversations tickets carry just the user's message (like the side panel composer), but we still
+// fold the machine context in so it survives on email-channel tickets and when the agent's
+// session-scoped exceptions panel can't resolve it. Mirrors how feature-preview feedback names its
+// feature in the message body.
+export function appendContextToMessage(
+    message: string,
+    { exception_event, diagnostic_context }: Pick<SupportFormFields, 'exception_event' | 'diagnostic_context'>
+): string {
+    const context = [
+        diagnostic_context,
+        exception_event ? `Exception: ${parseExceptionEvent(exception_event)}` : undefined,
+    ].filter(Boolean)
     // The separator divides the user's own words from the machine context, so it only earns its place
     // when there are words above it — an error boundary CTA carries an exception and nothing else.
-    return message ? `${message}\n\n-----\n${exception}` : exception
+    return [message, ...context].filter(Boolean).join('\n\n-----\n')
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -224,6 +227,12 @@ export type SupportFormFields = {
      */
     billing_issue?: boolean
     exception_event?: SupportTicketExceptionEvent
+    /**
+     * Context the page already holds about what broke, appended to the outgoing message on submit.
+     * It stays out of the editable body, so a person can neither overwrite the facts support
+     * triages on nor mistake them for a form to fill in.
+     */
+    diagnostic_context?: string
     isEmailFormOpen?: boolean | 'true' | 'false'
     // Set when the ticket originates from a PostHog AI (/ticket, feedback) handover, so the created
     // ticket can be attributed back to the conversation regardless of which submit path files it.
@@ -510,6 +519,7 @@ export const supportLogic = kea<supportLogicType>([
             kind,
             message,
             exception_event,
+            diagnostic_context,
             billing_issue,
             target,
         }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
@@ -520,6 +530,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 message: message ?? values.sendSupportRequest.message ?? '',
                 exception_event,
+                diagnostic_context,
                 billing_issue: billing_issue ?? false,
             })
 
@@ -539,7 +550,7 @@ export const supportLogic = kea<supportLogicType>([
             actions.updateUrlParams()
         },
         submitSupportTicket: async (formValues: SupportFormFields) => {
-            const { name, kind, message, exception_event } = formValues
+            const { name, kind, message, exception_event, diagnostic_context } = formValues
             // Trimmed before validating and sending: restore-by-email matches the stored trait
             // exactly, so stray whitespace would make the ticket unrecoverable
             const email = formValues.email.trim()
@@ -594,7 +605,7 @@ export const supportLogic = kea<supportLogicType>([
 
             // Measure the full outgoing payload (message plus any appended exception) so the guard
             // matches what the widget endpoint actually receives and rejects
-            const outgoingMessage = appendExceptionToMessage(message, exception_event)
+            const outgoingMessage = appendContextToMessage(message, { exception_event, diagnostic_context })
             if (warnIfMessageTooLong(outgoingMessage)) {
                 captureSupportTicketBlocked({
                     surface: 'support_form',

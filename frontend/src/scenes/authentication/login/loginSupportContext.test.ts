@@ -1,0 +1,44 @@
+import { Region } from '~/types'
+
+import { buildLoginSupportContext } from './loginSupportContext'
+
+describe('buildLoginSupportContext', () => {
+    const base = {
+        errorCode: 'invalid_credentials',
+        region: Region.US,
+        confirmedLoginMethods: [],
+        precheckTrusted: true,
+        codeVerificationPending: false,
+    }
+
+    it('carries the error code and the region', () => {
+        const context = buildLoginSupportContext(base)
+        expect(context).toContain('Error code: invalid_credentials')
+        expect(context).toContain('Data region: US')
+    })
+
+    it.each([
+        [
+            'nothing is confirmed',
+            { confirmedLoginMethods: [] },
+            'Login methods: none confirmed. The account check cannot tell a password-only account from an email with no account.',
+        ],
+        [
+            'the account has a passkey and a linked provider',
+            { confirmedLoginMethods: ['passkey' as const, 'google-oauth2' as const] },
+            'Login methods confirmed: passkey, Google',
+        ],
+        [
+            'the precheck did not resolve for this email',
+            { precheckTrusted: false },
+            'Login methods: unknown, the account check did not complete',
+        ],
+        [
+            'the domain enforces SSO',
+            { ssoEnforcement: 'google-oauth2' as const },
+            'Login method: SSO enforced (Google)',
+        ],
+    ])('states what it knows about the login methods when %s', (_case, overrides, expected) => {
+        expect(buildLoginSupportContext({ ...base, ...overrides })).toContain(expected)
+    })
+})

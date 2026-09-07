@@ -346,10 +346,13 @@ describe('loginLogic', () => {
             expect(logic.values.restrictToProviders).toBe(null)
         })
 
-        it('keeps password login available for an unknown email', async () => {
+        it('keeps password login available for an unknown email, but confirms no method', async () => {
             await precheck({ saml_available: false, password_login_available: true, social_providers: [] })
             expect(logic.values.isPasswordLoginUnavailable).toBe(false)
             expect(logic.values.availableLoginMethods).toEqual(['password'])
+            // The response is identical for an email with no account, so password login is offered
+            // without being confirmed.
+            expect(logic.values.confirmedLoginMethods).toEqual([])
         })
 
         it('offers only the linked provider for a passwordless account', async () => {
@@ -372,6 +375,7 @@ describe('loginLogic', () => {
                 webauthn_credentials: [{ id: 'cred-1', type: 'public-key' }],
             })
             expect(logic.values.availableLoginMethods).toEqual(['passkey'])
+            expect(logic.values.confirmedLoginMethods).toEqual(['passkey'])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
             expect(logic.values.restrictToProviders).toEqual([])
         })
@@ -400,6 +404,14 @@ describe('loginLogic', () => {
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
         })
 
+        it('trusts the precheck only once it resolved for the email in the form', async () => {
+            await precheck({ saml_available: false, password_login_available: false, social_providers: [] })
+            expect(logic.values.precheckTrusted).toBe(false)
+
+            logic.actions.setLoginValue('email', 'user@example.com')
+            expect(logic.values.precheckTrusted).toBe(true)
+        })
+
         it('falls back to password login when precheck fails, so a 429 cannot lock the form', async () => {
             useMocks({ post: { '/api/login/precheck': () => [429, { detail: 'Request was throttled.' }] } })
             logic.actions.precheck({ email: 'user@example.com' })
@@ -408,6 +420,8 @@ describe('loginLogic', () => {
             expect(logic.values.precheckResponse.status).toBe('completed')
             expect(logic.values.isPasswordLoginUnavailable).toBe(false)
             expect(logic.values.availableLoginMethods).toEqual(['password'])
+            logic.actions.setLoginValue('email', 'user@example.com')
+            expect(logic.values.precheckTrusted).toBe(false)
         })
     })
 

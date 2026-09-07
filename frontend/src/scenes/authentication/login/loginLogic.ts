@@ -189,6 +189,7 @@ export interface loginLogicValues {
     codeVerificationTouched: boolean
     codeVerificationTouches: Record<string, boolean>
     codeVerificationValidationErrors: DeepPartialMap<CodeVerificationForm, ValidationErrorType>
+    confirmedLoginMethods: LoginMethod[]
     generalError: {
         code: string
         detail: string
@@ -210,6 +211,7 @@ export interface loginLogicValues {
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
+    precheckTrusted: boolean
     resendResponse: {
         message: string
         success: boolean
@@ -373,6 +375,8 @@ export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType) => boolean
         availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
+        confirmedLoginMethods: (availableLoginMethods: LoginMethod[]) => LoginMethod[]
+        precheckTrusted: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
         hasNoConfiguredLoginMethod: (
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean,
@@ -547,6 +551,14 @@ export const loginLogic = kea<loginLogicType>([
                 return methods
             },
         ],
+        // Methods this specific account is proven to have. `password` is left out on purpose: the
+        // precheck reports password login as available for an email with no account at all, so its
+        // presence is no evidence the account exists.
+        confirmedLoginMethods: [
+            (s) => [s.availableLoginMethods],
+            (availableLoginMethods: LoginMethod[]): LoginMethod[] =>
+                availableLoginMethods.filter((method) => method !== 'password'),
+        ],
         // A passwordless account with nothing else linked. They can only get back in via a reset.
         hasNoConfiguredLoginMethod: [
             (s) => [s.precheckResponse, s.isPasswordLoginUnavailable, s.availableLoginMethods],
@@ -654,6 +666,18 @@ export const loginLogic = kea<loginLogicType>([
                 }
             },
         },
+    })),
+    // Depends on the login form, which is only built above by `forms()`.
+    selectors(() => ({
+        // True when the precheck resolved for the email now in the form. A failed precheck reports
+        // permissive defaults, and a stale one still holds the previous email's account.
+        precheckTrusted: [
+            (s) => [s.precheckResponse, s.login],
+            (precheckResponse: PrecheckResponseType, login: LoginForm): boolean =>
+                precheckResponse.status === 'completed' &&
+                !precheckResponse.precheckFailed &&
+                precheckResponse.email === login.email,
+        ],
     })),
     listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {
