@@ -198,7 +198,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include generated chart images. Slack and email deliver these. Microsoft Teams reports are text only. Defaults to true when omitted.'
                     ),
                 include_feedback: zod
                     .boolean()
@@ -216,7 +216,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
@@ -414,7 +414,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include generated chart images. Slack and email deliver these. Microsoft Teams reports are text only. Defaults to true when omitted.'
                     ),
                 include_feedback: zod
                     .boolean()
@@ -432,7 +432,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
@@ -635,7 +635,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include generated chart images. Slack and email deliver these. Microsoft Teams reports are text only. Defaults to true when omitted.'
                     ),
                 include_feedback: zod
                     .boolean()
@@ -653,7 +653,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')

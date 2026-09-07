@@ -274,7 +274,10 @@ class DeliveryConfigSerializer(serializers.Serializer):
     )
     include_images = serializers.BooleanField(
         required=False,
-        help_text="AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
+        help_text=(
+            "AI prompt subscriptions only: include generated chart images. Slack and email deliver these. "
+            "Microsoft Teams reports are text only. Defaults to true when omitted."
+        ),
     )
     include_feedback = serializers.BooleanField(
         required=False,
@@ -286,7 +289,10 @@ class DeliveryConfigSerializer(serializers.Serializer):
     )
     include_posthog_hint = serializers.BooleanField(
         required=False,
-        help_text="AI prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted.",
+        help_text=(
+            "AI prompt subscriptions only: include PostHog product guidance. Slack only. "
+            "Email and Microsoft Teams reports do not include it. Defaults to true when omitted."
+        ),
     )
 
 
