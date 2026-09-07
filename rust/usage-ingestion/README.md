@@ -16,13 +16,14 @@ The service validates the complete batch before producing, so validation failure
 no records. Kafka may have delivered part of a batch before an unavailable response, but
 retrying the complete batch is safe because records are idempotent.
 
-Run it in the local Docker stack with:
+Run both local transports in one process with:
 
 ```sh
-docker compose -f docker-compose.dev.yml up usage-ingestion
+docker compose -f docker-compose.dev.yml --profile ingestion up usage-ingestion
 ```
 
-The gRPC endpoint listens on port 7143 and metrics/readiness on port 7144.
+The gRPC endpoint listens on port 7143. The shared metrics/readiness endpoint
+is on 7144.
 PostgreSQL is the source of truth. The service retains successful team-to-
 organization lookups in its process-local cache for five minutes.
 
@@ -42,6 +43,12 @@ The input topic can live on a different cluster from the ClickHouse output:
 | `USAGE_INGESTION_KAFKA_INPUT_TLS` | `KAFKA_TLS` |
 | `USAGE_INGESTION_KAFKA_INPUT_TOPIC` | `usage_ingestion` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_GROUP` | `usage-ingestion` |
+
+Analytics event ingestion uses the same `USAGE_INGESTION_MODE` setting. In
+Kafka mode it writes protobuf requests through the standard ingestion output
+registry to `INGESTION_OUTPUT_USAGE_INGESTION_TOPIC`. Local `hogli` event
+ingestion defaults to Kafka mode and starts both service transports; set
+`USAGE_INGESTION_MODE=grpc` to exercise the direct endpoint instead.
 
 When `DEBUG` is set, the service writes readable, colorized logs for local
 development. It uses structured JSON logs otherwise.
