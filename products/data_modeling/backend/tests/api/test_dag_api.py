@@ -197,16 +197,6 @@ class TestDAGViewSet(APIBaseTest):
         dag.refresh_from_db()
         self.assertEqual(dag.name, "my_dag")
 
-    def test_frequency_is_managed_by_nodes(self):
-        # The frontend hides the DAG cadence control on this field, so it must stay true.
-        DAG.objects.create(team=self.team, name="my_dag")
-        DAG.objects.create(team=self.team, name="another_dag")
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([d["frequency_managed_by_nodes"] for d in response.json()["results"]], [True, True])
-
     def test_cannot_set_sync_frequency(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")
         interval_before = dag.sync_frequency_interval

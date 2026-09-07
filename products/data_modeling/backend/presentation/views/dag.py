@@ -3,7 +3,6 @@ from typing import cast
 
 from django.db.models import Count
 
-from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import APIException, ValidationError
 
@@ -30,14 +29,9 @@ class DAGSerializer(serializers.ModelSerializer):
     sync_frequency = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Sync frequency string (e.g. '24hour', '7day')",
-    )
-    frequency_managed_by_nodes = serializers.SerializerMethodField(
-        read_only=True,
         help_text=(
-            "True when this team's DAG schedules are driven by per-model freshness targets, so "
-            "`sync_frequency` no longer controls scheduling and writes to it are rejected. False "
-            "when the DAG-level frequency still applies."
+            "Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each "
+            "model's own sync frequency, so a PATCH that changes this value is rejected."
         ),
     )
 
@@ -48,14 +42,12 @@ class DAGSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "sync_frequency",
-            "frequency_managed_by_nodes",
             "node_count",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
-            "frequency_managed_by_nodes",
             "node_count",
             "created_at",
             "updated_at",
@@ -64,11 +56,6 @@ class DAGSerializer(serializers.ModelSerializer):
             "name": {"help_text": "Human-readable name for this DAG"},
             "description": {"help_text": "Optional description of the DAG's purpose"},
         }
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_frequency_managed_by_nodes(self, dag: DAG) -> bool:
-        # Cadence lives on each node's freshness target; the DAG-level interval is legacy.
-        return True
 
     def to_representation(self, instance: DAG) -> dict:
         data = super().to_representation(instance)

@@ -21138,12 +21138,10 @@ export namespace Schemas {
       /** Optional description of the DAG's purpose */
       description?: string;
       /**
-         * Sync frequency string (e.g. '24hour', '7day')
+         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
          * @nullable
          */
       sync_frequency?: string | null;
-      /** True when this team's DAG schedules are driven by per-model freshness targets, so `sync_frequency` no longer controls scheduling and writes to it are rejected. False when the DAG-level frequency still applies. */
-      readonly frequency_managed_by_nodes: boolean;
       readonly node_count: number;
       readonly created_at: string;
       /** @nullable */
@@ -62165,12 +62163,10 @@ export namespace Schemas {
       /** Optional description of the DAG's purpose */
       description?: string;
       /**
-         * Sync frequency string (e.g. '24hour', '7day')
+         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
          * @nullable
          */
       sync_frequency?: string | null;
-      /** True when this team's DAG schedules are driven by per-model freshness targets, so `sync_frequency` no longer controls scheduling and writes to it are rejected. False when the DAG-level frequency still applies. */
-      readonly frequency_managed_by_nodes?: boolean;
       readonly node_count?: number;
       readonly created_at?: string;
       /** @nullable */
