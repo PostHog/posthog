@@ -11,7 +11,7 @@ import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { InsightShortId, IntegrationType, SubscriptionType, WeekdayType } from '~/types'
+import { InsightShortId, IntegrationType, SubscriptionResourceTypes, SubscriptionType, WeekdayType } from '~/types'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 
@@ -23,9 +23,14 @@ import {
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
-type AiSubscriptionDisplayConfig = Required<
-    Pick<DeliveryConfigApi, 'include_images' | 'include_feedback' | 'include_manage_link' | 'include_posthog_hint'>
->
+const AI_DISPLAY_CONFIG_FIELDS = [
+    'include_images',
+    'include_feedback',
+    'include_manage_link',
+    'include_posthog_hint',
+] as const satisfies readonly (keyof DeliveryConfigApi)[]
+
+type AiSubscriptionDisplayConfig = Required<Pick<DeliveryConfigApi, (typeof AI_DISPLAY_CONFIG_FIELDS)[number]>>
 
 function resolveAiSubscriptionDisplayConfig(
     deliveryConfig: DeliveryConfigApi | null | undefined
@@ -299,27 +304,49 @@ export function integrationHasFilesWrite(integration: IntegrationType | null | u
     return integration ? getGrantedScopes(integration).includes('files:write') : false
 }
 
+/**
+ * The API accepts the AI display options on prompt subscriptions only. Toggling resource_type
+ * back to insight or dashboard leaves them in form state, so drop them here rather than let the
+ * save fail on options the non-AI form no longer shows.
+ */
+function dropAiDisplayConfigForNonAi(subscription: SubscriptionType): SubscriptionType['delivery_config'] {
+    const deliveryConfig = subscription.delivery_config
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !deliveryConfig) {
+        return deliveryConfig
+    }
+    if (!AI_DISPLAY_CONFIG_FIELDS.some((field) => field in deliveryConfig)) {
+        return deliveryConfig
+    }
+
+    const remaining = { ...deliveryConfig }
+    for (const field of AI_DISPLAY_CONFIG_FIELDS) {
+        delete remaining[field]
+    }
+    return remaining
+}
+
 export function coerceDeliveryConfigForScope(
     subscription: SubscriptionType,
     integrations: IntegrationType[] | null | undefined
 ): SubscriptionType['delivery_config'] {
-    if (!subscription.delivery_config?.post_all_insights_in_main_message) {
-        return subscription.delivery_config
+    const deliveryConfig = dropAiDisplayConfigForNonAi(subscription)
+    if (!deliveryConfig?.post_all_insights_in_main_message) {
+        return deliveryConfig
     }
     if (subscription.target_type !== 'slack') {
-        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+        return { ...deliveryConfig, post_all_insights_in_main_message: false }
     }
     if (integrations == null) {
-        return subscription.delivery_config
+        return deliveryConfig
     }
 
     const selectedIntegration = subscription.integration_id
         ? integrations.find((integration) => integration.id === subscription.integration_id)
         : undefined
     if (!integrationHasFilesWrite(selectedIntegration)) {
-        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+        return { ...deliveryConfig, post_all_insights_in_main_message: false }
     }
-    return subscription.delivery_config
+    return deliveryConfig
 }
 
 function formatSelectedDeliveryDays(selectedDays: WeekdayType[]): string {

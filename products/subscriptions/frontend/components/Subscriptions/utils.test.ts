@@ -191,6 +191,35 @@ describe('AI subscription display options', () => {
     ] as const)('%s in the review summary', (_label, deliveryConfig, expected) => {
         expect(getAiSubscriptionDisplaySummary(deliveryConfig, 'review')).toBe(expected)
     })
+
+    it.each([
+        ['insight', undefined],
+        ['dashboard', undefined],
+        ['ai_prompt', false],
+    ] as const)('a %s subscription sends include_images as %s', (resourceType, expected) => {
+        const subscription = {
+            resource_type: resourceType,
+            target_type: 'email',
+            delivery_config: { include_images: false },
+        } as SubscriptionType
+
+        expect(coerceDeliveryConfigForScope(subscription, [])?.include_images).toBe(expected)
+    })
+
+    it('keeps the other delivery options when it drops the AI ones', () => {
+        const subscription = {
+            resource_type: 'insight',
+            target_type: 'slack',
+            integration_id: 7,
+            delivery_config: { post_all_insights_in_main_message: true, include_feedback: true },
+        } as SubscriptionType
+
+        expect(
+            coerceDeliveryConfigForScope(subscription, [
+                { id: 7, kind: 'slack', config: { scope: 'files:write' } } as IntegrationType,
+            ])
+        ).toEqual({ post_all_insights_in_main_message: true })
+    })
 })
 
 describe('Slack gallery delivery config', () => {
