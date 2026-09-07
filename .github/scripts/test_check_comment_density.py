@@ -93,6 +93,7 @@ def diff_for(path: str, body: str) -> str:
             diff_for("frontend/src/generated/api.ts", "+// generated\n+// generated\n")
             + diff_for("frontend/src/lib/agentScopes.generated.ts", "+// AUTO-GENERATED\n+// Do not edit\n")
             + diff_for("products/x/backend/generated_configs/ably.py", "+# generated\n+# do not edit\n")
+            + diff_for("posthog/hogql/test/_generated_grammar_strategies.py", "+# generated\n+# do not edit\n")
             + diff_for(".github/workflows/ci.yml", "+# yaml prose\n+run: echo\n")
             + diff_for("posthog/test/__snapshots__/x.ambr", "+# name: test\n")
             + diff_for("docs/readme.md", "+<!-- not code -->\n")

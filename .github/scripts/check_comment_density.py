@@ -36,10 +36,10 @@ SQL_LANGS = {"sql"}
 CODE_LANGS = HASH_LANGS | SLASH_LANGS | SQL_LANGS
 
 # Workflow YAML and shell are left out because they need prose to be readable.
-# Generated paths use standard lower-case separators. A narrow match keeps
-# hand-written names that contain `Generated` in the measurement.
+# Generated paths use standard lower-case separators or an `_generated_` filename.
+# A narrow match keeps hand-written names that contain `Generated` in the measurement.
 EXCLUDED_PATHS = re.compile(
-    r"(^\.github/|(?:^|/)generated[_./]|\.generated\.|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)"
+    r"(^\.github/|(?:^|/)(?:generated[_./]|_generated_)|\.generated\.|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)"
 )
 DIFF_SKIP_PREFIXES = ("+++", "---", "index ", "new file", "deleted file", "similarity", "rename ", "Binary")
 
