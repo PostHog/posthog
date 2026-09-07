@@ -176,6 +176,52 @@ def _named_warehouse_tables(entries: Any) -> list[Any]:
     ]
 
 
+# What binds an input to an integration: which integration it uses, which input holds that
+# integration, which of the integration's fields the input reads, and which input must be set first.
+_INTEGRATION_SCHEMA_KEYS = ("integration", "integration_key", "integration_field", "requires_field", "requiredScopes")
+
+
+def _with_integration_metadata(inputs_schema: Any, reference: Any) -> Any:
+    """An `inputs_schema` with the integration metadata of `reference` filled back in.
+
+    An API that takes the whole schema on every edit loses whatever the caller left out, and a caller
+    that cannot express these keys - the MCP tools drop them from their input schema - silently
+    unbinds the integration. Only keys the caller left out are filled, and only where the reference
+    entry has the same key and the same type, so a deliberate change still wins.
+    """
+    if not isinstance(inputs_schema, list) or not isinstance(reference, list):
+        return inputs_schema
+    by_key = {item["key"]: item for item in reference if isinstance(item, dict) and item.get("key")}
+    restored = []
+    for item in inputs_schema:
+        source = by_key.get(item.get("key")) if isinstance(item, dict) else None
+        if not source or source.get("type") != item.get("type"):
+            restored.append(item)
+            continue
+        missing = {key: source[key] for key in _INTEGRATION_SCHEMA_KEYS if key in source and key not in item}
+        restored.append({**item, **missing} if missing else item)
+    return restored
+
+
+def _mappings_with_integration_metadata(mappings: Any, reference: Any) -> Any:
+    """`mappings` with each mapping's `inputs_schema` metadata filled back in, matched by mapping name."""
+    if not isinstance(mappings, list) or not isinstance(reference, list):
+        return mappings
+    by_name = {
+        mapping["name"]: mapping.get("inputs_schema")
+        for mapping in reference
+        if isinstance(mapping, dict) and mapping.get("name")
+    }
+    restored = []
+    for mapping in mappings:
+        if not isinstance(mapping, dict) or mapping.get("name") not in by_name or "inputs_schema" not in mapping:
+            restored.append(mapping)
+            continue
+        schema = _with_integration_metadata(mapping["inputs_schema"], by_name[mapping["name"]])
+        restored.append({**mapping, "inputs_schema": schema})
+    return restored
+
+
 def _worker_error_messages(response: requests.Response) -> list[str]:
     """The CDP worker's own description of a failed test invocation, as a list of messages."""
     try:
@@ -591,6 +637,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     data["icon_url"] = data.get("icon_url") or template.icon_url
                     data["description"] = data.get("description") or template.description
                     data["name"] = data.get("name") or template.name
+
+        # The stored config comes first: it holds whatever the template said plus any edit made
+        # since. The template covers an input or a mapping this function does not have yet.
+        for schema_reference, mappings_reference in (
+            (instance.inputs_schema, instance.mappings) if instance else (None, None),
+            (template.inputs_schema, template.mapping_templates) if template else (None, None),
+        ):
+            data["inputs_schema"] = _with_integration_metadata(data["inputs_schema"], schema_reference)
+            data["mappings"] = _mappings_with_integration_metadata(data.get("mappings"), mappings_reference)
 
         return super().to_internal_value(data)
 

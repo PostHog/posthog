@@ -1907,6 +1907,134 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "attr": "mappings__0__inputs__required_field",
         }
 
+    def test_partial_update_keeps_integration_metadata_a_caller_leaves_out(self):
+        integration_keys = ["integration", "integration_key", "integration_field", "requires_field", "requiredScopes"]
+        inputs_schema = [
+            {
+                "key": "oauth",
+                "type": "integration",
+                "integration": "google-ads",
+                "requiredScopes": "https://www.googleapis.com/auth/adwords",
+                "label": "Google Ads account",
+                "required": True,
+            }
+        ]
+        mapping_inputs_schema = [
+            {
+                "key": "conversionActionId",
+                "type": "integration_field",
+                "integration_key": "oauth",
+                "integration_field": "google_ads_conversion_action",
+                "requires_field": "oauth",
+                "label": "Conversion action",
+                "required": True,
+            }
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Google Ads Conversions",
+                "hog": "print(inputs.oauth)",
+                "type": "destination",
+                "inputs_schema": inputs_schema,
+                "inputs": {"oauth": {"value": 1}},
+                "mappings": [
+                    {
+                        "name": "Conversion",
+                        "inputs_schema": mapping_inputs_schema,
+                        "inputs": {"conversionActionId": {"value": "123"}},
+                    }
+                ],
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        function_id = response.json()["id"]
+
+        def without_integration_keys(schema):
+            return [{k: v for k, v in item.items() if k not in integration_keys} for item in schema]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={
+                "inputs_schema": without_integration_keys(inputs_schema),
+                "mappings": [
+                    {
+                        "name": "Conversion",
+                        "inputs_schema": without_integration_keys(mapping_inputs_schema),
+                        "inputs": {"conversionActionId": {"value": "456"}},
+                    }
+                ],
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        result = response.json()
+        assert result["inputs_schema"][0]["integration"] == "google-ads"
+        assert result["inputs_schema"][0]["requiredScopes"] == "https://www.googleapis.com/auth/adwords"
+        mapping_schema = result["mappings"][0]["inputs_schema"][0]
+        assert mapping_schema["integration_key"] == "oauth"
+        assert mapping_schema["integration_field"] == "google_ads_conversion_action"
+        assert mapping_schema["requires_field"] == "oauth"
+        assert result["mappings"][0]["inputs"]["conversionActionId"]["value"] == "456"
+
+    def test_create_from_template_keeps_mapping_integration_metadata_a_caller_leaves_out(self):
+        HogFunctionTemplate.objects.create(
+            template_id="template-ads",
+            sha="1.0.0",
+            name="Ads",
+            description="Send conversions",
+            code="print(inputs.oauth)",
+            code_language="hog",
+            type="destination",
+            status="stable",
+            inputs_schema=[{"key": "oauth", "type": "integration", "integration": "google-ads", "required": True}],
+            mapping_templates=[
+                {
+                    "name": "Conversion",
+                    "include_by_default": True,
+                    "filters": {"events": []},
+                    "inputs_schema": [
+                        {
+                            "key": "conversionActionId",
+                            "type": "integration_field",
+                            "integration_key": "oauth",
+                            "integration_field": "google_ads_conversion_action",
+                            "requires_field": "oauth",
+                            "label": "Conversion action",
+                            "required": True,
+                        }
+                    ],
+                }
+            ],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Ads",
+                "type": "destination",
+                "template_id": "template-ads",
+                "inputs": {"oauth": {"value": 1}},
+                "mappings": [
+                    {
+                        "name": "Conversion",
+                        "inputs_schema": [
+                            {
+                                "key": "conversionActionId",
+                                "type": "integration_field",
+                                "label": "Conversion action",
+                                "required": True,
+                            }
+                        ],
+                        "inputs": {"conversionActionId": {"value": "123"}},
+                    }
+                ],
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        mapping_schema = response.json()["mappings"][0]["inputs_schema"][0]
+        assert mapping_schema["integration_key"] == "oauth"
+        assert mapping_schema["integration_field"] == "google_ads_conversion_action"
+        assert mapping_schema["requires_field"] == "oauth"
+
     def test_compiles_valid_mappings(self):
         payload = {
             "name": "TypeScript Destination Function",
