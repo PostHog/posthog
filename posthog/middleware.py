@@ -1209,6 +1209,7 @@ class CSPMiddleware:
                 resource_url = "https://*.dev.posthog.dev"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            frame_ancestors = "https://posthog.com https://preview.posthog.com https://vercel.com"
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
@@ -1236,7 +1237,7 @@ class CSPMiddleware:
                 # exfiltration channel: an attacker who injects markup but cannot run script still
                 # gets a beacon out through an image URL.
                 f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
-                "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
+                f"frame-ancestors {frame_ancestors}",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
@@ -1246,6 +1247,40 @@ class CSPMiddleware:
                 # form post anywhere. Every form we serve targets a same-origin path.
                 "form-action 'self'",
             ]
+
+            # The policy above is report-only, so it protects nothing. App pages still report script
+            # `eval`, inline scripts, blob workers, blob images and data fonts, so it cannot block
+            # today. This second policy does block, and carries the directives the app never
+            # violates. `object-src`, `base-uri`, `form-action` and `frame-ancestors` have no
+            # `default-src` fallback, so naming them is the only way to stop plugin embedding,
+            # base-tag hijacking, form exfiltration and framing.
+            #
+            # `default-src 'self'` closes every directive neither policy names, but it is also the
+            # fallback for every fetch directive. So each fetch directive repeats here with a value
+            # that blocks nothing the app does; without that, enforcing `default-src` would clamp
+            # them all. Move a tight value up from the report-only policy once its reports stop.
+            permissive = f"'self' blob: data: https: {resource_url}"
+            enforced_parts = [
+                "default-src 'self'",
+                "object-src 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+                f"frame-ancestors {frame_ancestors}",
+                "manifest-src 'self'",
+                # A nonce here would make browsers ignore 'unsafe-inline' and block inline scripts.
+                f"script-src {permissive} 'unsafe-inline' 'unsafe-eval'",
+                f"style-src {permissive} 'unsafe-inline'",
+                f"img-src {permissive}",
+                f"font-src {permissive}",
+                f"media-src {permissive}",
+                f"worker-src {permissive}",
+                f"child-src {permissive}",
+                f"frame-src {permissive}",
+                f"connect-src {permissive} wss: {connect_debug_url}".rstrip(),
+            ]
+            # Views that serve untrusted content, such as public surveys and canvas artifacts, set
+            # their own far stricter enforced policy. Replacing it here would unsandbox them.
+            response.headers.setdefault("Content-Security-Policy", "; ".join(enforced_parts))
 
             report_uri = csp_report_endpoint(sample_rate="0.1")
             if report_uri:

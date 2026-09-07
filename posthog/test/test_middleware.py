@@ -25,7 +25,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import CSPMiddleware, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1894,11 +1894,44 @@ class TestCSPMiddleware(APIBaseTest):
         assert response["Content-Security-Policy"] == "default-src 'none'"
         assert "Content-Security-Policy-Report-Only" not in response
 
-    def test_html_response_gets_report_only_csp(self):
-        response = self.client.get("/")
-        assert response.status_code == 200
+    @staticmethod
+    def _html_response(path="/project/1/dashboard", view_policy=None):
+        def get_response(request):
+            response = HttpResponse("<html></html>", content_type="text/html")
+            if view_policy:
+                response["Content-Security-Policy"] = view_policy
+            return response
+
+        return CSPMiddleware(get_response)(RequestFactory().get(path))
+
+    def test_html_response_enforces_a_subset_and_reports_on_the_rest(self):
+        response = self._html_response()
+        enforced = response["Content-Security-Policy"]
+        for directive in [
+            "default-src 'self'",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors https://posthog.com",
+        ]:
+            assert directive in enforced
+        # Enforcing default-src clamps every fetch directive through the fallback, so the ones the
+        # app still violates have to be named with a value that blocks nothing.
+        for directive in ["script-src", "style-src", "img-src", "font-src", "worker-src", "frame-src"]:
+            assert f"{directive} 'self' blob: data: https:" in enforced
+        # A nonce makes browsers ignore 'unsafe-inline', which would block the app's inline scripts.
+        assert "'unsafe-inline' 'unsafe-eval'" in enforced
+        assert "nonce-" not in enforced
+        # The tight value of each of those directives stays report-only until its reports stop.
+        assert "worker-src 'self';" in response["Content-Security-Policy-Report-Only"]
+
+    def test_a_policy_the_view_already_set_survives(self):
+        # Public surveys, canvas artifacts and message assets sandbox untrusted content with their
+        # own enforced policy. Replacing it here would unsandbox them.
+        sandbox = "sandbox; default-src 'none'"
+        response = self._html_response(path="/external_surveys/abc", view_policy=sandbox)
+        assert response["Content-Security-Policy"] == sandbox
         assert "Content-Security-Policy-Report-Only" in response
-        assert "Content-Security-Policy" not in response
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
