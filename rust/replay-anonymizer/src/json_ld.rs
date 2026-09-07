@@ -26,9 +26,6 @@ const CREATIVE_WORK_TYPES: &str =
 const EVENT_TYPES: &str =
     "BroadcastEvent BusinessEvent EducationEvent Festival MusicEvent SportsEvent TheaterEvent";
 const PRODUCT_TYPES: &str = "Car IndividualProduct ProductGroup ProductModel";
-const RATING_TYPES: &str = "AggregateRating EmployerAggregateRating Rating";
-const TYPES_WITHOUT_PROPERTIES: &str =
-    "AlignmentObject BedDetails Certification ContactPoint CreditCard DefinedRegion EducationalOccupationalCredential EntryPoint GeoCoordinates GeoShape InteractionCounter JobPosting LocationFeatureSpecification MathSolver MemberProgram MemberProgramTier MerchantReturnPolicy MerchantReturnPolicySeasonalOverride MonetaryAmount NutritionInformation OccupationalExperienceRequirements OfferShippingDetails OpeningHoursSpecification PeopleAudience PostalAddress PriceSpecification PropertyValue QuantitativeValue ServicePeriod ShippingConditions ShippingDeliveryTime ShippingRateSettings ShippingService SpeakableSpecification Thing UnitPriceSpecification";
 
 #[derive(Clone, Copy)]
 enum PropertyRule {
@@ -52,7 +49,6 @@ impl SanitizationBudget {
     }
 }
 
-const EMPTY_RULES: &[PropertyRule] = &[];
 const AGGREGATE_OFFER_RULES: &[PropertyRule] = &[PropertyRule::Entity("offers", "Offer")];
 const BRAND_RULES: &[PropertyRule] = &[PropertyRule::Scalar("name")];
 const BREADCRUMB_LIST_RULES: &[PropertyRule] =
@@ -146,19 +142,15 @@ fn entity_rules(entity_type: &str) -> Option<&'static [PropertyRule]> {
         "ListItem" => Some(LIST_ITEM_RULES),
         "Offer" => Some(OFFER_RULES),
         "Organization" => Some(ORGANIZATION_RULES),
-        "Person" => Some(EMPTY_RULES),
         "Place" => Some(PLACE_RULES),
         "Product" => Some(PRODUCT_RULES),
         "Service" => Some(SERVICE_RULES),
         "OfferCatalog" => Some(OFFER_CATALOG_RULES),
-        _ if listed(ACTION_TYPES, entity_type) => Some(EMPTY_RULES),
         _ if listed(CREATIVE_WORK_TYPES, entity_type) => Some(CREATIVE_WORK_RULES),
         _ if listed(EVENT_TYPES, entity_type) => Some(EVENT_RULES),
         _ if listed(ORGANIZATION_TYPES, entity_type) => Some(ORGANIZATION_RULES),
         _ if listed(PLACE_TYPES, entity_type) => Some(PLACE_RULES),
         _ if listed(PRODUCT_TYPES, entity_type) => Some(PRODUCT_RULES),
-        _ if listed(RATING_TYPES, entity_type) => Some(EMPTY_RULES),
-        _ if listed(TYPES_WITHOUT_PROPERTIES, entity_type) => Some(EMPTY_RULES),
         _ => None,
     }
 }
