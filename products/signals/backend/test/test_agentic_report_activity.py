@@ -1,5 +1,6 @@
 import json
 import random
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -9,6 +10,8 @@ from django.db import OperationalError
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -778,54 +781,60 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         assert artefact_count == 0
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("actionability", "expected_labels", "expects_note"),
+@parameterized.expand(
     [
-        (
-            ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
-            ["actionability", "priority", "presentation", "fix_verification"],
-            True,
-        ),
-        (
-            ActionabilityChoice.REQUIRES_HUMAN_INPUT,
-            ["actionability", "priority", "presentation", "fix_verification"],
-            True,
-        ),
-        (ActionabilityChoice.NOT_ACTIONABLE, ["actionability", "presentation"], False),
-    ],
+        ("immediately_actionable", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
+        ("requires_human_input", ActionabilityChoice.REQUIRES_HUMAN_INPUT, None),
+        ("not_actionable", ActionabilityChoice.NOT_ACTIONABLE, None),
+        ("timeout", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, TimeoutError),
+        ("validation_failure", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, ValidationError),
+        ("cancellation", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, asyncio.CancelledError),
+    ]
 )
 async def test_run_multi_turn_research_requests_verification_note_as_the_final_actionable_step(
-    actionability, expected_labels, expects_note
-):
+    _name: str, actionability: ActionabilityChoice, failure: type[BaseException] | None
+) -> None:
     session = Mock()
     session.task = Mock(id="research-task-id")
     session.end = AsyncMock()
 
-    responses: list[ActionabilityAssessment | PriorityAssessment | ReportPresentationOutput | FixVerificationOutput] = [
-        ActionabilityAssessment(
-            explanation="The research found a concrete code path and measured impact.",
-            actionability=actionability,
-            already_addressed=False,
-        )
-    ]
-    if actionability != ActionabilityChoice.NOT_ACTIONABLE:
-        responses.append(
-            PriorityAssessment(
-                explanation="The measured impact supports this priority.",
-                priority=Priority.P2,
-                dollar_value=1000.0,
-            )
-        )
-    responses.append(
-        ReportPresentationOutput(
-            title="fix(onboarding): restore completion tracking",
-            summary="Users cannot complete the tracked onboarding flow.",
-        )
+    actionability_result = ActionabilityAssessment(
+        explanation="The research found a concrete code path and measured impact.",
+        actionability=actionability,
+        already_addressed=False,
     )
-    if expects_note:
+    responses: list[
+        ActionabilityAssessment | PriorityAssessment | ReportPresentationOutput | FixVerificationOutput | BaseException
+    ] = [actionability_result]
+    expected_labels = ["actionability"]
+    priority_result: PriorityAssessment | None = None
+    if actionability != ActionabilityChoice.NOT_ACTIONABLE:
+        priority_result = PriorityAssessment(
+            explanation="The measured impact supports this priority.",
+            priority=Priority.P2,
+            dollar_value=1000.0,
+        )
+        responses.append(priority_result)
+        expected_labels.append("priority")
+    presentation_result = ReportPresentationOutput(
+        title="fix(onboarding): restore completion tracking",
+        summary="Users cannot complete the tracked onboarding flow.",
+    )
+    responses.append(presentation_result)
+    expected_labels.append("presentation")
+    verification_error: BaseException | None = None
+    if actionability != ActionabilityChoice.NOT_ACTIONABLE:
+        expected_labels.append("fix_verification")
+        if failure is ValidationError:
+            with pytest.raises(ValidationError) as exc_info:
+                FixVerificationOutput(steps=["Only one step"])
+            verification_error = exc_info.value
+        elif failure is not None:
+            verification_error = failure("Verification interrupted")
         responses.append(
-            FixVerificationOutput(
+            verification_error
+            if verification_error is not None
+            else FixVerificationOutput(
                 steps=[
                     "Run query-trends for onboarding_completed over the same 14-day window.",
                     "Confirm event volume returns to the pre-regression baseline.",
@@ -835,20 +844,45 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
     session.send_followup = AsyncMock(side_effect=responses)
     first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
 
-    with patch(
-        "products.tasks.backend.facade.agents.MultiTurnSession.start",
-        AsyncMock(return_value=(session, first_finding)),
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start",
+            AsyncMock(return_value=(session, first_finding)),
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+        patch("products.signals.backend.report_generation.research.logger.exception") as log_exception,
     ):
-        result = await run_multi_turn_research(_build_signals()[:1], Mock())
+        if failure is asyncio.CancelledError:
+            with pytest.raises(asyncio.CancelledError) as canceled:
+                await run_multi_turn_research(_build_signals()[:1], Mock(team_id=1), signal_report_id="report-id")
+            assert canceled.value is verification_error
+        else:
+            result = await run_multi_turn_research(_build_signals()[:1], Mock(team_id=1), signal_report_id="report-id")
+            assert result.effective_findings() == [first_finding]
+            assert result.effective_actionability() == actionability_result
+            assert result.effective_priority() == priority_result
+            assert result.title == presentation_result.title
+            assert result.summary == presentation_result.summary
+            assert result.research_task_id == "research-task-id"
+            if actionability != ActionabilityChoice.NOT_ACTIONABLE and failure is None:
+                assert result.verification_note is not None
+                assert result.verification_note.note.startswith("## Steps to verify fix\n\n1. ")
+            else:
+                assert result.verification_note is None
 
     labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
     assert labels == expected_labels
-    if expects_note:
-        assert result.verification_note is not None
-        assert result.verification_note.note.startswith("## Steps to verify fix\n\n1. ")
+    if failure is asyncio.CancelledError:
+        session.end.assert_awaited_once_with(status="failed", error=str(verification_error))
     else:
-        assert result.verification_note is None
-    session.end.assert_awaited_once_with()
+        session.end.assert_awaited_once_with()
+    if failure is not None and failure is not asyncio.CancelledError:
+        log_exception.assert_called_once_with(
+            "multi_turn_research: failed to generate fix verification note",
+            extra={"research_task_id": "research-task-id", "team_id": 1, "report_id": "report-id"},
+        )
+    else:
+        log_exception.assert_not_called()
 
 
 @pytest.mark.asyncio

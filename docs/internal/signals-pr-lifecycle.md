@@ -27,3 +27,10 @@ the PR is open and unmerged before PostHog comments or closes it.
 Fallback reads do not require a data migration. This does not replay webhook
 events that were missed before the fix; those reports need a subsequent event
 or explicit reconciliation.
+
+## Fix verification notes
+
+After research completes, actionable reports can include a `Steps to verify fix` note for the implementation agent.
+This final request is optional: if generation or note conversion fails, research still completes without the note.
+The findings, actionability, priority, title, and summary remain available.
+Core research failures and cancellation still fail the run and trigger session cleanup.

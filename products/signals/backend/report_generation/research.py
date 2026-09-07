@@ -992,12 +992,23 @@ async def run_multi_turn_research(
         if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
             if output_fn:
                 output_fn("Generating fix verification steps...")
-            verification_result = await session.send_followup(
-                build_fix_verification_prompt(),
-                FixVerificationOutput,
-                label="fix_verification",
-            )
-            verification_note = verification_result.to_note()
+            verification_prompt = build_fix_verification_prompt()
+            try:
+                verification_result = await session.send_followup(
+                    verification_prompt,
+                    FixVerificationOutput,
+                    label="fix_verification",
+                )
+                verification_note = verification_result.to_note()
+            except Exception:
+                logger.exception(
+                    "multi_turn_research: failed to generate fix verification note",
+                    extra={
+                        "research_task_id": str(session.task.id),
+                        "team_id": context.team_id,
+                        "report_id": signal_report_id,
+                    },
+                )
 
         await session.end()
     except (Exception, asyncio.CancelledError) as e:
