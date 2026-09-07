@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
+from datetime import timedelta
 
 import pytest
 from unittest import mock
@@ -10,7 +12,11 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import WORKFLOW_NAME
+from posthog.temporal.session_replay.surfacing_scoring_sweep.activities import (
+    list_chunks_activity,
+    score_chunk_activity,
+)
+from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import MAX_CONCURRENT_SCORE_CHUNKS, WORKFLOW_NAME
 from posthog.temporal.session_replay.surfacing_scoring_sweep.types import (
     ChunkResult,
     ChunkSpec,
@@ -172,6 +178,10 @@ async def test_workflow_tolerates_partial_chunk_failures() -> None:
                 ScoreSessionsBatchInputs(),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                # A crash in workflow code is a workflow *task* failure, which Temporal
+                # retries forever, so a regression here wedges instead of failing. Cap it
+                # so the test reports a timeout rather than hanging the suite.
+                execution_timeout=timedelta(seconds=30),
             )
 
     parsed = _as_batch_result(result)
@@ -212,3 +222,42 @@ async def test_workflow_survives_empty_chunk_results() -> None:
     assert parsed.total_scored == 0
     assert parsed.chunks_failed == 0
     assert parsed.chunks_dispatched == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patched", [True, False])
+async def test_bounds_concurrent_score_chunk_activities(patched: bool) -> None:
+    # ClickHouse rejects queries past the per-user concurrency limit outright, and a rejected
+    # chunk scores nothing until the next tick, so the sweep must not dispatch every chunk at once.
+    # Unpatched runs keep dispatching everything, which is what makes replay deterministic.
+    chunk_count = MAX_CONCURRENT_SCORE_CHUNKS + 3
+    chunks = [_chunk(chunk_id, of_chunks=chunk_count) for chunk_id in range(chunk_count)]
+    active = 0
+    peak_active = 0
+
+    async def execute_activity(activity_fn: object, activity_input: object, **_: object) -> object:
+        nonlocal active, peak_active
+
+        if activity_fn is list_chunks_activity:
+            return _plan(chunks)
+
+        assert activity_fn is score_chunk_activity
+        assert isinstance(activity_input, ChunkSpec)
+        active += 1
+        peak_active = max(peak_active, active)
+        try:
+            await asyncio.sleep(0)
+            return ChunkResult(chunk_id=activity_input.chunk_id, scored=1, fetched=1)
+        finally:
+            active -= 1
+
+    with (
+        mock.patch("temporalio.workflow.execute_activity", side_effect=execute_activity),
+        mock.patch("temporalio.workflow.patched", return_value=patched),
+        mock.patch("temporalio.workflow.logger", mock.MagicMock()),
+        mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.record_tick_summary"),
+    ):
+        result = await ScoreSessionsBatchWorkflow().run(ScoreSessionsBatchInputs())
+
+    assert peak_active == (MAX_CONCURRENT_SCORE_CHUNKS if patched else chunk_count)
+    assert _as_batch_result(result).chunks_dispatched == chunk_count

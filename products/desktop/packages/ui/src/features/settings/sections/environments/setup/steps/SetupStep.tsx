@@ -51,7 +51,7 @@ export function SetupStep({
     return (
       <StepBody
         title="Setup commands"
-        description="Setup commands run inside a repository checkout, so this image has nothing to run them in."
+        description="Setup commands run inside a repository checkout, so this image has nothing to run them in"
       >
         <Button
           variant="outline"

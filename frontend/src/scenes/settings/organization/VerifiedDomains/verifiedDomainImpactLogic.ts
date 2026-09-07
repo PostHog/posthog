@@ -53,6 +53,7 @@ export interface verifiedDomainImpactLogicActions {
                 | 'members_can_see_org_members'
                 | 'members_can_use_personal_api_keys'
                 | 'name'
+                | 'read_only_mcp_access'
             >
         >
     ) => Partial<
@@ -72,6 +73,7 @@ export interface verifiedDomainImpactLogicActions {
             | 'members_can_see_org_members'
             | 'members_can_use_personal_api_keys'
             | 'name'
+            | 'read_only_mcp_access'
         >
     > // organizationLogic
     closeEnforcementPrompt: () => {

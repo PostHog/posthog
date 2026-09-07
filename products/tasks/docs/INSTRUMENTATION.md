@@ -2,6 +2,8 @@
 
 All analytics events tracked from the tasks backend via `posthoganalytics.capture()`.
 
+Update this document whenever a new event or property is added.
+
 All events include group analytics via `groups()` from `posthog.event_usage`, which sets `instance`, `organization`, `customer`, and `project` groups where available.
 
 ## Standard Properties
@@ -153,13 +155,63 @@ Tracked after sandbox and agent server are provisioned.
 | `repo_clone_ms`                 | `int`  | Repository clone time                                     |
 | `branch_checkout_ms`            | `int`  | Branch checkout time                                      |
 | `agent_launch_ms`               | `int`  | Agent server launch time                                  |
+| `agent_prepare_ms`              | `int`  | Backend launch configuration time                         |
+| `agent_invoke_ms`               | `int`  | Sandbox launcher and process start time                   |
+| `agent_health_poll_ms`          | `int`  | Time spent polling the agent health endpoint              |
 | `agent_ready_wait_ms`           | `int`  | Time spent waiting for the agent server                   |
 | `agent_session_init_ms`         | `int`  | Agent session initialization time                         |
+| `agent_server_total_ms`         | `int`  | Agent server initialization time                          |
+| `agent_server_http_ready_ms`    | `int`  | Time from agent process start to HTTP listen              |
+| `agent_launcher_to_process_ms`  | `int`  | Time from sandbox launch command to agent process start   |
 | `agent_context_fetch_ms`        | `int`  | Task and run context fetch time inside agent-server       |
 | `agent_acp_initialize_ms`       | `int`  | ACP process handshake time                                |
 | `agent_repository_ready_ms`     | `int`  | Time waiting on the repository-ready barrier              |
 | `agent_session_dependencies_ms` | `int`  | Skill, resume, relay, and PR checkout preparation         |
 | `agent_session_create_ms`       | `int`  | ACP session creation or resumption time                   |
+
+### `agent_shadow_observed`
+
+Tracked after the shadow observer finishes or the result read times out. Use `run_id`, `task_id`, and `sandbox_id` to correlate this event with `sandbox_started`.
+
+| Property              | Type   | Description                                  |
+| --------------------- | ------ | -------------------------------------------- |
+| `run_id`              | `str`  | UUID of the run                              |
+| `task_id`             | `str`  | UUID of the task                             |
+| `sandbox_id`          | `str`  | Sandbox identifier                           |
+| `launched`            | `bool` | Whether the matching observer launch started |
+| `outcome`             | `str`  | Observer outcome: `ready` or `failed`        |
+| `observed_ready_ms`   | `int`  | Observer readiness time on ready outcomes    |
+| `production_ready_ms` | `int`  | Production readiness time on ready outcomes  |
+| `failure_class`       | `str`  | Allowlisted observer failure category        |
+| `read_timed_out`      | `bool` | Whether result collection timed out          |
+
+### `agent_first_command_dispatched`
+
+Tracked once when the first non-steering agent command is dispatched.
+
+### `agent_first_activity_observed`
+
+Tracked once when the first agent-generated message, thought, or tool call is observed.
+
+Both first-interaction events include:
+
+| Property               | Type   | Description                       |
+| ---------------------- | ------ | --------------------------------- |
+| `run_id`               | `str`  | UUID of the run                   |
+| `task_id`              | `str`  | UUID of the task                  |
+| `sandbox_id`           | `str`  | Sandbox identifier                |
+| `elapsed_ms`           | `int`  | Time from the workflow start      |
+| `since_agent_ready_ms` | `int`  | Time from agent readiness         |
+| `boot_path`            | `str`  | Classic or overlapping clone boot |
+| `image_source`         | `str`  | Sandbox image source              |
+| `origin_product`       | `str`  | Product that created the task     |
+| `mode`                 | `str`  | Background or interactive         |
+| `task_runtime`         | `str`  | ACP or Pi runtime                 |
+| `runtime_adapter`      | `str`  | Runtime adapter                   |
+| `provider`             | `str`  | Model provider                    |
+| `sandbox_backend`      | `str`  | Sandbox provider                  |
+| `transport`            | `str`  | SSE or sequenced event ingest     |
+| `prewarmed`            | `bool` | Whether the run was prewarmed     |
 
 ### Modal VM rollout payload
 
@@ -232,14 +284,6 @@ Tracked when a GitHub `pull_request.closed` webhook is received with `merged=tru
 ### `pr_closed`
 
 Tracked when a GitHub `pull_request.closed` webhook is received with `merged=false`. Same additional properties as `pr_created`.
-
-## API Events
-
-Source: `products/tasks/backend/api.py`
-
-### `code_invite_redeemed`
-
-Tracked when a user redeems a Desktop invite. Includes `organization` group analytics. No additional properties.
 
 ## Activity Observability Events
 

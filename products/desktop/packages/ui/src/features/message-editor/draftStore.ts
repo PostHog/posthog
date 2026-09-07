@@ -7,7 +7,7 @@ import type { EditorAvailableCommand } from "./types";
 
 type SessionId = string;
 
-export interface EditorContext {
+interface EditorContext {
   sessionId: string;
   taskId: string | undefined;
   repoPath: string | null | undefined;
@@ -32,7 +32,7 @@ interface DraftState {
   _hasHydrated: boolean;
 }
 
-export interface DraftActions {
+interface DraftActions {
   setHasHydrated: (hydrated: boolean) => void;
   setDraft: (sessionId: SessionId, draft: EditorContent | null) => void;
   getDraft: (sessionId: SessionId) => EditorContent | string | null;

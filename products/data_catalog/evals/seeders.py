@@ -73,6 +73,7 @@ from products.data_catalog.evals.constants import (
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableFormat
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext
@@ -319,7 +320,7 @@ def _warehouse_table(team: Team, name: str, columns: tuple[str, ...]) -> DataWar
     return DataWarehouseTable.objects.create(
         team=team,
         name=name,
-        format=DataWarehouseTable.TableFormat.CSVWithNames,
+        format=DataWarehouseTableFormat.CSVWithNames,
         url_pattern="",
         credential=None,
         columns=dict.fromkeys(columns, _STRING_COLUMN),

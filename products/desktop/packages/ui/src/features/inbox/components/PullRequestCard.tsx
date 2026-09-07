@@ -79,7 +79,6 @@ export function PullRequestCardView({
                 <ConventionalCommitScopeTag
                   type={conventionalTitle.type}
                   scope={conventionalTitle.scope}
-                  compact
                 />
               )
             }
@@ -184,10 +183,8 @@ export function PullRequestCard({
     to: "/inbox/pulls/$reportId" as const,
     params: { reportId: report.id },
   };
-  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(
-    report,
-    detailRoute,
-  );
+  const { prefetch, pointerHandlers } =
+    useInboxReportDetailPrefetch(detailRoute);
   const navigate = useNavigate();
   const prRef = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)

@@ -66,13 +66,13 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
                 <Flex direction="column" gap="2">
                   <Flex align="center" gap="2">
                     <Text className="font-bold text-(--gray-12) text-2xl">
-                      Connect GitHub
+                      Connect your codebase
                     </Text>
                     <OptionalBadge />
                   </Flex>
                   <Text className="text-(--gray-11) text-sm">
-                    Allows agents to run tasks in the cloud, push branches, and
-                    open pull requests.
+                    Code access helps us understand your product, and helps you
+                    build.
                   </Text>
                 </Flex>
               </motion.div>

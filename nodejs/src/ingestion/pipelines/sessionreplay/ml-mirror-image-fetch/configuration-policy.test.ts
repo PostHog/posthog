@@ -90,8 +90,14 @@ describe('robots policy', () => {
             allowed: false,
             reason: 'robots_disallow',
         })
-        await expect(parseRobotsPolicy(body, `${ORIGIN}/private/public.png`)).resolves.toMatchObject({ allowed: true })
-        await expect(parseRobotsPolicy(body, `${ORIGIN}/wildcard/image.png`)).resolves.toMatchObject({ allowed: true })
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/private/public.png`)).resolves.toMatchObject({
+            allowed: true,
+            crawlDelayMs: 0,
+        })
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/wildcard/image.png`)).resolves.toMatchObject({
+            allowed: true,
+            crawlDelayMs: 0,
+        })
     })
 
     it('uses the greatest valid crawl delay in every selected field line', async () => {
@@ -414,6 +420,7 @@ describe('HttpConfigurationFetcher', () => {
             ['https://example.com/robots.txt'],
             ['https://cdn.example.com/robots'],
         ])
+        expect(fetchStreamedMock.mock.calls.map(([, options]) => options.allowH2)).toEqual([true, true])
     })
 
     it('does not follow a configuration redirect to another registrable domain', async () => {

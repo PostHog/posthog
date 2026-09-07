@@ -16,7 +16,6 @@ const {
   track,
   useAppView,
   navigateToInbox,
-  navigateToAgents,
   navigateToSkills,
   navigateToMcpServers,
   navigateToCommandCenter,
@@ -28,7 +27,6 @@ const {
   track: vi.fn(),
   useAppView: vi.fn(),
   navigateToInbox: vi.fn(),
-  navigateToAgents: vi.fn(),
   navigateToSkills: vi.fn(),
   navigateToMcpServers: vi.fn(),
   navigateToCommandCenter: vi.fn(),
@@ -65,7 +63,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
-  navigateToAgents,
   navigateToCommandCenter,
   navigateToContext: vi.fn(),
   navigateToInbox,
@@ -124,11 +121,7 @@ describe("SidebarNavSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAppView.mockReturnValue({ type: "task-input" });
-    useSidebarStore.setState({
-      navItemOverrides: {},
-      navItemOrder: [],
-      channelsEnabled: true,
-    });
+    useSidebarStore.setState({ channelsEnabled: true });
   });
 
   it("renders Search directly and removes the More dropdown", () => {
@@ -138,19 +131,6 @@ describe("SidebarNavSection", () => {
     expect(
       screen.queryByRole("button", { name: "More" }),
     ).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ["inbox", "Self-driving"],
-    ["command-center", "Command Center"],
-    ["activity", "Activity"],
-    ["configure", "Settings"],
-    ["loops", "Loops"],
-  ] as const)("removes %s from the sidebar when hidden", (id, label) => {
-    useSidebarStore.setState({ navItemOverrides: { [id]: false } });
-    renderNav();
-
-    expect(screen.queryByText(label)).not.toBeInTheDocument();
   });
 
   it("renders Activity directly under Inbox by default", () => {

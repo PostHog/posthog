@@ -4,8 +4,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@posthog/quill";
+import { ActivityIncludeMenuSection } from "@posthog/ui/features/canvas/components/ActivityIncludeMenuSection";
 import { markLoadedReadLabel } from "@posthog/ui/features/canvas/components/activityFeed";
 import type { ReactElement } from "react";
 
@@ -42,7 +44,7 @@ export function ActivityActionsMenu({
         align="end"
         side="bottom"
         sideOffset={4}
-        className="w-max"
+        className="min-w-64"
       >
         <DropdownMenuItem
           disabled={isMarkingRead || loadedUnreadCount === 0}
@@ -51,6 +53,9 @@ export function ActivityActionsMenu({
           <ChecksIcon size={14} />
           {markLoadedReadLabel(loadedUnreadCount, totalUnreadCount)}
         </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+        <ActivityIncludeMenuSection />
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -1,4 +1,4 @@
-import { withoutPostHogInit } from '~/toolbar/stats/currentPageLogic'
+import { endsWithTrailingSlash, isTooSpecificWildcardHref, withoutPostHogInit } from '~/toolbar/stats/currentPageLogic'
 
 const posthogInitHashParam =
     '__posthog={%22action%22:%20%22ph_authorize%22,%20%22token%22:%20%the-ph-token%22,%20%22temporaryToken%22:%20%the-posthog-token%22,%20%22actionId%22:%20null,%20%22userIntent%22:%20%22heatmaps%22,%20%22toolbarVersion%22:%20%22toolbar%22,%20%22apiURL%22:%20%22https://eu.posthog.com%22,%20%22dataAttributes%22:%20[%22data-attr%22],%20%22instrument%22:%20true,%20%22userEmail%22:%20%user-email@gmail.com%22,%20%22distinctId%22:%20%the-distinct-id%22}'
@@ -31,6 +31,29 @@ describe('current page logic', () => {
             expect(withoutPostHogInit('https://*.wat.io/category/*/product/1/?something=a#myfragment')).toBe(
                 'https://*.wat.io/category/*/product/1/?something=a#myfragment'
             )
+        })
+    })
+
+    describe('spotting a pattern that matches too little', () => {
+        it.each([
+            ['https://*.wat.io/project/*/', true],
+            ['https://wat.io/pricing', true],
+            ['https://*.wat.io/project/*', false],
+            ['https://wat.io/*', false],
+            ['https://wat.io/* ', true],
+            ['', false],
+            ['   ', false],
+        ])('%s is too specific: %s', (wildcardHref, expected) => {
+            expect(isTooSpecificWildcardHref(wildcardHref)).toBe(expected)
+        })
+
+        it.each([
+            ['https://*.wat.io/project/*/', true],
+            ['https://wat.io/', true],
+            ['https://*.wat.io/project/*', false],
+            ['https://wat.io/pricing', false],
+        ])('%s ends with a trailing slash: %s', (wildcardHref, expected) => {
+            expect(endsWithTrailingSlash(wildcardHref)).toBe(expected)
         })
     })
 })

@@ -35,7 +35,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
 
     return (
         <div className="flex flex-col gap-4">
-            <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
+            <PayGateMini feature={AvailableFeature.PATHS_ADVANCED} featureDetail="paths-advanced-filter">
                 <div className="flex flex-col gap-2">
                     <LemonLabel info="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
                         Maximum number of paths

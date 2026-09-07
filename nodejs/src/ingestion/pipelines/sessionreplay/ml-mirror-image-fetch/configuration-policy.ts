@@ -110,6 +110,7 @@ export class HttpConfigurationFetcher {
         try {
             response = await fetchStreamed(target.toString(), {
                 timeoutMs: Math.max(1, deadlineMs - Date.now()),
+                allowH2: true,
                 headers: {
                     'user-agent': USER_AGENT,
                     accept: file === 'robots' ? 'text/plain,*/*;q=0.1' : 'application/json,*/*;q=0.1',
@@ -239,7 +240,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: false,
                 reason: 'robots_refused',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -249,7 +250,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: false,
                 reason: 'tdmrep_refused',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -277,7 +278,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: true,
                 reason: deferredReason,
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -287,7 +288,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: true,
                 reason: 'configuration_unreachable',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -458,7 +459,7 @@ function selectedExtensionFields(
 }
 
 function defaultRobotsPolicy(): { allowed: true; crawlDelayMs: number } {
-    return { allowed: true, crawlDelayMs: 1_000 }
+    return { allowed: true, crawlDelayMs: 0 }
 }
 
 export async function parseRobotsPolicy(
@@ -482,10 +483,10 @@ function evaluateRobotsPolicy(
     url: string
 ): { allowed: boolean; crawlDelayMs: number; reason?: RobotsPolicyRefusalReason } {
     if (!parsed.matcher.checkUrl(BOT_NAME, url).allowed) {
-        return { allowed: false, crawlDelayMs: 1_000, reason: 'robots_disallow' }
+        return { allowed: false, crawlDelayMs: 0, reason: 'robots_disallow' }
     }
     const crawlDelayMs = Math.max(
-        1_000,
+        0,
         ...parsed.fields
             .filter((field) => field.name === 'crawl-delay')
             .flatMap((field) => {

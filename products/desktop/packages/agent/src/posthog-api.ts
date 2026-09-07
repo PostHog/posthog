@@ -1,8 +1,9 @@
-import type {
-  McpServerConnection,
-  McpToolApprovalState,
-  McpToolPolicy,
-  StoredLogEntry,
+import {
+  type McpServerConnection,
+  type McpToolApprovalState,
+  type McpToolPolicy,
+  type StoredLogEntry,
+  taskRunStateSchema,
 } from "@posthog/shared";
 import packageJson from "../package.json" with { type: "json" };
 import type {
@@ -109,13 +110,7 @@ export interface PeerMessageSendResult {
 export type TaskRunUpdate = Partial<
   Pick<
     TaskRun,
-    | "status"
-    | "branch"
-    | "stage"
-    | "error_message"
-    | "output"
-    | "state"
-    | "environment"
+    "status" | "branch" | "stage" | "error_message" | "output" | "state"
   >
 > & {
   state_remove_keys?: string[];
@@ -137,8 +132,12 @@ export class PostHogAPIClient {
     return host;
   }
 
-  private isAuthFailure(status: number): boolean {
-    return status === 401 || status === 403;
+  private isTokenRejection(status: number): boolean {
+    // 401 means the token is invalid or expired, which a forced refresh
+    // fixes. 403 means the credential lacks permission; a refresh from the
+    // same grant cannot gain any, and forcing one on every 403 rotates the
+    // refresh token and rebuilds the whole desktop session.
+    return status === 401;
   }
 
   private async resolveApiKey(forceRefresh = false): Promise<string> {
@@ -184,7 +183,7 @@ export class PostHogAPIClient {
   ): Promise<Response> {
     let response = await this.performRequest(endpoint, options);
 
-    if (!response.ok && this.isAuthFailure(response.status)) {
+    if (!response.ok && this.isTokenRejection(response.status)) {
       response = await this.performRequest(endpoint, options, true);
     }
 
@@ -339,10 +338,11 @@ export class PostHogAPIClient {
     signal?: AbortSignal,
   ): Promise<TaskRun> {
     const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
+    const taskRun = await this.apiRequest<TaskRun>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/`,
       { signal },
     );
+    return { ...taskRun, state: taskRunStateSchema.parse(taskRun.state) };
   }
 
   /**
@@ -363,14 +363,6 @@ export class PostHogAPIClient {
         body: JSON.stringify(insight),
         signal,
       },
-    );
-  }
-
-  async resumeRunInCloud(taskId: string, runId: string): Promise<TaskRun> {
-    const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-      { method: "POST" },
     );
   }
 

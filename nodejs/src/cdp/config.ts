@@ -135,14 +135,21 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
-    // When true, sends carry TenantName (team-<team_id>) so SES attributes reputation per team
-    // and its Standard reputation policy can pause a single tenant instead of the shared account.
-    // Off by default: a send naming a tenant whose identity association is missing fails, so this
-    // flips on only after tenant coverage is verified (migrate_ses_tenants --dry-run comes back empty).
-    EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: boolean
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
+
+    // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
+    // Django side, picks an hourly and a daily cap from these tables. See
+    // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
+    //   "off"     - the caps are not consulted.
+    //   "shadow"  - the caps are evaluated and every send they would delay is logged and counted,
+    //               but nothing is delayed.
+    //   "enforce" - a reached cap reschedules the send.
+    EMAIL_TEAM_SENDING_CAP_MODE: string
+    // Comma-separated caps indexed by tier. Both lists must be the same length.
+    EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
+    EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -175,6 +182,8 @@ export type CdpConfig = ClickhouseConfig & {
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    CONVERSATIONS_TICKETS_JWT_SECRET: string
+    CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET: string
     // Scoped JWT keys verifying Django's calls to the cancel routes (invocations/cancel and
     // batch_jobs/:id/cancel). A dedicated key, separate from the reschedule sweep's above: the
     // web tier mints cancels while the worker mints reschedules, so neither tier's key can forge
@@ -183,6 +192,10 @@ export type CdpConfig = ClickhouseConfig & {
     // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
     // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
     TASKS_CREATE_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's run-scout calls to Django. Its own key, not
+    // TASKS_CREATE_JWT_SECRET — see products/workflows/backend/service_jwt.py. Same
+    // comma-separated rotation and fail-closed-when-empty semantics.
+    WORKFLOW_SCOUT_RUN_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -190,6 +203,17 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
     CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
+
+    // Mark-and-sweep deletion of cohort_membership rows a completed reconcile run did not re-assert.
+    // Two flags so a rolling restart never mixes sweeping pods with pods that write no versions:
+    // version writes turn on first and off last, sweeping turns on last and off first. A pod that
+    // writes without versions preserves a row's old stamp, which a sweeping pod then reads as stale.
+    COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: boolean
+    COHORT_MEMBERSHIP_SWEEP_ENABLED: boolean
+    COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: number
+    COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: number
+    COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: number
+    COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: number
 
     // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
 }
@@ -311,8 +335,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
-        EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: false,
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
+
+        // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
+        // then enforced. Match the defaults in posthog/settings/web.py.
+        EMAIL_TEAM_SENDING_CAP_MODE: 'off',
+        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
+        EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -340,10 +369,19 @@ export function getDefaultCdpConfig(): CdpConfig {
         // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        // Dev default must equal Django's CONVERSATIONS_TICKETS_JWT_SECRETS default so local
+        // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
+        CONVERSATIONS_TICKETS_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-conversations-tickets-jwt' : '',
+        // Dev default must equal Django's CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS default so local
+        // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
+        CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-customer-analytics-accounts-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_CANCEL_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-cancel-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_SCOUT_RUN_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-scout-run-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
@@ -351,5 +389,23 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
         CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
+
+        // Stays off until the schema migrations have applied; a pod reaching an unmigrated
+        // database must degrade to the pre-sweep write shape, not crash on a missing column.
+        COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: false,
+        // Stays off until the processor writes membership to the live topic and the whole fleet
+        // persists row versions. Sweeping before either would delete rows nothing re-asserts.
+        //
+        // The cohort stream pipeline (cohort-stream-processor and its topics, including the
+        // marker topic) is deployed US-only, like the rest of the cohort streaming system. This
+        // flag follows that scoping: environments without the pipeline keep it off, and the
+        // marker topic must never be created just to let the flag turn on — with no processor
+        // producing markers there, the sweeper would idle forever. start() fails fast when the
+        // flag is set and the marker topic does not exist.
+        COHORT_MEMBERSHIP_SWEEP_ENABLED: false,
+        COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: 60000,
+        COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: 1000,
+        COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: 300000,
+        COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: 3,
     }
 }

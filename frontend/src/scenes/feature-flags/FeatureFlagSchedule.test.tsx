@@ -1,16 +1,25 @@
+import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType, ScheduledChangeOperationType } from '~/types'
+import {
+    FeatureFlagType,
+    RecurrenceInterval,
+    ScheduledChangeOperationType,
+    ScheduledChangeRequestState,
+    ScheduledChangeType,
+} from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
+import { makeScheduledChange } from './makeScheduledChange'
 
 jest.mock('./FeatureFlagReleaseConditionsCollapsible', () => ({
     FeatureFlagReleaseConditionsCollapsible: () => null,
@@ -148,6 +157,127 @@ describe('FeatureFlagSchedule', () => {
         renderSchedule(featureFlag, ScheduledChangeOperationType.UpdateVariants)
 
         expect(screen.getByText(new RegExp(expectedText))).toBeInTheDocument()
+    })
+
+    // useMocks trips the hooks naming lint inside named helpers, so each test registers
+    // its own mock before calling this.
+    const renderWithSchedules = (): void => {
+        renderSchedule(
+            buildFeatureFlag({ active: false, rolloutPercentage: 100 }),
+            ScheduledChangeOperationType.UpdateStatus
+        )
+        act(() => {
+            featureFlagLogic(logicProps).actions.loadScheduledChanges()
+        })
+    }
+
+    const schedulesMock = (
+        schedules: ScheduledChangeType[]
+    ): Record<string, () => [number, { results: ScheduledChangeType[] }]> => ({
+        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/scheduled_changes`]: () => [200, { results: schedules }],
+    })
+
+    it('gives a viewer without edit rights the banner and no way into the form', async () => {
+        // Three separate conditions gate what this user sees: the banner, the collapsed-form
+        // button, and the form itself. A regression in any one of them hands a viewer a form whose
+        // submit the API rejects.
+        useMocks({ get: schedulesMock([makeScheduledChange({})]) })
+        const featureFlag = buildFeatureFlag({ active: false, rolloutPercentage: 100 })
+        renderWithSchedules()
+        // One schedule collapses the form, so the button's own can_edit check is what hides it here.
+        await screen.findByText('Active & upcoming')
+        // Set can_edit last. The mount loads a flag of its own, and that response would overwrite
+        // an earlier value during the await above.
+        act(() => {
+            featureFlagLogic(logicProps).actions.setFeatureFlag({ ...featureFlag, can_edit: false })
+        })
+
+        expect(screen.getByText(/You don't have the necessary permissions/)).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')).not.toBeInTheDocument()
+        expect(
+            screen.queryByText('Automatically change flag properties at a future point in time.')
+        ).not.toBeInTheDocument()
+    })
+
+    it('collapses the creation form behind a button when schedules exist, and toggles via the button and close', async () => {
+        useMocks({ get: schedulesMock([makeScheduledChange({})]) })
+        renderWithSchedules()
+
+        const formHint = 'Automatically change flag properties at a future point in time.'
+        await screen.findByText('Active & upcoming')
+        expect(screen.queryByText(formHint)).not.toBeInTheDocument()
+
+        fireEvent.click(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')!)
+        expect(screen.getByText(formHint)).toBeInTheDocument()
+
+        fireEvent.click(document.querySelector('[data-attr="feature-flag-close-schedule-form"]')!)
+        expect(screen.queryByText(formHint)).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')).toBeInTheDocument()
+    })
+
+    describe('approval visibility', () => {
+        it('shows the Needs approval tag and an approval link for a pending gated schedule', async () => {
+            useMocks({
+                get: schedulesMock([
+                    makeScheduledChange({
+                        change_request: { id: 'cr-pending', state: ScheduledChangeRequestState.Pending },
+                    }),
+                ]),
+            })
+            renderWithSchedules()
+
+            expect(await screen.findByText('Needs approval')).toBeInTheDocument()
+            const link = screen.getByText('View approval request').closest('a')
+            // The router prefixes links with the current project path, so match the suffix only.
+            expect(link?.getAttribute('href')).toMatch(/\/approvals\/cr-pending$/)
+        })
+
+        it.each([
+            { state: ScheduledChangeRequestState.Rejected, expectedTag: 'Rejected' },
+            { state: ScheduledChangeRequestState.Expired, expectedTag: 'Approval expired' },
+        ])('lists a $state one-time schedule in history with a $expectedTag tag', async ({ state, expectedTag }) => {
+            useMocks({ get: schedulesMock([makeScheduledChange({ change_request: { id: 'cr-denied', state } })]) })
+            renderWithSchedules()
+
+            fireEvent.click(await screen.findByText('History (1)'))
+
+            expect(await screen.findByText(expectedTag)).toBeInTheDocument()
+            expect(screen.queryByText('Active & upcoming')).not.toBeInTheDocument()
+        })
+
+        it.each([
+            { state: ScheduledChangeRequestState.Rejected, expectedTag: 'Rejected' },
+            { state: ScheduledChangeRequestState.Expired, expectedTag: 'Approval expired' },
+        ])(
+            'keeps a recurring schedule with a $state approval active but tags it $expectedTag',
+            async ({ state, expectedTag }) => {
+                useMocks({
+                    get: schedulesMock([
+                        makeScheduledChange({
+                            is_recurring: true,
+                            recurrence_interval: RecurrenceInterval.Daily,
+                            change_request: { id: 'cr-recurring', state },
+                        }),
+                    ]),
+                })
+                renderWithSchedules()
+
+                expect(await screen.findByText(expectedTag)).toBeInTheDocument()
+                expect(screen.getByText('Active & upcoming')).toBeInTheDocument()
+                expect(screen.queryByText(/^History \(/)).not.toBeInTheDocument()
+                // The link is the way to unblock a stalled recurring schedule.
+                expect(screen.getByText('View approval request')).toBeInTheDocument()
+            }
+        )
+
+        it('shows the failure reason as visible text on an errored schedule', async () => {
+            const failureReason = 'Feature flag not found (will retry automatically, 2 attempts remaining)'
+            useMocks({ get: schedulesMock([makeScheduledChange({ failure_reason: failureReason })]) })
+            renderWithSchedules()
+
+            expect(await screen.findByText('Error')).toBeInTheDocument()
+            expect(screen.getByText(failureReason)).toBeVisible()
+        })
     })
 
     it.each([

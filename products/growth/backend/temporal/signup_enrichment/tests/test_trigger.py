@@ -23,6 +23,16 @@ def _run_dispatch_pool_inline():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _enrichment_enabled():
+    with patch("products.growth.backend.temporal.signup_enrichment.trigger.get_instance_setting", return_value=True):
+        yield
+
+
+def _kill_switch_off():
+    return patch("products.growth.backend.temporal.signup_enrichment.trigger.get_instance_setting", return_value=False)
+
+
 def _dispatch_mocks(region="US"):
     """Patch out the transaction/Temporal/DB boundaries so on_commit fires inline."""
     return (
@@ -37,7 +47,7 @@ def _dispatch_mocks(region="US"):
     )
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_dispatches_for_work_email_in_us_and_records_work_email():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record as record_mock:
@@ -46,7 +56,7 @@ def test_dispatches_for_work_email_in_us_and_records_work_email():
     record_mock.assert_called_once_with(organization_id="org-1", work_email=True, signup_role=None)
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_signup_role_is_recorded_alongside_work_email():
     # The role answer feeds the V0.5 student disqualification; persisting it makes the DQ
     # replayable by the score backfill instead of living only on the workflow inputs.
@@ -58,16 +68,31 @@ def test_signup_role_is_recorded_alongside_work_email():
     record_mock.assert_called_once_with(organization_id="org-1", work_email=True, signup_role="Student")
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_kill_switch_off_never_dispatches_or_writes():
     on_commit, connect, run, region, record = _dispatch_mocks()
-    with on_commit, connect as connect_mock, run, region, record as record_mock:
+    with _kill_switch_off(), on_commit, connect as connect_mock, run, region, record as record_mock:
         start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
     connect_mock.assert_not_called()
     record_mock.assert_not_called()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="")
+@override_settings(HARMONIC_API_KEY="key")
+def test_kill_switch_read_failure_never_reaches_signup():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    setting_read_fails = patch(
+        "products.growth.backend.temporal.signup_enrichment.trigger.get_instance_setting",
+        side_effect=RuntimeError("db down"),
+    )
+    with on_commit, connect as connect_mock, run, region, record as record_mock, setting_read_fails:
+        with patch("products.growth.backend.temporal.signup_enrichment.trigger.capture_exception") as capture_mock:
+            start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
+    connect_mock.assert_not_called()
+    record_mock.assert_not_called()
+    capture_mock.assert_called_once()
+
+
+@override_settings(HARMONIC_API_KEY="")
 def test_missing_harmonic_key_still_dispatches():
     # The key lives on the workers only; web-side dispatch must not depend on it. A keyless
     # worker fails into the launch alert, which is the observable failure we want.
@@ -77,7 +102,7 @@ def test_missing_harmonic_key_still_dispatches():
     connect_mock.assert_called_once()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_eu_region_dispatches_when_enabled():
     on_commit, connect, run, region, record = _dispatch_mocks(region="EU")
     with on_commit, connect as connect_mock, run, region, record:
@@ -85,7 +110,7 @@ def test_eu_region_dispatches_when_enabled():
     connect_mock.assert_called_once()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_self_hosted_region_never_dispatches():
     on_commit, connect, run, region, record = _dispatch_mocks(region="DEV")
     with on_commit, connect as connect_mock, run, region, record:
@@ -93,15 +118,15 @@ def test_self_hosted_region_never_dispatches():
     connect_mock.assert_not_called()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_kill_switch_off_never_dispatches_in_eu_either():
     on_commit, connect, run, region, record = _dispatch_mocks(region="EU")
-    with on_commit, connect as connect_mock, run, region, record:
+    with _kill_switch_off(), on_commit, connect as connect_mock, run, region, record:
         start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
     connect_mock.assert_not_called()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_personal_email_records_work_email_false_without_provider_dispatch():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record as record_mock:
@@ -111,7 +136,6 @@ def test_personal_email_records_work_email_false_without_provider_dispatch():
 
 
 @override_settings(
-    GROWTH_SIGNUP_ENRICHMENT_ENABLED=True,
     HARMONIC_API_KEY="key",
     SIGNUP_ENRICHMENT_TASK_QUEUE="signup-enrichment-task-queue",
 )
@@ -123,7 +147,7 @@ def test_dispatch_uses_configured_signup_enrichment_task_queue():
     assert kwargs["task_queue"] == "signup-enrichment-task-queue"
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_invalid_email_never_dispatches_or_writes():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record as record_mock:
@@ -132,7 +156,7 @@ def test_invalid_email_never_dispatches_or_writes():
     record_mock.assert_not_called()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_missing_distinct_id_records_work_email_but_never_dispatches():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record as record_mock:
@@ -141,7 +165,7 @@ def test_missing_distinct_id_records_work_email_but_never_dispatches():
     record_mock.assert_called_once_with(organization_id="org-1", work_email=True, signup_role=None)
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_work_email_write_failure_does_not_block_dispatch():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record as record_mock:
@@ -152,7 +176,7 @@ def test_work_email_write_failure_does_not_block_dispatch():
     capture_mock.assert_called_once()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 @pytest.mark.parametrize(
     "error,propagates",
     [
@@ -179,7 +203,6 @@ def test_duplicate_workflow_is_logged_not_captured():
     capture_mock.assert_not_called()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True)
 def test_dispatch_dropped_when_backlog_full():
     import threading
 
@@ -192,7 +215,6 @@ def test_dispatch_dropped_when_backlog_full():
     connect_mock.assert_not_called()
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True)
 def test_dispatch_slot_released_after_run():
     import threading
 
@@ -205,7 +227,7 @@ def test_dispatch_slot_released_after_run():
     assert connect_mock.call_count == 2
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_signup_geoip_country_is_threaded_into_workflow_inputs():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with (
@@ -226,7 +248,7 @@ def test_signup_geoip_country_is_threaded_into_workflow_inputs():
     assert inputs.geoip_country_code == "US"
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@override_settings(HARMONIC_API_KEY="key")
 def test_geoip_failure_degrades_to_no_country_and_still_dispatches():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with (

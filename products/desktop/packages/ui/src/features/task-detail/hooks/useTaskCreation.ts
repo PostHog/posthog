@@ -8,6 +8,7 @@ import {
   TASK_SERVICE,
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
+import { pendingPromptRecordFromContent } from "@posthog/core/tasks/pendingPrompts";
 import { useService } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
@@ -15,21 +16,22 @@ import {
   type Adapter,
   type AgentRuntime,
   ANALYTICS_EVENTS,
+  type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
-import {
-  getCurrentBrowserTabId,
-  navigateBrowserTab,
-} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
+import {
+  subscriptionModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
+import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
-import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
@@ -47,7 +49,6 @@ import { assertCloudUsageAvailable } from "../../billing/preflightCloudUsage";
 import { useUsageLimitStore } from "../../billing/usageLimitStore";
 import { useLocalMcpCloudServers } from "../../local-mcp/useLocalMcpCloudServers";
 import {
-  contentToPlainText,
   contentToXml,
   type EditorContent,
   extractFilePaths,
@@ -67,7 +68,6 @@ import { useTourStore } from "../../tour/tourStore";
 import { createFirstTaskTour } from "../../tour/tours/createFirstTaskTour";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
-import { restoreTaskInputTab } from "../taskInputTab";
 
 const log = logger.scope("task-creation");
 
@@ -123,10 +123,11 @@ interface UseTaskCreationOptions {
 
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
-  /** The task is on its way; the composer fades out before the chat replaces it. */
-  isExitingComposer: boolean;
   canSubmit: boolean;
-  handleSubmit: (contentOverride?: EditorContent) => Promise<boolean>;
+  handleSubmit: (
+    contentOverride?: EditorContent,
+    promptContent?: EditorContent,
+  ) => Promise<boolean>;
   additionalDirectories: string[];
   setAdditionalDirectories: (next: string[]) => void;
 }
@@ -135,6 +136,8 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
+  codexModelAccess?: ModelAccess,
+  claudeModelAccess?: ModelAccess,
 ): Promise<void> {
   try {
     const workspaceMode = input.workspaceMode ?? "local";
@@ -175,6 +178,8 @@ async function trackTaskCreated(
       uses_worktree_link: usesWorktreeLink,
       uses_worktree_include: usesWorktreeInclude,
       adapter: input.adapter,
+      codex_model_access: codexModelAccess,
+      claude_model_access: claudeModelAccess,
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -214,8 +219,9 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -266,7 +272,15 @@ export function useTaskCreation({
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(
-    async (contentOverride?: EditorContent): Promise<boolean> => {
+    async (
+      contentOverride?: EditorContent,
+      /**
+       * The composer content the person typed, when a wrapper transformed it
+       * for the task request. The prompt record and history restore this, so
+       * generated request text never reaches the composer on recovery.
+       */
+      promptContent?: EditorContent,
+    ): Promise<boolean> => {
       const editor = editorRef.current;
       if (!editor) return false;
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
@@ -277,7 +291,10 @@ export function useTaskCreation({
       // the exact prompt and tab that the user submitted.
       const originTabId = getCurrentBrowserTabId();
       const content = contentOverride ?? editor.getContent();
-      const plainPromptText = contentToPlainText(content).trim();
+      const promptRecord = pendingPromptRecordFromContent(
+        promptContent ?? content,
+      );
+      const plainPromptText = promptRecord.promptText;
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
 
@@ -286,7 +303,6 @@ export function useTaskCreation({
       setIsCreatingTask(true);
 
       try {
-        // Block over-limit cloud creation before the pending view so it doesn't flash.
         if (workspaceMode === "cloud" && !(await assertCloudUsageAvailable())) {
           return false;
         }
@@ -302,9 +318,8 @@ export function useTaskCreation({
         }
 
         // Confirm a couple of worktree branch situations before starting the
-        // task. Done before the pending view so a dialog (and a cancel) don't
-        // leave a half-started task on screen. Reusing an existing worktree takes
-        // priority over checking out a remote branch.
+        // task. Reusing an existing worktree takes priority over checking out a
+        // remote branch.
         let allowRemoteBranchCheckout = false;
         let reuseExistingWorktree = false;
         if (workspaceMode === "worktree" && branch && selectedDirectory) {
@@ -349,34 +364,33 @@ export function useTaskCreation({
           }
         }
 
-        const shouldShowPendingView = !onTaskCreated && !!plainPromptText;
-        const pendingTaskKey = shouldShowPendingView
+        const shouldPersistPromptRecord = !onTaskCreated && !!plainPromptText;
+        const pendingTaskKey = shouldPersistPromptRecord
           ? generatePendingTaskKey()
           : null;
 
         if (pendingTaskKey) {
           pendingTaskPromptStoreApi.set(pendingTaskKey, {
-            promptText: plainPromptText,
-            attachments: (content.attachments ?? []).map((a) => ({
-              id: a.id,
-              label: a.label,
-            })),
+            promptText: promptRecord.promptText,
+            attachments: promptRecord.attachments,
+            // The serialized content restores file chips and attachments on
+            // recovery, so an interrupted prompt comes back whole, not as bare
+            // text.
+            contentXml: promptRecord.contentXml,
+            // Reopen recovery in the space the prompt was submitted in.
+            channelId: channelId ?? undefined,
           });
-          // Fade the composer out before the chat fades in, so the phases
-          // hand over instead of cutting.
-          setIsExitingComposer(true);
-          await waitForComposerExit();
-          navigateBrowserTab(
-            originTabId,
-            {
-              href: `/tasks/pending/${pendingTaskKey}`,
-              title: "New task",
-            },
-            () => navigateToTaskPending(pendingTaskKey),
-          );
         }
 
         let createdTaskId: string | undefined;
+
+        const settlePromptRecord = () => {
+          settleFailedPromptRecord({
+            recordKey: pendingTaskKey,
+            createdTaskId,
+            originTabId,
+          });
+        };
 
         try {
           if (!contentOverride) {
@@ -395,6 +409,14 @@ export function useTaskCreation({
             localMcpServers,
             adapter,
           );
+          const codexModelAccess =
+            runtime !== "pi" && adapter === "codex"
+              ? subscriptionModelAccess(codexSubscription, workspaceMode)
+              : undefined;
+          const claudeModelAccess =
+            runtime !== "pi" && adapter === "claude"
+              ? subscriptionModelAccess(claudeSubscription, workspaceMode)
+              : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
             // repository selection; otherwise creation falls back to scratch.
@@ -409,6 +431,8 @@ export function useTaskCreation({
             reuseExistingWorktree,
             executionMode,
             adapter,
+            codexModelAccess,
+            claudeModelAccess,
             runtime,
             model,
             reasoningLevel,
@@ -523,7 +547,9 @@ export function useTaskCreation({
                 pendingTaskPromptStoreApi.clear(pendingTaskKey);
               }
               if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
+                // Cloud creation succeeds before the transcript arrives.
+                // SessionView clears the prompt when initialization ends.
+                pendingTaskPromptStoreApi.markSubmitted(createdTaskId);
               }
             }
             setAdditionalDirectoriesOverride(null);
@@ -541,7 +567,13 @@ export function useTaskCreation({
             if (allowNoRepo && channelId) {
               useTaskRepositoryDraftStore.getState().clearDraft(channelId);
             }
-            void trackTaskCreated(input, selectedDirectory, hostClient);
+            void trackTaskCreated(
+              input,
+              selectedDirectory,
+              hostClient,
+              input.codexModelAccess,
+              input.claudeModelAccess,
+            );
             // Repo-less channel tasks create no workspace row (the agent runs in
             // a scratch dir surfaced as a synthetic workspace), so the normal
             // workspace.create invalidation never fires. Refresh the workspace
@@ -570,13 +602,7 @@ export function useTaskCreation({
                 error: result.error,
               });
             }
-            if (pendingTaskKey) {
-              pendingTaskPromptStoreApi.clear(pendingTaskKey);
-              if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
-              }
-              restoreTaskInputTab(originTabId, channelContextId ?? channelId);
-            }
+            settlePromptRecord();
           }
           return result.success;
         } catch (error) {
@@ -585,18 +611,11 @@ export function useTaskCreation({
           });
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
-          if (pendingTaskKey) {
-            pendingTaskPromptStoreApi.clear(pendingTaskKey);
-            if (createdTaskId) {
-              pendingTaskPromptStoreApi.clear(createdTaskId);
-            }
-            restoreTaskInputTab(originTabId, channelContextId ?? channelId);
-          }
+          settlePromptRecord();
           return false;
         }
       } finally {
         setIsCreatingTask(false);
-        setIsExitingComposer(false);
       }
     },
     [
@@ -642,12 +661,19 @@ export function useTaskCreation({
       queryClient,
       taskService,
       tasks,
+      codexSubscription.flagEnabled,
+      codexSubscription.loginState,
+      codexSubscription.subscriptionOn,
+      claudeSubscription.flagEnabled,
+      claudeSubscription.loginState,
+      claudeSubscription.subscriptionOn,
+      claudeSubscription,
+      codexSubscription,
     ],
   );
 
   return {
     isCreatingTask,
-    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,

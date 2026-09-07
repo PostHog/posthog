@@ -1,32 +1,34 @@
 // sort-imports-ignore
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
-import { compileHog } from '~/cdp/templates/compiler'
-import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
-import { fetch } from '~/common/utils/request'
-import { logger } from '~/common/utils/logger'
-import { Hub } from '../../../types'
+import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
+import { compileHog } from '~/cdp/templates/compiler'
 import { createHub } from '~/common/utils/db/hub'
+import { logger } from '~/common/utils/logger'
+import { fetch } from '~/common/utils/request'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
+
+import { Hub, Team } from '../../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
+import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
 import { HogExecutorAsyncService } from '../hog-executor-async.service'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
-import { EmailService } from '../messaging/email.service'
-import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
-import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
+import { EmailService } from '../messaging/email.service'
+import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
@@ -49,6 +51,8 @@ const cleanLogs = (logs: string[]): string[] => {
 describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
     let hub: Hub
+    let team: Team
+    let integrationId: number
     const mockFetch = jest.mocked(fetch)
 
     beforeEach(async () => {
@@ -62,10 +66,11 @@ describe('Hogflow Executor', () => {
             }
         })
 
-        await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationId = uniqueTestId()
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -80,10 +85,9 @@ describe('Hogflow Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres),
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -99,9 +103,18 @@ describe('Hogflow Executor', () => {
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
+                internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
             },
             {
                 teamManager: hub.teamManager,
+                conversationsTicketsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                    hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                ),
+                customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                    hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                ),
                 hogInputsService,
                 emailService,
                 recipientTokensService,
@@ -165,7 +178,8 @@ describe('Hogflow Executor', () => {
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            stubCohortMembershipRepository
+            stubCohortMembershipRepository,
+            hub.integrationManager
         )
     })
 
@@ -290,6 +304,7 @@ describe('Hogflow Executor', () => {
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
+                conversionWatchers: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -1452,76 +1467,34 @@ describe('Hogflow Executor', () => {
                 `)
             })
 
-            it('counts a property-based conversion without exiting when exit condition is exit_only_at_end', async () => {
+            // Counting at enrollment and counting from the watcher must stay disjoint. A goal already
+            // satisfied when the run enrolls can never be claimed from a watcher — the matcher reads the
+            // enrollment event before the row exists — so it is counted here and writes no row. A goal
+            // not yet satisfied writes the row and is counted by the matcher later. Either path counting
+            // twice, or neither counting, is the bug this guards.
+            test.each([
+                { name: 'goal not yet satisfied', browser: 'Firefox', watchers: 1, conversions: 0 },
+                { name: 'goal already satisfied at enrollment', browser: 'Chrome', watchers: 0, conversions: 1 },
+            ])('$name: writes $watchers watcher and counts $conversions conversion', async (params) => {
                 hogFlow.exit_condition = 'exit_only_at_end'
                 hogFlow.conversion = {
                     filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
                     window_minutes: null,
-                }
+                } as any
 
                 const invocation = createExampleHogFlowInvocation(
                     hogFlow,
-                    {
-                        event: {
-                            ...createHogExecutionGlobals().event,
-                            event: '$pageview',
-                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
-                        },
-                    },
-                    { properties: { $browser: 'Chrome' } }
+                    {},
+                    { properties: { $browser: params.browser } }
                 )
-
                 const result = await executor.execute(invocation)
-                // The run completes normally (no early exit) but the conversion is counted exactly once
-                expect(result.finished).toBe(true)
-                expect(result.metrics.map((m) => m.metric_name)).toEqual([
-                    'conversion',
-                    'fetch',
-                    'billable_invocation',
-                    'succeeded',
-                    'succeeded',
-                ])
-                expect(result.metrics.filter((m) => m.metric_name === 'conversion')).toHaveLength(1)
-                expect(invocation.state.conversionCounted).toBe(true)
-                // The conversion is also surfaced as a billable $workflows_conversion event exactly once.
-                const conversionEvents = result.capturedPostHogEvents.filter((e) => e.event === '$workflows_conversion')
-                expect(conversionEvents).toHaveLength(1)
-                expect(conversionEvents[0]).toMatchObject({
-                    distinct_id: 'distinct_id',
-                    properties: {
-                        $workflow_id: hogFlow.id,
-                        $workflow_version: hogFlow.version,
-                        $workflow_conversion_type: 'property',
-                    },
-                })
-            })
 
-            it('does not re-count a property-based conversion on a resume that already counted', async () => {
-                hogFlow.exit_condition = 'exit_only_at_end'
-                hogFlow.conversion = {
-                    filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
-                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
+                expect(result.conversionWatchers).toHaveLength(params.watchers)
+                expect(result.metrics.filter((m) => m.metric_name === 'conversion')).toHaveLength(params.conversions)
+                if (params.watchers) {
+                    expect(result.conversionWatchers[0].run_id).toEqual(invocation.id)
                 }
-
-                const invocation = createExampleHogFlowInvocation(
-                    hogFlow,
-                    {
-                        event: {
-                            ...createHogExecutionGlobals().event,
-                            event: '$pageview',
-                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
-                        },
-                    },
-                    { properties: { $browser: 'Chrome' } }
-                )
-                // Simulate a prior step in this run having already counted the conversion
-                invocation.state.conversionCounted = true
-
-                const result = await executor.execute(invocation)
-                expect(result.finished).toBe(true)
-                expect(result.metrics.map((m) => m.metric_name)).not.toContain('conversion')
             })
 
             it('does not count event-based conversions in the executor (counted by the matcher)', async () => {
@@ -2619,10 +2592,8 @@ describe('Hogflow Executor', () => {
         }
 
         it('should record billing metrics for both regular hog functions and email functions', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2696,7 +2667,7 @@ describe('Hogflow Executor', () => {
                                             name: 'Recipient',
                                         },
                                         from: {
-                                            integrationId: 1,
+                                            integrationId,
                                         },
                                         subject: 'Test Email 1',
                                         text: 'Test Text 1',
@@ -2718,7 +2689,7 @@ describe('Hogflow Executor', () => {
                                             name: 'Recipient 2',
                                         },
                                         from: {
-                                            integrationId: 1,
+                                            integrationId,
                                         },
                                         subject: 'Test Email 2',
                                         text: 'Test Text 2',
@@ -2775,10 +2746,8 @@ describe('Hogflow Executor', () => {
 
     describe('email queue routing', () => {
         it('should route email actions to the email queue', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2834,7 +2803,7 @@ describe('Hogflow Executor', () => {
                                     email: {
                                         value: {
                                             to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'test@posthog.com' },
+                                            from: { integrationId, email: 'test@posthog.com' },
                                             subject: 'Test Email',
                                             text: 'Test',
                                             html: '<p>Test</p>',
@@ -2869,10 +2838,8 @@ describe('Hogflow Executor', () => {
         })
 
         it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2928,7 +2895,7 @@ describe('Hogflow Executor', () => {
                                     email: {
                                         value: {
                                             to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'test@posthog.com' },
+                                            from: { integrationId, email: 'test@posthog.com' },
                                             subject: 'Test Email',
                                             text: 'Test text',
                                             html: '<p>Test html</p>',

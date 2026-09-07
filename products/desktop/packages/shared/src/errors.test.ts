@@ -8,6 +8,7 @@ import {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   serializeError,
 } from "./errors";
@@ -99,6 +100,22 @@ describe("classifyGatewayLimitError", () => {
       "model_gate",
     ],
     [
+      `Internal error: API Error: 403 {"error":{"message":"Nope.","type":"permission_error","code":"model_gate"}}`,
+      "model_gate",
+    ],
+    [
+      `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.","type":"permission_error","code":"model_gate","reason":"model_not_available"}}`,
+      "model_unavailable",
+    ],
+    [
+      `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available. Choose another model. (rate_limit)","type":"permission_error","code":"model_gate"}}`,
+      "model_unavailable",
+    ],
+    [
+      "API Error: 403 Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.",
+      "model_unavailable",
+    ],
+    [
       // Bare FastAPI detail from gateways predating the error envelope.
       `Internal error: API Error: 403 {"detail":"Model 'claude-opus-4-8' needs a paid PostHog plan."}`,
       "model_gate",
@@ -154,6 +171,12 @@ describe("classifyPromptFailure", () => {
     ["Cloud usage limit reached", undefined, "usage_limit", false],
     ["API Error: 529 overloaded", undefined, "transient", true],
     ["boom", "upstream_timeout", "transient", true],
+    [
+      "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+      "turn_ended_without_response",
+      "transient",
+      true,
+    ],
     ["Authentication required", undefined, "authentication", true],
     ["process exited", undefined, "fatal_session", true],
     ["invalid model", undefined, "unknown", false],
@@ -175,6 +198,14 @@ describe("isFatalSessionError", () => {
     expect(isFatalSessionError(message)).toBe(true);
   });
 
+  it("does not tear the session down over a model the account can't use", () => {
+    expect(
+      isFatalSessionError(
+        `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.","type":"permission_error","code":"model_gate","reason":"model_not_available"}}`,
+      ),
+    ).toBe(false);
+  });
+
   it("does not treat a rate-limit error as fatal even if a fatal phrase is present", () => {
     expect(isFatalSessionError("process exited", "rate limit exceeded")).toBe(
       false,
@@ -191,6 +222,7 @@ describe("isFatalSessionError", () => {
     "Internal error: API Error: terminated",
     "Internal error: API Error: Connection error",
     "Internal error: API Error: 529 overloaded_error",
+    "Internal error: API Error: Content block is not a thinking block",
   ])("does not treat the transient upstream failure %j as fatal", (message) => {
     expect(isFatalSessionError(message)).toBe(false);
   });
@@ -200,6 +232,14 @@ describe("isFatalSessionError", () => {
       isFatalSessionError(
         "internal error",
         "API Error: the operation timed out",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a no-response diagnostic as fatal", () => {
+    expect(
+      isFatalSessionError(
+        "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
       ),
     ).toBe(false);
   });
@@ -226,6 +266,8 @@ describe("isTransientUpstreamError", () => {
     "Internal error: API Error: Connection closed mid-response. The response above may be incomplete.",
     "The socket connection was closed unexpectedly.",
     "socket connection closed",
+    "Internal error: API Error: Content block not found",
+    "Internal error: API Error: Content block is not a thinking block",
   ])("recognises %j", (message) => {
     expect(isTransientUpstreamError(message)).toBe(true);
   });
@@ -237,6 +279,13 @@ describe("isTransientUpstreamError", () => {
         "API Error: the operation timed out",
       ),
     ).toBe(true);
+  });
+
+  it("recognises a no-response diagnostic separately", () => {
+    const message =
+      "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null";
+    expect(isTransientUpstreamError(message)).toBe(false);
+    expect(isTurnEndedWithoutResponseError(message)).toBe(true);
   });
 
   it.each([

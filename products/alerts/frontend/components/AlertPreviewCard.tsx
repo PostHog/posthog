@@ -22,14 +22,20 @@ import { HogQLAlertPreviewBanner } from './HogQLAlertPreview'
 
 const handleChartError = makeChartErrorHandler('alerts-preview-chart')
 
+interface AlertPreviewChartSeries {
+    key: string
+    label: string
+    data: number[]
+}
+
 function AlertPreviewChart({
-    values,
+    series,
     labels,
     referenceLines,
     relative,
     useLogScale,
 }: {
-    values: number[]
+    series: AlertPreviewChartSeries[]
     labels?: string[]
     referenceLines: AlertThresholdLine[]
     relative: boolean
@@ -39,8 +45,8 @@ function AlertPreviewChart({
     return (
         <div className="w-full h-24 flex flex-col">
             <LineChart
-                series={[{ key: 'preview', label: 'Value', data: values }]}
-                labels={labels ?? values.map((_, index) => String(index))}
+                series={series}
+                labels={labels ?? series[0]?.data.map((_, index) => String(index)) ?? []}
                 theme={theme}
                 config={{
                     hideXAxis: true,
@@ -63,6 +69,8 @@ export interface AlertPreviewCardProps {
     alertForm: AlertFormType
     trendsValues: number[] | null
     trendsLabels?: string[] | null
+    isBreakdown?: boolean
+    trendsBreakdownSeries?: AlertPreviewChartSeries[] | null
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
@@ -74,6 +82,8 @@ export function AlertPreviewCard({
     alertForm,
     trendsValues,
     trendsLabels,
+    isBreakdown,
+    trendsBreakdownSeries,
     funnelPreview,
     hogqlPreview,
     checkPreview,
@@ -88,9 +98,24 @@ export function AlertPreviewCard({
               alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
           )
         : null
+    const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
     const referenceLines = thresholdReferenceLines(alertForm)
-    const useLogScale = Boolean(trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines))
+    const useLogScale = Boolean(
+        !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
+    )
     const checkPreviewValues = checkPreview?.values
+    const trendsBreakdownPreviews = trendsBreakdownSeries?.map(({ key, label, data }) => ({
+        key,
+        label,
+        data: deriveTrendsAlertPreviewSeries(
+            data,
+            trendsLabels ?? undefined,
+            alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
+            alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
+        ).values,
+    }))
+    const breakdownPreviewValues = trendsBreakdownPreviews?.flatMap((series) => series.data) ?? []
+    const breakdownUseLogScale = shouldUseLogScale(breakdownPreviewValues, referenceLines)
     const isUnconfiguredAbsoluteThreshold =
         !alertForm.detector_config &&
         alertForm.condition?.type === AlertConditionType.ABSOLUTE_VALUE &&
@@ -109,10 +134,26 @@ export function AlertPreviewCard({
                 Set less than or more than to preview this alert.
             </div>
         )
+    } else if (isBreakdownPreview && trendsBreakdownPreviews && breakdownPreviewValues.length > 0) {
+        body = (
+            <AlertPreviewChart
+                series={trendsBreakdownPreviews}
+                labels={trendsLabels ?? undefined}
+                referenceLines={referenceLines}
+                relative={trendsPreview?.relative ?? false}
+                useLogScale={breakdownUseLogScale}
+            />
+        )
+    } else if (isBreakdownPreview && !loading) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                No activity to preview across breakdown values.
+            </div>
+        )
     } else if (checkPreviewValues && checkPreviewValues.length > 0) {
         body = (
             <AlertPreviewChart
-                values={checkPreviewValues}
+                series={[{ key: 'preview', label: 'Value', data: checkPreviewValues }]}
                 labels={checkPreview.labels}
                 referenceLines={referenceLines}
                 relative={checkPreview.relative}
@@ -134,7 +175,7 @@ export function AlertPreviewCard({
     } else if (isTrendsAlertConfig(config) && trendsPreview && trendsPreview.values.length > 0) {
         body = (
             <AlertPreviewChart
-                values={trendsPreview.values}
+                series={[{ key: 'preview', label: 'Value', data: trendsPreview.values }]}
                 labels={trendsPreview.labels}
                 referenceLines={referenceLines}
                 relative={trendsPreview.relative}
@@ -166,25 +207,32 @@ export function AlertPreviewCard({
     }
 
     let lastValue: number | null = null
-    if (checkPreviewValues?.length) {
+    if (!isBreakdownPreview && checkPreviewValues?.length) {
         lastValue = checkPreviewValues[checkPreviewValues.length - 1]
-    } else if (isTrendsAlertConfig(config) && trendsPreview?.values.length) {
+    } else if (isTrendsAlertConfig(config) && trendsPreview?.values.length && !isBreakdownPreview) {
         lastValue = trendsPreview.values[trendsPreview.values.length - 1]
+    }
+
+    let previewTooltip =
+        'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
+    if (isBreakdownPreview) {
+        previewTooltip = 'Every breakdown value is shown. The dashed lines are your thresholds.'
+    } else if (checkPreview !== undefined) {
+        previewTooltip = 'Values recorded by recent alert evaluations.'
+    }
+    let previewTitle = 'Preview'
+    if (isBreakdownPreview) {
+        previewTitle = 'All breakdown values'
+    } else if (checkPreview !== undefined) {
+        previewTitle = 'Recent evaluations'
     }
 
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
-                    <span>{checkPreview !== undefined ? 'Recent evaluations' : 'Preview'}</span>
-                    <Tooltip
-                        title={
-                            checkPreview !== undefined
-                                ? 'Values recorded by recent alert evaluations.'
-                                : 'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
-                        }
-                        delayMs={0}
-                    >
+                    <span>{previewTitle}</span>
+                    <Tooltip title={previewTooltip} delayMs={0}>
                         <IconInfo className="text-muted size-3.5" />
                     </Tooltip>
                 </div>

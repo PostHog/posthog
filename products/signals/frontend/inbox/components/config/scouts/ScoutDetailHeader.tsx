@@ -17,6 +17,7 @@ import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
+import { ScoutOwners } from './ScoutOwners'
 import { ScoutSettingsButton } from './ScoutSettingsModal'
 
 function Metric({ value, label }: { value: React.ReactNode; label: string }): JSX.Element {
@@ -105,6 +106,7 @@ export function ScoutDetailHeader({
                     {config.scout_origin === 'canonical' ? 'Canonical' : 'Custom'}
                 </LemonTag>
                 <ScoutStatusTag config={config} />
+                <ScoutOwners config={config} />
                 <span className="flex-1" />
                 <Tooltip title="Dispatch a run now, outside the schedule. Counts against the project's daily run budget.">
                     <LemonButton
@@ -131,14 +133,15 @@ export function ScoutDetailHeader({
                         })
                     }
                 >
-                    <Tooltip title="Open the skill that defines what this scout does">
+                    <Tooltip title="A scout is defined by its skill: editable instructions for what it watches and reports.">
                         <LemonButton
                             type="secondary"
                             size="small"
                             icon={<IconExternal />}
                             to={urls.skill(config.skill_name)}
-                            aria-label={`Open the ${config.skill_name} skill`}
-                        />
+                        >
+                            View skill
+                        </LemonButton>
                     </Tooltip>
                 </span>
                 <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />

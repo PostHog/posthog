@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
+import { evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
@@ -38,10 +39,49 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
 }
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading } = useValues(llmEvaluationLogic)
+    const { filteredEvaluationRuns, evaluationRuns, evaluationRunsError, evaluation, evaluationRunsLoading } =
+        useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
     const showOutcomeFilters = evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
+    // Every run in this table belongs to `evaluation`, so its polarity applies to the whole column.
+    const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
+
+    // A filter is hiding rows when the evaluation has runs but none match the current filter.
+    const filterHidesRuns = evaluationRuns.length > 0 && filteredEvaluationRuns.length === 0
+    // LemonTable drops its empty state as soon as it has rows, so a failed refresh over rows that
+    // are already on screen needs its own surface. Without it the spinner just stops and the user
+    // reads the stale rows as current.
+    const showStaleRunsBanner = evaluationRunsError && filteredEvaluationRuns.length > 0
+
+    const emptyState = evaluationRunsError ? (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">Could not load evaluation runs</div>
+            <div className="text-sm text-muted mb-3">The query failed. This is usually temporary. Try again.</div>
+            <LemonButton
+                type="secondary"
+                icon={<IconRefresh />}
+                onClick={refreshEvaluationRuns}
+                loading={evaluationRunsLoading}
+                size="small"
+                data-attr="llma-evaluation-runs-retry"
+            >
+                Retry
+            </LemonButton>
+        </div>
+    ) : filterHidesRuns ? (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">No runs match this filter</div>
+            <div className="text-sm text-muted">Change the filter above to see this evaluation's other runs.</div>
+        </div>
+    ) : (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">No evaluation runs yet</div>
+            <div className="text-sm text-muted">
+                Runs will appear here once this evaluation starts executing based on your triggers.
+            </div>
+        </div>
+    )
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -58,9 +98,12 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Result',
             key: 'result',
-            render: (_, run) => <EvaluationResultTag run={run} />,
+            render: (_, run) => <EvaluationResultTag run={run} trueIsFailure={trueIsFailure} />,
             sorter: (a, b) => {
-                return getEvaluationResultSortValue(b) - getEvaluationResultSortValue(a)
+                return (
+                    getEvaluationResultSortValue(b, { trueIsFailure }) -
+                    getEvaluationResultSortValue(a, { trueIsFailure })
+                )
             },
         },
         {
@@ -111,6 +154,19 @@ export function EvaluationRunsTable(): JSX.Element {
                 </LemonButton>
             </div>
 
+            {showStaleRunsBanner && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: refreshEvaluationRuns,
+                        'data-attr': 'llma-evaluation-runs-stale-retry',
+                    }}
+                >
+                    We couldn't refresh the evaluation runs. The runs below may be out of date.
+                </LemonBanner>
+            )}
+
             <LemonTable
                 columns={columns}
                 dataSource={filteredEvaluationRuns}
@@ -119,14 +175,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 pagination={{
                     pageSize: 50,
                 }}
-                emptyState={
-                    <div className="text-center py-8">
-                        <div className="text-muted mb-2">No evaluation runs yet</div>
-                        <div className="text-sm text-muted">
-                            Runs will appear here once this evaluation starts executing based on your triggers.
-                        </div>
-                    </div>
-                }
+                emptyState={emptyState}
             />
         </div>
     )

@@ -18,7 +18,6 @@ import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
     KafkaWarehouseProducerEnvConfig,
-    KafkaWarpstreamCalculatedEventsProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
@@ -106,7 +105,6 @@ export interface PluginsServerConfig
         TracesIngestionConsumerConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaWarpstreamIngestionProducerEnvConfig,
-        KafkaWarpstreamCalculatedEventsProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
@@ -877,6 +875,8 @@ export interface EventHeaders {
     force_disable_person_processing: boolean
     historical_migration: boolean
     skip_heatmap_processing: boolean
+    /** The Kafka partition key a redirect dropped, so the overflow lane can refresh its overflow flag. */
+    redirect_original_key?: string
 }
 
 export interface IncomingEvent {

@@ -4,9 +4,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
@@ -19,7 +20,12 @@ from ...api.community_publish_services import (
     CommunitySkillPublishNotConfiguredError,
     CommunitySkillPublishValidationError,
 )
-from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
+from ...api.skill_serializers import (
+    DEFAULT_BODY_PAGE_LENGTH,
+    LLMSkillCreateSerializer,
+    LLMSkillListSerializer,
+    LLMSkillSerializer,
+)
 from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
     archive_skill,
@@ -28,6 +34,7 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
+from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.skills import LLMSkill, LLMSkillFile
 
 COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
@@ -192,6 +199,22 @@ class TestLLMSkillAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_skill_caps_description_at_spec_limit(self):
+        # Writes cap at the Agent Skills spec limit so a skill cannot grow past what publish and export accept.
+        over = self.client.post(
+            self._url(),
+            data={"name": "too-long", "description": "x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1), "body": "# Body"},
+            format="json",
+        )
+        assert over.status_code == status.HTTP_400_BAD_REQUEST
+
+        at_limit = self.client.post(
+            self._url(),
+            data={"name": "at-limit", "description": "x" * SPEC_DESCRIPTION_MAX_LENGTH, "body": "# Body"},
+            format="json",
+        )
+        assert at_limit.status_code == status.HTTP_201_CREATED
 
     def test_create_skill_with_files(self):
         response = self.client.post(
@@ -542,6 +565,27 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["description"] == "New desc."
+
+    def test_publish_rejects_legacy_description_carried_into_new_version(self):
+        skill = self.create_skill(
+            name="legacy-description",
+            description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1),
+            body="# V1",
+        )
+
+        response = self.client.patch(
+            self._url("name/legacy-description"),
+            data={"body": "# V2", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            f"Shorten the skill description to {SPEC_DESCRIPTION_MAX_LENGTH} characters before creating a new version."
+        )
+        skill.refresh_from_db()
+        assert skill.is_latest is True
+        assert not LLMSkill.objects.filter(name="legacy-description", version=2).exists()
 
     def test_publish_with_version_conflict_fails(self):
         self.create_skill(name="conflict-skill", body="# V1")
@@ -910,6 +954,24 @@ class TestLLMSkillAPI(APIBaseTest):
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
 
+    def test_duplicate_rejects_legacy_description_over_spec_limit(self):
+        self.create_skill(
+            name="legacy-description",
+            description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1),
+        )
+
+        response = self.client.post(
+            self._url("name/legacy-description/duplicate"),
+            data={"new_name": "legacy-copy"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            f"Shorten the source skill description to {SPEC_DESCRIPTION_MAX_LENGTH} characters before duplicating it."
+        )
+        assert not LLMSkill.objects.filter(name="legacy-copy").exists()
+
     @parameterized.expand(
         [
             ("plain-name-copy", "", ""),
@@ -943,6 +1005,84 @@ class TestLLMSkillAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # --- Rename ---
+
+    def test_rename_moves_every_version_with_its_files_and_owners(self):
+        v1 = self.create_skill(name="typoo", version=1, is_latest=False)
+        v2 = self.create_skill(name="typoo", version=2)
+        LLMSkillFile.objects.create(skill=v2, path="scripts/run.sh", content="#!/bin/bash")
+        member = User.objects.create_and_join(self.organization, "rename-owner@example.com", None)
+        set_skill_owners(self.team, "typoo", [member])
+        updated_at_before = v2.updated_at
+
+        response = self.client.post(
+            self._url("name/typoo/rename"),
+            data={"new_name": "typo-free"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["name"] == "typo-free"
+        # A rename is not an edit: the version history carries over intact rather than restarting.
+        assert data["version"] == 2
+        assert data["version_count"] == 2
+        assert not LLMSkill.objects.filter(team=self.team, name="typoo", deleted=False).exists()
+        assert sorted(
+            LLMSkill.objects.filter(team=self.team, name="typo-free", deleted=False).values_list("version", flat=True)
+        ) == [1, 2]
+        assert [f["path"] for f in data["files"]] == ["scripts/run.sh"]
+        assert [o.email for o in resolve_skill_owners(self.team, "typo-free")] == [member.email]
+        assert resolve_skill_owners(self.team, "typoo") == []
+        # The marketplace plugin version is max(updated_at) across the team, so the rename has to
+        # advance it or installs keep the old directory name.
+        v1.refresh_from_db()
+        v2.refresh_from_db()
+        assert v2.updated_at > updated_at_before
+        assert v1.name == "typo-free"
+
+    def test_rename_to_an_existing_name_is_rejected(self):
+        self.create_skill(name="source")
+        self.create_skill(name="taken")
+
+        response = self.client.post(
+            self._url("name/source/rename"),
+            data={"new_name": "taken"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert LLMSkill.objects.filter(team=self.team, name="source", deleted=False).exists()
+
+    @parameterized.expand(
+        [
+            ("out_of_scout", "signals-scout-churn", "churn-watch"),
+            ("into_scout", "churn-watch", "signals-scout-churn"),
+            ("into_review_hog", "churn-watch", "review-hog-perspective-churn"),
+        ]
+    )
+    def test_rename_touching_a_product_owned_prefix_is_rejected(self, _name: str, old_name: str, new_name: str):
+        self.create_skill(name=old_name)
+
+        response = self.client.post(
+            self._url(f"name/{old_name}/rename"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
+        assert not LLMSkill.objects.filter(team=self.team, name=new_name).exists()
+
+    def test_rename_of_a_missing_skill_is_not_found(self):
+        response = self.client.post(
+            self._url("name/nope/rename"),
+            data={"new_name": "still-nope"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # --- Get file ---
 
@@ -987,6 +1127,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert {(f["path"], f["content_type"]) for f in data["files"]} == {("scripts/setup.sh", "text/plain")}
         stored = LLMSkillFile.objects.get(skill__name="crud-create", skill__is_latest=True, path="scripts/setup.sh")
         assert stored.content == "#!/bin/bash\necho hi"
+
+    def test_create_file_rejects_legacy_description_carried_into_new_version(self):
+        skill = self.create_skill(
+            name="legacy-description-file",
+            description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1),
+        )
+
+        response = self.client.post(
+            self._url("name/legacy-description-file/files"),
+            data={"path": "references/new.md", "content": "new"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            f"Shorten the skill description to {SPEC_DESCRIPTION_MAX_LENGTH} characters before creating a new version."
+        )
+        skill.refresh_from_db()
+        assert skill.is_latest is True
+        assert not LLMSkill.objects.filter(name="legacy-description-file", version=2).exists()
 
     def test_create_file_carries_existing_files_forward(self):
         skill = self.create_skill(name="crud-carry")
@@ -1273,7 +1433,10 @@ class TestLLMSkillAPI(APIBaseTest):
             description="Open a PR.",
             body="# Make PR",
             allowed_tools=["query"],
-            metadata={"tags": ["github"]},
+            metadata={
+                "tags": ["github"],
+                "variables": [{"name": "repository", "prompt": "Repository to update"}],
+            },
         )
         LLMSkillFile.objects.create(
             skill=skill, path="references/playbook.md", content="hints", content_type="text/markdown"
@@ -1292,6 +1455,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert kwargs["name"] == "Make Pr"  # default display name = title-cased slug
         assert kwargs["description"] == "Open a PR."
         assert kwargs["tags"] == ["github"]  # falls back to metadata tags
+        assert kwargs["metadata"] == skill.metadata
         assert kwargs["allowed_tools"] == ["query"]
         assert kwargs["author_handle"] == "andymaguire"
         assert kwargs["files"] == [
@@ -1453,12 +1617,19 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         [
             ("create",),
             ("update_by_name",),
+            ("rename",),
         ]
     )
     def test_member_without_skill_access_cannot_write(self, action):
         if action == "create":
             response = self.client.post(
                 self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+            )
+        elif action == "rename":
+            response = self.client.post(
+                self._url(f"name/{self.skill.name}/rename"),
+                data={"new_name": "renamed-fractals"},
+                format="json",
             )
         else:
             response = self.client.patch(
@@ -1800,3 +1971,19 @@ class TestLLMSkillOwners(APIBaseTest):
 
         assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
         assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]
+
+
+class TestLLMSkillDescriptionCapSplit(SimpleTestCase):
+    def test_write_serializers_cap_at_spec_limit_while_reads_reflect_storage(self) -> None:
+        # The 1024 spec cap gates writes only. Reads expose the 4096 column limit so legacy rows above
+        # the cap serialize out; a read schema capped at 1024 would misdescribe those rows.
+        create_description = LLMSkillCreateSerializer().fields["description"]
+        detail_description = LLMSkillSerializer().fields["description"]
+        list_description = LLMSkillListSerializer().fields["description"]
+
+        assert isinstance(create_description, serializers.CharField)
+        assert isinstance(detail_description, serializers.CharField)
+        assert isinstance(list_description, serializers.CharField)
+        assert create_description.max_length == SPEC_DESCRIPTION_MAX_LENGTH
+        assert detail_description.max_length == 4096
+        assert list_description.max_length == 4096
