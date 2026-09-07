@@ -480,8 +480,9 @@ class LLMPromptListSerializer(LLMPromptSerializer):
 
     @extend_schema_field(LLMPromptLabelSummarySerializer(many=True))
     def get_all_labels(self, instance: LLMPrompt) -> list[dict[str, Any]]:
-        # The list queryset holds latest-version rows, whose own `labels` miss labels
-        # pointing at older versions; the viewset injects the full per-prompt map.
+        # A list row is one version (latest by default, the labeled one with ?label=),
+        # so its own `labels` miss labels pointing at the prompt's other versions;
+        # the viewset injects the full per-prompt map.
         return self.context.get("prompt_labels_by_name", {}).get(instance.name, [])
 
     def get_prompt_preview(self, instance: LLMPrompt) -> str:
