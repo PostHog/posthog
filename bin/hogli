@@ -13,8 +13,8 @@ if [ -z "${VIRTUAL_ENV:-}" ]; then
     # against this worktree. Hooks that need borrowing export VIRTUAL_ENV via
     # bin/helpers/worktree-borrow.sh before hogli runs.
     FOUND_VENV=""
-    if [ -f "$REPO_ROOT/bin/helpers/worktree-borrow.sh" ]; then
-        source "$REPO_ROOT/bin/helpers/worktree-borrow.sh"
+    if [ -f "$REPO_ROOT/bin/helpers/dev-env.sh" ]; then
+        source "$REPO_ROOT/bin/helpers/dev-env.sh"
         FOUND_VENV="$(posthog_find_venv "$REPO_ROOT")"
     fi
 

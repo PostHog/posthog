@@ -1,12 +1,12 @@
 #!/bin/bash
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 if [ -z "$VIRTUAL_ENV" ]; then
-    if [ -d ".venv" ]; then
-        source .venv/bin/activate
-    elif [ -d "env" ]; then
-        source env/bin/activate
-    elif [ -d ".flox/env" ]; then
-        source .flox/cache/venv/bin/activate
+    source "$REPO_ROOT/bin/helpers/dev-env.sh"
+    FOUND_VENV="$(posthog_find_venv "$REPO_ROOT")"
+    if [ -n "$FOUND_VENV" ]; then
+        source "$FOUND_VENV/bin/activate"
     fi
 fi
 
-python -m ruff "$@" 
+python -m ruff "$@"

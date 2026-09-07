@@ -27,6 +27,7 @@ import click
 from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
+from .dev_env import DEVENV, dev_env_kind, is_devenv_active
 
 MAX_SAMPLE_PATHS = 8
 
@@ -1422,7 +1423,9 @@ def _display_process_table(processes: list[DevProcess], heading: str, repo_root:
 
 # Patterns for cleaning up command lines for display
 _NIX_STORE_BIN_RE = re.compile(r"/nix/store/[^/]+/bin/([^\s]+)")
-_FLOX_BIN_RE = re.compile(r"\S*\.flox/(?:cache/venv|run/[^/]+\.[^/]+)/bin/([^\s]+)")
+_DEV_ENV_BIN_RE = re.compile(
+    r"\S*(?:\.flox/(?:cache/venv|run/[^/]+\.[^/]+)|\.devenv/(?:state/venv|profile))/bin/([^\s]+)"
+)
 _NODE_MODULES_BIN_RE = re.compile(r"\S*node_modules/\.bin/(?:\.\./)?([^/]+)/dist/cli\.mjs")
 _NODE_MODULES_PKG_RE = re.compile(r"\S*node_modules/\.pnpm/[^/]+/node_modules/([^/]+)/dist/\S+")
 _TSX_LOADER_RE = re.compile(r"\s*--(?:require|import)\s+(?:file://)?\S*tsx/dist/\S+")
@@ -1437,8 +1440,9 @@ def _summarize_cmdline(cmdline: str, repo_str: str) -> str:
     # Replace nix store binary paths with just the binary name
     s = _NIX_STORE_BIN_RE.sub(r"\1", s)
 
-    # Replace .flox/cache/venv/bin/X and .flox/run/.../bin/X with just X
-    s = _FLOX_BIN_RE.sub(r"\1", s)
+    # Replace an environment's bin path (.flox/cache/venv/bin/X, .flox/run/.../bin/X,
+    # .devenv/state/venv/bin/X, .devenv/profile/bin/X) with just X
+    s = _DEV_ENV_BIN_RE.sub(r"\1", s)
 
     # Strip tsx --require/--import loader boilerplate
     s = _TSX_LOADER_RE.sub("", s)
@@ -2977,6 +2981,17 @@ def _toolchain_info(repo_root: Path) -> list[tuple[str, str]]:
         pairs.append(("node", "not found"))
 
     pairs.append(("pnpm", _run_output(["pnpm", "--version"]) or "not found"))
+
+    # Only probe for devenv when the developer opted in, so a flox-only machine
+    # does not pay for a subprocess that reports nothing useful.
+    if dev_env_kind() == DEVENV:
+        devenv_ver = _run_output(["devenv", "version"])
+        if is_devenv_active():
+            pairs.append((DEVENV, f"active — {devenv_ver}" if devenv_ver else "active"))
+        elif devenv_ver:
+            pairs.append((DEVENV, f"not active ({devenv_ver} on PATH)"))
+        else:
+            pairs.append((DEVENV, "not on PATH"))
 
     flox_ver = _run_output(["flox", "--version"])
     if os.environ.get("FLOX_ENV_DESCRIPTION") or os.environ.get("FLOX_ENV"):

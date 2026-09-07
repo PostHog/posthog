@@ -9,6 +9,11 @@
 # POSIX sh; sourced by the husky hooks and by bin/hogli (bash). Sourcing this
 # file has no side effects -- callers invoke the functions below. Never
 # `exit`s or `set -e`s since it runs inside the caller's shell.
+#
+# Callers must source bin/helpers/dev-env.sh first: the venv and toolchain
+# paths differ between flox and devenv, and that file is where the difference
+# lives. A sourced POSIX sh script cannot find its own directory, so the
+# caller, which already resolved a path to this file, sources both.
 
 # Echo the main clone root for the repo root given as $1, or nothing when $1
 # is not a linked worktree. Linked worktrees have a `.git` file (pointing at
@@ -23,17 +28,6 @@ posthog_main_repo() {
     return 0
 }
 
-# Echo the first venv that exists under the root given as $1, or nothing.
-posthog_find_venv() {
-    for _ph_venv in "$1/.flox/cache/venv" "$1/.venv" "$1/env"; do
-        if [ -d "$_ph_venv" ]; then
-            echo "$_ph_venv"
-            return 0
-        fi
-    done
-    return 0
-}
-
 # Borrow the main clone's toolchain into the current shell's environment.
 # Must be called with cwd = repo root (the hooks guarantee that). Scope $1 is
 # `node` or `all` (default): post-checkout only needs the node borrow, so it
@@ -43,15 +37,12 @@ posthog_worktree_borrow() {
     _ph_main="$(posthog_main_repo "$(pwd)")"
     [ -n "$_ph_main" ] || return 0
 
-    # flox-installed pnpm/uv/node live under the main clone's .flox/run --
-    # add them to PATH so borrowing works even from GUI git clients that
-    # don't inherit a flox-activated shell.
-    if [ -d "$_ph_main/.flox/run" ]; then
-        for _ph_bin in "$_ph_main/.flox/run"/*/bin; do
-            if [ -d "$_ph_bin" ]; then
-                PATH="$_ph_bin:$PATH"
-            fi
-        done
+    # The environment-installed pnpm/uv/node live under the main clone's
+    # environment dirs -- add them to PATH so borrowing works even from GUI
+    # git clients that don't inherit an activated shell.
+    _ph_tool_path="$(posthog_dev_env_bin_dirs "$_ph_main" | tr '\n' ':')"
+    if [ -n "$_ph_tool_path" ]; then
+        PATH="$_ph_tool_path$PATH"
     fi
 
     if [ ! -d node_modules/.pnpm ] && [ -d "$_ph_main/node_modules/.pnpm" ]; then
@@ -79,7 +70,7 @@ posthog_worktree_borrow() {
                 export UV_NO_SYNC
                 PATH="$_ph_main_venv/bin:$PATH"
             else
-                echo "worktree: uv.lock differs from $_ph_main, skipping venv borrow -- run 'flox activate'" >&2
+                echo "worktree: uv.lock differs from $_ph_main, skipping venv borrow -- run '$(posthog_dev_env_activate_hint)'" >&2
             fi
         fi
     fi

@@ -2,9 +2,12 @@
 # PostHog Worktree wrapper function installer
 # Source this file in your shell profile to use the phw function
 
-# phw is sourced from the flox activate hook, so $FLOX_ENV_PROJECT points
-# to the repo root that owns this script.
-source "$FLOX_ENV_PROJECT/bin/helpers/_utils.sh" 2>/dev/null || {
+# phw is sourced from the flox activate hook, which sets $FLOX_ENV_PROJECT, or
+# by hand under devenv, which sets $DEVENV_ROOT. Either one points to the repo
+# root that owns this script.
+PHW_REPO_ROOT="${FLOX_ENV_PROJECT:-${DEVENV_ROOT:-}}"
+
+source "$PHW_REPO_ROOT/bin/helpers/_utils.sh" 2>/dev/null || {
     # Fallback error function if utils not available
     error() { echo "Error: $*" >&2; }
     fatal() { error "$*"; return 1; }
@@ -20,13 +23,20 @@ _clean_environment() {
     unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
 }
 
-# Helper function to activate Flox environment
-_activate_flox() {
-    if ! command -v direnv &>/dev/null; then
+# Helper function to activate the dev environment
+_activate_dev_env() {
+    if command -v direnv &>/dev/null; then
+        # direnv auto-activates either environment via .envrc.
+        return 0
+    fi
+    source "$PHW_REPO_ROOT/bin/helpers/dev-env.sh"
+    if [ "$(posthog_dev_env_kind)" = "devenv" ]; then
+        echo "Activating devenv environment…"
+        devenv shell
+    else
         echo "Activating Flox environment via .envrc…"
         source .envrc
     fi
-    # If direnv is set up, it will auto-activate via .envrc
 }
 
 # Helper function to switch to worktree directory
@@ -38,7 +48,7 @@ _switch_to_worktree() {
         echo "Switching to worktree directory…"
         _clean_environment
         cd "$worktree_path"
-        _activate_flox
+        _activate_dev_env
     else
         error "Worktree directory not found: $worktree_path"
         return 1
@@ -46,7 +56,7 @@ _switch_to_worktree() {
 }
 
 phw() {
-    local script_path="$FLOX_ENV_PROJECT/bin/posthog-worktree"
+    local script_path="$PHW_REPO_ROOT/bin/posthog-worktree"
     local command="$1"
     local branch="$2"
     
