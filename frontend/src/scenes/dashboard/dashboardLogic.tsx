@@ -194,6 +194,8 @@ export enum DashboardLoadAction {
     InitialLoadWithVariables = 'initial_load_with_variables',
     /** Get a fresh copy of the dashboard after it was updated (e.g. a tile was duplicated or removed). */
     Update = 'update',
+    /** Refresh a committed dashboard in the background without replacing it with a transient load error. */
+    BackgroundUpdate = 'background_update',
 }
 
 export enum RefreshDashboardItemsAction {
@@ -545,6 +547,9 @@ export interface dashboardLogicActions {
     }
     loadDashboardMetadataSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+    }
+    setDashboardFailedToLoad: () => {
+        value: true
     }
     loadDashboardStreaming: (payload: { action: DashboardLoadAction; manualDashboardRefresh?: boolean }) => {
         action: DashboardLoadAction
@@ -1294,6 +1299,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadDashboardStreaming: (payload: { action: DashboardLoadAction; manualDashboardRefresh?: boolean }) => payload,
         /** Dashboard metadata loaded successfully. */
         loadDashboardMetadataSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
+        /** Mark an ordinary dashboard load as failed. */
+        setDashboardFailedToLoad: true,
         /** Single tile received from stream. */
         receiveTileFromStream: (data: { tile: any; order: number }) => data,
         /** Tile streaming completed. */
@@ -1960,7 +1967,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardMetadataSuccess: () => false,
                 dashboardNotFound: () => false,
                 setAccessDeniedToDashboard: () => false,
-                loadDashboardFailure: () => true,
+                setDashboardFailedToLoad: () => true,
                 setDashboardStreamFailed: () => true,
             },
         ],
@@ -3471,6 +3478,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.pendingDashboardRevealKey = null
             const { action, dashboardQueryId, startTime } = values.dashboardLoadData
 
+            if (action !== DashboardLoadAction.BackgroundUpdate) {
+                actions.setDashboardFailedToLoad()
+            }
+
             eventUsageLogic.actions.reportTimeToSeeData({
                 team_id: values.currentTeamId,
                 type: 'dashboard_load',
@@ -4118,7 +4129,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const dashboardRefreshStartTime = performance.now()
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
-            const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
+            const isInitialLoadOrUpdate =
+                isInitialLoad ||
+                action === DashboardLoadAction.Update ||
+                action === DashboardLoadAction.BackgroundUpdate
 
             const dashboardId: number = props.id
             const allInsightTiles = values.insightTiles || []

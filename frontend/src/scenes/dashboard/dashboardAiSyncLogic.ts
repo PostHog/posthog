@@ -1077,7 +1077,7 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
         syncDashboard: async ({ batch }) => {
             try {
                 await dashboardLogic({ id: props.dashboardId }).asyncActions.loadDashboard({
-                    action: DashboardLoadAction.Update,
+                    action: DashboardLoadAction.BackgroundUpdate,
                 })
 
                 const committedDashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard

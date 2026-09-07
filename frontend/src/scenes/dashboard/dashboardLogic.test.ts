@@ -2,6 +2,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
@@ -43,7 +44,9 @@ import {
 } from '~/types'
 
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
+import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
 
+import { dashboardAiSyncLogic } from './dashboardAiSyncLogic'
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
 const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
@@ -89,6 +92,24 @@ function deferred<T>(): {
 
 const responseFor = (dashboard: DashboardType<QueryBasedInsightModel>): Response =>
     new Response(JSON.stringify(dashboard), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+const dashboardToolEvent = (toolName: string, input: Record<string, unknown>, output: unknown): ToolStreamEvent => ({
+    streamKey: 'dashboard-load-test',
+    toolCallId: 'dashboard-load-test-call',
+    toolName,
+    rawToolName: 'exec',
+    phase: 'completed',
+    source: 'live',
+    invocation: {
+        toolCallId: 'dashboard-load-test-call',
+        rawServerName: 'posthog',
+        rawToolName: 'exec',
+        input: { command: `call --json ${toolName} ${JSON.stringify(input)}` },
+        output,
+        status: 'completed',
+        contentBlocks: [],
+    },
+})
 
 export const boxToId = (param: string | readonly string[]): number => {
     //path params from msw can be a string or an array
@@ -3008,6 +3029,85 @@ describe('dashboardLogic', () => {
             expect(logic.values.accessDeniedToDashboard).toBe(false)
             expect(logic.values.error404).toBe(false)
             expect(logic.values.dashboardFailedToLoad).toBe(false)
+        })
+
+        it('preserves the committed dashboard when an AI background reload fails', async () => {
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const committedDashboard = logic.values.dashboard
+            getResponseSpy.mockClear()
+            getResponseSpy.mockRejectedValueOnce(new Error('AI background reload failed'))
+            const syncLogic = dashboardAiSyncLogic({ dashboardId: 12 })
+            syncLogic.mount()
+            const failureStates: boolean[] = []
+            const unsubscribe = getContext().store.subscribe(() => {
+                failureStates.push(logic.values.dashboardFailedToLoad)
+            })
+
+            syncLogic.actions.applyToolCompletion(dashboardToolEvent('dashboard-update', { id: 12 }, { id: 12 }), {
+                id: 12,
+            })
+            await expectLogic(syncLogic).toFinishAllListeners()
+
+            expect(logic.values.dashboard).toBe(committedDashboard)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(failureStates).not.toContain(true)
+            unsubscribe()
+            syncLogic.unmount()
+        })
+
+        it('preserves the committed dashboard while a queued AI reload follows a failure', async () => {
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const committedDashboard = logic.values.dashboard
+            getResponseSpy.mockClear()
+            const firstReload = deferred<Response>()
+            const successorReload = deferred<Response>()
+            getResponseSpy.mockReturnValueOnce(firstReload.promise).mockReturnValueOnce(successorReload.promise)
+            const syncLogic = dashboardAiSyncLogic({ dashboardId: 12 })
+            syncLogic.mount()
+            const failureStates: boolean[] = []
+            const unsubscribe = getContext().store.subscribe(() => {
+                failureStates.push(logic.values.dashboardFailedToLoad)
+            })
+
+            syncLogic.actions.applyToolCompletion(dashboardToolEvent('dashboard-update', { id: 12 }, { id: 12 }), {
+                id: 12,
+            })
+            await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(1))
+            syncLogic.actions.applyToolCompletion(dashboardToolEvent('dashboard-update', { id: 12 }, { id: 12 }), {
+                id: 12,
+            })
+            firstReload.reject(new Error('AI background reload failed'))
+
+            await waitFor(() => expect(getResponseSpy).toHaveBeenCalledTimes(2))
+            expect(logic.values.dashboard).toBe(committedDashboard)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+
+            successorReload.resolve(responseFor({ ...dashboards[12], name: 'successor' }))
+            await waitFor(() => expect(syncLogic.values.activeBatch).toBeNull())
+            expect(logic.values.dashboard?.name).toBe('successor')
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(failureStates).not.toContain(true)
+            unsubscribe()
+            syncLogic.unmount()
+        })
+
+        it('still surfaces a failed ordinary update over a committed dashboard', async () => {
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const committedDashboard = logic.values.dashboard
+            getResponseSpy.mockClear()
+            getResponseSpy.mockRejectedValueOnce(new Error('ordinary reload failed'))
+
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboard).toBe(committedDashboard)
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
         })
     })
 
