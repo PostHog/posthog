@@ -9,6 +9,19 @@ feature: subscriptions
 url_prefix: /subscriptions
 ui_apps: {}
 tools:
+    pulse-research-search:
+        operation: subscriptions_pulse_research_search_create
+        enabled: true
+        scopes:
+            - pulse_research_internal:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Research the public web
+        description: >
+            Search public webpages once for context on a proactive subscription finding. Returns at most three
+            validated, bounded citations. This tool is available only to server-minted Pulse analysis runs.
     subscriptions-create:
         operation: subscriptions_create
         enabled: true

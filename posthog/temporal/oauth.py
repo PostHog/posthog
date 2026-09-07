@@ -107,6 +107,7 @@ McpScopePreset = Literal[
     "signals_scout",
     "signals_scout_reports",
     "pulse_analysis",
+    "pulse_analysis_no_research",
     "signals_research",
     "signals_implementation",
 ]
@@ -159,6 +160,7 @@ SCOUT_REPORT_SCOPES: list[str] = [
 
 LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
 PULSE_ANALYSIS_INTERNAL_SCOPE = "pulse_analysis_internal:read"
+PULSE_RESEARCH_INTERNAL_SCOPE = "pulse_research_internal:read"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -299,6 +301,7 @@ MCP_SCOPE_PRESETS = (
     "signals_scout",
     "signals_scout_reports",
     "pulse_analysis",
+    "pulse_analysis_no_research",
     "signals_research",
     "signals_implementation",
 )
@@ -392,6 +395,8 @@ def resolve_scopes(
     scratchpad = list(SCRATCHPAD_INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "pulse_analysis":
+            resolved = [*MCP_READ_SCOPES, *internal, PULSE_ANALYSIS_INTERNAL_SCOPE, PULSE_RESEARCH_INTERNAL_SCOPE]
+        elif scopes == "pulse_analysis_no_research":
             resolved = [*MCP_READ_SCOPES, *internal, PULSE_ANALYSIS_INTERNAL_SCOPE]
         elif scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]

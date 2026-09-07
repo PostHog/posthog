@@ -860,6 +860,7 @@ class TaskWriteSerializer(serializers.Serializer):
             # mint an internally funded scoped token. Only ReviewHog's executor sets it.
             tasks_facade.TaskOriginProduct.REVIEW_HOG,
             tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
+            tasks_facade.TaskOriginProduct.PULSE_SUBSCRIPTION,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")

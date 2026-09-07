@@ -43,6 +43,7 @@ class TestResolveSandboxAiProduct:
             ("support_reply", None, "conversations"),
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
+            ("pulse_subscription", None, "pulse_subscription"),
         ],
     )
     def test_mapping(self, origin_product, ai_stage, expected):
@@ -381,6 +382,16 @@ class TestMintableGate:
             env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=True)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once_with(ai_product="review_hog", team_id=2, user=None)
+
+    def test_routed_pulse_subscription_mints(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "pulse_subscription"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="pulse_subscription")
+        assert env["AI_GATEWAY_PRODUCT"] == "pulse_subscription"
+        mint.assert_called_once_with(ai_product="pulse_subscription", team_id=2, user=None)
 
     def test_non_internal_review_hog_does_not_mint(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"

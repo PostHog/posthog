@@ -1742,6 +1742,7 @@ CLOUD_REGION_TO_URL = {
 # ai_product values that roll into PostHog AI (Max) billing credits.
 POSTHOG_AI_PRODUCTS = [
     "posthog_ai",
+    "pulse_subscription",
     "slack_app",
     "subscriptions",
     "alert_investigation_agent",

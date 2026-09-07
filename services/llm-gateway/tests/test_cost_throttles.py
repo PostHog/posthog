@@ -71,6 +71,8 @@ class TestProductCostLimitConfig:
         assert settings.product_cost_limits["llm_gateway"].window_seconds == 86400
         assert settings.product_cost_limits["posthog_ai"].limit_usd == 5000.0
         assert settings.product_cost_limits["posthog_ai"].window_seconds == 86400
+        assert settings.product_cost_limits["pulse_subscription"].limit_usd == 1000.0
+        assert settings.product_cost_limits["pulse_subscription"].window_seconds == 3600
 
     def test_parses_json_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(

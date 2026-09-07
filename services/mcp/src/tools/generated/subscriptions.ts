@@ -7,6 +7,32 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const PulseResearchSearchSchema = () => {
+    const SubscriptionsPulseResearchSearchCreateBody = orvalSchemas.SubscriptionsPulseResearchSearchCreateBody()
+    return SubscriptionsPulseResearchSearchCreateBody
+}
+
+const pulseResearchSearch = (): ToolBase<
+    ReturnType<typeof PulseResearchSearchSchema>,
+    Schemas.PulseResearchResponse
+> => ({
+    name: 'pulse-research-search',
+    schema: PulseResearchSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PulseResearchSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas.PulseResearchResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/pulse_research/search/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SubscriptionsCreateSchema = () => {
     const SubscriptionsCreateBody = orvalSchemas.SubscriptionsCreateBody()
     return SubscriptionsCreateBody
@@ -352,6 +378,7 @@ const subscriptionsTestDeliveryCreate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'pulse-research-search': pulseResearchSearch,
     'subscriptions-create': subscriptionsCreate,
     'subscriptions-delete': subscriptionsDelete,
     'subscriptions-deliveries-list': subscriptionsDeliveriesList,

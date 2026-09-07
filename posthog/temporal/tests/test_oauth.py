@@ -20,6 +20,7 @@ from posthog.temporal.oauth import (
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     PULSE_ANALYSIS_INTERNAL_SCOPE,
+    PULSE_RESEARCH_INTERNAL_SCOPE,
     RESEARCH_WITHHELD_SCOPES,
     SCOUT_GRANTABLE_WRITE_SCOPES,
     SCOUT_INTERNAL_SCOPES,
@@ -59,9 +60,17 @@ class TestResolveScopes(SimpleTestCase):
         result = resolve_scopes("pulse_analysis")
 
         assert PULSE_ANALYSIS_INTERNAL_SCOPE in result
+        assert PULSE_RESEARCH_INTERNAL_SCOPE in result
         assert "task:write" in result
         assert not (set(result) & (set(MCP_WRITE_SCOPES) - {"task:write"}))
         assert not has_write_scopes("pulse_analysis")
+
+    def test_pulse_analysis_without_research_omits_its_tool_scope(self) -> None:
+        result = resolve_scopes("pulse_analysis_no_research")
+
+        assert PULSE_ANALYSIS_INTERNAL_SCOPE in result
+        assert PULSE_RESEARCH_INTERNAL_SCOPE not in result
+        assert not has_write_scopes("pulse_analysis_no_research")
 
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
         # `signals_scout` = `read_only` content PLUS the scout's own internal write scope
@@ -83,6 +92,7 @@ class TestResolveScopes(SimpleTestCase):
             "full",
             "read_only",
             "pulse_analysis",
+            "pulse_analysis_no_research",
             "signals_research",
             "signals_implementation",
         )

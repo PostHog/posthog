@@ -1,6 +1,8 @@
 {
     "name": "@posthog/products-subscriptions",
-    "scripts": {},
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    },
     "dependencies": {
         "@posthog/brand": "catalog:",
         "kea": "catalog:",

@@ -643,3 +643,15 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
+
+/**
+ * Server-only public-web research for a Pulse analysis run.
+ */
+export const subscriptionsPulseResearchSearchCreateBodyQueryMax = 500
+
+export const SubscriptionsPulseResearchSearchCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(subscriptionsPulseResearchSearchCreateBodyQueryMax)
+        .describe('A public-web research query. It is searched once and only public results are considered.'),
+})

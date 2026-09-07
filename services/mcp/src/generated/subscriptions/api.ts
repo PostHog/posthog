@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -492,4 +492,24 @@ export const SubscriptionsDeliveriesRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     subscription_id: zod.number(),
+})
+
+/**
+ * Server-only public-web research for a Pulse analysis run.
+ */
+export const SubscriptionsPulseResearchSearchCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const subscriptionsPulseResearchSearchCreateBodyQueryMax = 500
+
+export const SubscriptionsPulseResearchSearchCreateBody = () => zod.object({
+    query: zod
+        .string()
+        .max(subscriptionsPulseResearchSearchCreateBodyQueryMax)
+        .describe('A public-web research query. It is searched once and only public results are considered.'),
 })

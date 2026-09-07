@@ -674,6 +674,7 @@ class TestServerCredentialRequirement:
         ("slack_app", POSTHOG_CODE_US_APP_ID),
         ("conversations", POSTHOG_CODE_US_APP_ID),
         ("onboarding", POSTHOG_CODE_US_APP_ID),
+        ("pulse_subscription", POSTHOG_CODE_US_APP_ID),
     ]
 
     @pytest.mark.parametrize(("product", "app_id"), _PRODUCT_APPS)

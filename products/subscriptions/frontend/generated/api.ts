@@ -12,6 +12,8 @@ import type {
     PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
     PatchedSubscriptionWriteApi,
+    PulseResearchRequestApi,
+    PulseResearchResponseApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
     SubscriptionWriteApi,
@@ -217,6 +219,26 @@ export const subscriptionsDeliveriesRetrieve = async (
     return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSubscriptionsPulseResearchSearchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/pulse_research/search/`
+}
+
+/**
+ * Server-only public-web research for a Pulse analysis run.
+ */
+export const subscriptionsPulseResearchSearchCreate = async (
+    projectId: string,
+    pulseResearchRequestApi: PulseResearchRequestApi,
+    options?: RequestInit
+): Promise<PulseResearchResponseApi> => {
+    return apiMutator<PulseResearchResponseApi>(getSubscriptionsPulseResearchSearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pulseResearchRequestApi),
     })
 }
 

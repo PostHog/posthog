@@ -4,6 +4,7 @@ import {
     filterPulseAnalysisTools,
     isPulseAnalysisScopePosture,
     PULSE_ANALYSIS_INTERNAL_SCOPE,
+    PULSE_RESEARCH_INTERNAL_SCOPE,
 } from '@/lib/pulse-tool-manifest'
 
 describe('pulse analysis tool manifest', () => {
@@ -32,5 +33,18 @@ describe('pulse analysis tool manifest', () => {
         const scopes = [PULSE_ANALYSIS_INTERNAL_SCOPE, 'feature_flag:write']
 
         expect(filterPulseAnalysisTools(tools, scopes).map((tool) => tool.name)).toEqual(['insight-query'])
+    })
+
+    it('withholds public research unless the marked token has its internal research scope', () => {
+        const tools = [{ name: 'insight-query' }, { name: 'pulse-research-search' }]
+
+        expect(
+            filterPulseAnalysisTools(tools, [PULSE_ANALYSIS_INTERNAL_SCOPE, PULSE_RESEARCH_INTERNAL_SCOPE]).map(
+                (tool) => tool.name
+            )
+        ).toEqual(['insight-query', 'pulse-research-search'])
+        expect(filterPulseAnalysisTools(tools, [PULSE_ANALYSIS_INTERNAL_SCOPE]).map((tool) => tool.name)).toEqual([
+            'insight-query',
+        ])
     })
 })
