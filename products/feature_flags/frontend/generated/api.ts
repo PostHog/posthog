@@ -26,6 +26,8 @@ import type {
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagRequestUsageListParams,
+    FeatureFlagRequestUsageResponseApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
     FeatureFlagTestEvaluationResponseApi,
@@ -565,6 +567,33 @@ export const environmentsEvaluationContextSuggestionsDestroy = async (
             method: 'DELETE',
         }
     )
+}
+
+export const getFeatureFlagRequestUsageListUrl = (projectId: string, params: FeatureFlagRequestUsageListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flag_request_usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flag_request_usage/`
+}
+
+export const featureFlagRequestUsageList = async (
+    projectId: string,
+    params: FeatureFlagRequestUsageListParams,
+    options?: RequestInit
+): Promise<FeatureFlagRequestUsageResponseApi> => {
+    return apiMutator<FeatureFlagRequestUsageResponseApi>(getFeatureFlagRequestUsageListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getFeatureFlagsListUrl = (projectId: string, params?: FeatureFlagsListParams) => {

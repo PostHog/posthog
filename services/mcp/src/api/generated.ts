@@ -40072,6 +40072,39 @@ export namespace Schemas {
       bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
+    /**
+     * * `remote_evaluation` - remote_evaluation
+     * * `local_evaluation` - local_evaluation
+     */
+    export type FeatureFlagRequestTypeEnum = typeof FeatureFlagRequestTypeEnum[keyof typeof FeatureFlagRequestTypeEnum];
+
+
+    export const FeatureFlagRequestTypeEnum = {
+      RemoteEvaluation: 'remote_evaluation',
+      LocalEvaluation: 'local_evaluation',
+    } as const;
+
+    export interface FeatureFlagRequestUsageItem {
+      /** Remote flag evaluation or local flag-definition request.
+       *
+       * * `remote_evaluation` - remote_evaluation
+       * * `local_evaluation` - local_evaluation */
+      request_type: FeatureFlagRequestTypeEnum;
+      /** Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time. */
+      bucket: string;
+      /** SDK family parsed from the request user agent. */
+      sdk: string;
+      /** Number of billable requests in this bucket. */
+      request_count: number;
+      /** Estimated billing units. Local evaluation requests count as 10 units each. */
+      billing_units: number;
+    }
+
+    export interface FeatureFlagRequestUsageResponse {
+      /** Feature flag request usage by SDK. */
+      results: FeatureFlagRequestUsageItem[];
+    }
+
     export interface FeatureFlagRolloutSummary {
       /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
       effectively_full_rollout: boolean;
@@ -59996,7 +60029,7 @@ export namespace Schemas {
       sla?: TicketSlaFilterEnum;
       /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
       aiTriageResult?: AiTriageResultEnum[];
-      /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
+      /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
       assignee?: TicketViewFiltersAssigneeItem[];
       /** Tag names to match, combined according to tagsMatch. */
       tags?: string[];
@@ -60027,13 +60060,20 @@ export namespace Schemas {
     }
 
     export interface TicketView {
+      /** Internal UUID of the view. */
       readonly id: string;
+      /** Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets. */
       readonly short_id: string;
-      /** @maxLength 400 */
+      /**
+         * Display name of the view, as it appears in the ticket views list.
+         * @maxLength 400
+         */
       name: string;
       /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
       filters?: TicketViewFilters;
+      /** When the view was created. */
       readonly created_at: string;
+      /** The user who created this view. */
       readonly created_by: UserBasic;
       /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
       is_favorited?: boolean;
@@ -69069,13 +69109,20 @@ export namespace Schemas {
     }
 
     export interface PatchedTicketView {
+      /** Internal UUID of the view. */
       readonly id?: string;
+      /** Stable short identifier for the view. Use it to address the view in this API, to open it at /support/tickets?view=<short_id>, and as the `view` parameter when listing tickets. */
       readonly short_id?: string;
-      /** @maxLength 400 */
+      /**
+         * Display name of the view, as it appears in the ticket views list.
+         * @maxLength 400
+         */
       name?: string;
       /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
       filters?: TicketViewFilters;
+      /** When the view was created. */
       readonly created_at?: string;
+      /** The user who created this view. */
       readonly created_by?: UserBasic;
       /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
       is_favorited?: boolean;
@@ -96145,6 +96192,33 @@ export namespace Schemas {
      */
     source_type?: string;
     };
+
+    export type FeatureFlagRequestUsageListParams = {
+    /**
+     * Inclusive start of the usage period.
+     */
+    date_from: string;
+    /**
+     * Exclusive end of the usage period.
+     */
+    date_to: string;
+    /**
+     * Time bucket used to group request usage. Hourly queries are limited to 8 days.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * @minLength 1
+     */
+    time_interval?: FeatureFlagRequestUsageListTimeInterval;
+    };
+
+    export type FeatureFlagRequestUsageListTimeInterval = typeof FeatureFlagRequestUsageListTimeInterval[keyof typeof FeatureFlagRequestUsageListTimeInterval];
+
+
+    export const FeatureFlagRequestUsageListTimeInterval = {
+      Hour: 'hour',
+      Day: 'day',
+    } as const;
 
     export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive;
