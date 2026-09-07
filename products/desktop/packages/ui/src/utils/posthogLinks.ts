@@ -244,10 +244,12 @@ export function errorTrackingIssueUrl(
 export function colonOffsetToSeconds(offset: string): number | null {
   const parts = offset.split(":");
   if (parts.length < 2 || parts.length > 3) return null;
+  if (parts.some((p) => !/^\d+$/.test(p))) return null;
   const nums = parts.map(Number);
-  if (nums.some((n) => !Number.isFinite(n) || n < 0)) return null;
   const [h, m, s] = parts.length === 3 ? nums : [0, nums[0], nums[1]];
-  return Math.round(h * 3600 + m * 60 + s);
+  if (m >= 60 || s >= 60) return null;
+  const total = h * 3600 + m * 60 + s;
+  return Number.isSafeInteger(total) ? total : null;
 }
 
 export function sessionRecordingUrl(

@@ -643,7 +643,7 @@ function SessionProblemSignalCard({
 
 function RecordingPlayerLink({ url, label }: { url: string; label: string }) {
   return (
-    <Flex mt="1" justify="end">
+    <div className="mt-1 flex justify-end">
       <a
         href={url}
         target="_blank"
@@ -653,7 +653,7 @@ function RecordingPlayerLink({ url, label }: { url: string; label: string }) {
         {label}
         <ArrowSquareOutIcon size={12} />
       </a>
-    </Flex>
+    </div>
   );
 }
 
@@ -699,12 +699,17 @@ function SessionRecordingVideo({
   }
   if (videoQuery.isLoading || videoQuery.data === undefined) {
     return (
-      <Box
-        mt="2"
-        className="flex h-24 items-center justify-center rounded bg-gray-3 text-[12px] text-gray-9"
-      >
-        Loading recording…
-      </Box>
+      <>
+        <Box
+          mt="2"
+          className="flex h-24 items-center justify-center rounded bg-gray-3 text-[12px] text-gray-9"
+        >
+          Loading recording…
+        </Box>
+        {playerUrl && (
+          <RecordingPlayerLink url={playerUrl} label="Watch the recording" />
+        )}
+      </>
     );
   }
 

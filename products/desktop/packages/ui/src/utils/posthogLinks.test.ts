@@ -113,6 +113,12 @@ describe("colonOffsetToSeconds", () => {
     ["too many parts", "1:2:3:4"],
     ["a non-numeric part", "ab:cd"],
     ["a negative part", "-1:00"],
+    ["an empty segment", "1::2"],
+    ["a hex literal", "0x10:00"],
+    ["scientific notation", "1e308:00"],
+    ["padded whitespace", " 1 : 2 "],
+    ["seconds of 60", "1:60"],
+    ["minutes of 60 in HH:MM:SS", "1:60:00"],
   ])("returns null for %s", (_label, offset) => {
     expect(colonOffsetToSeconds(offset)).toBeNull();
   });
