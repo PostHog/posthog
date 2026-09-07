@@ -100,8 +100,6 @@ describe("useChannelTaskMutations", () => {
     expect(invalidatedChannels()).toEqual(["dest", "loading", "source"]);
   });
 
-  // Only the two channel lists used to refresh, so an open task kept the space
-  // it left until the reader opened it again from the new space.
   it("filing a task invalidates the caches that name its space", async () => {
     const taskCacheKeys = [
       ["tasks", "list", undefined],

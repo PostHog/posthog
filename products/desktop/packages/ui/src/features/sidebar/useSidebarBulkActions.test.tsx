@@ -364,8 +364,6 @@ describe("useSidebarBulkActions", () => {
     expect(hoisted.toast.error).toHaveBeenCalledWith("1 filed, 1 failed");
   });
 
-  // This surface reported nothing, so nobody could see how much it is used or
-  // how often it fails. A batch reports per session, not per batch.
   it("reports each filing with the outcome that session got", async () => {
     hoisted.fileTask.mockImplementation((_channelId: string, taskId: string) =>
       taskId === "t2" ? Promise.reject(new Error("nope")) : Promise.resolve(),

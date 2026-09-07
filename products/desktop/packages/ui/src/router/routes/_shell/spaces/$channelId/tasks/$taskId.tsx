@@ -58,8 +58,7 @@ function ChannelTaskDetailRoute() {
 
   const task = pickFreshestTask(fetched, initialTask);
 
-  // Filing an open task moves it to another space. This route names its space
-  // in the URL, so follow the task instead of claiming the space it left.
+  // The URL names a space, and filing moves the task out of it.
   if (task?.channel && task.channel !== channelId) {
     return (
       <Navigate

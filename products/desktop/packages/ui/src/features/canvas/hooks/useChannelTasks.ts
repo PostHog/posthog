@@ -59,9 +59,7 @@ export function useChannelTaskMutations() {
         return tasks.some((record) => record.taskId === taskId);
       },
     });
-    // Filing changes the task's own `channel` field, and each of these caches
-    // carries it. Without them an open task keeps the space it left until the
-    // reader opens it again from the new space.
+    // Filing rewrites the task's own `channel` field, which these caches carry.
     for (const queryKey of [
       taskKeys.lists(),
       taskKeys.detail(taskId),
