@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -74,6 +77,17 @@ describe('issueActionsLogic', () => {
         ])
 
         expect(infoToast).not.toHaveBeenCalled()
+    })
+
+    it('merges against the active environment, not its project', async () => {
+        // Every environment a project gains after its first has an id that differs from the project id.
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: 3117 })
+
+        await expectLogic(logic, () => {
+            logic.actions.mergeIssues(['issue-one', 'issue-two'])
+        }).toDispatchActions(['mergeIssuesSuccess'])
+
+        expect(mockErrorTrackingIssuesMergeCreate).toHaveBeenCalledWith('3117', 'issue-one', { ids: ['issue-two'] })
     })
 
     it('says so when a merge moved nothing', async () => {

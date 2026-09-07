@@ -222,8 +222,10 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         'mergeIssues',
                         async () => {
                             posthog.capture('error_tracking_issue_merged', { primary: firstId })
+                            // The issues route is nested under team_id, so the path segment is the
+                            // active environment, not the project it belongs to.
                             return await errorTrackingIssuesMergeCreate(
-                                String(teamLogic.values.currentProjectId),
+                                String(teamLogic.values.currentTeamIdStrict),
                                 firstId,
                                 { ids: otherIds }
                             )
