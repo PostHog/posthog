@@ -11,6 +11,7 @@ describe("getCachedArchiveTask", () => {
       id: "task-1",
       title: "Archived from sidebar",
       repository: "posthog/code",
+      created_by_id: 7,
       created_at: "2026-07-23T10:00:00.000Z",
       updated_at: "2026-07-23T11:00:00.000Z",
       latest_run: null,

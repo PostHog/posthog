@@ -6,6 +6,7 @@ from products.notebooks.backend.facade.widgets import (
     DEFAULT_WIDGET_MODEL,
     MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
     MAX_WIDGET_PROMPT_LENGTH,
+    WIDGET_LIFECYCLE_STATUS_CHOICES,
     WIDGET_MODEL_CHOICES,
 )
 
@@ -89,10 +90,21 @@ class WidgetSecurityReviewSerializer(serializers.Serializer):
 
 class WidgetStatusSerializer(serializers.Serializer):
     lifecycle_status = serializers.ChoiceField(
-        choices=["awaiting_generation", "generating", "building", "ready", "failed", "incompatible"],
+        choices=WIDGET_LIFECYCLE_STATUS_CHOICES,
         help_text="Current widget and preview state.",
     )
     error_detail = serializers.CharField(required=False, allow_null=True, help_text="Actionable failure detail.")
+    error_code = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Stable failure code for support and diagnostics.",
+    )
+    failure_phase = serializers.ChoiceField(
+        choices=["generating_source", "reviewing_source", "publishing_source", "unknown"],
+        required=False,
+        allow_null=True,
+        help_text="Generation step that failed, if a generation job failed.",
+    )
     artifact_url = serializers.URLField(
         required=False,
         allow_null=True,

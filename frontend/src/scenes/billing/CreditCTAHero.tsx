@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
+import * as burningMoneyHogPng from '@posthog/brand/hoggies/png/burning-money'
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { BurningMoneyHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { billingLogic } from './billingLogic'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
+
+const HedgehogBurningMoney = pngHoggie(burningMoneyHogPng)
 
 export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
 
@@ -33,7 +36,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                     onClick={() => toggleCreditCTAHeroDismissed(false)}
                 >
                     <span className="flex items-center gap-1.5">
-                        <BurningMoneyHog
+                        <HedgehogBurningMoney
                             className="w-8 h-8 group-hover:animate-bounce"
                             style={{ animationDuration: '0.75s' }}
                         />
@@ -125,7 +128,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                         )}
                     </div>
                     <div className="flex flex-col justify-center items-end w-30">
-                        <BurningMoneyHog className="w-full h-auto" />
+                        <HedgehogBurningMoney className="w-full h-auto" />
                         {creditOverview.status === 'pending' && creditOverview.invoice_url && (
                             <LemonButton
                                 type="primary"

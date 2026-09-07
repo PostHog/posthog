@@ -14,8 +14,9 @@ const PAD_X = 8
 const TOP = 34
 const BASE = HEIGHT - 20
 const LABEL_CLEARANCE = 12
+// A reference line closer than this to the baseline reads as part of the axis.
+const AXIS_CLEARANCE = 10
 const ABOVE = -6
-const BELOW = 11
 
 interface SpendTrajectoryChartProps {
     quota: VisionQuotaApi
@@ -70,6 +71,21 @@ function Label({
     )
 }
 
+/** Marks a point on the line. HTML, so a stretched viewBox cannot flatten it into an ellipse. */
+function Dot({ x, y, color }: { x: number; y: number; color: string }): JSX.Element {
+    return (
+        <span
+            className="absolute size-1.5 rounded-full"
+            style={{
+                left: `${(x / WIDTH) * 100}%`,
+                top: `${(y / HEIGHT) * 100}%`,
+                transform: 'translate(-50%, -50%)',
+                background: color,
+            }}
+        />
+    )
+}
+
 /**
  * Cumulative spend across the period against the limit: a solid line to today, a dashed projection
  * to period end, and a dashed line where the limit sits. Spend pauses at the limit, so the drawn
@@ -97,10 +113,14 @@ function SpendTrajectoryChartInner({
         const dayEnd = dayjs.utc(entry.date).diff(periodStart, 'day', true) + 1
         cumulative.push({ day: clamp(dayEnd, 0, todayDay), value: runningTotal })
     }
-    // The ledger only holds settled spend, so reserved in-flight credits sit on top of today's point; the
-    // quota total still wins when the series was fetched before the last receipts landed.
-    const spentTotal = Math.max(runningTotal + quota.credits_reserved, quota.credits_used)
-    if (cumulative.length > 0 && spentTotal > runningTotal) {
+    // The card header reads `credits_used`, so today's point is that number and the ledger only gives the
+    // curve its shape. The series is fetched alongside the quota and can be a moment newer, so only the
+    // tail is pulled down to it: clamping every point would draw days of zero spend that never happened.
+    const spentTotal = quota.credits_used
+    if (cumulative.length > 0) {
+        for (let i = cumulative.length - 1; i >= 0 && cumulative[i].value > spentTotal; i--) {
+            cumulative[i] = { ...cumulative[i], value: spentTotal }
+        }
         cumulative[cumulative.length - 1] = { ...cumulative[cumulative.length - 1], value: spentTotal }
     }
 
@@ -154,26 +174,30 @@ function SpendTrajectoryChartInner({
     const projectionLabel = `${periodEnd.format('MMM D')} · ~${formatCreditNumber(endValue)}`
     const limitY = cap !== null ? yForCredits(cap) : null
     const freeY = drawFreeLine ? yForCredits(freeCredits) : null
-    // Two dotted reference lines an em apart read as one; drop the free one when they nearly touch.
-    const showFreeLine = freeY !== null && (limitY === null || Math.abs(freeY - limitY) >= LABEL_CLEARANCE)
+    // Two dotted reference lines an em apart read as one; drop the free one when it nearly touches the
+    // limit line, or when it sits so low against the limit that it merges with the axis and its date labels.
+    const showFreeLine =
+        freeY !== null &&
+        (limitY === null || Math.abs(freeY - limitY) >= LABEL_CLEARANCE) &&
+        BASE - freeY >= AXIS_CLEARANCE
 
-    // Labels prefer sitting above their anchor; flip below when a reference line runs through that spot.
+    // Labels sit above their anchor. Below a point is the filled area and the rising curve, so a label
+    // blocked by a reference line climbs past it instead of dropping into the fill.
     const referenceYs = [limitY, freeY].filter((y): y is number => y !== null)
     const labelY = (anchorY: number): number => {
-        const above = Math.max(anchorY + ABOVE, 10)
-        if (
-            referenceYs.every((y) => Math.abs(above - y) >= LABEL_CLEARANCE && Math.abs(anchorY - y) >= LABEL_CLEARANCE)
-        ) {
-            return above
+        let candidate = anchorY + ABOVE
+        // Lowest line first, so a label pushed past one is then tested against the next one up.
+        for (const reference of [...referenceYs].sort((a, b) => b - a)) {
+            if (Math.abs(candidate - reference) < LABEL_CLEARANCE) {
+                candidate = reference - LABEL_CLEARANCE
+            }
         }
-        return Math.min(anchorY + BELOW, BASE - 4)
+        return Math.max(candidate, 10)
     }
-    // Today's label sits upper-left or lower-right; the left one is clearer, so it wins unless the point hugs the axis.
+    // Today's label sits left of its dot unless the point hugs the axis, where it would run off the edge.
     const todayLabelLeft = today.x >= 60
     const todayLabelX = todayLabelLeft ? today.x - 9 : today.x + 9
-    const belowY = Math.min(today.y + BELOW, BASE - 4)
-    const rightSideY = referenceYs.every((y) => Math.abs(belowY - y) >= LABEL_CLEARANCE) ? belowY : today.y - 16
-    const todayLabelY = todayLabelLeft ? labelY(today.y) : rightSideY
+    const todayLabelY = labelY(today.y)
     const endLabelY = labelY(end.y)
     const crossingLabelRight = crossing !== null && crossing.x + 90 <= WIDTH - PAD_X
 
@@ -185,12 +209,18 @@ function SpendTrajectoryChartInner({
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="relative">
+            <div className="relative w-full">
+                {/* The box stretches to the card's width at a fixed height, so the chart stays wide and short. */}
                 <svg
                     viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                    className="block h-auto w-full"
+                    preserveAspectRatio="none"
+                    className="block h-[200px] w-full"
                     role="img"
-                    aria-label={`Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${cap !== null ? `, limit ${formatCreditCount(cap)}` : ''}`}
+                    aria-label={
+                        crossing
+                            ? `Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected to reach the ${formatCreditCount(cap ?? 0)} limit around ${crossingDate}`
+                            : `Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${cap !== null ? `, limit ${formatCreditCount(cap)}` : ''}`
+                    }
                 >
                     {yTicks.map((v) => (
                         <line
@@ -200,11 +230,20 @@ function SpendTrajectoryChartInner({
                             x2={WIDTH - PAD_X}
                             y2={yForCredits(v)}
                             stroke="var(--border)"
+                            vectorEffect="non-scaling-stroke"
                             strokeWidth={0.5}
                             opacity={0.6}
                         />
                     ))}
-                    <line x1={PAD_LEFT} y1={TOP - 14} x2={PAD_LEFT} y2={BASE} stroke="var(--border)" strokeWidth={1} />
+                    <line
+                        x1={PAD_LEFT}
+                        y1={TOP - 14}
+                        x2={PAD_LEFT}
+                        y2={BASE}
+                        stroke="var(--border)"
+                        vectorEffect="non-scaling-stroke"
+                        strokeWidth={1}
+                    />
                     {xTicks.map((day) => (
                         <line
                             key={day}
@@ -213,6 +252,7 @@ function SpendTrajectoryChartInner({
                             x2={xForDay(day)}
                             y2={BASE + 3}
                             stroke="var(--border)"
+                            vectorEffect="non-scaling-stroke"
                             strokeWidth={1}
                         />
                     ))}
@@ -223,6 +263,7 @@ function SpendTrajectoryChartInner({
                             x2={WIDTH - PAD_X}
                             y2={limitY}
                             stroke={dangerVar}
+                            vectorEffect="non-scaling-stroke"
                             strokeWidth={1}
                             strokeDasharray="2 3"
                         />
@@ -234,12 +275,21 @@ function SpendTrajectoryChartInner({
                             x2={WIDTH - PAD_X}
                             y2={freeY}
                             stroke={mutedVar}
+                            vectorEffect="non-scaling-stroke"
                             strokeWidth={1}
                             strokeDasharray="2 3"
                             opacity={0.7}
                         />
                     )}
-                    <line x1={PAD_LEFT} y1={BASE} x2={WIDTH - PAD_X} y2={BASE} stroke="var(--border)" strokeWidth={1} />
+                    <line
+                        x1={PAD_LEFT}
+                        y1={BASE}
+                        x2={WIDTH - PAD_X}
+                        y2={BASE}
+                        stroke="var(--border)"
+                        vectorEffect="non-scaling-stroke"
+                        strokeWidth={1}
+                    />
                     {drawSpentLine && (
                         <>
                             <polygon
@@ -251,6 +301,7 @@ function SpendTrajectoryChartInner({
                                 points={pointsAttr([origin, ...spentPoints])}
                                 fill="none"
                                 stroke="currentColor"
+                                vectorEffect="non-scaling-stroke"
                                 strokeWidth={1.5}
                                 strokeLinecap="round"
                             />
@@ -262,20 +313,11 @@ function SpendTrajectoryChartInner({
                                 points={pointsAttr([today, crossing])}
                                 fill="none"
                                 stroke={dangerVar}
+                                vectorEffect="non-scaling-stroke"
                                 strokeWidth={1.5}
                                 strokeDasharray="4 4"
                                 strokeLinecap="round"
                             />
-                            <polyline
-                                points={pointsAttr([crossing, { x: end.x, y: crossing.y }])}
-                                fill="none"
-                                stroke={dangerVar}
-                                strokeWidth={1.5}
-                                strokeDasharray="2 5"
-                                strokeLinecap="round"
-                                opacity={0.7}
-                            />
-                            <circle cx={crossing.x} cy={crossing.y} r={3} fill={dangerVar} />
                         </>
                     ) : (
                         <>
@@ -283,16 +325,21 @@ function SpendTrajectoryChartInner({
                                 points={pointsAttr([today, end])}
                                 fill="none"
                                 stroke={pausedAtLimit ? dangerVar : statusVar}
+                                vectorEffect="non-scaling-stroke"
                                 strokeWidth={1.5}
                                 strokeDasharray="4 4"
                                 strokeLinecap="round"
                             />
-                            <circle cx={end.x} cy={end.y} r={3} fill={pausedAtLimit ? dangerVar : statusVar} />
                         </>
                     )}
-                    <circle cx={today.x} cy={today.y} r={3} fill="currentColor" />
                 </svg>
                 <div className="absolute inset-0 pointer-events-none" aria-hidden>
+                    <Dot x={today.x} y={today.y} color="currentColor" />
+                    {crossing ? (
+                        <Dot x={crossing.x} y={crossing.y} color={dangerVar} />
+                    ) : (
+                        <Dot x={end.x} y={end.y} color={pausedAtLimit ? dangerVar : statusVar} />
+                    )}
                     {yTicks.map((v) => (
                         <Label key={v} x={PAD_LEFT - 4} y={yForCredits(v)} anchor="end" className="text-muted">
                             {compactNumber(v)}
@@ -318,7 +365,7 @@ function SpendTrajectoryChartInner({
                         </Label>
                     )}
                     {showFreeLine && freeY !== null && (
-                        <Label x={WIDTH - PAD_X} y={freeY + BELOW} anchor="end" className="font-semibold text-muted">
+                        <Label x={WIDTH - PAD_X} y={freeY - 8} anchor="end" className="font-semibold text-muted">
                             Free credits · {formatCreditNumber(freeCredits)}
                         </Label>
                     )}

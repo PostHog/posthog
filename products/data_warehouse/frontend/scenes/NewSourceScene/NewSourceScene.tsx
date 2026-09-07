@@ -518,6 +518,11 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     return <SourceCatalog allowedSources={allowedSources} />
 }
 
+// Connectors in the "Databases" category that PostHog reaches over the provider's public HTTPS API
+// with a service account key. The customer has no network path in front of them, so the firewall
+// hint would name a setup step that does not exist.
+const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceType[] = ['BigQuery', 'Firebase']
+
 // Firewall allowlisting only applies to self-hosted databases PostHog dials out to, so the hint is
 // scoped to that category rather than shown for OAuth/API connectors.
 function DatabaseFirewallHint(): JSX.Element | null {
@@ -579,7 +584,8 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                 )}
             </div>
 
-            {selectedConnector.category === 'Databases' && <DatabaseFirewallHint />}
+            {selectedConnector.category === 'Databases' &&
+                !SOURCES_WITHOUT_NETWORK_ALLOWLIST.includes(selectedConnector.name) && <DatabaseFirewallHint />}
 
             <LemonDivider />
 

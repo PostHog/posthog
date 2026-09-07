@@ -1,0 +1,9 @@
+from datetime import timedelta
+
+DEFAULT_WIZARD_VERSION = "2.67.0"
+LATEST_WIZARD_VERSION = "latest"
+WIZARD_REGISTRY_VERSION = 1
+WIZARD_RUN_DEADLINE = timedelta(minutes=85)
+WIZARD_ERROR_CODE_MAX_LENGTH = 50
+WIZARD_ERROR_CODE_PATTERN = r"PHW_[A-Z][A-Z0-9_]*"
+WIZARD_GIT_DIFF_CONTENT_TYPE = "text/x-diff; charset=utf-8"

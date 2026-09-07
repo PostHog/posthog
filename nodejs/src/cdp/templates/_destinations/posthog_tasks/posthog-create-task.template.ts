@@ -41,6 +41,10 @@ if (not empty(inputs.connectors)) {
   payload.connectors := inputs.connectors
 }
 
+if (not empty(inputs.skills)) {
+  payload.skills := inputs.skills
+}
+
 if (not empty(inputs.posthog_mcp_scopes)) {
   payload.posthog_mcp_scopes := inputs.posthog_mcp_scopes
 }
@@ -62,11 +66,6 @@ if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_rec
 }
 
 let response := postHogCreateTask(payload)
-
-if (response.status == 409) {
-  print(f'Task not created: {apiErrorMessage(response)}')
-  return { 'skipped': true, 'reason': apiErrorMessage(response) }
-}
 
 if (response.status >= 400) {
   throw Error(f'Failed to create task ({response.status}): {apiErrorMessage(response)}')
@@ -118,6 +117,15 @@ return response.body
                 'MCP servers the agent can use. Only servers shared with everyone in this project can be selected.',
         },
         {
+            key: 'skills',
+            type: 'task_skills',
+            label: 'Skills',
+            secret: false,
+            required: false,
+            description:
+                'Skills from your project’s skills store. The agent gets a short summary of each one and reads the full skill when it needs it. Always the latest saved version.',
+        },
+        {
             key: 'posthog_mcp_scopes',
             type: 'choice',
             label: 'PostHog access',
@@ -156,9 +164,8 @@ return response.body
                 'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent. The run stays open for about 2 minutes after the agent finishes so replies can reach it.',
         },
         {
-            // The engine treats a 4xx as a step failure before the code above runs, unless the
-            // status is listed here. 409 is the "task limit reached" reply, which the code turns
-            // into a graceful skip.
+            // Allow 409 through to the template so it can surface the API's detailed limit
+            // message as the step error rather than the executor's generic fetch failure.
             key: 'non_failure_status_codes',
             type: 'non_failure_status_codes',
             label: 'Non-failure status codes',

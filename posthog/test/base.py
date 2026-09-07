@@ -488,6 +488,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # the sharing publish gate checks a share against now()
+    # e.g. AND "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz
+    query = re.sub(
+        r"\"posthog_sharingconfiguration\"\.\"expires_at\" > '[^']+'::timestamptz",
+        '"posthog_sharingconfiguration"."expires_at" > \'SHARING-EXPIRY-TIMESTAMP\'::timestamptz',
+        query,
+    )
+
     # replace Savepoint numbers
     query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
 

@@ -506,6 +506,75 @@ export default meta
 type Story = StoryObj<{}>
 export const ListPage: Story = {}
 
+// The eight day buckets the insights tab spans under the story's mocked date and default range.
+const STORY_INSIGHTS_BUCKETS = [
+    '2024-07-02 00:00:00',
+    '2024-07-03 00:00:00',
+    '2024-07-04 00:00:00',
+    '2024-07-05 00:00:00',
+    '2024-07-06 00:00:00',
+    '2024-07-07 00:00:00',
+    '2024-07-08 00:00:00',
+    '2024-07-09 00:00:00',
+]
+
+// exceptions, affected users, sessions, sessions with a crash, releases — per bucket.
+const STORY_INSIGHTS_SERIES: number[][] = [
+    [26, 14, 168, 9, 2],
+    [22, 12, 174, 8, 2],
+    [19, 11, 181, 7, 2],
+    [24, 13, 176, 9, 3],
+    [17, 9, 188, 6, 3],
+    [15, 8, 192, 5, 3],
+    [18, 10, 179, 6, 3],
+    [16, 9, 182, 6, 3],
+]
+
+const STORY_INSIGHTS_RELEASES: [string, string, string, [string, number][]][] = [
+    [
+        'web',
+        '2.4.0',
+        '',
+        [
+            ['2024-07-05 00:00:00', 9],
+            ['2024-07-06 00:00:00', 11],
+            ['2024-07-07 00:00:00', 13],
+            ['2024-07-08 00:00:00', 14],
+            ['2024-07-09 00:00:00', 12],
+        ],
+    ],
+    [
+        'web',
+        '2.3.1',
+        '',
+        [
+            ['2024-07-02 00:00:00', 18],
+            ['2024-07-03 00:00:00', 15],
+            ['2024-07-04 00:00:00', 12],
+            ['2024-07-05 00:00:00', 10],
+        ],
+    ],
+    [
+        'ios',
+        '4.1',
+        '881',
+        [
+            ['2024-07-03 00:00:00', 5],
+            ['2024-07-04 00:00:00', 5],
+            ['2024-07-06 00:00:00', 4],
+        ],
+    ],
+    [
+        '',
+        '',
+        '',
+        [
+            ['2024-07-02 00:00:00', 8],
+            ['2024-07-07 00:00:00', 5],
+        ],
+    ],
+]
+
 export const InsightsPage: Story = {
     parameters: { pageUrl: urls.errorTracking({ activeTab: 'insights' }) },
     decorators: [
@@ -515,12 +584,30 @@ export const InsightsPage: Story = {
                     const body = (await request.json()) as {
                         query?: {
                             kind?: string
+                            query?: string
                             series?: { custom_name?: string }[]
                             trendsFilter?: { formulaNodes?: { custom_name?: string }[] }
                         }
                     }
                     if (body.query?.kind === NodeKind.HogQLQuery) {
-                        return [200, { results: [[157, 76, 1240, 42]] }]
+                        const hogql = body.query.query ?? ''
+                        // The three HogQL queries behind the tab return different shapes, so the mock
+                        // keys off a phrase unique to each rather than answering them all alike.
+                        if (hogql.includes('previous_exceptions')) {
+                            return [200, { results: [[157, 186, 76, 71, 1240, 1190, 42, 51, 3, 2]] }]
+                        }
+                        if (hogql.includes('groupArray')) {
+                            return [200, { results: STORY_INSIGHTS_RELEASES }]
+                        }
+                        return [
+                            200,
+                            {
+                                results: STORY_INSIGHTS_BUCKETS.map((bucket, index) => [
+                                    bucket,
+                                    ...STORY_INSIGHTS_SERIES[index],
+                                ]),
+                            },
+                        ]
                     }
                     const label =
                         body.query?.trendsFilter?.formulaNodes?.[0]?.custom_name ??

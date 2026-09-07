@@ -37,13 +37,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
-from posthog.temporal.common.schedule import (
-    a_create_schedule,
-    a_delete_schedule,
-    a_update_schedule,
-    delete_schedule,
-    schedule_exists,
-)
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule, delete_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
@@ -112,12 +106,10 @@ def maybe_reconcile_dag(dag: DAG) -> None:
 
     Runs after commit so the reconcile reads the mutated graph, and never raises past the
     commit — the user's write already succeeded. Only DAGs already converted to cadence
-    tiers are touched: legacy single-schedule DAGs are converted solely by the
-    reconcile_freshness_schedules command, so a stray mutation can neither unschedule an
-    unseeded DAG nor create tiers alongside live v1 schedules on an unmigrated team.
+    tiers are touched: `require_tiered` below leaves legacy single-schedule DAGs to the
+    reconcile_freshness_schedules command, so a stray mutation cannot unschedule an
+    unseeded DAG.
     """
-    if not tiered_schedules_enabled(dag.team):
-        return
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
 
@@ -131,47 +123,12 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
         capture_exception(error)
 
 
-def dag_has_live_v1_schedules(dag: DAG) -> bool:
-    """Whether any of the DAG's schedulable saved queries still has a live v1 per-query schedule.
-
-    Short-circuits on the first hit, so an unmigrated DAG — where the first query checked almost
-    always has one — costs a single Temporal call.
-    """
-    temporal = sync_connect()
-    for saved_query_id in schedulable_nodes(dag).values_list("saved_query_id", flat=True):
-        if saved_query_id is None:
-            continue
-        if schedule_exists(temporal, schedule_id=str(saved_query_id)):
-            return True
-    return False
-
-
-def dag_can_bootstrap_to_tiers(dag: DAG) -> bool:
-    """Whether this DAG can be born straight onto cadence tiers. Decides only — no side effects.
-
-    Callers reach this only once the v2 lookup has said the DAG has no `execute-dag` schedule.
-    Adding "and no live v1 schedules either" identifies a DAG that nothing has ever scheduled —
-    a new team's first materialization — where seeding tiers cannot double-schedule anything.
-    That is the one safe moment to do it: without this a fresh DAG mints a v1 per-query schedule
-    (v2 is otherwise created only by the migration commands), so every new team is born on v1 and
-    the v1 population grows on its own.
-
-    A DAG carrying live v1 schedules is deliberately left alone — tiers next to them would
-    materialize everything twice. It stays for a migration command to convert and sweep.
-
-    Deliberately not gated on `data-modeling-tiered-schedules`. Nothing mints v1 schedules any
-    more, so a DAG this declines gets no scheduler at all rather than the older one, and the flag
-    evaluates false for every self-hosted deployment.
-    """
-    return not dag_has_live_v1_schedules(dag)
-
-
 def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:
     """Seed the DAG's targets and queue the reconcile that creates its first tier schedules.
 
     Everything here is a side effect, and `transaction.on_commit` runs the callback immediately
-    for callers that are not inside an atomic block — so call this only once
-    `dag_can_bootstrap_to_tiers` has said yes, and only after whatever frequency validation the
+    for callers that are not inside an atomic block — so call this only once the v2 lookup has
+    said the DAG has no `execute-dag` schedule, and only after whatever frequency validation the
     caller does, never before.
 
     Reconciles without `require_tiered`, because this is the pass that creates the DAG's first

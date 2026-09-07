@@ -5,9 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 import { createElement } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItems, LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -84,18 +82,11 @@ describe('dashboardVisualizationOptions', () => {
         persistDisplayOptions: jest.fn(),
     } as const
 
-    function renderProductAnalyticsChartPicker(
-        query: InsightVizNode,
-        featureFlags: string[] = []
-    ): {
+    function renderProductAnalyticsChartPicker(query: InsightVizNode): {
         container: HTMLElement
         vizDataLogic: ReturnType<typeof insightVizDataLogic.build>
     } {
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags(
-            featureFlags,
-            Object.fromEntries(featureFlags.map((featureFlag) => [featureFlag, true]))
-        )
         const insightProps = {
             dashboardItemId: 'dashboard-chart-picker' as InsightShortId,
             query,
@@ -228,7 +219,7 @@ describe('dashboardVisualizationOptions', () => {
         })
 
         it('disables box plots when the series has no numeric property', async () => {
-            const { container } = renderProductAnalyticsChartPicker(trendsQuery, [FEATURE_FLAGS.BOX_PLOT_INSIGHT])
+            const { container } = renderProductAnalyticsChartPicker(trendsQuery)
 
             await userEvent.click(container.querySelector('[data-attr="chart-filter"]') as HTMLElement)
 
