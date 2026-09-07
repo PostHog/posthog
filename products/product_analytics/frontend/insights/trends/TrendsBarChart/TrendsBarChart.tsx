@@ -43,6 +43,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
+import { AGGREGATED_MAX_BAND_SIZE } from '../TrendsBarValueChart/trendsBarValueChartTransforms'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
@@ -61,8 +62,6 @@ interface TrendsBarChartProps {
 
 const EMPTY_LABELS: string[] = []
 const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false, placement: 'cursor' as const }
-// Thickest a single breakdown row may draw (px), so a one-row chart still reads as a bar.
-const AGGREGATED_MAX_BAND_SIZE = 48
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
 
