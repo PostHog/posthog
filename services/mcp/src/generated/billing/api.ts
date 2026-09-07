@@ -139,10 +139,20 @@ export const BillingSpendTimeseriesRetrieveParams = () => zod.object({
         ),
 })
 
+export const billingSpendTimeseriesRetrieveQueryAfterMax = 512
+
 export const billingSpendTimeseriesRetrieveQueryLimitDefault = 100
 export const billingSpendTimeseriesRetrieveQueryOffsetDefault = 0
+export const billingSpendTimeseriesRetrieveQueryPageSizeMax = 1000
+
+export const billingSpendTimeseriesRetrieveQueryTopProjectsMax = 200
 
 export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
+    after: zod
+        .string()
+        .max(billingSpendTimeseriesRetrieveQueryAfterMax)
+        .nullish()
+        .describe('The `next` cursor from the previous page. Opaque. Ignored without page_size.'),
     breakdowns: zod
         .string()
         .nullish()
@@ -153,6 +163,14 @@ export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
     interval: zod.string().nullish(),
     limit: zod.number().default(billingSpendTimeseriesRetrieveQueryLimitDefault).describe('Series per page.'),
     offset: zod.number().default(billingSpendTimeseriesRetrieveQueryOffsetDefault).describe('Series to skip.'),
+    page_size: zod
+        .number()
+        .min(1)
+        .max(billingSpendTimeseriesRetrieveQueryPageSizeMax)
+        .nullish()
+        .describe(
+            'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
+        ),
     start_date: zod.string().nullish(),
     team_ids: zod
         .string()
@@ -160,11 +178,19 @@ export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
         .describe(
             'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.'
         ),
+    top_projects: zod
+        .number()
+        .min(1)
+        .max(billingSpendTimeseriesRetrieveQueryTopProjectsMax)
+        .nullish()
+        .describe(
+            "With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project."
+        ),
     usage_types: zod
         .string()
         .nullish()
         .describe(
-            'JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.'
+            'JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.'
         ),
 })
 
@@ -230,10 +256,20 @@ export const BillingUsageTimeseriesRetrieveParams = () => zod.object({
         ),
 })
 
+export const billingUsageTimeseriesRetrieveQueryAfterMax = 512
+
 export const billingUsageTimeseriesRetrieveQueryLimitDefault = 100
 export const billingUsageTimeseriesRetrieveQueryOffsetDefault = 0
+export const billingUsageTimeseriesRetrieveQueryPageSizeMax = 1000
+
+export const billingUsageTimeseriesRetrieveQueryTopProjectsMax = 200
 
 export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
+    after: zod
+        .string()
+        .max(billingUsageTimeseriesRetrieveQueryAfterMax)
+        .nullish()
+        .describe('The `next` cursor from the previous page. Opaque. Ignored without page_size.'),
     breakdowns: zod
         .string()
         .nullish()
@@ -244,6 +280,14 @@ export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
     interval: zod.string().nullish(),
     limit: zod.number().default(billingUsageTimeseriesRetrieveQueryLimitDefault).describe('Series per page.'),
     offset: zod.number().default(billingUsageTimeseriesRetrieveQueryOffsetDefault).describe('Series to skip.'),
+    page_size: zod
+        .number()
+        .min(1)
+        .max(billingUsageTimeseriesRetrieveQueryPageSizeMax)
+        .nullish()
+        .describe(
+            'Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.'
+        ),
     start_date: zod.string().nullish(),
     team_ids: zod
         .string()
@@ -251,10 +295,18 @@ export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
         .describe(
             'JSON-encoded array of numeric team\/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.'
         ),
+    top_projects: zod
+        .number()
+        .min(1)
+        .max(billingUsageTimeseriesRetrieveQueryTopProjectsMax)
+        .nullish()
+        .describe(
+            "With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project."
+        ),
     usage_types: zod
         .string()
         .nullish()
         .describe(
-            'JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.'
+            'JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.'
         ),
 })

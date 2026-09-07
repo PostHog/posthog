@@ -10,6 +10,7 @@ import {
   PlusIcon,
   StarIcon,
   TrashIcon,
+  UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { ChannelPresence } from "@posthog/core/canvas/presence";
@@ -850,10 +851,27 @@ function useChannelActions(channel: Channel): {
               },
             },
           ];
+    // Only a private space has a member list; public and personal spaces do not.
+    const membersActions: ChannelActionItem[] =
+      channel.channelType === "private"
+        ? [
+            {
+              key: "members",
+              label: "Members",
+              icon: <UsersThreeIcon size={14} />,
+              onSelect: () =>
+                void navigate({
+                  to: "/spaces/$channelId/settings",
+                  params: { channelId: channel.id },
+                }),
+            },
+          ]
+        : [];
     const editableSpaceActions: ChannelActionItem[] =
       channel.channelType === "personal"
         ? []
         : [
+            ...membersActions,
             {
               key: "rename",
               label: `Rename ${noun}…`,
@@ -893,6 +911,7 @@ function useChannelActions(channel: Channel): {
     channel.channelType,
     channel.id,
     isStarred,
+    navigate,
     noun,
     toggleStar,
   ]);
@@ -1110,6 +1129,7 @@ const ChannelSection = memo(
 
     const glyph = channelGlyph(channel.name, {
       personal: channel.channelType === "personal",
+      private: channel.channelType === "private",
       size: 14,
       space: spacesLayout,
       weight: isUnread ? "bold" : undefined,

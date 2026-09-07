@@ -323,9 +323,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @tracer.start_as_current_span("signals.source_configs.list")
     def list(self, request, *args, **kwargs):
-        # This list is fetched on inbox load. The default serializer resolves a per-row `status`,
-        # which for session-analysis rows makes a synchronous Temporal RPC — a potential N+1. The
-        # span lets us see how much of the inbox load this endpoint accounts for.
+        # This list is fetched on inbox load, so the span shows how much of that load the
+        # endpoint accounts for. The serializer resolves every row's `status` from one warehouse
+        # query per team, and reports no status rather than failing the list if that query fails.
         return super().list(request, *args, **kwargs)
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
@@ -2994,12 +2994,10 @@ class SignalReportViewSet(
     def _resolve_report_pr_reference(self, report: SignalReport) -> tuple[str, int] | None:
         """Resolve a report's implementation PR to ``(owner/repo, pr_number)``, or None if it has none
         (or the stored URL isn't a parseable GitHub PR URL)."""
-        assignment = getattr(report, "assignment", None)
-        if assignment is None or not assignment.pr_url:
+        pr = fetch_implementation_pr_state_for_reports([str(report.id)]).get(str(report.id))
+        if pr is None:
             return None
-        if assignment.repository and assignment.pr_number:
-            return assignment.repository, assignment.pr_number
-        parsed = GitHubIntegration.parse_pull_request_url(assignment.pr_url)
+        parsed = GitHubIntegration.parse_pull_request_url(pr.url)
         if parsed is None:
             return None
         return parsed.repository, parsed.number

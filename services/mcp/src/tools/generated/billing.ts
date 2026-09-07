@@ -162,10 +162,13 @@ const BillingSpendGetSchema = () => {
             'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
         ),
         breakdowns: BillingSpendTimeseriesRetrieveQueryParams.shape['breakdowns'].describe(
-            'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
+            'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by product) and "team" (by project). Pass `["type"]` for per-product series, `["team"]` for one series per project summed across products, or `["type","team"]` for per-project series within each product. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
         ),
         interval: BillingSpendTimeseriesRetrieveQueryParams.shape['interval'].describe(
-            'Time bucket size, one of "day" or "week". Default "day".'
+            'Time bucket size, one of "day", "week" or "month". Default "day".'
+        ),
+        top_projects: BillingSpendTimeseriesRetrieveQueryParams.shape['top_projects'].describe(
+            'Maximum number of projects to return, ranked by total spend, when breakdowns includes "team". The projects beyond it are folded into one "All other projects (N)" series rather than dropped, so the totals still add up to the real bill. Ignored without a team breakdown. Omit it to get every project, which is the default and the right choice for most questions. Set it only when an organization has enough projects that the full response is unwieldy, and say so in your answer, because a limited response names only the largest spenders.'
         ),
     })
 }
@@ -182,13 +185,16 @@ const billingSpendGet = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/spend/timeseries/`,
             query: {
+                after: params.after,
                 breakdowns: params.breakdowns,
                 end_date: params.end_date,
                 interval: params.interval,
                 limit: params.limit,
                 offset: params.offset,
+                page_size: params.page_size,
                 start_date: params.start_date,
                 team_ids: params.team_ids,
+                top_projects: params.top_projects,
                 usage_types: params.usage_types,
             },
         })
@@ -257,6 +263,12 @@ const BillingUsageGetSchema = () => {
         interval: BillingUsageTimeseriesRetrieveQueryParams.shape['interval'].describe(
             'Time bucket size, one of "day" or "week". Default "day".'
         ),
+        top_projects: BillingUsageTimeseriesRetrieveQueryParams.shape['top_projects'].describe(
+            'Maximum number of projects to return, ranked by total, when breakdowns includes "team". The projects beyond it are folded into one "All other projects (N)" series rather than dropped, so totals still reconcile. Ignored without a team breakdown. Omit it to get every project, which is the default and the right choice for most questions. Set it only when an organization has enough projects that the full response is unwieldy, and say so in your answer, because a limited response names only the largest projects.'
+        ),
+        limit: BillingUsageTimeseriesRetrieveQueryParams.shape['limit'].describe(
+            'Return at most this many series, ranked by total, with a `next` link in the response for the page after. Prefer this over asking for everything at once on a large organization: a paged request stays well inside the size this endpoint refuses oversized breakdowns at, and combining it with a single-product `usage_types` filter is the cheapest way to walk a lot of data. Requires a project breakdown.'
+        ),
     })
 }
 
@@ -272,13 +284,16 @@ const billingUsageGet = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/usage/timeseries/`,
             query: {
+                after: params.after,
                 breakdowns: params.breakdowns,
                 end_date: params.end_date,
                 interval: params.interval,
                 limit: params.limit,
                 offset: params.offset,
+                page_size: params.page_size,
                 start_date: params.start_date,
                 team_ids: params.team_ids,
+                top_projects: params.top_projects,
                 usage_types: params.usage_types,
             },
         })

@@ -1,8 +1,9 @@
 import json
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -58,6 +59,13 @@ class TestParseDateBound:
 
     def test_date_only_upper_bound_covers_the_whole_day(self) -> None:
         assert parse_date_bound("2026-09-01", None, end_of_range=True).hour == 23
+
+    @parameterized.expand([("lowercase", "now"), ("mixed_case", "Now"), ("padded", " now ")])
+    @freeze_time("2026-09-01T10:30:00Z")
+    def test_now_is_the_current_time_even_as_an_upper_bound(self, _name: str, value: str) -> None:
+        # `now` must not widen to end of day the way a date-only bound does, or an upper bound of
+        # `now` reaches into the future.
+        assert parse_date_bound(value, None, end_of_range=True) == datetime(2026, 9, 1, 10, 30, tzinfo=UTC)
 
     @parameterized.expand([("prose", "last week"), ("empty", ""), ("noise", "banana")])
     def test_rejects_text_that_would_otherwise_become_now(self, _name: str, value: str) -> None:
