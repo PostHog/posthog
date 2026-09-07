@@ -431,6 +431,24 @@ async fn run_parked_retry_pump(
     loop {
         ticker.tick().await;
 
+        // Check the stall before this tick's retries. Acceptance or full
+        // idleness resets the clock; work sitting queued with nothing in
+        // flight past the deadline is a stall. An in-flight send neither
+        // resets nor trips: the clock runs, and the verdict waits for the
+        // send's outcome, like the flush driver observing its deadline only
+        // between rounds.
+        let accepted = inner.accepted_messages.load(Ordering::Relaxed);
+        let (queued, outstanding) = inner.dispatcher.key_work().unwrap_or((0, 0));
+        if accepted != seen_accepted || (queued == 0 && outstanding == 0) {
+            seen_accepted = accepted;
+            stall_deadline = Instant::now() + stall_timeout;
+        } else if queued > 0 && outstanding == 0 && Instant::now() >= stall_deadline {
+            inner.report_error(
+                "key-table work made no progress within the stall timeout".to_string(),
+            );
+            return;
+        }
+
         // A retried send may replay a failed run, so it goes on the wire
         // with the replay flag, like a deferred flush.
         let settle_id = make_batch_id();
@@ -446,17 +464,6 @@ async fn run_parked_retry_pump(
                 false,
                 epoch,
             )));
-        }
-
-        let accepted = inner.accepted_messages.load(Ordering::Relaxed);
-        if accepted != seen_accepted || !inner.dispatcher.has_pending_key_work() {
-            seen_accepted = accepted;
-            stall_deadline = Instant::now() + stall_timeout;
-        } else if Instant::now() >= stall_deadline {
-            inner.report_error(
-                "key-table work made no progress within the stall timeout".to_string(),
-            );
-            return;
         }
     }
 }

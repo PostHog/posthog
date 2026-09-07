@@ -664,6 +664,15 @@ impl Dispatcher {
         self.inner.lock().unwrap().scheduler.stashed_messages()
     }
 
+    /// Messages the scheduler holds for later, whichever scheduler runs:
+    /// the pin-stash's stash, or the key table's queues.
+    pub fn held_messages(&self) -> usize {
+        match &self.inner.lock().unwrap().scheduler {
+            SchedulerImpl::PinStash(scheduler) => scheduler.stashed_messages(),
+            SchedulerImpl::KeyTable(scheduler) => scheduler.table().queued_messages(),
+        }
+    }
+
     /// Number of live sticky pins. Exposed so tests can assert the pin table
     /// drains back to zero once all in-flight work has resolved — a leak here
     /// permanently skews routing.
@@ -771,14 +780,15 @@ impl Dispatcher {
         }
     }
 
-    /// Whether the key table holds queued or in-flight work. The pump's
-    /// stall watchdog checks it; always false under the pin-stash scheduler.
-    pub fn has_pending_key_work(&self) -> bool {
+    /// The key table's `(queued messages, outstanding keys)`, for the pump's
+    /// stall watchdog; `None` under the pin-stash scheduler.
+    pub fn key_work(&self) -> Option<(usize, usize)> {
         match &self.inner.lock().unwrap().scheduler {
-            SchedulerImpl::PinStash(_) => false,
-            SchedulerImpl::KeyTable(scheduler) => {
-                scheduler.table().queued_messages() > 0 || scheduler.table().outstanding_keys() > 0
-            }
+            SchedulerImpl::PinStash(_) => None,
+            SchedulerImpl::KeyTable(scheduler) => Some((
+                scheduler.table().queued_messages(),
+                scheduler.table().outstanding_keys(),
+            )),
         }
     }
 
@@ -1823,8 +1833,9 @@ mod tests {
         assert_eq!(retried.len(), 1);
         assert_eq!(retried[0].worker, wid(0));
         assert_eq!(retried[0].messages.len(), 1);
-        assert!(
-            dispatcher.has_pending_key_work(),
+        assert_eq!(
+            dispatcher.key_work(),
+            Some((0, 1)),
             "outstanding until settled"
         );
     }
