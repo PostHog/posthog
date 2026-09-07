@@ -4478,23 +4478,22 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         resolverWorker = buildResolverConsumer()
         await resolverWorker.start()
 
-        // Wait until at least one Django PUT attempt has happened — proves the
-        // resolver reached the terminal-write phase. Then verify the resolver
-        // job is parked (status='available' with pendingTerminal still set),
-        // not acked.
-        await waitForExpect(() => {
-            expect(putAttempts).toBeGreaterThanOrEqual(1)
+        // Poll the job row itself: the Django PUT counter increments when the
+        // request starts, so it goes up before the reschedule reaches Postgres.
+        await waitForExpect(async () => {
+            const rows = await cyclotronPool.query<{ status: string; state: Buffer | null }>(
+                `SELECT status::text AS status, state FROM cyclotron_jobs
+                 WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
+                [parentRunId]
+            )
+            expect(rows.rows).toHaveLength(1)
+            // Parked, not acked: available with pendingTerminal still set.
+            expect(rows.rows[0].status).toBe('available')
+            const state = parseJSON((rows.rows[0].state as Buffer).toString('utf-8')) as { pendingTerminal?: string }
+            expect(state.pendingTerminal).toBe('completed')
         }, 20000)
 
-        const rows = await cyclotronPool.query<{ status: string; state: Buffer | null }>(
-            `SELECT status::text AS status, state FROM cyclotron_jobs
-             WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
-            [parentRunId]
-        )
-        expect(rows.rows).toHaveLength(1)
-        expect(rows.rows[0].status).toBe('available')
-        const state = parseJSON((rows.rows[0].state as Buffer).toString('utf-8')) as { pendingTerminal?: string }
-        expect(state.pendingTerminal).toBe('completed')
+        expect(putAttempts).toBeGreaterThanOrEqual(1)
     })
 
     it('audience fetch failure: resolver reschedules with backoff, cursor unchanged, no children enqueued', async () => {
@@ -4520,27 +4519,33 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         resolverWorker = buildResolverConsumer()
         await resolverWorker.start()
 
-        await waitForExpect(() => {
-            expect(fetchAttempts).toBeGreaterThanOrEqual(1)
+        // Poll the job row itself: the fetch counter increments when the fetch
+        // starts, so it goes up before the reschedule reaches Postgres.
+        await waitForExpect(async () => {
+            const rows = await cyclotronPool.query<{ status: string; state: Buffer | null }>(
+                `SELECT status::text AS status, state FROM cyclotron_jobs
+                 WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
+                [parentRunId]
+            )
+            expect(rows.rows).toHaveLength(1)
+            expect(rows.rows[0].status).toBe('available')
+            const state = parseJSON((rows.rows[0].state as Buffer).toString('utf-8')) as {
+                cursor: string | null
+                totalEnqueued: number
+                pagesProcessed: number
+                attempts: number
+                pendingTerminal?: string
+            }
+            // The job starts out available too, so count the retry: only the
+            // reschedule raises attempts above the initial 0.
+            expect(state.attempts).toBeGreaterThanOrEqual(1)
+            expect(state.cursor).toBeNull() // never advanced
+            expect(state.totalEnqueued).toBe(0)
+            expect(state.pagesProcessed).toBe(0)
+            expect(state.pendingTerminal).toBeUndefined()
         }, 20000)
 
-        const rows = await cyclotronPool.query<{ status: string; state: Buffer | null }>(
-            `SELECT status::text AS status, state FROM cyclotron_jobs
-             WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
-            [parentRunId]
-        )
-        expect(rows.rows).toHaveLength(1)
-        expect(rows.rows[0].status).toBe('available')
-        const state = parseJSON((rows.rows[0].state as Buffer).toString('utf-8')) as {
-            cursor: string | null
-            totalEnqueued: number
-            pagesProcessed: number
-            pendingTerminal?: string
-        }
-        expect(state.cursor).toBeNull() // never advanced
-        expect(state.totalEnqueued).toBe(0)
-        expect(state.pagesProcessed).toBe(0)
-        expect(state.pendingTerminal).toBeUndefined()
+        expect(fetchAttempts).toBeGreaterThanOrEqual(1)
 
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
