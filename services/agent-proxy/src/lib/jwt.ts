@@ -60,6 +60,38 @@ function assertStreamClaims(payload: Record<string, unknown>): { runId: string; 
     return { runId, taskId, teamId: teamId as number }
 }
 
+function assertPresenceGatedClaim(payload: Record<string, unknown>): boolean {
+    const presenceGated = payload['presence_gated']
+    if (presenceGated !== undefined && typeof presenceGated !== 'boolean') {
+        throw new Error('Token has invalid claim: presence_gated must be a boolean')
+    }
+    return presenceGated ?? false
+}
+
+function assertIsTerminalClaim(payload: Record<string, unknown>): boolean {
+    const isTerminal = payload['is_terminal']
+    if (isTerminal !== undefined && typeof isTerminal !== 'boolean') {
+        throw new Error('Token has invalid claim: is_terminal must be a boolean')
+    }
+    return isTerminal ?? false
+}
+
+function assertThinTailClaim(payload: Record<string, unknown>): boolean {
+    const thinTail = payload['thin_tail']
+    if (thinTail !== undefined && typeof thinTail !== 'boolean') {
+        throw new Error('Token has invalid claim: thin_tail must be a boolean')
+    }
+    return thinTail ?? false
+}
+
+function assertOriginProductClaim(payload: Record<string, unknown>): string {
+    const originProduct = payload['origin_product']
+    if (originProduct !== undefined && typeof originProduct !== 'string') {
+        throw new Error('Token has invalid claim: origin_product must be a string')
+    }
+    return originProduct ?? 'unknown'
+}
+
 // Verify a token against every configured public key, returning the payload from the first key
 // whose signature validates. Only a signature mismatch advances to the next key; expiry, wrong
 // audience and malformed claims are key-independent and fail fast. This is what makes a
@@ -87,6 +119,9 @@ async function verifyWithKeys(token: string, publicKeys: CryptoKey[], audience: 
 
 // Audience: posthog:stream_read
 // Required claims: run_id (string), task_id (string), team_id (integer)
+// Optional claims: presence_gated (boolean, absent means false),
+//                  is_terminal (boolean, absent means false),
+//                  origin_product (string, absent means "unknown")
 // Algorithm: RS256, no clockTolerance (matches Python leeway=0 default)
 //
 // Throws jose error subtypes (JWTExpired, JWTInvalid, JWSSignatureVerificationFailed,
@@ -94,7 +129,13 @@ async function verifyWithKeys(token: string, publicKeys: CryptoKey[], audience: 
 // a plain Error on malformed claim types. The server maps all of these to 401.
 export async function validateStreamReadToken(token: string, publicKeys: CryptoKey[]): Promise<StreamReadTokenPayload> {
     const payload = await verifyWithKeys(token, publicKeys, STREAM_READ_AUDIENCE)
-    return assertStreamClaims(payload as Record<string, unknown>)
+    const claims = payload as Record<string, unknown>
+    return {
+        ...assertStreamClaims(claims),
+        presenceGated: assertPresenceGatedClaim(claims),
+        isTerminal: assertIsTerminalClaim(claims),
+        originProduct: assertOriginProductClaim(claims),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +144,9 @@ export async function validateStreamReadToken(token: string, publicKeys: CryptoK
 
 // Audience: posthog:sandbox_event_ingest
 // Required claims: run_id (string), task_id (string), team_id (integer)
+// Optional claims: presence_gated (boolean, absent means false),
+//                  thin_tail (boolean, absent means false),
+//                  origin_product (string, absent means "unknown")
 // Algorithm: RS256, no clockTolerance (matches Python leeway=0 default)
 //
 // Same error semantics as validateStreamReadToken.
@@ -111,5 +155,11 @@ export async function validateSandboxEventIngestToken(
     publicKeys: CryptoKey[]
 ): Promise<SandboxEventIngestTokenPayload> {
     const payload = await verifyWithKeys(token, publicKeys, SANDBOX_EVENT_INGEST_AUDIENCE)
-    return assertStreamClaims(payload as Record<string, unknown>)
+    const claims = payload as Record<string, unknown>
+    return {
+        ...assertStreamClaims(claims),
+        presenceGated: assertPresenceGatedClaim(claims),
+        thinTail: assertThinTailClaim(claims),
+        originProduct: assertOriginProductClaim(claims),
+    }
 }

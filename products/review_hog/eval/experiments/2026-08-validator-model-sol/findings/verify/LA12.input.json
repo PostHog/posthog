@@ -1,0 +1,12 @@
+{
+    "id": "LA12",
+    "file": "products/review_hog/backend/receivers.py",
+    "lines": "111-126,151-154",
+    "priority": "must_fix",
+    "title": "Revoke approval authority when the reviewer loses project access",
+    "problem": "The new approval gate uses `resolve_org_github_login_to_users`, which checks organization membership only. It does not check `User.is_active` or current private-project access. Settings rows and reviewer artifacts remain after access changes. A user can enable the toggle, lose access, and still authorize later Stamphog approvals. The user cannot clear the toggle after losing access.",
+    "suggestion": "Intersect resolved reviewers with `team.all_users_with_access()` before reading the toggle. This queryset excludes inactive users and honors private-project access. Return `None` after access revocation in both the initial receiver and webhook resolver. Add cases for inactive and removed project members.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

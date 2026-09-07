@@ -3,6 +3,7 @@ import { createHash, createHmac } from 'node:crypto'
 import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/cdp/schema/cyclotron'
 
 import { HogFunctionType } from '../types'
+import { resolveHogFunctionInputValue } from './hog-function-inputs'
 
 export type AwsSigV4Credentials = {
     service: string
@@ -192,8 +193,7 @@ export function resolveAwsSigV4Credentials(
     sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Type,
     hogFunction: Pick<HogFunctionType, 'inputs' | 'encrypted_inputs'>
 ): ResolvedAwsSigV4Credentials {
-    const lookup = (key: string): unknown =>
-        hogFunction.encrypted_inputs?.[key]?.value ?? hogFunction.inputs?.[key]?.value
+    const lookup = (key: string): unknown => resolveHogFunctionInputValue(hogFunction, key)
 
     const accessKeyId = lookup(sigv4.access_key_id_input)
     const secretAccessKey = lookup(sigv4.secret_access_key_input)

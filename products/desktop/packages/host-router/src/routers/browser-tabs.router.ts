@@ -5,8 +5,7 @@ import {
   browserTabsSnapshotOutput,
   closeTabInput,
   closeTabsInput,
-  newBlankTabInput,
-  openOrFocusTabInput,
+  openTabInput,
   setActiveTabInput,
   setTabOrderInput,
   setTabTargetInput,
@@ -26,15 +25,14 @@ export const browserTabsRouter = router({
     .output(z.string())
     .query(({ ctx }) => svc(ctx.container).getPrimaryWindowId()),
 
-  openOrFocus: publicProcedure
-    .input(openOrFocusTabInput)
+  reset: publicProcedure
     .output(browserTabsSnapshotOutput)
-    .mutation(({ ctx, input }) => svc(ctx.container).openOrFocus(input)),
+    .mutation(({ ctx }) => svc(ctx.container).reset()),
 
-  newBlankTab: publicProcedure
-    .input(newBlankTabInput)
+  openTab: publicProcedure
+    .input(openTabInput)
     .output(browserTabsSnapshotOutput)
-    .mutation(({ ctx, input }) => svc(ctx.container).newBlankTab(input)),
+    .mutation(({ ctx, input }) => svc(ctx.container).openTab(input)),
 
   setTabTarget: publicProcedure
     .input(setTabTargetInput)
@@ -44,13 +42,19 @@ export const browserTabsRouter = router({
   close: publicProcedure
     .input(closeTabInput)
     .output(browserTabsSnapshotOutput)
-    .mutation(({ ctx, input }) => svc(ctx.container).close(input.tabId)),
+    .mutation(({ ctx, input }) =>
+      svc(ctx.container).close(input.tabId, input.newTabId),
+    ),
 
   closeMany: publicProcedure
     .input(closeTabsInput)
     .output(browserTabsSnapshotOutput)
     .mutation(({ ctx, input }) =>
-      svc(ctx.container).closeMany(input.tabIds, input.focusTabId),
+      svc(ctx.container).closeMany(
+        input.tabIds,
+        input.newTabId,
+        input.focusTabId,
+      ),
     ),
 
   setOrder: publicProcedure

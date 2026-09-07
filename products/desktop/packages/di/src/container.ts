@@ -18,16 +18,6 @@ export function setRootContainer(container: ServiceContainer): void {
   pendingBindings.length = 0;
 }
 
-export function bindToContainer(
-  bind: (container: ServiceContainer) => void,
-): void {
-  if (rootContainer) {
-    bind(rootContainer);
-  } else {
-    pendingBindings.push(bind);
-  }
-}
-
 export function resolveService<T>(serviceIdentifier: ServiceIdentifier<T>): T {
   if (!rootContainer) {
     throw new Error(

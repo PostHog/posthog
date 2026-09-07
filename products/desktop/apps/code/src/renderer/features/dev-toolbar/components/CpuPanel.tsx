@@ -39,7 +39,7 @@ const STATUS_META: Record<
   idle: {
     label: "Idle",
     level: "ok",
-    valueColor: "text-(--gray-12)",
+    valueColor: "text-foreground",
     lineClass: "text-(--accent-9)",
     barClass: "bg-(--accent-9)",
     hint: "Plenty of headroom.",
@@ -47,7 +47,7 @@ const STATUS_META: Record<
   normal: {
     label: "Normal",
     level: "ok",
-    valueColor: "text-(--gray-12)",
+    valueColor: "text-foreground",
     lineClass: "text-(--accent-9)",
     barClass: "bg-(--accent-9)",
     hint: "Healthy steady-state load.",
@@ -107,20 +107,24 @@ export function CpuPanel({ enabled }: CpuPanelProps) {
 
   return (
     <Flex direction="column" gap="3" className="h-full overflow-y-auto p-4">
-      <div className="shrink-0 overflow-hidden rounded-md border border-(--gray-5) bg-(--gray-1)">
+      <div className="shrink-0 overflow-hidden rounded-md border border-border bg-background">
         <Flex
           align="center"
           gap="2"
-          className="border-(--gray-5) border-b bg-(--gray-2) px-3 py-1.5"
+          className="border-border border-b bg-chrome px-3 py-1.5"
         >
-          <span className="text-(--gray-10)">
+          <span className="text-muted-foreground">
             <Cpu size={14} />
           </span>
-          <Text size="1" weight="medium" className="text-(--gray-11) uppercase">
+          <Text
+            size="1"
+            weight="medium"
+            className="text-muted-foreground uppercase"
+          >
             CPU
           </Text>
           <StatusBadge level={meta.level}>{meta.label}</StatusBadge>
-          <Text size="1" className="ml-auto font-mono text-(--gray-10)">
+          <Text size="1" className="ml-auto font-mono text-muted-foreground">
             {trendLabel}
           </Text>
         </Flex>
@@ -133,7 +137,7 @@ export function CpuPanel({ enabled }: CpuPanelProps) {
             >
               {sample.totalCpuPercent.toFixed(1)}%
             </Text>
-            <Text size="1" className="text-(--gray-10) leading-tight">
+            <Text size="1" className="text-muted-foreground leading-tight">
               {meta.hint}
             </Text>
           </Flex>
@@ -145,7 +149,7 @@ export function CpuPanel({ enabled }: CpuPanelProps) {
               unit="%"
               height={80}
             />
-            <div className="h-1 overflow-hidden rounded-full bg-(--gray-4)">
+            <div className="h-1 overflow-hidden rounded-full bg-fill-selected">
               <div
                 className={`h-full rounded-full ${meta.barClass}`}
                 style={{ width: `${barWidth}%` }}
@@ -153,7 +157,7 @@ export function CpuPanel({ enabled }: CpuPanelProps) {
             </div>
           </Flex>
         </div>
-        <div className="grid grid-cols-4 gap-3 border-(--gray-5) border-t bg-(--gray-2) px-3 py-2">
+        <div className="grid grid-cols-4 gap-3 border-border border-t bg-chrome px-3 py-2">
           <InfoStat label="Peak" value={`${cpuPeak.toFixed(1)}%`} />
           <InfoStat label="Avg" value={`${cpuAvg.toFixed(1)}%`} />
           <InfoStat label="Procs" value={String(sample.processes.length)} />

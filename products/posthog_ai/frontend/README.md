@@ -7,6 +7,10 @@ badge, or registering a product's tool cards, you consume it from here.
 > Building _on_ the surface (adding a thread-item type, a permission rule, stream telemetry)? That's the
 > contributor guide — [`AGENTS.md`](./AGENTS.md) — not this file.
 
+> Integrating a **product scene** with the agent — attaching context, injecting instructions, reacting to
+> tool calls, registering your product's tool cards? Start at [`../README.md`](../README.md), which walks
+> those seams end to end and routes you back here for the detail.
+
 ## 1. How to import — the one rule
 
 Import from a domain-scoped **`api/<module>`** entry. Never reach into deep internal paths

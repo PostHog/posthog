@@ -640,35 +640,30 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         updateFlagActive: ({ id, active }) => {
             actions.updateFeatureFlag({ id, payload: { active } })
         },
-        // Mirrors featureFlagLogic's listener of the same name, so both surfaces of the
-        // disable-and-archive experiment are driven from a logic rather than from the row component.
+        // Mirrors featureFlagLogic's listener of the same name, so both the list and the detail
+        // view drive the toggle from a logic rather than from the row component.
         toggleFeatureFlagActive: ({ id, active }) => {
             const applyUpdate = (payload: Partial<FeatureFlagType>): void => {
                 actions.updateFeatureFlag({ id, payload })
             }
-            const openControlDialog = (onConfirm?: () => void, onCancel?: () => void): void => {
+
+            if (active) {
                 LemonDialog.open({
-                    title: `${active ? 'Enable' : 'Disable'} this flag?`,
-                    description: `This flag will be immediately ${
-                        active ? 'rolled out to' : 'rolled back from'
-                    } the users matching the release conditions.`,
+                    title: 'Enable this flag?',
+                    description:
+                        'This flag will be immediately rolled out to the users matching the release conditions.',
                     primaryButton: {
                         children: 'Confirm',
                         type: 'primary',
-                        onClick: onConfirm ?? (() => applyUpdate({ active })),
+                        onClick: () => applyUpdate({ active: true }),
                         size: 'small',
                     },
                     secondaryButton: {
                         children: 'Cancel',
                         type: 'tertiary',
                         size: 'small',
-                        onClick: onCancel,
                     },
                 })
-            }
-
-            if (active) {
-                openControlDialog()
                 return
             }
 
@@ -677,7 +672,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 onDisable: () => applyUpdate({ active: false }),
                 onDisableAndArchive: () =>
                     actions.updateFeatureFlagArchived({ id, archived: true, via: 'disable-confirmation' }),
-                openControlDialog,
             })
         },
         setFeatureFlagsFilters: async (_, breakpoint) => {

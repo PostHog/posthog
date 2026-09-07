@@ -30,8 +30,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.utils import ServiceRequest
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
@@ -201,7 +201,7 @@ def _roll_out_variant(
             catch_all["description"] = release_condition_description
         groups = [catch_all, *groups]
 
-    return {
+    new_filters = {
         "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
         "payloads": current_filters.get("payloads", {}),
         "multivariate": {
@@ -216,6 +216,11 @@ def _roll_out_variant(
         },
         "groups": groups,
     }
+    # A holdout must keep excluding its users after the winner ships — that is its
+    # entire purpose (measuring shipped features against an unexposed baseline).
+    if current_filters.get("holdout"):
+        new_filters["holdout"] = current_filters["holdout"]
+    return new_filters
 
 
 def ship_variant(
@@ -287,3 +292,16 @@ def serialize_flags(flags: Any, *, context: dict) -> Any:
     access-control-derived fields, so it can only be built for a real request.
     """
     return FeatureFlagSerializer(flags, many=True, context=context).data
+
+
+def flag_is_active(key: str, *, team_id: int | None = None) -> bool:
+    """Whether an active flag with this key exists, optionally narrowed to one team.
+
+    A direct row read, not an evaluation: it ignores rollout percentages and release
+    conditions. Callers use it as a local-development fallback for when the analytics SDK
+    is disabled and ``posthoganalytics.feature_enabled`` cannot answer.
+    """
+    qs = FeatureFlag.objects.filter(key=key, active=True)
+    if team_id is not None:
+        qs = qs.filter(team_id=team_id)
+    return qs.exists()

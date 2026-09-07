@@ -1772,7 +1772,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         from posthog.constants import AvailableFeature
         from posthog.models.organization import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
@@ -2018,7 +2018,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         from posthog.constants import AvailableFeature
         from posthog.models.organization import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         metric = self._create_metric()
         url = f"{self.url}/{metric.id}"

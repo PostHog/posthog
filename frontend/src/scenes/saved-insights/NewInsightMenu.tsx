@@ -300,25 +300,37 @@ function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.El
     )
 }
 
-export function NewInsightMenuOverlay(): JSX.Element {
+/**
+ * The insight-type card grid, without any sizing of its own - the dropdown and the
+ * empty state's modal each give it the width they can spare. The two columns stack
+ * once the surface is too narrow to hold them side by side.
+ */
+export function NewInsightMenuContent(): JSX.Element {
     const sections = useQuestionSections()
     const columns = [sections.slice(0, 2), sections.slice(2)]
     return (
-        <div
-            className="flex w-[58rem] max-w-[calc(100vw-1rem)] gap-4 overflow-y-auto p-4 max-h-[calc(100vh-10rem)]"
-            data-attr="new-insight-menu"
-        >
-            <div className="flex flex-1 flex-col gap-6">
-                {columns[0].map((section) => (
-                    <QuestionSectionBlock key={section.title} section={section} />
-                ))}
+        <div className="@container/new-insight-menu" data-attr="new-insight-menu">
+            <div className="flex flex-col gap-6 @min-[44rem]/new-insight-menu:flex-row @min-[44rem]/new-insight-menu:gap-4">
+                <div className="flex flex-1 flex-col gap-6">
+                    {columns[0].map((section) => (
+                        <QuestionSectionBlock key={section.title} section={section} />
+                    ))}
+                </div>
+                <LemonDivider vertical className="hidden self-stretch @min-[44rem]/new-insight-menu:block" />
+                <div className="flex flex-1 flex-col gap-6">
+                    {columns[1].map((section) => (
+                        <QuestionSectionBlock key={section.title} section={section} />
+                    ))}
+                </div>
             </div>
-            <LemonDivider vertical className="self-stretch" />
-            <div className="flex flex-1 flex-col gap-6">
-                {columns[1].map((section) => (
-                    <QuestionSectionBlock key={section.title} section={section} />
-                ))}
-            </div>
+        </div>
+    )
+}
+
+export function NewInsightMenuOverlay(): JSX.Element {
+    return (
+        <div className="w-[58rem] max-w-[calc(100vw-1rem)] overflow-y-auto p-4 max-h-[calc(100vh-10rem)]">
+            <NewInsightMenuContent />
         </div>
     )
 }

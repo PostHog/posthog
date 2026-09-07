@@ -5,7 +5,7 @@ analytics used to key attribution on — the `initialize` handshake and the `Mcp
 header — so "what is one session?" had to be rebuilt at the application layer. This file is the
 reference for that: what the spec says, what the SDK does about it, and what it means for a query.
 
-Verified 2026-08-06 against spec `2026-07-28`, `@posthog/mcp` 0.10.8, `posthog` 7.38.0, and
+Verified 2026-08-25 against spec `2026-07-28`, `@posthog/mcp` 0.11.7, `posthog` 7.44.0, and
 dotcom master. Versions move fast — re-check before trusting a number here.
 
 ## What the spec actually changed
@@ -134,6 +134,10 @@ boundary. Don't treat it as one.
 | Text block in `content`               | only on the call that **minted** it, plus errored results (#4433)                      | `injectConversationIdPromptBack`          |
 | `structuredContent._mcp_instructions` | every response **from an instance that served the `tools/list`** for that tool (#4431) | `mirrorInstructionsIntoStructuredContent` |
 
+Since 0.11.7 (#4542) both channels carry **plain JSON data** — the `content` block is
+`{"conversation_id": "…"}` — rather than an imperative "reuse this id" server sentence, which
+clients had started flagging as prompt-injection-shaped.
+
 The second exists because clients that read structured results never see the `content` text block
 — correlation for those tools measured 0/15 against Claude Code before the fix, 15/15 after
 (figures from the #4430/#4431 PR bodies; they aren't reproducible from source).
@@ -154,8 +158,9 @@ no ownership override, so `conversationId` collapses to `listed?.conversationId`
 per-request low-level instance resolves no handle at all — step 1 of the resolution order never
 fires. The high-level path is saved by an explicit override; the low-level path is not.
 
-Shape under the `_mcp_instructions` key: `{ conversation_id: string, instructions: string }`, where
-`instructions` is the fixed line telling the agent to send the id on every subsequent call.
+Shape under the `_mcp_instructions` key: `{ conversation_id: string }`. The `instructions`
+sentence that used to ride along was dropped in 0.11.7, for the same prompt-injection reason as
+above — a document describing the old two-field shape is stale.
 
 If neither channel can carry it (no declared output schema, and a result with no `content` array),
 the SDK clears `event.conversationId` rather than reporting a conversation the agent was never
@@ -188,22 +193,44 @@ dialect per request from `_meta`'s protocol-version key or the header, then bran
 clients still get `initialize`/`ping`, modern clients get `server/discover` and **no session
 minting**. So the server speaks both today.
 
-**TypeScript SDK — shipped through 0.10.8.** The session model above is current.
+**TypeScript SDK — shipped through 0.11.7.** The session model above is current, plus the
+0.11.x era work on top of it:
 
-**Python SDK (`posthog` 7.38.0) — this is the part still in flight.** Conversation-id already
-exists (`posthog/mcp/_conversation_id.py`), and 7.30.0/7.33.0 brought multi-pod session tokens and
-`$mcp_protocol_version`. But those are the _legacy_ handshake mechanism scaled across pods, not
-spec-stateless support. Open and unmerged:
+- MCP TypeScript SDK **v2** servers are instrumented at all (0.10.9/0.11.1 — structural probes
+  in `detect.ts`; before that, a v2 server silently produced no events).
+- Client identity and `$mcp_protocol_version` resolve per request through a fallback chain —
+  the v2 request envelope, then `params._meta`, then the `MCP-Protocol-Version` header, then
+  the server's own accessors (0.11.2/0.11.3).
+- `Mcp-Session-Id` is minted **only** for requests declaring a pre-2026-07-28 revision
+  (0.11.4). The "era detection is an open follow-up" note in the SDK's `ARCHITECTURE.md`
+  predates this — it shipped. One server serves both revisions request by request; an unknown
+  version counts as legacy, so a v1 client that declares nothing keeps its header.
+- `$mcp_intent` is captured on per-request server instances, and the `tools/list` envelope
+  (`nextCursor`, caching directives) survives instrumentation (0.11.5).
 
-- **posthog-python#803** — read client identity from request `_meta`, closing the parity gap with
-  TS 0.10.1.
-- **posthog-python#830** — MCP 2026-07-28 + mcp 2.x SDK support: an adapter via the official
-  `ServerMiddleware`, plus `_derived_sessions.py` deriving `$session_id` from
-  `(distinct_id, client_name, client_version)` per SEP-2567 guidance now the header is gone. Adds
-  `$mcp_result_type` and `$mcp_session_id_source`.
+**Python SDK (`posthog` >= 7.40.0) — spec-stateless, at TS parity.** The old parity threads —
+posthog-python#803 (`_meta` client identity) and #830 (2026-07-28 + mcp 2.x support) — were
+**closed unmerged and superseded**; the properties they proposed (`$mcp_result_type`,
+`$mcp_session_id_source`) never shipped, so don't look for them in data. What landed instead,
+across 7.40.0-7.42.1:
 
-Treat Python as _not yet_ spec-stateless until those land, and don't promise TS/Python parity on
-`_meta` identity.
+- MCP Python SDK v2 (`mcp.server.mcpserver.MCPServer`, the renamed FastMCP, and the v2
+  low-level `Server`), with identity and `$mcp_protocol_version` resolved per request on both
+  eras; an unsupported SDK degrades to a logged no-op instead of raising `ImportError` (7.40.0).
+- Conversation-anchored sessions byte-compatible with TS: `derive_session_id_from_conversation`
+  (exported), the same uuidv7 shape gate, both delivery channels including the
+  `_mcp_instructions` mirror, and prompt-backs on errored results (7.40.0).
+- Typed `$mcp_error_type` / `$mcp_error_message`, read from the same `$exception_list` the
+  sibling event carries and redacted before send (7.41.0).
+- `$mcp_client_user_agent` / `$mcp_vendor_client` on HTTP transports (7.42.0).
+- Loud warnings when the stateless session-mint middleware never attached — an ASGI app built
+  or mounted before `instrument()` runs cannot be retrofitted, and every session falls back to
+  a fragmented per-process id (7.42.1). On a fragmented **Python** server, rule this out
+  alongside the `enable_conversation_id` check above.
+
+Host callbacks receive the SDK's own per-request context as `extra["ctx"]` identically on both
+majors, with `get_request_headers(extra)` to read HTTP headers off it portably — a hand-rolled
+read that works on one major silently returns nothing on the other.
 
 ## Telling which model produced a session, from the data
 
@@ -262,5 +289,9 @@ agent was never told about.
 - **Error codes were renumbered at the revision boundary** (`-32001` -> `-32020`, `-32003` ->
   `-32021`, `-32004` -> `-32022`, resource-not-found `-32002` -> `-32602`). Anything bucketing on
   the raw code silently miscategorises across that boundary.
+- **Error grouping is polluted in pre-TS-0.11.4 data.** On a conversation-enabled server, a
+  failed call's `$mcp_error_message` used to embed the freshly-minted prompt-back — a new uuid
+  per occurrence — so one recurring failure fragments into a new error group each time. Fixed
+  in 0.11.4; expect the signature in older rows.
 - **Harness/client attribution is self-reported** under the stateless model, per the spec's own
   warning. Fine for product analytics, not for anything trust-bearing.

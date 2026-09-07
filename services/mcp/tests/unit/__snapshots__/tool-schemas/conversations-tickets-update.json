@@ -1,6 +1,48 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "assignee": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "id": {
+                                    "description": "User ID.",
+                                    "type": "number"
+                                },
+                                "type": {
+                                    "description": "Assign the ticket to a user.",
+                                    "enum": ["user"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["type", "id"],
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "id": {
+                                    "description": "Role ID.",
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "description": "Assign the ticket to a role.",
+                                    "enum": ["role"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["type", "id"],
+                            "type": "object"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "User or role to assign. Pass null to remove the current assignee."
+        },
         "id": {
             "description": "The ticket's UUID or its numeric ticket number.",
             "type": "string"
@@ -20,7 +62,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Ticket priority: low, medium, high, or critical. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical"
+            "description": "Ticket priority: low, medium, high, or critical. Pass null to clear it.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High\n* `critical` - Critical"
         },
         "sla_due_at": {
             "anyOf": [
@@ -33,7 +75,7 @@
                     "type": "null"
                 }
             ],
-            "description": "SLA deadline set via workflows. Null means no SLA."
+            "description": "SLA deadline. Pass null to clear it."
         },
         "snoozed_until": {
             "anyOf": [
@@ -45,15 +87,19 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Time to reopen the ticket. Pass null to reopen it now."
         },
         "status": {
-            "description": "Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
+            "description": "Ticket status: new, open, pending, on_hold, or resolved.\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
             "enum": ["new", "open", "pending", "on_hold", "resolved"],
             "type": "string"
         },
         "tags": {
-            "items": {},
+            "description": "Tag names to set on the ticket.",
+            "items": {
+                "type": "string"
+            },
             "type": "array"
         }
     },

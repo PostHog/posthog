@@ -19,15 +19,16 @@ from posthog.api.file_system.deletion import (
     is_pk_keyed_file_system_type,
 )
 from posthog.models import Team
-from posthog.rbac.user_access_control import (
+from posthog.scopes import APIScopeObject
+from posthog.settings import EE_AVAILABLE
+
+from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     RESOURCE_INHERITANCE_MAP,
     AccessControlLevel,
     UserAccessControl,
     access_level_satisfied_for_resource,
 )
-from posthog.scopes import APIScopeObject
-from posthog.settings import EE_AVAILABLE
 
 logger = logging.getLogger(__name__)
 

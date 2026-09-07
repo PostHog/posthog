@@ -25,7 +25,7 @@ describe("getGithubPanelMessage", () => {
     ).toBe("boom");
   });
 
-  it("falls through timeout, connecting, then default", () => {
+  it("reports a timeout, and nothing while connecting or idle", () => {
     const base = {
       hasConnectError: false,
       connectErrorMessage: "",
@@ -35,10 +35,10 @@ describe("getGithubPanelMessage", () => {
     ).toBe(GITHUB_CONNECT_TIMEOUT_MESSAGE);
     expect(
       getGithubPanelMessage({ ...base, timedOut: false, isConnecting: true }),
-    ).toBe("Waiting for GitHub...");
+    ).toBeNull();
     expect(
       getGithubPanelMessage({ ...base, timedOut: false, isConnecting: false }),
-    ).toMatch(/Unlocks cloud runs/);
+    ).toBeNull();
   });
 });
 
@@ -205,7 +205,11 @@ describe("deriveConnectButtonState", () => {
         hasConnectError: false,
         timedOut: false,
       }),
-    ).toEqual({ isRetry: false, shouldReset: false, label: "Connect GitHub" });
+    ).toEqual({
+      isRetry: false,
+      shouldReset: false,
+      label: "Sign in with GitHub",
+    });
   });
 
   it("labels a retry on error and asks to reset", () => {

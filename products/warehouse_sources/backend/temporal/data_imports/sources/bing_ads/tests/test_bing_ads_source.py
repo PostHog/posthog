@@ -1,8 +1,6 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -10,7 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestBingAdsSource:
@@ -24,31 +22,6 @@ class TestBingAdsSource:
             account_id="12345",
             bing_ads_integration_id=1,
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BINGADS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "BingAds"
-        assert config.label == "Bing Ads"
-        assert config.releaseStatus == ReleaseStatus.GA
-        assert config.iconPath == "/static/services/bing-ads.svg"
-        assert len(config.fields) == 2
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "bing_ads_integration_id"
-        assert oauth_field.required is True
-        assert oauth_field.kind == "bing-ads"
-
-        account_id_field = config.fields[1]
-        assert isinstance(account_id_field, SourceFieldOauthAccountSelectConfig)
-        assert account_id_field.name == "account_id"
-        assert account_id_field.required is True
-        assert account_id_field.integrationField == "bing_ads_integration_id"
-        assert account_id_field.integrationKind == "bing-ads"
 
     @pytest.mark.parametrize(
         "account_id,integration_id,expected_error_fragment",

@@ -1,10 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getNuxtClientSteps as getNuxtStepsPA } from '../product-analytics/nuxt'
+import { getNuxtClientSteps } from '../product-analytics/nuxt'
 import { StepDefinition } from '../steps'
-import { createSessionReplayStepsFromPA } from './_snippets/create-session-replay-steps'
+import { sessionReplayFinalStep } from './_snippets/session-replay-final-step'
 
-export const getNuxtSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =>
-    createSessionReplayStepsFromPA(getNuxtStepsPA, ctx)
+export const getNuxtSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getNuxtClientSteps(ctx),
+    sessionReplayFinalStep(ctx),
+]
 
 export const NuxtInstallation = createInstallation(getNuxtSteps)

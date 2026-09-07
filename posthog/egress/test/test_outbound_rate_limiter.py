@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 import posthog.egress.limiter.backends as backends_module
@@ -25,6 +27,12 @@ def _reset_limiter_state():
 def _fresh_limiter() -> OutboundRateLimiter:
     # Fresh backend per test so in-memory fallback state never leaks budget across tests.
     return OutboundRateLimiter(LimitsBackend())
+
+
+def _unique_key(domain: str) -> str:
+    # The pacing tests read how full a window is, so they need a window nothing else has spent.
+    # Redis holds the counters for the length of the window, which outlives the test run.
+    return f"{domain}:scope:{uuid.uuid4().hex}"
 
 
 @pytest.mark.parametrize(
@@ -202,3 +210,80 @@ def test_policy_rejects_out_of_range_reserve(bad_fraction):
     # A fraction outside [0, 1) is a config error: 1.0 reserves the whole window and denies forever.
     with pytest.raises(ValueError):
         RatePolicy(limits=((10, 3600.0),), reserve={Priority.BATCH: bad_fraction})
+
+
+@pytest.mark.parametrize(
+    "hits,expect_paced",
+    [
+        # 6 of 10 left. A run this short cannot exhaust the window, so pacing it would add latency
+        # to every small job and prevent nothing.
+        (4, False),
+        # 4 of 10 left. Spending the rest at full speed empties the window, after which the caller
+        # is shed for the remainder of it.
+        (6, True),
+        (10, True),
+    ],
+)
+def test_pacing_starts_only_once_headroom_is_scarce(hits, expect_paced):
+    # Both ways of breaking the threshold are silent. Stuck on, every short run through every egress
+    # domain is slowed for a budget it never dents. Stuck off, a long run still empties its window
+    # and is shed, which is the condition pacing exists to avoid.
+    register_policy("test-pace-threshold", RatePolicy(limits=((10, 3600.0),)))
+    limiter = _fresh_limiter()
+    key = _unique_key("test-pace-threshold")
+    for _ in range(hits):
+        limiter.consume_sync(key)
+
+    assert (limiter.pace_seconds(key) > 0.0) is expect_paced
+
+
+def test_pacing_excludes_the_priority_reserve_from_the_allowance():
+    # The reserved floor is headroom a BATCH caller may never take. Spreading raw `remaining`
+    # instead would drip at the rate of a window this caller does not own, so it would still be shed
+    # at the floor: a wait that looks right and prevents nothing.
+    register_policy("test-pace-reserve", RatePolicy(limits=((10, 3600.0),), reserve={Priority.BATCH: 0.3}))
+    limiter = _fresh_limiter()
+    key = _unique_key("test-pace-reserve")
+    for _ in range(4):
+        limiter.consume_sync(key, priority=Priority.CRITICAL)
+
+    # 6 units are left. CRITICAL may take all 6, which is above its share. BATCH may take 3 of them,
+    # which is below its own, so only BATCH waits.
+    assert limiter.pace_seconds(key, priority=Priority.CRITICAL) == 0.0
+    assert limiter.pace_seconds(key, priority=Priority.BATCH) > 0.0
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        ((100, 60.0), (10, 3600.0)),
+        ((10, 3600.0), (100, 60.0)),
+    ],
+)
+def test_pacing_follows_the_tightest_window(limits):
+    # Taking the shortest interval, or reading only the first limit, paces to a window that is not
+    # the binding one and empties the one that is. Both orderings are covered because an index bug
+    # passes under one of them.
+    register_policy("test-pace-tightest", RatePolicy(limits=limits))
+    limiter = _fresh_limiter()
+    key = _unique_key("test-pace-tightest")
+    for _ in range(6):
+        limiter.consume_sync(key)
+
+    # The minute window is barely touched. The hourly one is down to 4 of 10 and governs.
+    assert limiter.pace_seconds(key) > 0.0
+
+
+def test_pace_seconds_answers_zero_when_the_store_is_unavailable(monkeypatch):
+    # Pacing sits in front of every gated call, so a Redis blip must not raise into the caller. The
+    # in-memory fallback counts one process, so its headroom is not the shared budget's and a wait
+    # derived from it would be a guess. Not pacing is the honest answer.
+    register_policy("test-pace-store-down", RatePolicy(limits=((10, 3600.0),)))
+
+    def _boom(*_args, **_kwargs):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(backends_module, "get_client", _boom)
+    limiter = _fresh_limiter()
+
+    assert limiter.pace_seconds(_unique_key("test-pace-store-down")) == 0.0

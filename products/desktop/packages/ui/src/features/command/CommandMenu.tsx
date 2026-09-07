@@ -3,18 +3,12 @@ import {
   ArrowClockwiseIcon,
   CaretLeftIcon,
   CaretRightIcon,
-  ChartLineIcon,
-  DesktopIcon,
-  EnvelopeSimpleIcon,
-  FileTextIcon,
-  GearIcon,
+  ChartLine,
+  CubeIcon,
+  EnvelopeSimple,
+  Gauge,
   GitDiffIcon,
-  HouseIcon,
-  MagnifyingGlassIcon,
-  MagnifyingGlassMinusIcon,
-  MagnifyingGlassPlusIcon,
-  MoonIcon,
-  SidebarSimpleIcon,
+  HashIcon,
   SquaresFourIcon,
   SunIcon,
 } from "@phosphor-icons/react";
@@ -45,6 +39,7 @@ import {
   type CommandMenuAction,
 } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   EDITOR_TEXT_CLASS,
@@ -82,6 +77,7 @@ import {
 } from "@posthog/ui/features/command/useSearchSections";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import {
@@ -108,7 +104,22 @@ import { track } from "@posthog/ui/shell/analytics";
 import { showLogFolder } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import {
+  DesktopIcon,
+  FileTextIcon,
+  GearIcon,
+  HomeIcon,
+  MagnifyingGlassIcon,
+  MoonIcon,
+  ReloadIcon,
+  SunIcon,
+  ViewVerticalIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+} from "@radix-ui/react-icons";
+import {
+  lazy,
   type KeyboardEvent as ReactKeyboardEvent,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -121,6 +132,13 @@ interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// Static-importing this pulls the task-creation stack onto the mod+K path.
+const CreateChannelModalLazy = lazy(() =>
+  import("@posthog/ui/features/canvas/components/CreateChannelModal").then(
+    (module) => ({ default: module.CreateChannelModal }),
+  ),
+);
 
 const DEFAULT_RESULT_LIMIT = 8;
 const COLLAPSED_CHIP_COUNT = 5;
@@ -215,7 +233,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
+  const inboxAvailable = useInboxAvailable();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
@@ -233,6 +252,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     (state) => state.activeTasks,
   );
   const [query, setQuery] = useState("");
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [createChannelUsed, setCreateChannelUsed] = useState(false);
   const [recentCommands, setRecentCommands] = useState<Command[]>([]);
   const [remoteQuery, setRemoteQuery] = useState("");
   // The legacy title search only ever surfaces while the palette is browsing
@@ -284,6 +305,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       setReviewMode(reviewTaskId, getDefaultReviewMode());
     }
   }, [reviewTaskId, getReviewMode, setReviewMode]);
+
+  // Archiving acts on the open task, so the command needs the task itself and
+  // drops out of the list when the palette can't find it.
+  const openedTask = tasks.find((task) => task.id === reviewTaskId);
+  const { requestArchive, dialog: archiveDialog } = useTaskArchive(openedTask, {
+    navigateUnscoped: !openedTask?.channel,
+  });
 
   useEffect(() => {
     if (open) {
@@ -351,20 +379,22 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
       },
-      {
-        id: "inbox",
-        label: "Inbox",
-        keywords: "reports pull requests agents notifications",
-        icon: (
-          <EnvelopeSimpleIcon size={12} className="text-muted-foreground" />
-        ),
-        action: "open-inbox",
-        shortcut: SHORTCUTS.INBOX,
-        onRun: () => {
-          closeSettingsDialog();
-          navigateToInbox();
-        },
-      },
+      ...(inboxAvailable
+        ? [
+            {
+              id: "inbox",
+              label: "Self-driving",
+              keywords: "reports pull requests agents notifications",
+              icon: <EnvelopeSimple size={12} className="text-gray-11" />,
+              action: "open-inbox",
+              shortcut: SHORTCUTS.INBOX,
+              onRun: () => {
+                closeSettingsDialog();
+                navigateToInbox();
+              },
+            } satisfies Command,
+          ]
+        : []),
       {
         id: "archived",
         label: "Archived",
@@ -402,6 +432,14 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             },
           ]
         : []),
+      {
+        id: "cost-management",
+        label: "Cost management",
+        keywords: "cost spend limits budget savings recommendations",
+        icon: <Gauge size={12} className="text-gray-11" />,
+        action: "open-cost-management" as CommandMenuAction,
+        onRun: () => openSettingsDialog("cost-management"),
+      },
       {
         id: "plan-usage",
         label: "Plan & usage",
@@ -443,6 +481,26 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           openTaskInput();
         },
       },
+      ...(bluebirdEnabled
+        ? [
+            {
+              id: "create-channel",
+              label: spacesLayout ? "New space" : "New channel",
+              keywords: "create add space channel context",
+              icon: spacesLayout ? (
+                <CubeIcon size={12} className="text-gray-11" />
+              ) : (
+                <HashIcon size={12} className="text-gray-11" />
+              ),
+              action: "create-channel" as CommandMenuAction,
+              onRun: () => {
+                closeSettingsDialog();
+                setCreateChannelUsed(true);
+                setCreateChannelOpen(true);
+              },
+            },
+          ]
+        : []),
       {
         id: "toggle-left-sidebar",
         label: "Toggle left sidebar",
@@ -460,6 +518,19 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               action: "open-review-panel" as CommandMenuAction,
               shortcut: SHORTCUTS.TOGGLE_REVIEW_PANEL,
               onRun: openReviewPanel,
+            },
+          ]
+        : []),
+      ...(openedTask
+        ? [
+            {
+              id: "archive-task",
+              label: "Archive task",
+              keywords: "archive close remove",
+              icon: <ArchiveIcon size={12} className="text-gray-11" />,
+              action: "archive-task" as CommandMenuAction,
+              shortcut: SHORTCUTS.ARCHIVE_TASK,
+              onRun: requestArchive,
             },
           ]
         : []),
@@ -586,9 +657,14 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     toggleLeftSidebar,
     openReviewPanel,
     reviewTaskId,
+    openedTask,
+    requestArchive,
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
+    inboxAvailable,
+    bluebirdEnabled,
+    spacesLayout,
   ]);
 
   const taskSections = useMemo<CommandSection[]>(() => {
@@ -1010,6 +1086,17 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         surface="command_menu"
         onCreated={(feed) => navigateToFeed(feed.id)}
       />
+      {createChannelUsed && (
+        <Suspense fallback={null}>
+          <CreateChannelModalLazy
+            open={createChannelOpen}
+            onOpenChange={setCreateChannelOpen}
+            surface="command_menu"
+          />
+        </Suspense>
+      )}
+      {/* Outlives the palette, which closes as the command runs. */}
+      {archiveDialog}
     </>
   );
 }

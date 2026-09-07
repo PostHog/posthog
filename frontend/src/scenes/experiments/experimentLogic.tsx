@@ -87,6 +87,25 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import {
+    EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    NEW_EXPERIMENT,
+    NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
+    MetricInsightId,
+} from 'products/experiments/frontend/constants'
+import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+import {
+    legacyExpectedRunningTime,
+    legacyMinimumSampleSizePerVariant,
+    legacyRecommendedExposureForCountData,
+} from 'products/experiments/frontend/legacy/calculations/legacyExperimentCalculations'
+import {
+    experimentsLogic,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from 'products/experiments/frontend/scenes/experimentsLogic'
+
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
@@ -101,29 +120,10 @@ import type {
 } from '../../types'
 import type { TrendResult } from '../../types'
 import type { ExperimentsConfig } from '../settings/environment/experimentsConfigLogic'
-import {
-    EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
-    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
-    NEW_EXPERIMENT,
-    NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
-    MetricInsightId,
-} from './constants'
 import { experimentMetricsLogic } from './experimentMetricsLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
-import {
-    experimentsLogic,
-    getShippedVariantKey,
-    hasEnded,
-    isLaunched,
-    isSingleVariantShipped,
-} from './experimentsLogic'
 import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
-import {
-    legacyExpectedRunningTime,
-    legacyMinimumSampleSizePerVariant,
-    legacyRecommendedExposureForCountData,
-} from './legacy/calculations/legacyExperimentCalculations'
 import {
     addExposureToMetric,
     compose,
@@ -180,7 +180,21 @@ export interface ExperimentLogicProps {
     formMode?: FormModes
 }
 
-export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
+export type ExperimentTriggeredBy =
+    | 'page_load'
+    | 'manual'
+    | 'auto_refresh'
+    | 'experiment_config_change'
+    | 'metric_config_change'
+
+// Triggers that kick off a metrics recalculation. Each is also a valid API ExperimentMetricsRecalculationTriggerEnumApi value, so a
+// narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere.
+const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change', 'auto_refresh'] as const
+
+const isRecalculationTrigger = (
+    triggeredBy: ExperimentTriggeredBy
+): triggeredBy is (typeof RECALCULATION_TRIGGERS)[number] =>
+    (RECALCULATION_TRIGGERS as readonly string[]).includes(triggeredBy)
 
 export type CurrentRefreshState = 'in_progress' | 'completed' | 'partial' | 'errored'
 export type FinishedRefreshState = Exclude<CurrentRefreshState, 'in_progress'>
@@ -510,6 +524,7 @@ export interface experimentLogicValues {
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
     experimentsConfig: ExperimentsConfig | null // experimentsConfigLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    receivedFeatureFlags: boolean // featureFlagLogic
     conversionMetrics: FunnelTimeConversionMetrics // funnelDataLogic
     funnelResults: FunnelResultType // funnelDataLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
@@ -736,9 +751,6 @@ export interface experimentLogicActions {
     reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     } // eventUsageLogic
-    reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => {
-        experiment: Experiment
-    } // eventUsageLogic
     reportExperimentSharedMetricAssigned: (
         experimentId: ExperimentIdType,
         sharedMetric: SharedMetric
@@ -772,6 +784,13 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     addToExperiments: (experiment: Experiment) => Experiment // experimentsLogic
     updateExperiments: (experiment: Experiment) => Experiment // experimentsLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     updateFlagFromPartial: (
         flag: Partial<FeatureFlagType> & {
             id: number
@@ -1333,7 +1352,11 @@ export interface experimentLogicActions {
         uuid: string,
         attributionType: BreakdownAttributionType,
         attributionValue?: number
-    ) => { attributionType: BreakdownAttributionType; attributionValue: number | undefined; uuid: string }
+    ) => {
+        attributionType: BreakdownAttributionType
+        attributionValue: number | undefined
+        uuid: string
+    }
     updateMetricBreakdownLimit: (
         uuid: string,
         breakdownLimit: number
@@ -1470,7 +1493,7 @@ export const experimentLogic = kea<experimentLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'receivedFeatureFlags'],
             holdoutsLogic,
             ['holdouts'],
             billingLogic,
@@ -1508,7 +1531,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
-                'reportExperimentSessionReplaySummaryRequested',
                 'reportExperimentMetricsRefreshed',
                 'reportExperimentAutoRefreshToggled',
                 'reportExperimentMetricBreakdownAdded',
@@ -1516,6 +1538,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ],
             teamLogic,
             ['addProductIntent'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
             featureFlagsLogic,
             ['updateFlagFromPartial'],
             modalsLogic,
@@ -2633,13 +2657,13 @@ export const experimentLogic = kea<experimentLogicType>([
             await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
-            actions.refreshExperimentResults(true, 'config_change')
+            actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
             await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
-            actions.refreshExperimentResults(true, 'config_change')
+            actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
             actions.setEndExperimentLoading(true)
@@ -2758,6 +2782,14 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
+            // The refresh branches on the recalculation flag. Choosing a branch before the flag has
+            // resolved reads it as off and runs the legacy loaders, which fail for a recalculation
+            // experiment. Defer the refresh until flags arrive; setFeatureFlags replays it once.
+            if (!values.receivedFeatureFlags) {
+                cache.deferredRefresh = { forceRefresh, triggeredBy, refreshIfStale }
+                return
+            }
+
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -2780,7 +2812,7 @@ export const experimentLogic = kea<experimentLogicType>([
                      * Config changes and auto-refresh both re-run metrics, tagged with their cause; page loads
                      * and manual reloads are handled elsewhere. Concurrent triggers coalesce onto one active run.
                      */
-                    if ((triggeredBy === 'config_change' || triggeredBy === 'auto_refresh') && values.experiment) {
+                    if (isRecalculationTrigger(triggeredBy) && values.experiment) {
                         experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
                             triggeredBy
                         )
@@ -2902,6 +2934,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
+        setFeatureFlags: () => {
+            // Flags have now resolved. Replay a refresh that arrived before them so the branch decision
+            // uses the real flag value. One-shot: clear the deferred request before re-firing.
+            const deferred = cache.deferredRefresh
+            if (deferred) {
+                cache.deferredRefresh = undefined
+                actions.refreshExperimentResults(deferred.forceRefresh, deferred.triggeredBy, deferred.refreshIfStale)
+            }
+        },
         updateExperimentMetrics: async () => {
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
@@ -2935,7 +2976,7 @@ export const experimentLogic = kea<experimentLogicType>([
             metricsLogic.actions.setSecondaryMetricsResultsErrors([])
 
             // Reload results for added/edited metrics
-            actions.refreshExperimentResults(true, 'config_change')
+            actions.refreshExperimentResults(true, 'metric_config_change')
         },
         updateExperimentCollectionGoal: async () => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -2957,13 +2998,17 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 update_feature_flag_params: false,
             })
-            actions.refreshExperimentResults(true, 'config_change')
+            actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         updateExperimentSettings: async ({ update }) => {
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
             await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
-            actions.refreshExperimentResults(true, 'config_change')
+            // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
+            lemonToast.success(
+                values.isExperimentLaunched ? 'Settings saved. Recalculating results…' : 'Settings saved'
+            )
+            actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         resetRunningExperiment: async () => {
             try {
@@ -3170,7 +3215,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
 
-            actions.loadExperiment({ triggeredBy: 'config_change' })
+            actions.loadExperiment({ triggeredBy: 'metric_config_change' })
         },
         duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
             // Listeners run after reducers, so the copy is only there if the shared metric was actually found
@@ -3214,7 +3259,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
 
-            actions.loadExperiment({ triggeredBy: 'config_change' })
+            actions.loadExperiment({ triggeredBy: 'metric_config_change' })
         },
         createExperimentDashboard: async () => {
             actions.setIsCreatingExperimentDashboard(true)
@@ -3656,7 +3701,7 @@ export const experimentLogic = kea<experimentLogicType>([
             await asyncActions.updateExperiment(update)
 
             if (!canReuseResults) {
-                actions.refreshExperimentResults(true, 'config_change')
+                actions.refreshExperimentResults(true, 'metric_config_change')
                 return
             }
 
@@ -3726,10 +3771,11 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.updateExperiment(updatePayload)
 
-            // Adding a breakdown changes how the metric is computed, so re-run results — recalculation
-            // flow triggers a fresh recalc via config_change; legacy flow reloads per-metric results.
+            // Adding a breakdown changes how the metric is computed, so re-run results. The recalculation
+            // flow reuses the current window (metric_config_change), so this breakdown recomputes on its
+            // changed fingerprint while unchanged metrics load from cache; legacy reloads per-metric results.
             if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                actions.refreshExperimentResults(true, 'config_change')
+                actions.refreshExperimentResults(true, 'metric_config_change')
             } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
@@ -3762,10 +3808,10 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment(updatePayload)
 
             // Removing a breakdown changes how the metric is computed, so re-run results. On the
-            // recalculation flow this routes through refreshExperimentResults('config_change') (which
-            // triggers a fresh recalculation); the legacy flow reloads the per-metric results directly.
+            // recalculation flow this reuses the current window (metric_config_change), so this metric
+            // recomputes on its changed fingerprint while others load from cache; legacy reloads per-metric.
             if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                actions.refreshExperimentResults(true, 'config_change')
+                actions.refreshExperimentResults(true, 'metric_config_change')
             } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
@@ -3810,7 +3856,7 @@ export const experimentLogic = kea<experimentLogicType>([
              * updating a breakdown limit triggers a recalculation.
              */
             if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                actions.refreshExperimentResults(true, 'config_change')
+                actions.refreshExperimentResults(true, 'metric_config_change')
             } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
@@ -3854,7 +3900,7 @@ export const experimentLogic = kea<experimentLogicType>([
              * updating a breakdown limit triggers a recalculation.
              */
             if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                actions.refreshExperimentResults(true, 'config_change')
+                actions.refreshExperimentResults(true, 'metric_config_change')
             } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
@@ -3886,13 +3932,14 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 )
-                // Re-fetch results since the variant set changed. On the recalculation flow this means a
-                // fresh recalc; on the legacy flow it's the per-metric loaders. Exposures refresh either way.
+                // Re-fetch results since the variant set changed. On the recalculation flow this advances the
+                // window (experiment_config_change), so every metric recomputes; legacy uses the per-metric
+                // loaders. Exposures refresh either way.
                 if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
                     // eslint-disable-next-line no-unused-expressions
                     values.experiment &&
                         experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
-                            'config_change'
+                            'experiment_config_change'
                         )
                 } else {
                     actions.loadPrimaryMetricsResults(true)
@@ -3923,9 +3970,15 @@ export const experimentLogic = kea<experimentLogicType>([
             // Clear any existing interval first
             cache.disposables.dispose('autoRefreshInterval')
 
-            if (values.autoRefresh.enabled) {
+            // Completed experiments have final results — never poll them
+            if (values.autoRefresh.enabled && !hasEnded(values.experiment)) {
                 cache.disposables.add(() => {
                     const intervalId = window.setInterval(() => {
+                        // The experiment may have ended while the interval was running
+                        if (hasEnded(values.experiment)) {
+                            cache.disposables.dispose('autoRefreshInterval')
+                            return
+                        }
                         // Track auto-refresh trigger
                         actions.reportExperimentMetricsRefreshed(values.experiment, true, {
                             triggered_by: 'auto-refresh',

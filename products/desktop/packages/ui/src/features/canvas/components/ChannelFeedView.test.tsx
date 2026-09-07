@@ -84,6 +84,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
   TaskTabIcon: () => <span />,
 }));
@@ -180,6 +183,34 @@ describe("ChannelFeedView", () => {
 
     expect(screen.queryByText("Already archived")).not.toBeInTheDocument();
     expect(screen.getByText(task.title)).toBeInTheDocument();
+  });
+
+  it("shows the kind's empty note, not the channel welcome, when a filter empties the feed", () => {
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[]}
+          reports={[]}
+          isLoading={false}
+          emptyState={<div>Welcome to space</div>}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    // A genuinely empty, unfiltered feed still shows the channel welcome.
+    expect(screen.getByText("Welcome to space")).toBeInTheDocument();
+
+    // Selecting an empty kind must show its own note, not the welcome screen.
+    fireEvent.click(screen.getByText("Reports"));
+    expect(
+      screen.getByText(
+        "No reports here yet. Open the filter to widen the list.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Welcome to space")).not.toBeInTheDocument();
   });
 
   it.each([

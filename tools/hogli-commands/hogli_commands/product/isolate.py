@@ -41,7 +41,7 @@ KIND_GUIDANCE = {
     "query-runner": "expose a builder plus a class re-export (facade/queries.py) — registry consumers dispatch on class identity",
     "celery-task": "re-export the task object (facade/tasks.py); core beat schedules import it",
     "temporal-wiring": "re-export workflows/activities/metrics/constants (facade/temporal.py)",
-    "test-fixture": "use apps.get_model(...) plus a TYPE_CHECKING import, or the facade accessor",
+    "test-fixture": "a test import: model rows go through a facade write function (or a facade/testing.py helper), anything else through the matching facade re-export; not apps.get_model",
     "string-reference": "dotted path in a string (mock @patch path, config) — must be rewritten when modules move",
     "other-internal": "route through a facade function or re-export",
 }

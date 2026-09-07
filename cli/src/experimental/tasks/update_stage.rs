@@ -30,7 +30,7 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
         None => select_task("Select a task to update stage:")?,
     };
 
-    println!("\nTask: {}", task.title);
+    crate::safe_println!("\nTask: {}", task.title);
 
     let workflow_id = match task.workflow {
         Some(id) => id,
@@ -47,13 +47,14 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
 
     if let Some(current_stage_id) = &task.current_stage {
         if let Some(current_stage) = workflow.stages.iter().find(|s| &s.id == current_stage_id) {
-            println!(
+            crate::safe_println!(
                 "Current Stage: {} ({})",
-                current_stage.name, current_stage.key
+                current_stage.name,
+                current_stage.key
             );
         }
     } else {
-        println!("Current Stage: None");
+        crate::safe_println!("Current Stage: None");
     }
 
     let available_stages: Vec<StageChoice> = workflow
@@ -67,7 +68,7 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
         anyhow::bail!("No active stages available in the workflow.");
     }
 
-    println!("\nAvailable stages:");
+    crate::safe_println!("\nAvailable stages:");
 
     let selected_stage = Select::new("Select new stage:", available_stages)
         .prompt()
@@ -75,9 +76,10 @@ pub fn update_stage(task_id: Option<&Uuid>) -> Result<()> {
 
     update_task_stage(&client, &task.id, &selected_stage.0.id)?;
 
-    println!(
+    crate::safe_println!(
         "\n✓ Successfully updated task stage to: {} ({})",
-        selected_stage.0.name, selected_stage.0.key
+        selected_stage.0.name,
+        selected_stage.0.key
     );
 
     Ok(())

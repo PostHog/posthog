@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type ActionStatus = "running" | "success" | "error";
+type ActionStatus = "running" | "success" | "error";
 
 export function getActionSessionId(
   actionId: string,

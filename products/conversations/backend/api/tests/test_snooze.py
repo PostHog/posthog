@@ -97,6 +97,18 @@ class TestTicketSnoozeAPI(APIBaseTest):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Status.RESOLVED)
 
+    def test_resnooze_keeps_status(self, _):
+        self.ticket.snoozed_until = timezone.now() + timedelta(hours=2)
+        self.ticket.status = Status.PENDING
+        self.ticket.save(update_fields=["snoozed_until", "status"])
+
+        new_snooze_time = (timezone.now() + timedelta(hours=5)).isoformat()
+        response = self.client.patch(self.url, {"snoozed_until": new_snooze_time})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.PENDING)
+
     def test_snooze_logs_activity(self, _):
         snooze_time = (timezone.now() + timedelta(hours=2)).isoformat()
         self.client.patch(self.url, {"snoozed_until": snooze_time})

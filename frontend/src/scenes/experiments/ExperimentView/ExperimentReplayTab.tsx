@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -17,6 +17,7 @@ import {
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -25,16 +26,17 @@ import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
+import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
-import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
-import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
     ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
+    LinkedScanner,
     experimentReplayTabLogic,
 } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
@@ -44,11 +46,45 @@ import { VariantTag } from './VariantTag'
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
 
-// What the unfiltered list is, said once above it. The second sentence carries the part that
-// isn't guessable: exposure is resolved per person, matching who the analysis counts, so
-// sessions appear even when the exposure event fired server-side or in an earlier session.
-const POPULATION_CAPTION =
+// Unchanged from the earlier cross-sell wording, so a dismissal there still holds. Someone who
+// turned down scanners for this experiment did not ask to be told again in purple.
+const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-sell'
+
+// The 'all_exposed' caption carries the part that isn't guessable: exposure is resolved per
+// person, matching who the analysis counts, so sessions appear even when the exposure event fired
+// server-side or in an earlier session.
+const ALL_EXPOSED_CAPTION =
     "Showing sessions of exposed participants from their first exposure onward. The exposure event itself doesn't have to be in the session."
+
+// The copy varies with what the in-session evidence is. 'stamped' means the flag property stands
+// in for the exposure event, so the flag was active in the session rather than the exposure event
+// being captured there, and the copy must not claim more than the query delivers (wording mirrors
+// the behavior-comparison shelf). 'unknown' covers the availability check still pending or failed,
+// where the copy claims only what both kinds share. The scopeLockedReason strings park the control
+// while a bucket or watch card supplies the session set, which carries in-session evidence by
+// construction, so the control could neither widen nor narrow it.
+type InSessionEvidenceKind = 'event' | 'stamped' | 'unknown'
+const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption: string; scopeLockedReason: string }> =
+    {
+        event: {
+            tooltip: 'Only sessions where an exposure event for this experiment was captured in the session.',
+            caption: 'Showing sessions of exposed participants where the exposure was captured in the session.',
+            scopeLockedReason:
+                'This metric filter already narrows to sessions where the exposure was captured in the session.',
+        },
+        stamped: {
+            tooltip:
+                'Sessions where the feature flag was active. No exposure event can be matched to a recording for this experiment, so the flag being active stands in.',
+            caption:
+                'Showing sessions of exposed participants where the feature flag was active, since no exposure event can be matched to a recording here.',
+            scopeLockedReason: 'This metric filter already narrows to sessions where the feature flag was active.',
+        },
+        unknown: {
+            tooltip: 'Only sessions carrying in-session exposure evidence for this experiment.',
+            caption: 'Showing sessions of exposed participants carrying in-session exposure evidence.',
+            scopeLockedReason: 'This metric filter already narrows to sessions carrying in-session exposure evidence.',
+        },
+    }
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
@@ -171,10 +207,68 @@ const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; lab
     },
 ]
 
+/** Placeholder for the watching-scanners card while the lookup is in flight, so the tab doesn't
+ * flash the cross-sell banner before the card resolves. */
+function LinkedScannersSkeletonCard(): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="mb-2 p-3" data-attr="experiment-recordings-linked-scanners-loading">
+            <LemonSkeleton className="h-5 w-64 mb-2" />
+            <LemonSkeleton className="h-4 w-full" repeat={2} />
+        </LemonCard>
+    )
+}
+
+/** The scanners already watching this experiment, one row each, with a link and a monthly count. */
+function LinkedScannersCard({
+    scanners,
+    addAnotherUrl,
+    onAddAnother,
+}: {
+    scanners: LinkedScanner[]
+    addAnotherUrl: string
+    onAddAnother: () => void
+}): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="mb-2 p-3" data-attr="experiment-recordings-linked-scanners">
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="font-semibold">Scanners watching this experiment</span>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={addAnotherUrl}
+                    onClick={() => onAddAnother()}
+                    data-attr="experiment-recordings-scanner-add-another"
+                >
+                    Add another
+                </LemonButton>
+            </div>
+            <div className="flex flex-col gap-1">
+                {scanners.map((scanner) => (
+                    <div key={scanner.id} className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-2 min-w-0">
+                            <Link to={urls.replayVision(scanner.id)} className="truncate">
+                                {scanner.name}
+                            </Link>
+                            <LemonTag type="muted">{scannerTypeLabel(scanner.scannerType)}</LemonTag>
+                        </span>
+                        <span className="text-muted shrink-0">
+                            {pluralize(scanner.observationsThisMonth, 'observation')} this month
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </LemonCard>
+    )
+}
+
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
     const {
         effectiveVariantKey,
+        effectiveExposureScope,
+        exposureInSessionUnavailableReason,
+        inSessionExposure,
+        playlistHeldForChecks,
         variantKeys,
         recordingsFilters,
         effectiveMetricUuids,
@@ -184,9 +278,12 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketLoading,
         sessionBucketError,
         sessionBucketRequest,
+        linkedScanners,
+        linkedScannersLoading,
     } = useValues(logic)
     const {
         setSelectedVariantKey,
+        setExposureScope,
         setMetricSelected,
         setMetricFilterMode,
         loadSessionBucket,
@@ -196,6 +293,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         scannerCrossSellClicked,
     } = useActions(logic)
     const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_EXPERIMENTS')
+    // Which in-session copy applies, from the evidence kind the availability check resolved.
+    const inSessionCopy =
+        IN_SESSION_COPY[inSessionExposure ? (inSessionExposure.uses_stamped_fallback ? 'stamped' : 'event') : 'unknown']
 
     // One object feeds both the playlist below and the findMounted lookup, because the logic's
     // kea key is derived from these props: hand-duplicating them at the two sites would let the
@@ -247,22 +347,30 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     return (
         <div data-attr="experiment-recordings-tab">
-            {scannerCrossSellEnabled && (
-                <LemonBanner
-                    type="info"
-                    className="mb-2"
-                    dismissKey="experiment-replay-vision-scanner-cross-sell"
-                    action={{
-                        children: 'Set up a scanner',
-                        to: scannerSetupUrl,
-                        onClick: () => scannerCrossSellClicked(),
-                        'data-attr': 'experiment-recordings-scanner-cross-sell',
-                    }}
-                >
-                    Replay vision can watch new recordings from this experiment for you. Scanners check each session and
-                    report what they find.
-                </LemonBanner>
-            )}
+            {scannerCrossSellEnabled &&
+                (linkedScannersLoading ? (
+                    <LinkedScannersSkeletonCard />
+                ) : linkedScanners.length > 0 ? (
+                    <LinkedScannersCard
+                        scanners={linkedScanners}
+                        addAnotherUrl={scannerSetupUrl}
+                        onAddAnother={scannerCrossSellClicked}
+                    />
+                ) : (
+                    <LemonBanner
+                        type="ai"
+                        className="mb-2"
+                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
+                        action={{
+                            children: 'Set up scanner for this experiment',
+                            to: scannerSetupUrl,
+                            onClick: () => scannerCrossSellClicked(),
+                            'data-attr': 'experiment-recordings-scanner-cross-sell',
+                        }}
+                    >
+                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
+                    </LemonBanner>
+                ))}
             <div className="mb-2 flex flex-wrap gap-2">
                 <LemonSegmentedButton
                     size="small"
@@ -271,6 +379,28 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     options={[
                         { value: ALL_VARIANTS, label: 'All' },
                         ...variantKeys.map((key) => ({ value: key, label: <VariantTag variantKey={key} /> })),
+                    ]}
+                />
+                <LemonSegmentedButton
+                    size="small"
+                    value={effectiveExposureScope}
+                    onChange={(value) => setExposureScope(value)}
+                    disabledReason={sessionBucketRequest !== null ? inSessionCopy.scopeLockedReason : undefined}
+                    options={[
+                        {
+                            value: 'in_session' as const,
+                            label: 'Exposed in session',
+                            tooltip: inSessionCopy.tooltip,
+                            disabledReason: exposureInSessionUnavailableReason ?? undefined,
+                            'data-attr': 'experiment-recordings-exposure-scope-in-session',
+                        },
+                        {
+                            value: 'all_exposed' as const,
+                            label: 'All sessions',
+                            tooltip:
+                                'Every session of exposed participants from their first exposure onward, including sessions without the exposure event.',
+                            'data-attr': 'experiment-recordings-exposure-scope-all',
+                        },
                     ]}
                 />
                 {metricOptions.length > 0 && (
@@ -345,16 +475,15 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     </DropdownMenu>
                 )}
                 <ExperimentBehaviorComparisonToggle experiment={experiment} />
-                <div className="ml-auto">
-                    <SummarizeSessionReplaysButton experiment={experiment} />
-                </div>
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
                 caption follows the request, not the mode. */}
             <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
                 {!sessionBucketRequest && metricFilterMode === 'fired_all' ? (
                     effectiveMetricUuids.length === 0 ? (
-                        <span data-attr="experiment-recordings-population-caption">{POPULATION_CAPTION}</span>
+                        <span data-attr="experiment-recordings-population-caption">
+                            {effectiveExposureScope === 'in_session' ? inSessionCopy.caption : ALL_EXPOSED_CAPTION}
+                        </span>
                     ) : null
                 ) : !sessionBucketRequest ? (
                     <span>{unappliedModeReason(metricFilterMode)}</span>
@@ -373,14 +502,21 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
             </div>
             <ExperimentBehaviorComparison experiment={experiment} onWatchRecording={watchRecording} />
             <div className="SessionRecordingPlaylistHeightWrapper">
-                <SessionRecordingsPlaylist
-                    {...playlistLogicProps}
-                    analyticsSource="experiment-recordings-tab"
-                    filters={recordingsFilters}
-                    onFiltersChange={(filters) => playlistFiltersChanged(filters)}
-                    onRecordingsLoaded={(recordings) => recordingsLoaded(recordings)}
-                    onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
-                />
+                {playlistHeldForChecks ? (
+                    // A persisted in-session choice waits for the availability and linkability
+                    // checks: mounted now, the playlist would fire the heavy all-sessions listing
+                    // only to replace it when the scope confirms and the filters flip.
+                    <LemonSkeleton className="h-full" active />
+                ) : (
+                    <SessionRecordingsPlaylist
+                        {...playlistLogicProps}
+                        analyticsSource="experiment-recordings-tab"
+                        filters={recordingsFilters}
+                        onFiltersChange={(filters) => playlistFiltersChanged(filters)}
+                        onRecordingsLoaded={(recordings, isFirstPage) => recordingsLoaded(recordings, isFirstPage)}
+                        onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
+                    />
+                )}
             </div>
         </div>
     )

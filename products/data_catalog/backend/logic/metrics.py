@@ -19,11 +19,14 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.information_schema import references_denied_table
+
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
@@ -527,6 +530,24 @@ def _reset_to_proposed(metric: Metric) -> None:
 def metrics_for_team(team: Team) -> QuerySet[Metric]:
     """Live (non-deleted) metrics for a team, newest first."""
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
+
+
+def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
+    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
+    metrics = metrics_for_team(team)
+    denied_tables = Database.create_for(
+        team=team,
+        user=user,
+        user_access_control=user_access_control,
+    )._denied_tables
+    if not denied_tables:
+        return metrics
+    visible_metric_ids = [
+        metric.id
+        for metric in metrics.only("id", "referenced_table_names")
+        if not references_denied_table(metric.referenced_table_names, denied_tables)
+    ]
+    return metrics.filter(id__in=visible_metric_ids)
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:

@@ -19,6 +19,7 @@ interface RepoSwitcherProps {
 const TAB_TO_PATH: Record<VisualReviewTabKey, (repoId: string) => string> = {
     runs: (repoId) => `/visual_review/repos/${repoId}/runs`,
     snapshots: (repoId) => `/visual_review/repos/${repoId}/snapshots`,
+    flakiness: (repoId) => `/visual_review/repos/${repoId}/flakiness`,
 }
 
 export function RepoSwitcher({ repoId, activeTab }: RepoSwitcherProps): JSX.Element | null {
