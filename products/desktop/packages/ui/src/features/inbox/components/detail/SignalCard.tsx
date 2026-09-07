@@ -245,12 +245,10 @@ function isLlmEvalExtra(
   return "evaluation_id" in extra && "trace_id" in extra;
 }
 
-function isSessionProblemExtra(
+function isSessionExtra(
   extra: Record<string, unknown>,
 ): extra is Record<string, unknown> & SessionProblemExtra {
-  return (
-    "session_id" in extra && "problem_type" in extra && "segment_title" in extra
-  );
+  return "session_id" in extra && "segment_title" in extra;
 }
 
 function isErrorTrackingExtra(
@@ -938,11 +936,7 @@ export function SignalCard({
   );
 
   let content: React.ReactNode;
-  if (
-    signal.source_product === "session_replay" &&
-    signal.source_type === "session_problem" &&
-    isSessionProblemExtra(extra)
-  ) {
+  if (signal.source_product === "session_replay" && isSessionExtra(extra)) {
     content = (
       <SessionProblemSignalCard
         signal={signal}
