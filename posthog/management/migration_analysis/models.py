@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from enum import Enum
 
+from posthog.dataclasses import frozen
+
 
 class RiskLevel(Enum):
     """Risk level definitions with scoring ranges"""
@@ -40,7 +42,7 @@ class OperationRisk:
         return RiskLevel.from_score(self.score)
 
 
-@dataclass
+@frozen
 class MigrationRisk:
     path: str
     app: str
