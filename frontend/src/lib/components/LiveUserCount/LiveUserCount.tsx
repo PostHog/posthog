@@ -131,21 +131,14 @@ export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps):
         }
     }, [isVisible, resumeStream, pauseStream])
 
-    const hasRecordings = (activeRecordings ?? 0) > 0
-
     if (activeRecordings === null) {
         return null
     }
 
+    const hasRecordings = activeRecordings > 0
+
     return (
-        <Tooltip
-            title={
-                activeRecordings == null
-                    ? 'Unable to retrieve active recordings count.'
-                    : 'Session recordings currently in progress.'
-            }
-            placement="right"
-        >
+        <Tooltip title="Session recordings currently in progress." placement="right">
             <div
                 className={cn(
                     'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
