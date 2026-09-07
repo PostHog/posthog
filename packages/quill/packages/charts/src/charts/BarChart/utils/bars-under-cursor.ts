@@ -127,6 +127,21 @@ export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAx
     yield* results
 }
 
+/** True when the cursor sits past the band-axis range, in the blank plot a shortened band range
+ *  (`maxBandSize`) leaves after the last band. The nearest-label hit test clamps to the end bands,
+ *  so that region resolves to a real row unless the caller vetoes it. The range keeps the band
+ *  scale's outer padding, which makes the gaps around the bands read the same as the gaps between
+ *  them. */
+export function cursorPastBandRange(
+    scales: BarScaleSet,
+    point: { x: number; y: number },
+    isHorizontal: boolean
+): boolean {
+    const [start, end] = scales.band.range()
+    const bandAxisCursor = isHorizontal ? point.y : point.x
+    return bandAxisCursor < start || bandAxisCursor > end
+}
+
 /** True when the cursor sits in a bar's inert volume gap — lined up on the band axis with a bar
  *  whose capped `trackData` ceiling it has passed (a funnel compare period's blank space above its
  *  track). Such a position takes no hover, tooltip, highlight, or click. Bars whose track spans the

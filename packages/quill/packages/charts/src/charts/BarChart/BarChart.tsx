@@ -37,7 +37,7 @@ import type {
 import { resolveAxisLines } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
 import { computeWrapperMinHeight, HORIZONTAL_MIN_BAND_SIZE_DEFAULT } from './utils/bar-config'
-import { cursorInInertTrackGap, groupedBandSlotAtCursor } from './utils/bars-under-cursor'
+import { cursorInInertTrackGap, cursorPastBandRange, groupedBandSlotAtCursor } from './utils/bars-under-cursor'
 import { drawBarChartStatic, drawBarHoverItems } from './utils/draw-bar-chart'
 import { resolveBarHoverItems } from './utils/resolve-bar-hover'
 import { resolveClickedBarSeries } from './utils/resolve-clicked-bar-series'
@@ -402,11 +402,19 @@ function BarChartInner<Meta = unknown>({
     // extent without one).
     const seriesHasTrackCeiling = useMemo(() => visibleSeries.some((s) => Array.isArray(s.trackData)), [visibleSeries])
 
+    // `maxBandSize` shortens the band range, so the plot keeps blank space after the last band. The
+    // same veto makes that space inert, because a pointer cursor and a click that resolve to the
+    // nearest row would report a row the user did not aim at.
+    const bandRangeIsCapped = maxBandSize != null
+
     const resolveHoverIndex = useCallback(
         (index: number, cursor: { x: number; y: number }, scales: ChartScales): number => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales) {
                 return index
+            }
+            if (bandRangeIsCapped && cursorPastBandRange(d3Scales, cursor, isHorizontal)) {
+                return -1
             }
             return cursorInInertTrackGap({
                 series: seriesRef.current,
@@ -422,7 +430,7 @@ function BarChartInner<Meta = unknown>({
                 ? -1
                 : index
         },
-        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
+        [bandRangeIsCapped, barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
     )
 
     const chart = (
@@ -449,7 +457,7 @@ function BarChartInner<Meta = unknown>({
             onPointClick={onPointClick}
             onDateRangeZoom={onDateRangeZoom}
             wrapClickData={onPointClick ? wrapClickData : undefined}
-            resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}
+            resolveHoverIndex={seriesHasTrackCeiling || bandRangeIsCapped ? resolveHoverIndex : undefined}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}

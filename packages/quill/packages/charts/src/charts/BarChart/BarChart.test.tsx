@@ -619,6 +619,37 @@ describe('BarChart', () => {
             }
         )
 
+        // Regression: `bars.maxBandSize` stops the band range before the plot edge, and the
+        // nearest-label hit test clamps into the blank space it leaves. The empty region below a
+        // one-row chart therefore took a pointer cursor and a click, which in trends opened the
+        // persons modal for a row the user never aimed at.
+        it('horizontal: a click past a capped band is inert', async () => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={[{ key: 'all', label: 'All events', data: [103000] }]}
+                    labels={['All events']}
+                    theme={THEME}
+                    config={{ axisOrientation: 'horizontal', bars: { maxBandSize: 48 } }}
+                    onPointClick={onPointClick}
+                />
+            )
+            // One label capped at 48px gives a band range of 48 / (1 - 0.2) = 60px from the plot
+            // top, so the row covers plotTop + 6 .. plotTop + 54 and the rest of the plot is blank.
+            const clientX = dimensions.plotLeft + dimensions.plotWidth / 2
+            await waitForHogChartTooltip(3000, () =>
+                fireEvent.mouseMove(chart.element, { clientX, clientY: dimensions.plotTop + 30 })
+            )
+            fireEvent.click(chart.element)
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 0 }))
+
+            onPointClick.mockClear()
+            fireEvent.mouseMove(chart.element, { clientX, clientY: dimensions.plotTop + 200 })
+            fireEvent.click(chart.element)
+            expect(onPointClick).not.toHaveBeenCalled()
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+        })
+
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
