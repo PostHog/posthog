@@ -46,7 +46,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import ActorType, RunPurpose
+from .enums import ActorType, RunPurpose, ShiftBandKind
 
 User = get_user_model()
 
@@ -128,7 +128,7 @@ def _to_row_shift(parsed: StoredRowShift | None) -> contracts.RowShift | None:
         deleted_rows=parsed.deleted_rows,
         residual_percentage=parsed.residual_percentage,
         raw_diff_percentage=parsed.raw_diff_percentage,
-        bands=[contracts.ShiftBand(y=b.y, rows=b.rows, kind=b.kind) for b in parsed.bands],
+        bands=[contracts.ShiftBand(y=b.y, rows=b.rows, kind=ShiftBandKind(b.kind)) for b in parsed.bands],
     )
 
 
