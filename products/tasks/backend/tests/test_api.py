@@ -8086,12 +8086,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        entries = [json.loads(line) for line in response.content.decode("utf-8").splitlines()]
-        ancestor_line_count = len((ancestor_logs.get("a") or "").splitlines())
-        for index, entry in enumerate(entries):
-            owner = ancestor if index < ancestor_line_count else target
-            self.assertEqual(entry.pop("source_run_id"), str(owner.id))
-        self.assertEqual(entries, [json.loads(line) for line in expected_lines])
+        self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_returns_jwt(self):
@@ -8915,7 +8910,7 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        self.assertEqual(len(data), 3)
+        self.assertEqual(data, entries)
         self.assertEqual(response["X-Total-Count"], "3")
         self.assertEqual(response["X-Filtered-Count"], "3")
 
@@ -12310,7 +12305,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         call_kwargs = mock_post.call_args[1]
         self.assertEqual(call_kwargs["json"]["id"], 42)
 
-    @parameterized.expand([("cancel", 600), ("permission_response", 5)])
+    @parameterized.expand([("cancel", 600), ("permission_response", 600)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_uses_command_timeout(self, method, timeout, mock_post):

@@ -3114,8 +3114,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         payload: dict,
         sandbox_token_param: str = "_modal_connect_token",
     ) -> http_requests.Response:
-        from products.tasks.backend.logic.services.agent_command import PERMISSION_COMMAND_TIMEOUT_SECONDS
-
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {connection_token}",
@@ -3136,7 +3134,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             json=payload,
             headers=headers,
             params=params,
-            timeout=PERMISSION_COMMAND_TIMEOUT_SECONDS if payload.get("method") == "permission_response" else 600,
+            timeout=600,
         )
 
     @validated_request(

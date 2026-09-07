@@ -40,7 +40,6 @@ BLOCKED_IP_RANGES = [
 ]
 
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
-PERMISSION_COMMAND_TIMEOUT_SECONDS = 5
 # The provider rejects a turn whose transcript content blocks do not line up
 # ("Content block not found", "Content block is not a thinking block"). The
 # wording changes with the provider, so match the family, not each string.

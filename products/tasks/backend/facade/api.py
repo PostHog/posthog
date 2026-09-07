@@ -1,5 +1,4 @@
 import re
-import json
 import time
 import hashlib
 import logging
@@ -3783,13 +3782,10 @@ def report_task_analysis_activity(
 
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     """Concatenated JSONL logs across the run's resume chain (oldest ancestor first)."""
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
+    log_urls = get_task_run_log_urls(run_id, task_id, team_id)
+    if log_urls is None:
         return None
-    chain = run.get_resume_chain()
-    return read_task_run_log_content(
-        [ancestor.log_url for ancestor in chain], source_run_ids=[str(ancestor.id) for ancestor in chain]
-    )
+    return read_task_run_log_content(log_urls)
 
 
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:
@@ -3813,7 +3809,7 @@ def get_task_run_log_size(log_urls: list[str]) -> int:
     return sum(_TASK_LOG_READ_EXECUTOR.map(_size, log_urls))
 
 
-def read_task_run_log_content(log_urls: list[str], *, source_run_ids: list[str] | None = None) -> str:
+def read_task_run_log_content(log_urls: list[str]) -> str:
     """Concatenated JSONL content for the given log URLs. Storage-only: safe off the request thread."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
@@ -3826,20 +3822,8 @@ def read_task_run_log_content(log_urls: list[str], *, source_run_ids: list[str] 
         )
 
     parts: list[str] = []
-    for index, chunk in enumerate(chunks):
+    for chunk in chunks:
         if chunk:
-            if source_run_ids is not None:
-                lines: list[str] = []
-                for line in chunk.splitlines():
-                    try:
-                        entry = json.loads(line)
-                    except ValueError:
-                        lines.append(line)
-                        continue
-                    if isinstance(entry, dict):
-                        entry["source_run_id"] = source_run_ids[index]
-                    lines.append(json.dumps(entry))
-                chunk = "\n".join(lines)
             if not chunk.endswith("\n"):
                 chunk = chunk + "\n"
             parts.append(chunk)

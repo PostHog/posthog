@@ -2159,14 +2159,17 @@ describe('runStreamLogic', () => {
             ).toEqual(['history', 'live tail'])
         })
 
-        it('drains the seam by content: a frame in both history and the buffered live tail renders once', async () => {
+        test.each([false, true])('deduplicates history without run markers (resumed=%s)', async (resumed) => {
             // The exact keyless-`agent_message` duplication: the same finalized message is delivered
             // live during the fetch AND persisted in the snapshot. The multiset absorbs the live copy.
             let resolveLogs: (value: unknown) => void = () => {}
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
                 new Promise((resolve) => (resolveLogs = resolve)) as any
             )
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'in_progress',
+                state: resumed ? { resume_from_run_id: 'ancestor-run' } : {},
+            } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -2175,7 +2178,7 @@ describe('runStreamLogic', () => {
             const overlap = sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'overlap' } })
             await MockStream.latest().emitMessage(overlap, '9-0')
 
-            resolveLogs([{ ...overlap, source_run_id: 'run-1' }])
+            resolveLogs([overlap])
             await flushPromises()
 
             expect(
@@ -2205,7 +2208,7 @@ describe('runStreamLogic', () => {
             await MockStream.latest().emitMessage(repeated, '1-0')
             await MockStream.latest().emitMessage(repeated, '2-0')
 
-            resolveLogs([{ ...repeated, source_run_id: 'run-1' }])
+            resolveLogs([repeated])
             await flushPromises()
 
             expect(
@@ -3760,32 +3763,44 @@ describe('runStreamLogic', () => {
             expect(captureSpy).toHaveBeenCalledTimes(1)
         })
 
-        test.each(['run-1', 'ancestor-run', undefined])(
-            'restores actionable approvals only from the same run (%s)',
-            async (sourceRunId) => {
+        test.each([
+            ['_posthog/sdk_session', 'run-1', true, true],
+            ['_posthog/run_started', 'run-1', true, true],
+            ['_posthog/sdk_session', 'ancestor-run', true, false],
+            ['_posthog/run_started', 'ancestor-run', true, false],
+            [undefined, undefined, true, false],
+            [undefined, undefined, false, true],
+        ] as const)(
+            'restores approvals using run markers (%s, %s, resumed=%s)',
+            async (method, sourceRunId, resumed, actionable) => {
                 const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
                 jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
-                    {
-                        ...notification('_posthog/permission_request', {
-                            requestId: 'req-1',
-                            toolCall: permissionFrame.toolCall,
-                            options: permissionFrame.options,
-                        }),
-                        source_run_id: sourceRunId,
-                    },
+                    ...(method
+                        ? [
+                              notification(method, {
+                                  [method === '_posthog/sdk_session' ? 'taskRunId' : 'runId']: sourceRunId,
+                              }),
+                          ]
+                        : []),
+                    notification('_posthog/permission_request', {
+                        requestId: 'req-1',
+                        toolCall: permissionFrame.toolCall,
+                        options: permissionFrame.options,
+                    }),
                 ])
-                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                    status: 'in_progress',
+                    state: resumed ? { resume_from_run_id: 'ancestor-run' } : {},
+                } as any)
 
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
                 await flushPromises()
 
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual(
-                    sourceRunId === 'run-1' ? 'req-1' : undefined
-                )
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual(actionable ? 'req-1' : undefined)
                 expect(captureSpy).not.toHaveBeenCalled()
                 logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once' })
                 await flushPromises()
-                expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(sourceRunId === 'run-1' ? 1 : 0)
+                expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(actionable ? 1 : 0)
             }
         )
 

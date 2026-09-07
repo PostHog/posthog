@@ -377,6 +377,29 @@ function isResumeRun(run: { state?: unknown }): boolean {
     return isRecord(state) && typeof state.resume_from_run_id === 'string' && state.resume_from_run_id !== ''
 }
 
+function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): StoredLogEntry[] {
+    // Match Desktop's run-marker scoping without changing the shared log payload or its deduplication keys.
+    // A resume chain without a marker has unknown ownership; a single-run history belongs to its requested run.
+    let sourceRunId: string | undefined = resumed ? undefined : runId
+    return entries.flatMap((raw) => {
+        const entry = normalizeNotificationEntry(raw)
+        if (!entry) {
+            return []
+        }
+        const { method, params } = entry.notification
+        const marker =
+            method === '_posthog/sdk_session'
+                ? params?.taskRunId
+                : method === '_posthog/run_started'
+                  ? params?.runId
+                  : undefined
+        if (typeof marker === 'string') {
+            sourceRunId = marker
+        }
+        return [{ ...entry, source_run_id: sourceRunId }]
+    })
+}
+
 /**
  * Union incoming resource products into the accumulated list by `id`, preserving first-seen order.
  * Pure — mirrors the reference `accumulateSessionResources`. Products without an `id` are skipped.
@@ -912,7 +935,14 @@ function isResumeContextPrompt(text: string): boolean {
  * through. Steady-state live frames after the drain are appended directly and never deduped.
  */
 function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: StoredLogEntry[]): StoredLogEntry[] {
-    const seamKey = (entry: StoredLogEntry): string => JSON.stringify([entry.source_run_id, entry.notification])
+    const seamKey = (entry: StoredLogEntry): string =>
+        JSON.stringify([
+            entry.notification.method === '_posthog/permission_request' ||
+            entry.notification.method === '_posthog/permission_resolved'
+                ? entry.source_run_id
+                : undefined,
+            entry.notification,
+        ])
     const historicalCounts = new Map<string, number>()
     for (const entry of history) {
         const key = seamKey(entry)
@@ -2466,10 +2496,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 const replayEntries = replayResult
                 breakpoint()
                 if (values.log.entries.length === 0) {
-                    replayEntries
-                        .map(normalizeNotificationEntry)
-                        .filter((entry): entry is StoredLogEntry => entry !== null)
-                        .forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+                    normalizeHistory(replayEntries, runId, isResumeRun(replayRun)).forEach((entry) =>
+                        actions.ingestAcpFrame(entry, 'replay')
+                    )
                 }
 
                 if (isTerminalRunStatus(replayRun.status ?? null)) {
@@ -2547,9 +2576,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
 
             // The full resume-chain S3 snapshot — replayed as `replay`, so the projection renders
             // persisted human turns and side-effect telemetry stays suppressed for history.
-            const history = entries
-                .map(normalizeNotificationEntry)
-                .filter((entry): entry is StoredLogEntry => entry !== null)
+            const history = normalizeHistory(entries, runId, isResumeRun(run))
             history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
 
             if (terminal) {
