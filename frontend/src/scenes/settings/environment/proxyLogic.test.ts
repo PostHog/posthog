@@ -178,3 +178,29 @@ describe('proxyLogic — root redirect', () => {
         logic.unmount()
     })
 })
+
+describe('proxyLogic — delete record', () => {
+    it('reloads the records when the delete request fails', async () => {
+        const record = mockProxyRecord()
+        useMocks({
+            get: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
+            },
+            delete: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/`]: () => [500, {}],
+            },
+        })
+        initKeaTests()
+        organizationLogic.mount()
+
+        const logic = proxyLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteRecord(record.id)
+        }).toDispatchActions(['deleteRecordFailure', 'loadRecords'])
+
+        logic.unmount()
+    })
+})

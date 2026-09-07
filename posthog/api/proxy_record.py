@@ -16,6 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -561,6 +562,9 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                         inputs,
                         id=workflow_id,
                         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        # A repeat delete must attach to the deletion already running,
+                        # because the fixed workflow id would otherwise fail the request.
+                        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                     )
                 )
             except Exception as e:
