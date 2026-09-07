@@ -359,6 +359,81 @@ describe('dashboardLogic', () => {
     })
 
     describe('dashboard tile reveal query', () => {
+        it('reloads an empty dashboard when a reveal targets its first created tile', async () => {
+            router.actions.push('/dashboard/12')
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.tiles).toEqual([])
+
+            dashboards[12].tiles.push({ ...TEXT_TILE, id: 42 })
+            const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
+
+            await expectLogic(logic, () => {
+                router.actions.push('/dashboard/12', { highlightTileId: '42' })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    tiles: [expect.objectContaining({ id: 42 })],
+                })
+
+            expect(loadDashboardSpy).toHaveBeenCalledTimes(1)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/dashboard/12', { highlightTileId: '42', unrelated: 'change' })
+            }).toFinishAllListeners()
+            expect(loadDashboardSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.dashboardRevealReadyKey).toBe('12:tile:42')
+        })
+
+        it('uses an active dashboard load as the reveal freshness boundary', async () => {
+            router.actions.push('/dashboard/5')
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            expect(logic.values.dashboardLoading).toBe(true)
+
+            router.actions.push('/dashboard/5', { highlightTileId: String(TEXT_TILE.id) })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDashboardSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.dashboardRevealReadyKey).toBe(`5:tile:${TEXT_TILE.id}`)
+        })
+
+        it('uses the cross-dashboard initial load as the reveal freshness boundary', async () => {
+            router.actions.push('/dashboard/5', { highlightTileId: String(TEXT_TILE.id) })
+            logic = dashboardLogic({ id: 5 })
+            const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
+
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDashboardSpy).toHaveBeenCalledTimes(1)
+            expect(loadDashboardSpy).toHaveBeenCalledWith({ action: DashboardLoadAction.InitialLoad })
+            expect(logic.values.dashboardRevealReadyKey).toBe(`5:tile:${TEXT_TILE.id}`)
+        })
+
+        it('does not refresh or fall back for an invalid explicit tile target', async () => {
+            router.actions.push('/dashboard/5')
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
+
+            await expectLogic(logic, () => {
+                router.actions.push('/dashboard/5', {
+                    highlightTileId: 'invalid',
+                    highlightInsightId: '172',
+                })
+            }).toFinishAllListeners()
+
+            expect(loadDashboardSpy).not.toHaveBeenCalled()
+            expect(logic.values.dashboardRevealReadyKey).toBeNull()
+        })
+
         it('keeps parameter presence separate from a valid positive safe integer', () => {
             router.actions.push('/dashboard/5', { highlightTileId: '42', highlightInsightId: 'legacy-target' })
             logic = dashboardLogic({ id: 5 })
