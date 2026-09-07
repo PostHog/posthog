@@ -217,6 +217,12 @@ fn normalize_entity_type(entity_type: &str) -> &str {
         .unwrap_or(entity_type)
 }
 
+// Unknown types keep their name in the output, so the shape rule keeps free text such as an email out of the `@type` slot.
+fn is_schema_term(entity_type: &str) -> bool {
+    entity_type.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        && entity_type.bytes().any(|byte| byte.is_ascii_alphabetic())
+}
+
 fn entity_types(value: Option<&Value<'_>>) -> Vec<String> {
     let values: Vec<&str> = match value {
         Some(Value::String(value)) => vec![value.as_ref()],
@@ -228,7 +234,8 @@ fn entity_types(value: Option<&Value<'_>>) -> Vec<String> {
         .into_iter()
         .map(normalize_entity_type)
         .filter(|entity_type| {
-            !entity_type.is_empty() && entity_type.encode_utf16().count() <= MAX_JSON_LD_TYPE_LENGTH
+            is_schema_term(entity_type)
+                && entity_type.encode_utf16().count() <= MAX_JSON_LD_TYPE_LENGTH
         })
         .filter(|entity_type| seen.insert(*entity_type))
         .take(MAX_JSON_LD_TYPES)
@@ -248,7 +255,7 @@ fn sanitize_entity_value<'v>(
     if let Some(items) = as_array(value) {
         let sanitized: Vec<Value<'v>> = items
             .iter()
-            .filter_map(|item| sanitize_entity(item, Some(allowed_types), budget))
+            .filter_map(|item| sanitize_entity_value(item, allowed_types, budget))
             .collect();
         return (!sanitized.is_empty()).then_some(Value::Array(Box::new(sanitized)));
     }
@@ -411,7 +418,12 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(contract["schemaVersion"], 1);
+        assert_eq!(
+            contract["limits"]["typePattern"], "^[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*$",
+            "is_schema_term mirrors the published type pattern"
+        );
 
+        // The server has no DOM, so every case runs as if each `@id` fragment is captured.
         for case in contract["cases"].as_array().unwrap() {
             let expected = match &case["expected"] {
                 serde_json::Value::Null => json!({ "tag": "$json_ld" }),
@@ -435,6 +447,37 @@ mod tests {
                 );
             }
         }
+
+        for entity_type in contract["rejectedTypes"].as_array().unwrap() {
+            let input = json!({
+                "@context": "https://schema.org",
+                "@type": entity_type,
+            });
+            assert_eq!(scrub(input), json!({ "tag": "$json_ld" }), "{entity_type}");
+        }
+    }
+
+    #[test]
+    fn keeps_nested_entity_arrays() {
+        let input = json!({
+            "@context": "https://schema.org",
+            "@type": "Product",
+            "offers": [
+                [{ "@type": "Offer", "price": 100, "email": "private@example.com" }],
+                "private"
+            ]
+        });
+        assert_eq!(
+            scrub(input),
+            json!({
+                "tag": "$json_ld",
+                "payload": {
+                    "@context": "https://schema.org",
+                    "@type": "Product",
+                    "offers": [[{ "@type": "Offer", "price": 100 }]]
+                }
+            })
+        );
     }
 
     #[test]
@@ -469,13 +512,6 @@ mod tests {
         );
         assert_eq!(
             scrub(without_name(root("T".repeat(max_type_length + 1), None))),
-            json!({ "tag": "$json_ld" })
-        );
-        assert!(scrub(without_name(root("😀".repeat(50), None)))
-            .get("payload")
-            .is_some());
-        assert_eq!(
-            scrub(without_name(root("😀".repeat(51), None))),
             json!({ "tag": "$json_ld" })
         );
 

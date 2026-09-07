@@ -2,6 +2,7 @@
     "schemaVersion": 1,
     "limits": {
         "maxTypeLength": 100,
+        "typePattern": "^[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*$",
         "maxTypes": 20,
         "maxNodes": 2048,
         "maxSourceLength": 100000,
@@ -188,8 +189,19 @@
         },
         {
             "name": "unsupported type",
-            "types": ["PrivateType", "constructor", "toString", "__proto__"]
+            "types": ["PrivateType", "constructor", "toString"]
         }
+    ],
+    "rejectedTypes": [
+        "__proto__",
+        "patient@example.com",
+        "+44 0000 000000",
+        "Private Name",
+        "https://example.com/vocab#Customer",
+        "ex:Customer",
+        "schema.org/Product",
+        "",
+        "07700900123"
     ],
     "cases": [
         {
@@ -674,6 +686,58 @@
                     "@id": "address-id"
                 }
             ]
+        },
+        {
+            "name": "PII-shaped entity types",
+            "capturedDomIds": [],
+            "input": {
+                "@context": "https://schema.org",
+                "@type": ["Product", "patient@example.com"],
+                "name": "Camera",
+                "offers": [
+                    {
+                        "@type": "Offer",
+                        "price": 100
+                    },
+                    {
+                        "@type": "+44 0000 000000",
+                        "price": 90,
+                        "name": "Private name"
+                    },
+                    {
+                        "@type": "Private Name"
+                    }
+                ],
+                "@graph": [
+                    {
+                        "@type": "https://example.com/vocab#Customer",
+                        "name": "Private name"
+                    },
+                    {
+                        "@type": "ex:Customer",
+                        "ratingValue": 4.5
+                    }
+                ]
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": ["Product"],
+                "name": "Camera",
+                "offers": [
+                    {
+                        "@type": "Offer",
+                        "price": 100
+                    },
+                    {
+                        "price": 90
+                    }
+                ],
+                "@graph": [
+                    {
+                        "ratingValue": 4.5
+                    }
+                ]
+            }
         },
         {
             "name": "schema context without an entity",

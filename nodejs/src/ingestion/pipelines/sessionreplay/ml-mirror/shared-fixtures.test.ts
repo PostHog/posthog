@@ -43,6 +43,7 @@ interface JsonLdContract {
         name: string
         types: string[]
     }>
+    rejectedTypes: string[]
     cases: Array<{
         name: string
         input: unknown
@@ -152,6 +153,17 @@ describeAddon('native rust addon matches the shared fixtures', () => {
                 }
             }
         )
+
+        test('JSON-LD rejected types', async () => {
+            rustAddon!.initAnonymizer({ text: [], url: [] })
+            for (const type of jsonLdContract.rejectedTypes) {
+                const payload = { '@context': 'https://schema.org', '@type': type }
+                const event = { type: 5, data: { tag: '$json_ld', payload } }
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]))
+                expect(result.failed).toBe(false)
+                expect(parseLines(result.lines!)).toEqual(expectedLines('w', [{ type: 5, data: { tag: '$json_ld' } }]))
+            }
+        })
     })
 
     test.each(messageCases.map((c) => [c.name, c] as const))('message: %s', async (_name, c) => {
