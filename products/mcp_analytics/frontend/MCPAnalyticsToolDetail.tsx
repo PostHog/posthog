@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
@@ -31,6 +31,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { formatBucketLabel } from 'lib/utils/timeBuckets'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -54,7 +55,6 @@ import {
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
-import { formatBucketLabel } from './timeBuckets'
 import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
 import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
 
@@ -786,9 +786,11 @@ function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Elemen
                                     {String(r[2])}
                                 </span>
                             ) : (
-                                <span className="text-muted text-xs">
-                                    Not captured (event predates error message capture)
-                                </span>
+                                <Tooltip title="No $mcp_error_message on this event. Check that your MCP server sends it on failed tool calls.">
+                                    <span className="text-muted text-xs whitespace-nowrap">
+                                        Not captured <IconInfo />
+                                    </span>
+                                </Tooltip>
                             ),
                     },
                     {

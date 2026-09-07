@@ -2,20 +2,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    ElementsStatsRetrieveQueryParams,
-    InsightsActivityRetrieveParams,
-    InsightsActivityRetrieveQueryParams,
-    InsightsAllActivityRetrieveQueryParams,
-    InsightsCreateBody,
-    InsightsDestroyParams,
-    InsightsListQueryParams,
-    InsightsPartialUpdateBody,
-    InsightsPartialUpdateParams,
-    InsightsRetrieveParams,
-    InsightsRetrieveQueryParams,
-    InsightsTrendingRetrieveQueryParams,
-} from '@/generated/product_analytics/api'
+import * as orvalSchemas from '@/generated/product_analytics/api'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -210,12 +197,18 @@ const AssistantDataVisualizationNode = z.object({
 
 const InsightQuery = z.union([AssistantInsightVizNode, AssistantDataVisualizationNode])
 
-const ElementsStatsRetrieveSchema = ElementsStatsRetrieveQueryParams
+const ElementsStatsRetrieveSchema = () => {
+    const ElementsStatsRetrieveQueryParams = orvalSchemas.ElementsStatsRetrieveQueryParams()
+    return ElementsStatsRetrieveQueryParams
+}
 
-const elementsStatsRetrieve = (): ToolBase<typeof ElementsStatsRetrieveSchema, Schemas.ElementStatsResponse> => ({
+const elementsStatsRetrieve = (): ToolBase<
+    ReturnType<typeof ElementsStatsRetrieveSchema>,
+    Schemas.ElementStatsResponse
+> => ({
     name: 'elements-stats-retrieve',
-    schema: ElementsStatsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ElementsStatsRetrieveSchema>) => {
+    schema: ElementsStatsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ElementsStatsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ElementStatsResponse>({
             method: 'GET',
@@ -236,25 +229,23 @@ const elementsStatsRetrieve = (): ToolBase<typeof ElementsStatsRetrieveSchema, S
     },
 })
 
-const InsightCreateSchema = InsightsCreateBody.omit({
-    derived_name: true,
-    order: true,
-    deleted: true,
-    _create_in_folder: true,
-}).extend({
-    query: InsightQuery,
-    dashboards: InsightsCreateBody.shape['dashboards'].describe(
-        'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
-    ),
-    description: InsightsCreateBody.shape['description'].describe(
-        'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
-    ),
-})
+const InsightCreateSchema = () => {
+    const InsightsCreateBody = orvalSchemas.InsightsCreateBody()
+    return InsightsCreateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true }).extend({
+        query: InsightQuery,
+        dashboards: InsightsCreateBody.shape['dashboards'].describe(
+            'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
+        ),
+        description: InsightsCreateBody.shape['description'].describe(
+            'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+        ),
+    })
+}
 
-const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Schemas.Insight>> => ({
+const insightCreate = (): ToolBase<ReturnType<typeof InsightCreateSchema>, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-create',
-    schema: InsightCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightCreateSchema>) => {
+    schema: InsightCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -293,15 +284,18 @@ const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Sc
     },
 })
 
-const InsightDeleteSchema = z.preprocess(
-    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
-    InsightsDestroyParams.omit({ project_id: true })
-)
+const InsightDeleteSchema = () => {
+    const InsightsDestroyParams = orvalSchemas.InsightsDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+        InsightsDestroyParams.omit({ project_id: true })
+    )
+}
 
-const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> => ({
+const insightDelete = (): ToolBase<ReturnType<typeof InsightDeleteSchema>, Schemas.Insight> => ({
     name: 'insight-delete',
-    schema: InsightDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightDeleteSchema>) => {
+    schema: InsightDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Insight>({
             method: 'PATCH',
@@ -312,30 +306,34 @@ const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> 
     },
 })
 
-const InsightGetSchema = z.preprocess(
-    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
-    InsightsRetrieveParams.omit({ project_id: true })
-        .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
-        .extend({
-            filters_override: z
-                .union([z.string(), z.record(z.string(), z.unknown())])
-                .optional()
-                .describe(
-                    "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
-                ),
-            variables_override: z
-                .union([z.string(), z.record(z.string(), z.unknown())])
-                .optional()
-                .describe(
-                    'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-                ),
-        })
-)
+const InsightGetSchema = () => {
+    const InsightsRetrieveParams = orvalSchemas.InsightsRetrieveParams()
+    const InsightsRetrieveQueryParams = orvalSchemas.InsightsRetrieveQueryParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+        InsightsRetrieveParams.omit({ project_id: true })
+            .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
+            .extend({
+                filters_override: z
+                    .union([z.string(), z.record(z.string(), z.unknown())])
+                    .optional()
+                    .describe(
+                        "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+                    ),
+                variables_override: z
+                    .union([z.string(), z.record(z.string(), z.unknown())])
+                    .optional()
+                    .describe(
+                        'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+                    ),
+            })
+    )
+}
 
-const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.Insight>> => ({
+const insightGet = (): ToolBase<ReturnType<typeof InsightGetSchema>, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-get',
-    schema: InsightGetSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightGetSchema>) => {
+    schema: InsightGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Insight>({
             method: 'GET',
@@ -359,28 +357,39 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
     },
 })
 
-const InsightUpdateSchema = z.preprocess(
-    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
-    InsightsPartialUpdateParams.omit({ project_id: true })
-        .extend(
-            InsightsPartialUpdateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true })
-                .shape
-        )
-        .extend({
-            query: InsightQuery.optional(),
-            dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
-                'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
-            ),
-            description: InsightsPartialUpdateBody.shape['description'].describe(
-                'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
-            ),
-        })
-)
+const InsightUpdateSchema = () => {
+    const InsightsPartialUpdateBody = orvalSchemas.InsightsPartialUpdateBody()
+    const InsightsPartialUpdateParams = orvalSchemas.InsightsPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+        InsightsPartialUpdateParams.omit({ project_id: true })
+            .extend(
+                InsightsPartialUpdateBody.omit({
+                    derived_name: true,
+                    order: true,
+                    deleted: true,
+                    _create_in_folder: true,
+                }).shape
+            )
+            .extend({
+                query: InsightQuery.optional(),
+                dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
+                    'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
+                ),
+                description: InsightsPartialUpdateBody.shape['description'].describe(
+                    'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+                ),
+            })
+    )
+}
 
-const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithAgentNote<WithPostHogUrl<Schemas.Insight>>> => ({
+const insightUpdate = (): ToolBase<
+    ReturnType<typeof InsightUpdateSchema>,
+    WithAgentNote<WithPostHogUrl<Schemas.Insight>>
+> => ({
     name: 'insight-update',
-    schema: InsightUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightUpdateSchema>) => {
+    schema: InsightUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -422,17 +431,21 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithAgentNote<Wit
     },
 })
 
-const InsightsActivityRetrieveSchema = InsightsActivityRetrieveParams.omit({ project_id: true }).extend(
-    InsightsActivityRetrieveQueryParams.omit({ format: true }).shape
-)
+const InsightsActivityRetrieveSchema = () => {
+    const InsightsActivityRetrieveParams = orvalSchemas.InsightsActivityRetrieveParams()
+    const InsightsActivityRetrieveQueryParams = orvalSchemas.InsightsActivityRetrieveQueryParams()
+    return InsightsActivityRetrieveParams.omit({ project_id: true }).extend(
+        InsightsActivityRetrieveQueryParams.omit({ format: true }).shape
+    )
+}
 
 const insightsActivityRetrieve = (): ToolBase<
-    typeof InsightsActivityRetrieveSchema,
+    ReturnType<typeof InsightsActivityRetrieveSchema>,
     WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
 > => ({
     name: 'insights-activity-retrieve',
-    schema: InsightsActivityRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightsActivityRetrieveSchema>) => {
+    schema: InsightsActivityRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightsActivityRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
             method: 'GET',
@@ -457,15 +470,18 @@ const insightsActivityRetrieve = (): ToolBase<
     },
 })
 
-const InsightsAllActivityRetrieveSchema = InsightsAllActivityRetrieveQueryParams.omit({ format: true })
+const InsightsAllActivityRetrieveSchema = () => {
+    const InsightsAllActivityRetrieveQueryParams = orvalSchemas.InsightsAllActivityRetrieveQueryParams()
+    return InsightsAllActivityRetrieveQueryParams.omit({ format: true })
+}
 
 const insightsAllActivityRetrieve = (): ToolBase<
-    typeof InsightsAllActivityRetrieveSchema,
+    ReturnType<typeof InsightsAllActivityRetrieveSchema>,
     WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
 > => ({
     name: 'insights-all-activity-retrieve',
-    schema: InsightsAllActivityRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightsAllActivityRetrieveSchema>) => {
+    schema: InsightsAllActivityRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightsAllActivityRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
             method: 'GET',
@@ -490,15 +506,21 @@ const insightsAllActivityRetrieve = (): ToolBase<
     },
 })
 
-const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true }).extend({
-    limit: z.preprocess(castStringToInt, InsightsListQueryParams.shape['limit']).optional(),
-    offset: z.preprocess(castStringToInt, InsightsListQueryParams.shape['offset']).optional(),
-})
+const InsightsListSchema = () => {
+    const InsightsListQueryParams = orvalSchemas.InsightsListQueryParams()
+    return InsightsListQueryParams.omit({ format: true, basic: true, refresh: true }).extend({
+        limit: z.preprocess(castStringToInt, InsightsListQueryParams.shape['limit']).optional(),
+        offset: z.preprocess(castStringToInt, InsightsListQueryParams.shape['offset']).optional(),
+    })
+}
 
-const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Schemas.PaginatedInsightList>> => ({
+const insightsList = (): ToolBase<
+    ReturnType<typeof InsightsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedInsightList>
+> => ({
     name: 'insights-list',
-    schema: InsightsListSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightsListSchema>) => {
+    schema: InsightsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedInsightList>({
             method: 'GET',
@@ -558,15 +580,18 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
     },
 })
 
-const InsightsTrendingRetrieveSchema = InsightsTrendingRetrieveQueryParams.omit({ format: true })
+const InsightsTrendingRetrieveSchema = () => {
+    const InsightsTrendingRetrieveQueryParams = orvalSchemas.InsightsTrendingRetrieveQueryParams()
+    return InsightsTrendingRetrieveQueryParams.omit({ format: true })
+}
 
 const insightsTrendingRetrieve = (): ToolBase<
-    typeof InsightsTrendingRetrieveSchema,
+    ReturnType<typeof InsightsTrendingRetrieveSchema>,
     WithPostHogUrl<Schemas.PaginatedTrendingInsightList>
 > => ({
     name: 'insights-trending-retrieve',
-    schema: InsightsTrendingRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof InsightsTrendingRetrieveSchema>) => {
+    schema: InsightsTrendingRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightsTrendingRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTrendingInsightList>({
             method: 'GET',

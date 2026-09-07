@@ -40,6 +40,7 @@ import {
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
+import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -102,6 +103,7 @@ import {
     DashboardTemplateEditorType,
     DashboardTile,
     DashboardTileBasicType,
+    DashboardTileIdOrNew,
     DashboardTileSpacing,
     DashboardType,
     DashboardWidgetType,
@@ -115,7 +117,9 @@ import {
     TileLayout,
 } from '~/types'
 
+import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
+import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -134,7 +138,6 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
-import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -143,6 +146,7 @@ import {
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
+    dashboardFilterOverrideChangesFilters,
     encodeURLFilters,
     encodeURLVariables,
     getDashboardWidgetType,
@@ -210,6 +214,11 @@ export interface PendingInsertion {
     w: number | null
 }
 
+function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew {
+    const parsedTileId = Number(tileId)
+    return Number.isNaN(parsedTileId) ? null : parsedTileId
+}
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -273,7 +282,7 @@ export interface dashboardLogicValues {
     blockRefresh: boolean
     breadcrumbs: Breadcrumb[]
     breakdownValuesIncomplete: boolean
-    buttonTileId: number | 'new' | null
+    buttonTileId: DashboardTileIdOrNew
     canAutoPreview: boolean
     canEditDashboard: boolean
     canRestrictDashboard: boolean
@@ -355,6 +364,7 @@ export interface dashboardLogicValues {
     shouldUseStreaming: boolean
     showApplyFiltersBanner: boolean
     showButtonTileModal: boolean
+    showImageTileModal: boolean
     showRetentionBanner: boolean
     showSubscriptions: boolean
     showTextTileModal: boolean
@@ -367,7 +377,7 @@ export interface dashboardLogicValues {
         themeId: number | null
     } | null
     terraformModalOpen: boolean
-    textTileId: number | 'new' | null
+    textTileId: DashboardTileIdOrNew
     textTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     urlFilters: DashboardFilter
@@ -600,6 +610,15 @@ export interface dashboardLogicActions {
     openAddInsightModal: () => {
         value: true
     }
+    openButtonTileModal: () => {
+        value: true
+    }
+    openImageTileModal: () => {
+        value: true
+    }
+    openTextTileModal: () => {
+        value: true
+    }
     overrideVariableValue: (
         variableId: string,
         value: any,
@@ -730,8 +749,8 @@ export interface dashboardLogicActions {
     setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => {
         breakdown_filter: BreakdownFilter | null
     }
-    setButtonTileId: (buttonTileId: number | 'new' | null) => {
-        buttonTileId: number | 'new' | null
+    setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
+        buttonTileId: DashboardTileIdOrNew
     }
     setDashboardCustomizeMenuOpen: (open: boolean) => {
         open: boolean
@@ -858,8 +877,8 @@ export interface dashboardLogicActions {
     setTerraformModalOpen: (open: boolean) => {
         open: boolean
     }
-    setTextTileId: (textTileId: number | 'new' | null) => {
-        textTileId: number | 'new' | null
+    setTextTileId: (textTileId: DashboardTileIdOrNew) => {
+        textTileId: DashboardTileIdOrNew
     }
     setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => {
         tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
@@ -1014,7 +1033,11 @@ export interface dashboardLogicMeta {
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => boolean
         hasIntermittentFilters: (intermittentFilters: DashboardFilter) => boolean
-        hasUrlFilters: (urlFilters: DashboardFilter) => boolean
+        hasUrlFilters: (
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            externalFilters: DashboardFilter,
+            urlFilters: DashboardFilter
+        ) => boolean
         showApplyFiltersBanner: (canAutoPreview: boolean, hasIntermittentFilters: boolean) => boolean
         urlFilters: (searchParams: Record<string, any>) => DashboardFilter
         filtersOverrideForLoad: (externalFilters: DashboardFilter, urlFilters: DashboardFilter) => DashboardFilter
@@ -1405,9 +1428,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             toDashboard,
             toDashboardName,
         }),
-        setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
-        setButtonTileId: (buttonTileId: number | 'new' | null) => ({ buttonTileId }),
+        setTextTileId: (textTileId: DashboardTileIdOrNew) => ({ textTileId }),
+        setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => ({ buttonTileId }),
         openAddInsightModal: true,
+        openTextTileModal: true,
+        openImageTileModal: true,
+        openButtonTileModal: true,
         setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
 
         /**
@@ -2065,6 +2091,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // A bare PATCH (rename, display-option persist) doesn't recompute the insight, so
                     // its response carries `result: null` and stale-but-empty cache metadata. Keep the
                     // tile's already-computed chart data instead of blanking it into "Chart data didn't load".
+                    // SQL insights draw from `columns` and `types` rather than `result`, so those have to
+                    // survive the merge too or the tile loses the columns it picks its axes from.
                     const existing = tiles[tileIndex].insight as QueryBasedInsightModel
                     tiles[tileIndex] = {
                         ...tiles[tileIndex],
@@ -2073,6 +2101,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             ...item,
                             result: item.result ?? existing.result,
                             last_refresh: item.last_refresh ?? existing.last_refresh,
+                            columns: item.columns ?? existing.columns,
+                            types: item.types ?? existing.types,
                         },
                     }
 
@@ -2290,12 +2320,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 setTextTileId: (_, { textTileId }) => !!textTileId,
+                openTextTileModal: () => true,
+            },
+        ],
+        showImageTileModal: [
+            false,
+            {
+                openImageTileModal: () => true,
+                setTextTileId: () => false,
             },
         ],
         textTileId: [
-            null as number | 'new' | null,
+            null as DashboardTileIdOrNew,
             {
                 setTextTileId: (_, { textTileId }) => textTileId,
+                openTextTileModal: () => null,
             },
         ],
 
@@ -2303,12 +2342,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 setButtonTileId: (_, { buttonTileId }) => !!buttonTileId,
+                openButtonTileModal: () => true,
             },
         ],
         buttonTileId: [
-            null as number | 'new' | null,
+            null as DashboardTileIdOrNew,
             {
                 setButtonTileId: (_, { buttonTileId }) => buttonTileId,
+                openButtonTileModal: () => null,
             },
         ],
 
@@ -2549,7 +2590,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // An override that constrains nothing still has keys — clearing the last property filter leaves
         // `{"properties":[]}` in the URL. Counting keys reads that as an active override, so the dashboard
         // announces overrides while showing exactly its saved state.
-        hasUrlFilters: [(s) => [s.urlFilters], (urlFilters: DashboardFilter) => !isDashboardFilterEmpty(urlFilters)],
+        hasUrlFilters: [
+            (s) => [s.dashboard, s.externalFilters, s.urlFilters],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                externalFilters: DashboardFilter,
+                urlFilters: DashboardFilter
+            ) =>
+                dashboardFilterOverrideChangesFilters(
+                    urlFilters,
+                    combineDashboardFilters(dashboard?.persisted_filters || {}, externalFilters)
+                ),
+        ],
         showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
             (canAutoPreview: boolean, hasIntermittentFilters: boolean) => !canAutoPreview && hasIntermittentFilters,
@@ -3424,13 +3476,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.updateLayouts({ ...values.layouts, sm: newSmLayout })
 
             // The inline insert has now landed at the line — report it (outcome, vs the option-clicked intent).
-            const insertedTileType = newTile.text
-                ? 'text_card'
-                : newTile.button_tile
-                  ? 'button'
-                  : newTile.widget
-                    ? 'widget'
-                    : 'insight'
+            const insertedTileType = (() => {
+                switch (getDashboardWidgetType(newTile)) {
+                    case 'text':
+                        return getImageOnlyTextCardImage(textCardConverter, newTile.text!.body) ? 'image' : 'text_card'
+                    case 'button_tile':
+                        return 'button'
+                    case 'widget':
+                        return 'widget'
+                    case 'insight':
+                        return 'insight'
+                }
+            })() satisfies DashboardAddTileType
             eventUsageLogic.actions.reportDashboardTileInsertedInline(
                 insertedTileType,
                 props.id,
@@ -4787,7 +4844,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4806,7 +4867,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4827,7 +4892,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4846,7 +4915,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4865,7 +4938,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4884,7 +4961,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
                 currentLocation.hashParams,
             ]
         },
@@ -4959,12 +5040,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
 
-        '/dashboard/:id': () => {
+        '/dashboard/:id': (_params, searchParams) => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             actions.setButtonTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
                 actions.setDashboardMode(null, DashboardEventSource.Browser)
+            }
+            switch (searchParams.tileType) {
+                case 'text':
+                    actions.openTextTileModal()
+                    break
+                case 'image':
+                    actions.openImageTileModal()
+                    break
+                case 'button':
+                    actions.openButtonTileModal()
+                    break
             }
         },
         '/dashboard/:id/sharing': () => {
@@ -4973,19 +5065,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setButtonTileId(null)
             actions.setDashboardMode(DashboardMode.Sharing, DashboardEventSource.Browser)
         },
-        '/dashboard/:id/text-tiles/:textTileId': ({ textTileId }) => {
+        '/dashboard/:id/tiles/:tileId': ({ tileId }) => {
             actions.setSubscriptionMode(false, undefined)
             actions.setDashboardMode(null, DashboardEventSource.Browser)
-            actions.setButtonTileId(null)
-            actions.setTextTileId(textTileId === undefined ? 'new' : textTileId !== 'new' ? Number(textTileId) : 'new')
-        },
-        '/dashboard/:id/button-tiles/:buttonTileId': ({ buttonTileId }) => {
-            actions.setSubscriptionMode(false, undefined)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
-            actions.setTextTileId(null)
-            actions.setButtonTileId(
-                buttonTileId === undefined ? 'new' : buttonTileId !== 'new' ? Number(buttonTileId) : 'new'
-            )
+            const parsedTileId = parseDashboardTileId(tileId)
+            actions.setTextTileId(parsedTileId)
+            actions.setButtonTileId(parsedTileId)
         },
     })),
 ])

@@ -53,6 +53,9 @@ export function useTrackInboxViewed(options?: { enabled?: boolean }): void {
           priorityFilter,
           searchQuery,
           scope: inboxReviewerScopeValue(scope),
+          // The legacy tabbed inbox has no report-state filter control.
+          reportStateFilter: [],
+          defaultReportStateFilter: [],
         },
       }),
     );

@@ -8,8 +8,6 @@ from django.db import models
 import structlog
 from temporalio import activity
 
-from posthog.helpers.slack_scopes import has_scopes
-from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.attachments import (
     PreparedSlackAttachments,
     build_slack_attachment_prompt_text,
@@ -20,6 +18,7 @@ from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.services.slack_messages import context_block, post_slack_thread_reply, thread_permalink
 
 logger = structlog.get_logger(__name__)
@@ -34,18 +33,6 @@ _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
-
-# Slack scopes the canvas/file living-artifact adapters check at delivery time.
-_SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
-_SLACK_ARTIFACT_DELIVERY_KEY = "slack_artifact_delivery"
-_SLACK_ARTIFACT_DELIVERY_MESSAGE = "message"
-_SLACK_ARTIFACT_DELIVERY_CANVAS_FILE = "canvas_file"
-# Charts are a second key rather than a fourth mode: an agent build that predates them
-# ignores an unknown key and still renders the mode it knows, whereas an unknown *mode*
-# matches nothing and drops the delivery constraints entirely. The agent ships as a
-# published package baked into the sandbox image, so it can lag a backend deploy.
-_SLACK_CHART_DELIVERY_KEY = "slack_chart_delivery"
-
 
 # Cap on how many messages a single follow-up update block can carry. Threads with
 # hundreds of intervening messages between interactions are an edge case (a chatty
@@ -119,24 +106,6 @@ def _indent_body(text: str, indent: str = "  ") -> str:
     lines) gives the same rendering and removes a custom loop to reason about.
     """
     return textwrap.indent(text, indent)
-
-
-def _artifact_delivery_state_updates(integration: Integration) -> dict[str, Any]:
-    """Run state telling the agent which Slack delivery routes this workspace has.
-
-    The agent turns these into its delivery constraints, so the wording lives with the
-    agent and the gating stays here. Canvas and file delivery needs the Slack scopes the
-    adapters write with, so that the agent is never invited to create an artifact
-    delivery would reject. Charts need no scope: they post as an image block referencing
-    a PostHog-hosted url, which needs no upload and so no ``files:write`` — a workspace
-    still missing the adapter scopes can still deliver charts. Resolved when the run is
-    created, before the sandbox boots and reads the state.
-    """
-    if has_scopes(integration, _SLACK_CANVAS_FILE_ADAPTER_SCOPES):
-        mode = _SLACK_ARTIFACT_DELIVERY_CANVAS_FILE
-    else:
-        mode = _SLACK_ARTIFACT_DELIVERY_MESSAGE
-    return {_SLACK_ARTIFACT_DELIVERY_KEY: mode, _SLACK_CHART_DELIVERY_KEY: True}
 
 
 def _uploaded_attachment_ids(uploaded_artifacts: list[dict[str, Any]]) -> list[str]:
@@ -640,7 +609,9 @@ def create_posthog_code_task_for_repo_activity(
 
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    run_prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    run_prefs = resolve_run_preferences(
+        integration, slack_user_id, override=model_override, team_id=integration.team_id, user_id=user_id
+    )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
@@ -752,7 +723,7 @@ def create_posthog_code_task_for_repo_activity(
         state_updates: dict[str, Any] = {
             "slack_mention_workflow_id": derive_mention_workflow_id(inputs),
             **_slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id),
-            **_artifact_delivery_state_updates(integration),
+            **slack_artifact_delivery_state_updates(integration),
         }
         if repo_research_task_id and repo_research_run_id:
             state_updates["repo_research_task_id"] = repo_research_task_id
@@ -1135,6 +1106,9 @@ def _run_preference_state(
     integration: Any,
     slack_user_id: str,
     model_override: SlackAppModelOverride | None,
+    *,
+    team_id: int | None = None,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """The run-state keys that pin a new run's harness, model and effort.
 
@@ -1145,7 +1119,9 @@ def _run_preference_state(
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
     from products.tasks.backend.facade.run_config import get_provider_for_runtime_adapter
 
-    prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    prefs = resolve_run_preferences(
+        integration, slack_user_id, override=model_override, team_id=team_id, user_id=user_id
+    )
     provider = get_provider_for_runtime_adapter(prefs.runtime_adapter) if prefs.runtime_adapter else None
     state = {
         "runtime_adapter": prefs.runtime_adapter,
@@ -1289,7 +1265,7 @@ def _resume_task_with_new_run(
         **_slack_actor_state_updates(user_id=run_actor.id, slack_user_id=slack_user_id),
         # Resolved again rather than carried over: the flags or the install's scopes can
         # have changed since the run this one continues.
-        **_artifact_delivery_state_updates(integration),
+        **slack_artifact_delivery_state_updates(integration),
     }
 
     previous_state = previous_run.state or {}
@@ -1309,7 +1285,11 @@ def _resume_task_with_new_run(
     # including the runtime a live run could never be moved onto. Resolved rather than
     # carried over, like the keys above: a preference changed since the previous run is
     # picked up too.
-    extra_state.update(_run_preference_state(integration, slack_user_id, model_override))
+    extra_state.update(
+        _run_preference_state(
+            integration, slack_user_id, model_override, team_id=mapping.task.team_id, user_id=run_actor.id
+        )
+    )
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
@@ -1339,7 +1319,12 @@ def _resume_task_with_new_run(
     extra_state["slack_mention_workflow_id"] = derive_mention_workflow_id(inputs)
 
     try:
-        new_run = tasks_facade.create_run(mapping.task_id, mode="interactive", extra_state=extra_state)
+        # The replying user, not the task creator: the safety-net default resolution and
+        # its gated-model entitlement check inside `create_run` must run against whoever
+        # launches this follow-up.
+        new_run = tasks_facade.create_run(
+            mapping.task_id, mode="interactive", extra_state=extra_state, acting_user_id=run_actor.id
+        )
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",

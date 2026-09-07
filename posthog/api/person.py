@@ -46,6 +46,8 @@ from posthog.constants import LIMIT, OFFSET
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.properties_timeline import PropertiesTimeline
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -69,8 +71,6 @@ from posthog.models.person.util import (
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
@@ -1292,7 +1292,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"], distinct_id_limit=0)
         if person is None:
             raise NotFound()
-        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team.pk)
+        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team)
 
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)

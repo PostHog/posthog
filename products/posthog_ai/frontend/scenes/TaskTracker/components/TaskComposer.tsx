@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 
 import {
     Composer,
@@ -31,11 +32,20 @@ import { RepositorySelector } from './RepositorySelector'
 export function TaskComposer(): JSX.Element {
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
-    const { newTaskData, isSubmittingTask, activeSuggestionGroup, displayHeadline, consentBlocked } =
-        useValues(taskTrackerSceneLogic)
+    const {
+        newTaskData,
+        isSubmittingTask,
+        activeSuggestionGroup,
+        displayHeadline,
+        consentBlocked,
+        displayModel,
+        displayEffort,
+        isDefaultSelection,
+        // Permission modes belong to the harness, so they follow the model actually shown — the
+        // server-resolved default's own runtime when nothing is picked, the pick's otherwise.
+        composerAdapter,
+    } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
-    // Permission modes belong to the harness, so they follow the picked model.
-    const composerAdapter = getRuntimeAdapterForModel(catalogue, newTaskData.model)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
@@ -106,8 +116,9 @@ export function TaskComposer(): JSX.Element {
                                     />
                                     <ComposerModelEffortPickers
                                         models={catalogue}
-                                        selectedModel={newTaskData.model}
-                                        selectedEffort={newTaskData.reasoningEffort}
+                                        selectedModel={displayModel}
+                                        selectedEffort={displayEffort}
+                                        isDefaultSelection={isDefaultSelection}
                                         onModelChange={(model) =>
                                             setNewTaskData({
                                                 model,
@@ -126,6 +137,14 @@ export function TaskComposer(): JSX.Element {
                                             })
                                         }
                                         onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
+                                        // Clearing both pins is what hands the choice back to the resolved
+                                        // default — submit then omits the triple entirely.
+                                        onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
+                                        onOpenDefaultSettings={() =>
+                                            router.actions.push(
+                                                urls.settings('environment-task-agents', 'task-agent-my-preference')
+                                            )
+                                        }
                                     />
                                 </Composer.Footer>
                             </Composer.Frame>

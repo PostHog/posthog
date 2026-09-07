@@ -34,6 +34,16 @@ export function usageLimitContent(args: {
     };
   }
 
+  if (cause === "model_unavailable") {
+    return {
+      title: "This model isn't available",
+      description:
+        "It's in preview and isn't turned on for your account yet. Pick another model to keep going.",
+      actionLabel: null,
+      dismissLabel: "Got it",
+    };
+  }
+
   if (cause === "org_limit") {
     if (!canManageBilling) {
       return {

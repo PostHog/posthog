@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { buildIntegerMatcher } from '~/common/config/config'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -41,6 +42,7 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { PersonOutputs } from './person-context'
+import { PostgresMergePolicy, PostgresPersonMerge } from './person-merge-postgres'
 import {
     EventOps,
     applyEventPropertyUpdates,
@@ -48,7 +50,7 @@ import {
     getMetricKey,
     refineEventOps,
 } from './person-update'
-import { FlushResult, PersonsStore } from './persons-store'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
 type MethodName =
@@ -110,6 +112,12 @@ export interface BatchWritingPersonsStoreOptions {
      * always wants a positive interval).
      */
     metricEmissionIntervalMs: number
+    /** Teams on the new-world merge behavior (lifecycle-mark claims plus tombstone deletes); '*' for all. */
+    mergeTombstoneTeamAllowlist: string
+    /** Gate, partition count, and team allowlist ('*' for all) for the cross-partition merge-event producer. */
+    mergeEventsEnabled: boolean
+    mergeEventsPartitionCount: number
+    mergeEventsTeamAllowlist: string
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
@@ -120,6 +128,10 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     optimisticUpdateRetryInterval: 50,
     updateAllProperties: false,
     metricEmissionIntervalMs: 30_000,
+    mergeTombstoneTeamAllowlist: '',
+    mergeEventsEnabled: false,
+    mergeEventsPartitionCount: 64,
+    mergeEventsTeamAllowlist: '',
 }
 
 interface CacheMetrics {
@@ -527,6 +539,8 @@ class BatchBoundPersonsCache {
  * remaining dirty entries.
  */
 export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore {
+    readonly backend = 'postgres' as const
+
     private personCache: BatchWritingPersonsCache
     private fetchPromisesForUpdate: Map<string, Promise<InternalPerson | null>>
     private fetchPromisesForChecking: Map<string, Promise<InternalPerson | null>>
@@ -534,6 +548,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private databaseOperationCountsPerDistinctId: Map<string, Map<MethodName, number>>
     private updateLatencyPerDistinctIdSeconds: Map<string, Map<UpdateType, number>>
     private options: BatchWritingPersonsStoreOptions
+    private mergePolicy: PostgresMergePolicy
     // Periodic metric emitter — emits accumulated per-distinct_id metrics on
     // a fixed cadence rather than at batch boundaries (which are unreliable
     // under concurrentBatches > 1).
@@ -545,6 +560,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
+        this.mergePolicy = {
+            updateAllProperties: this.options.updateAllProperties,
+            isTombstoneTeam: buildIntegerMatcher(this.options.mergeTombstoneTeamAllowlist, true),
+            mergeEvents: {
+                enabled: this.options.mergeEventsEnabled,
+                partitionCount: this.options.mergeEventsPartitionCount,
+                isTeamEnabled: buildIntegerMatcher(this.options.mergeEventsTeamAllowlist, true),
+            },
+        }
         this.personCache = new BatchWritingPersonsCache()
         Object.defineProperties(this, {
             personUpdateCache: { get: () => this.personCache.getUpdateCache() },
@@ -1419,6 +1443,20 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             forceUpdate
         )
         return Promise.resolve([updatedPerson, kafkaMessages, false])
+    }
+
+    /**
+     * The Postgres backend's merge, run by PostgresPersonMerge against
+     * this store's own verbs and transactions.
+     */
+    mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
+        return new PostgresPersonMerge(
+            this,
+            this.ingestionWarningsOutputs,
+            this.mergePolicy,
+            request,
+            batchId
+        ).execute()
     }
 
     async deletePerson(
