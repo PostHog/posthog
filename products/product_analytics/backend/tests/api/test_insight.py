@@ -709,13 +709,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_listing_an_insight_with_only_filters_serves_them(self, _name: str, query_string: str) -> None:
         # `unique_users` is not a math value the query schema accepts, so this definition cannot be
         # expressed as a query at all. Reading it used to raise out of the serializer and fail the
-        # whole list request. The stored object also has no `insight` key, which the client's
-        # converter requires, so the response has to supply one.
+        # whole list request.
+        stored_filters = {"events": [{"id": "$pageview", "math": "unique_users"}]}
         Insight.objects.create(
             team=self.team,
             saved=True,
             short_id="brokenfl",
-            filters={"events": [{"id": "$pageview", "math": "unique_users"}]},
+            filters=stored_filters,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl{query_string}")
@@ -723,8 +723,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         result = response.json()["results"][0]
         self.assertIsNone(result["query"])
-        self.assertEqual(result["filters"]["insight"], "TRENDS")
-        self.assertEqual(result["filters"]["events"][0]["math"], "unique_users")
+        # The stored definition survives the read, and the absent `insight` key is not filled in:
+        # the client's converter defaults it, the same way the server's converter does.
+        self.assertEqual(result["filters"]["events"], stored_filters["events"])
+        self.assertNotIn("insight", result["filters"])
 
     @parameterized.expand(
         [

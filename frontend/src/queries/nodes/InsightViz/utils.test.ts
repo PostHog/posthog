@@ -57,12 +57,16 @@ describe('getQueryBasedInsightModel', () => {
         expect(result.dashboards).toEqual(expected)
     })
 
-    it('converts stored filters when the insight has no query', () => {
+    it.each([
+        ['converts stored filters when the insight has no query', InsightType.TRENDS],
+        ['reads a filter object with no insight type as trends', undefined],
+    ])('%s', (_name, insightType) => {
         // Insights written before queries are served as `filters` with a null `query`, and this
-        // conversion is the only thing that renders them.
+        // conversion is the only thing that renders them. A stored object can omit the type, which
+        // the server's converter also reads as trends.
         const result = getQueryBasedInsightModel({
             query: null,
-            filters: { insight: InsightType.TRENDS, events: [{ id: '$pageview' }] },
+            filters: { insight: insightType, events: [{ id: '$pageview' }] },
         } as Partial<InsightModel>)
 
         expect(result.query).toMatchObject({
