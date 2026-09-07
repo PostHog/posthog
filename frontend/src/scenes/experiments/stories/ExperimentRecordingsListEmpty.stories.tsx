@@ -1,10 +1,7 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { screen, waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
-import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +12,10 @@ import type { MockSignature } from '~/mocks/utils'
 // One story per empty reason: the copy is the feature, and a screenshot is the only way to check
 // that each reason reads as its own answer. The default session_recordings handler returns an empty
 // page, so every story here lands on the empty state.
+//
+// `replay_disabled` is the exception and has no story. `teamLogic` takes the team from the app
+// context, and it holds on to the value replay is on whatever a story does to the context or to the
+// endpoint, so the scene cannot be put in that state here. The unit test asserts that copy instead.
 const EXPERIMENT_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/`
 const SESSION_BUCKETS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_buckets/`
 
@@ -104,25 +105,20 @@ export const ExperimentRecordingsEmptyEndedPastRetention: Story = {
     ],
 }
 
-export const ExperimentRecordingsEmptyReplayDisabled: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: false },
-                '/api/environments/@current/': { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: false },
-                '/api/projects/@current/': { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: false },
-            },
-        }),
-    ],
-}
-
 /** The two metric-filter reasons need the filter switched on, which only the menu can do. */
 const pickFiredNone: Story['play'] = async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await makeDelay(700)()
-    await userEvent.click(canvas.getByTestId('experiment-recordings-metric-filter'))
-    await userEvent.click(await canvas.findByText('Fired none'))
-    await makeDelay(700)()
+    // Storybook leaves testing-library's test id attribute at its default, unlike jest and
+    // Playwright, so the trigger's `data-attr` has to be matched as a plain attribute.
+    const trigger = await waitFor(() => {
+        const button = canvasElement.querySelector<HTMLElement>('[data-attr="experiment-recordings-metric-filter"]')
+        if (!button) {
+            throw new Error('Metric filter not yet rendered')
+        }
+        return button
+    })
+    await userEvent.click(trigger)
+    // The menu content is a portal outside the canvas, so this searches the whole document.
+    await userEvent.click(await screen.findByText('Fired none'))
 }
 
 export const ExperimentRecordingsEmptyMetricFilterMatchedNothing: Story = {
