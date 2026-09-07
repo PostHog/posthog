@@ -10,6 +10,7 @@ gating, widening) where the arithmetic is cheap and unit-testable.
 """
 
 import os
+import math
 import datetime as dt
 from zoneinfo import ZoneInfo
 
@@ -44,6 +45,11 @@ MAX_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_SERIES", "100"))
 # aligned with the weekly fold, and 5 is the bucket size of logs_volume_buckets.
 INTERVAL_LADDER_MINUTES = (5, 15, 30, 60)
 MAX_BUCKETS_PER_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_BUCKETS_PER_SERIES", "500"))
+# A series' lifetime starts at the first slot followed by sustained traffic: at
+# least this fraction of the week's slots after it are non-empty. A stray row
+# weeks before the real start would otherwise date the lifetime and turn every
+# empty week between them into a baseline of zeros.
+ALIVE_SLOT_FRACTION = float(os.environ.get("LOGS_SERIES_BANDS_ALIVE_SLOT_FRACTION", "0.2"))
 # Widening keeps the envelope from reading as a hairline on quiet series: the
 # fraction scales both edges, the floor lifts the upper edge by a per-hour
 # count so a band exists even where every baseline week saw the same value.
@@ -111,7 +117,7 @@ class _SlotRow:
     baseline_samples: int
     baseline_min: int
     baseline_max: int
-    earliest_slot: dt.datetime
+    lifetime_start: dt.datetime
 
 
 def floor_to_interval(value: dt.datetime, interval_minutes: int) -> dt.datetime:
@@ -127,34 +133,32 @@ def fetch_series_slot_rows(
     interval_minutes: int,
 ) -> dict[_SeriesKey, list[_SlotRow]]:
     """One ClickHouse pass: interval rollup over the window plus baseline, folded
-    by time-of-week onto the display window's slots.
+    by time-of-week onto the display window's slots, plus each series' lifetime
+    start.
 
     Rows are sparse — a (series, slot) with no observed and no baseline data has
     no row. Missing baseline weeks are reconstructed in Python from
-    baseline_samples vs the weeks the series existed."""
+    baseline_samples vs the weeks the series existed. Baseline samples only
+    count slots at or after the lifetime start, so a stray row before it never
+    reaches the envelope."""
     tag_queries(product=Product.LOGS, feature=Feature.QUERY, source="logs_series_bands", team_id=str(team.id))
 
     baseline_start = window_start - dt.timedelta(weeks=BASELINE_WEEKS)
+    alive_slots = max(1, math.ceil(ALIVE_SLOT_FRACTION * SECONDS_PER_WEEK / (interval_minutes * 60)))
     # The series cap ranks over the whole 42d, not the display window: a series
     # that went silent this week has zero window volume, and ranking on the
     # window alone would drop exactly the series a silence should surface. The
     # subquery fetches one series past the cap so the caller can tell a full
     # response from a truncated one.
+    #
+    # The lifetime start is the first non-empty slot with at least alive_slots
+    # non-empty slots inside the week that starts at it. Over the sorted slot
+    # times that is the first index i where slot i + alive_slots - 1 still sits
+    # inside a week of slot i. arrayFirst yields 0 when no index qualifies, and
+    # slot_times[0] is 0, which the caller reads as no lifetime start.
     query = parse_select(
         """
-        SELECT
-            namespace,
-            environment,
-            severity_text,
-            {window_start} + toIntervalSecond(
-                (toUnixTimestamp(slot) - toUnixTimestamp({window_start}) + {baseline_seconds}) % {week_seconds}
-            ) AS target_time,
-            sumIf(slot_count, slot >= {window_start}) AS observed,
-            countIf(slot < {window_start}) AS baseline_samples,
-            minIf(slot_count, slot < {window_start}) AS baseline_min,
-            maxIf(slot_count, slot < {window_start}) AS baseline_max,
-            min(slot) AS earliest_slot
-        FROM (
+        WITH slots AS (
             SELECT
                 namespace,
                 environment,
@@ -176,8 +180,40 @@ def fetch_series_slot_rows(
                     LIMIT {max_series_plus_probe}
                 )
             GROUP BY namespace, environment, severity_text, slot
+        ),
+        lifetimes AS (
+            SELECT
+                namespace,
+                environment,
+                severity_text,
+                arraySort(groupArray(toUnixTimestamp(slot))) AS slot_times,
+                arrayFirst(
+                    i -> i + {alive_slots} - 1 <= length(slot_times)
+                        AND slot_times[i + {alive_slots} - 1] - slot_times[i] < {week_seconds},
+                    arrayEnumerate(slot_times)
+                ) AS alive_index,
+                slot_times[alive_index] AS lifetime_start
+            FROM slots
+            GROUP BY namespace, environment, severity_text
         )
-        GROUP BY namespace, environment, severity_text, target_time
+        SELECT
+            slots.namespace AS namespace,
+            slots.environment AS environment,
+            slots.severity_text AS severity_text,
+            {window_start} + toIntervalSecond(
+                (toUnixTimestamp(slots.slot) - toUnixTimestamp({window_start}) + {baseline_seconds}) % {week_seconds}
+            ) AS target_time,
+            sumIf(slots.slot_count, slots.slot >= {window_start}) AS observed,
+            countIf(slots.slot < {window_start} AND toUnixTimestamp(slots.slot) >= lifetimes.lifetime_start) AS baseline_samples,
+            minIf(slots.slot_count, slots.slot < {window_start} AND toUnixTimestamp(slots.slot) >= lifetimes.lifetime_start) AS baseline_min,
+            maxIf(slots.slot_count, slots.slot < {window_start} AND toUnixTimestamp(slots.slot) >= lifetimes.lifetime_start) AS baseline_max,
+            lifetimes.lifetime_start AS lifetime_start
+        FROM slots
+        INNER JOIN lifetimes
+            ON slots.namespace = lifetimes.namespace
+            AND slots.environment = lifetimes.environment
+            AND slots.severity_text = lifetimes.severity_text
+        GROUP BY namespace, environment, severity_text, target_time, lifetime_start
         LIMIT {row_limit}
         """,
         placeholders={
@@ -188,6 +224,7 @@ def fetch_series_slot_rows(
             "interval": ast.Call(name="toIntervalMinute", args=[ast.Constant(value=interval_minutes)]),
             "baseline_seconds": ast.Constant(value=BASELINE_WEEKS * SECONDS_PER_WEEK),
             "week_seconds": ast.Constant(value=SECONDS_PER_WEEK),
+            "alive_slots": ast.Constant(value=alive_slots),
             "max_series_plus_probe": ast.Constant(value=MAX_SERIES + 1),
             "row_limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
         },
@@ -212,6 +249,12 @@ def fetch_series_slot_rows(
     rows: dict[_SeriesKey, list[_SlotRow]] = {}
     for row in response.results:
         key = _SeriesKey(namespace=row[0], environment=row[1], severity=row[2])
+        lifetime_start_ts = int(row[8])
+        # A series with no sustained traffic yet is dated from the window start,
+        # so it reports as learning with band_ready_at ahead of the window.
+        lifetime_start = (
+            dt.datetime.fromtimestamp(lifetime_start_ts, tz=dt.UTC) if lifetime_start_ts > 0 else window_start
+        )
         rows.setdefault(key, []).append(
             _SlotRow(
                 target_time=ensure_utc(row[3]),
@@ -219,37 +262,39 @@ def fetch_series_slot_rows(
                 baseline_samples=int(row[5]),
                 baseline_min=int(row[6]),
                 baseline_max=int(row[7]),
-                earliest_slot=ensure_utc(row[8]),
+                lifetime_start=lifetime_start,
             )
         )
     return rows
 
 
-def _baseline_weeks_available(later: dt.datetime, earliest_slot: dt.datetime) -> int:
+def _baseline_weeks_available(later: dt.datetime, lifetime_start: dt.datetime) -> int:
     """Whole weeks of series lifetime before `later`, capped at the baseline depth.
 
-    Against the window start this is the series' maturity; against one display
-    slot it is how many of that slot's weekly samples carry information. A week
-    whose sample slot predates the series says nothing; a week inside the
-    lifetime with no row was a real zero.
+    The lifetime starts at the first slot followed by sustained traffic, not at
+    the first row. Against the window start this is the series' maturity;
+    against one display slot it is how many of that slot's weekly samples carry
+    information. A week whose sample slot predates the lifetime says nothing; a
+    week inside the lifetime with no row was a real zero.
     """
-    weeks = int((later - earliest_slot).total_seconds()) // SECONDS_PER_WEEK
+    weeks = int((later - lifetime_start).total_seconds()) // SECONDS_PER_WEEK
     return min(BASELINE_WEEKS, max(0, weeks))
 
 
 def _band_gate(
-    window_start: dt.datetime, window_end: dt.datetime, earliest_slot: dt.datetime
+    window_start: dt.datetime, window_end: dt.datetime, lifetime_start: dt.datetime
 ) -> tuple[int, dt.datetime | None]:
     """Baseline depth at the window start, and when a shallow series gains its band.
 
-    The gate reads history before window_start, so a live window must travel a
-    whole window length past the history threshold before a band is drawn. One
-    rule returns both, so the countdown cannot drift off the gate it counts to.
+    The gate reads sustained history before window_start, so a live window must
+    travel a whole window length past the lifetime threshold before a band is
+    drawn. One rule returns both, so the countdown cannot drift off the gate it
+    counts to.
     """
-    baseline_weeks = _baseline_weeks_available(window_start, earliest_slot)
+    baseline_weeks = _baseline_weeks_available(window_start, lifetime_start)
     if baseline_weeks >= MIN_BASELINE_WEEKS_FOR_BAND:
         return baseline_weeks, None
-    threshold = earliest_slot + dt.timedelta(weeks=MIN_BASELINE_WEEKS_FOR_BAND)
+    threshold = lifetime_start + dt.timedelta(weeks=MIN_BASELINE_WEEKS_FOR_BAND)
     return baseline_weeks, threshold + (window_end - window_start)
 
 
@@ -261,8 +306,8 @@ def _build_series(
     interval_minutes: int,
 ) -> BandSeries:
     by_time = {row.target_time: row for row in slot_rows}
-    earliest_slot = min(row.earliest_slot for row in slot_rows)
-    baseline_weeks, band_ready_at = _band_gate(window_start, window_end, earliest_slot)
+    lifetime_start = min(row.lifetime_start for row in slot_rows)
+    baseline_weeks, band_ready_at = _band_gate(window_start, window_end, lifetime_start)
     banded = band_ready_at is None
     floor = BAND_FLOOR_PER_HOUR * interval_minutes / 60
 
@@ -279,7 +324,7 @@ def _build_series(
         if banded:
             # Every slot sits at or after window_start, so a banded series has at
             # least MIN_BASELINE_WEEKS_FOR_BAND samples to expect at every slot.
-            expected = _baseline_weeks_available(slot, earliest_slot)
+            expected = _baseline_weeks_available(slot, lifetime_start)
             samples = row.baseline_samples if row else 0
             # A lifetime week with no row at this slot was a real zero, so any
             # missing sample drags the envelope floor to zero.
@@ -296,7 +341,7 @@ def _build_series(
         severity=key.severity,
         total_count=total_count,
         baseline_weeks=baseline_weeks,
-        history_start=earliest_slot,
+        history_start=lifetime_start,
         band_ready_at=band_ready_at,
         buckets=buckets,
     )
