@@ -8,8 +8,9 @@ on:
     pull_request:
         # Draft PRs skip E2E entirely — the broad path filter below matches nearly
         # every code PR, and a full stack boot per draft push is the
-        # remaining big per-PR cost. The ready-for-review full run is the merge
-        # gate; use workflow_dispatch to force a run on a draft.
+        # remaining big per-PR cost. Ready PRs run the specs the diff can affect
+        # (see select-specs); the merge queue's trunk-merge/** run is the full suite
+        # that gates master. Use workflow_dispatch to force a run on a draft.
         types: [opened, synchronize, reopened, ready_for_review]
     workflow_dispatch:
         inputs:
@@ -64,6 +65,9 @@ env:
     # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
     INTERNAL_API_SECRET: posthog123
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -132,7 +136,10 @@ jobs:
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
-                        - 'products/*/frontend/e2e/**'
+                        # The whole product frontend, not only the specs it owns: it compiles
+                        # into the same bundle the suite drives. tools/playwright_area_map.json
+                        # narrows the run from here.
+                        - 'products/*/frontend/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
@@ -345,17 +352,18 @@ jobs:
     select-specs:
         name: Select affected E2E specs
         needs: [changes]
-        # Narrow the suite only on incremental `synchronize` pushes to a ready
-        # (non-draft) internal PR. Every other trigger — opened, reopened,
-        # ready_for_review, workflow_dispatch, and push to master — skips
-        # this job, leaving empty outputs so the playwright job runs the FULL suite.
-        # The merge gate (ready_for_review run) and the post-merge master run always
-        # run everything, so a selection miss is caught there. Fail-open is FULL,
-        # never skip: over-selection would silently drop coverage.
+        # Narrow the suite on any event of a ready (non-draft) internal PR: opened,
+        # reopened, synchronize, and ready_for_review all diff the same head against
+        # the same base, so they all select the same specs. workflow_dispatch and
+        # push to master skip this job, leaving empty outputs so the playwright job
+        # runs the FULL suite.
+        # `draft != true` also keeps the merge queue on the full suite: its
+        # trunk-merge/** PRs open as drafts, and that run is the gate for master, so
+        # a selection miss is caught there. The post-merge master run is full too.
+        # Fail-open is FULL, never skip: over-selection would silently drop coverage.
         if: |
             needs.changes.outputs.shouldRun == 'true'
             && github.event_name == 'pull_request'
-            && github.event.action == 'synchronize'
             && github.event.pull_request.draft != true
             && github.event.pull_request.head.repo.full_name == github.repository
         runs-on: ubuntu-latest
@@ -619,8 +627,8 @@ jobs:
 
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
-            # may not contain it. Cache the store inline instead, sharing the same
-            # pnpm-<os>-<lockhash> key as the action and gating the save to master.
+            # may not contain it. Restore the store inline instead, sharing the same
+            # pnpm-<os>-<lockhash> key as the action.
             - name: Get pnpm store path
               id: pnpm-store
               shell: bash
@@ -689,13 +697,6 @@ jobs:
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
-
-            - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Log in to Docker Hub
               continue-on-error: true
@@ -964,13 +965,50 @@ jobs:
 
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
-            - name: Install VR CLI
+            # Caches the built CLI, see vr-setup in ci-storybook.yml. The paths sit at the
+            # workspace root here, so this is a separate entry. No restore-keys.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
               if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      products/visual_review/cli/dist
+                      products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'products/visual_review/cli/**', 'products/visual_review/frontend/generated/api.schemas.ts') }}
 
+            # Runs only on a miss, and retries the install for the reason given at vr-setup
+            # in ci-storybook.yml.
+            - name: Build VR CLI
+              id: build-vr-cli
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
+
+            - name: Save VR CLI build
+              # Master only, because the key is immutable once written. vr-complete reads
+              # this entry, so it runs on the same runner provider.
+              if: github.ref == 'refs/heads/master' && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      products/visual_review/cli/dist
+                      products/visual_review/cli/node_modules
+                  key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
+
+            # A failed build must not reach this step, where it would only report a
+            # missing module. A skipped build (cache hit) is not a failure.
             - name: Create VR run
               id: vr-create
-              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              if: always() && steps.build-vr-cli.outcome != 'failure' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -987,7 +1025,7 @@ jobs:
                   # default-branch fence forces is_partial=false there anyway).
                   VR_PARTIAL: ${{ needs.select-specs.outputs.mode == 'selected' && '--partial' || '' }}
               run: |
-                  RUN_ID=$(vr run create \
+                  RUN_ID=$(node products/visual_review/cli/dist/cli/src/index.js run create \
                     --type playwright \
                     --baseline playwright/snapshots.yml \
                     --branch "$VR_BRANCH" \
@@ -1004,7 +1042,7 @@ jobs:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_RUN_ID: ${{ steps.vr-create.outputs.run_id }}
               run: |
-                  vr run upload \
+                  node products/visual_review/cli/dist/cli/src/index.js run upload \
                     --run-id "$VR_RUN_ID" \
                     --dir playwright/__snapshots__/ \
                     --baseline playwright/snapshots.yml \
@@ -1151,7 +1189,7 @@ jobs:
               if: github.run_attempt == '1'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
@@ -1181,8 +1219,8 @@ jobs:
             # fallback-rate insights live. Emitted whenever the heavy job actually ran, so
             # full runs (this event's `mode=full`, `selection_eligible=false`) provide the
             # test-time baseline that selective runs are measured against. `selection_eligible`
-            # is true only on synchronize pushes where select-specs ran — the fallback-rate
-            # denominator. Telemetry never reds CI (continue-on-error).
+            # is true on the ready internal-PR events where select-specs ran — the
+            # fallback-rate denominator. Telemetry never reds CI (continue-on-error).
             - name: Capture spec selection to DevEx PostHog
               if: github.run_attempt == '1' && (needs.playwright.result == 'success' || needs.playwright.result == 'failure')
               continue-on-error: true
@@ -1212,7 +1250,9 @@ jobs:
 
     vr-complete:
         name: Complete Visual Review run
-        runs-on: ubuntu-latest
+        # Same runner provider as the playwright job, whose VR CLI cache entry this job
+        # reads: GitHub-hosted and Depot runners keep separate cache stores.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         needs: [playwright]
         # !cancelled() is load-bearing. select-specs is skipped on every full-run event (push to
@@ -1253,18 +1293,40 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+            # Reads the entry the playwright job writes. This job never saves it.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      products/visual_review/cli/dist
+                      products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'products/visual_review/cli/**', 'products/visual_review/frontend/generated/api.schemas.ts') }}
+
+            # Runs only on a miss, and retries the install for the reason given at vr-setup
+            # in ci-storybook.yml.
+            - name: Build VR CLI
+              if: steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only), but
-              # `vr run complete` still exits 1 whenever visual changes are detected. Treat that as
+              # `run complete` still exits 1 whenever visual changes are detected. Treat that as
               # informational on push; PRs still gate. Mirrors ci-storybook.yml.
               continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  vr run complete \
+                  node products/visual_review/cli/dist/cli/src/index.js run complete \
                     --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
@@ -1275,7 +1337,7 @@ jobs:
         name: Playwright tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check outcome
               run: |

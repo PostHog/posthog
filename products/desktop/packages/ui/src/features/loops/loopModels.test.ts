@@ -33,6 +33,15 @@ const claudeOptions = modelConfigOption([
 ]);
 
 describe("loopModelOptions", () => {
+  it("includes GPT-6 Astra in the offline Codex fallback", () => {
+    expect(
+      loopModelOptions("codex", [], {
+        glmEnabled: false,
+        pinnedModel: "",
+      }),
+    ).toContainEqual({ value: "gpt-6-astra", label: "GPT-6 Astra" });
+  });
+
   it("maps served model options to value/label pairs", () => {
     expect(
       loopModelOptions("claude", claudeOptions, {
@@ -189,6 +198,7 @@ describe("loopModelOptions", () => {
         "claude-opus-5",
         "claude-sonnet-5",
         "claude-fable-5",
+        "claude-fable-5-1",
       ],
     },
     {
@@ -200,6 +210,7 @@ describe("loopModelOptions", () => {
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
+        "gpt-6-astra",
       ],
     },
     {
@@ -211,6 +222,7 @@ describe("loopModelOptions", () => {
         "claude-opus-5",
         "claude-sonnet-5",
         "claude-fable-5",
+        "claude-fable-5-1",
         "zai-org/glm-5.3",
       ],
     },

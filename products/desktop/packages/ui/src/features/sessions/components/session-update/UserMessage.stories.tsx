@@ -2,13 +2,12 @@ import { UserMessage } from "@posthog/ui/features/sessions/components/session-up
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta: Meta<typeof UserMessage> = {
-  title: "Sessions/UserMessage",
+  title: "Features/Sessions/UserMessage",
   component: UserMessage,
-  parameters: { layout: "padded" },
-  args: { animate: false, taskId: "task-1", timestamp: 1_787_000_000_000 },
+  args: { animate: false, taskId: "task-1" },
   decorators: [
     (Story) => (
-      <div style={{ maxWidth: 640 }}>
+      <div className="max-w-2xl p-6">
         <Story />
       </div>
     ),
@@ -18,9 +17,22 @@ const meta: Meta<typeof UserMessage> = {
 export default meta;
 type Story = StoryObj<typeof UserMessage>;
 
-export const Plain: Story = {
+const FIXED_TIMESTAMP = Date.parse("2026-07-01T10:30:00Z");
+
+export const Typed: Story = {
   args: {
-    content: "How many monthly active users do we have",
+    content: "What are our top errors this week?",
+    timestamp: FIXED_TIMESTAMP,
+  },
+};
+
+// The first-run session's whole prompt is an <onboarding_brief> block, so the bubble strips to
+// nothing and the chip is all the reader has while the agent's first turn streams.
+export const OnboardingBrief: Story = {
+  args: {
+    content:
+      "<onboarding_brief>\nWrite the first message someone sees in PostHog Desktop.\n</onboarding_brief>",
+    timestamp: FIXED_TIMESTAMP,
   },
 };
 
@@ -39,6 +51,7 @@ const POSTHOG_CONTEXT_BLOCKS = [
 export const WithPosthogContext: Story = {
   args: {
     content: `${POSTHOG_CONTEXT_BLOCKS}\n\nHow many monthly active users do we have`,
+    timestamp: FIXED_TIMESTAMP,
   },
 };
 
@@ -46,5 +59,6 @@ export const WithChannelContext: Story = {
   args: {
     content:
       'Fix the flaky billing test\n\n<channel_context channel="billing">\n# Billing\n\nInvoices are generated nightly.\n</channel_context>',
+    timestamp: FIXED_TIMESTAMP,
   },
 };

@@ -519,7 +519,7 @@ export function SceneName({
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    <div ref={containerRef} className="flex items-center gap-1 w-full">
+                    <div ref={containerRef} className="flex items-center gap-1 w-full" data-attr="scene-name-edit-row">
                         <TextareaPrimitive
                             variant="default"
                             name="name"

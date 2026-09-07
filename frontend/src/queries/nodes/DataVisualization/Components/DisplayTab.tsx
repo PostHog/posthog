@@ -30,6 +30,13 @@ const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: stri
     { value: 'percentage', label: 'Percentage' },
 ]
 
+const LEGEND_POSITION_OPTIONS: { value: 'top' | 'bottom' | 'left' | 'right'; label: string }[] = [
+    { value: 'top', label: 'Top' },
+    { value: 'bottom', label: 'Bottom' },
+    { value: 'left', label: 'Left' },
+    { value: 'right', label: 'Right' },
+]
+
 const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
     { value: 'smooth', label: 'Smooth' },
     { value: 'linear', label: 'Straight' },
@@ -142,6 +149,21 @@ export const DisplayTab = (): JSX.Element => {
                                         updateChartSettings({ showLegend: value })
                                     }}
                                 />
+                                <div className="flex flex-col gap-1">
+                                    <LemonLabel>Legend position</LemonLabel>
+                                    <LemonSelect
+                                        className="w-full"
+                                        value={chartSettings.legendPosition ?? (isPieChart ? 'right' : 'top')}
+                                        options={LEGEND_POSITION_OPTIONS}
+                                        disabledReason={
+                                            chartSettings.showLegend
+                                                ? undefined
+                                                : 'Turn the legend on to set its position'
+                                        }
+                                        onChange={(value) => updateChartSettings({ legendPosition: value })}
+                                        fullWidth
+                                    />
+                                </div>
                                 {isBoxPlot && (
                                     <LemonSwitch
                                         className="flex-1 w-full"

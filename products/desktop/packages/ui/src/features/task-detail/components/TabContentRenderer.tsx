@@ -105,6 +105,7 @@ export function TabContentRenderer({
             object_id: data.objectId,
           }}
           fallbackName={tab.label}
+          taskId={taskId}
         />
       );
 

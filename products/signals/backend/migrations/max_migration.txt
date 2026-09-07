@@ -1,1 +1,1 @@
-0110_signalreportartefact_team_type_recent_idx
+0117_drop_signalscoutconfig_team_id_fk_idx

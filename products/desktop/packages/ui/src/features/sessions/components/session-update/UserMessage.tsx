@@ -19,7 +19,10 @@ import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
 import type { UserMessageAttachment } from "../../userMessageTypes";
 import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
-import { ONBOARDING_BRIEF_LABEL } from "./onboardingBrief";
+import {
+  ONBOARDING_BRIEF_LABEL,
+  ONBOARDING_BRIEF_TOOLTIP,
+} from "./onboardingBrief";
 import {
   hasFileMentions,
   MentionChip,
@@ -150,8 +153,9 @@ export const UserMessage = memo(function UserMessage({
               )}
               {onboardingBrief && (
                 <MentionChip
-                  icon={<FileText size={12} />}
+                  icon={<Robot size={12} />}
                   label={ONBOARDING_BRIEF_LABEL}
+                  tooltip={ONBOARDING_BRIEF_TOOLTIP}
                 />
               )}
               {showChannelContextTag && channelContext && (

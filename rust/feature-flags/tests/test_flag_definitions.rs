@@ -457,7 +457,7 @@ async fn test_missing_token_param_success(#[case] auth_type: &str) {
         }
         "project_secret" => {
             let team = context.insert_new_team(None).await.unwrap();
-            let key = context
+            let (_, key) = context
                 .create_project_secret_api_key(team.id, "Test Key", Some(vec!["feature_flag:read"]))
                 .await
                 .unwrap();
@@ -1962,7 +1962,7 @@ async fn test_flag_definitions_project_secret_api_key(
         other_team.id
     };
 
-    let raw_key = context
+    let (_, raw_key) = context
         .create_project_secret_api_key(key_team_id, "Test Key", scopes)
         .await
         .unwrap();
@@ -1995,7 +1995,9 @@ async fn test_flag_definitions_project_secret_api_key(
 #[tokio::test]
 async fn test_valid_pak_used_to_authenticate_from_cache_updates_last_used_at() {
     use feature_flags::{
-        api::pak_usage::debounce_key, config::Config, utils::test_utils::TestContext,
+        api::api_key_usage::{debounce_key, ApiKeyKind},
+        config::Config,
+        utils::test_utils::TestContext,
     };
     use reqwest;
 
@@ -2057,7 +2059,7 @@ async fn test_valid_pak_used_to_authenticate_from_cache_updates_last_used_at() {
     let redis_client =
         feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
     redis_client
-        .del(debounce_key(&pak_id))
+        .del(debounce_key(ApiKeyKind::Personal, &pak_id))
         .await
         .expect("Failed to delete debounce key");
 
@@ -2070,7 +2072,7 @@ async fn test_valid_pak_used_to_authenticate_from_cache_updates_last_used_at() {
         .unwrap();
 
     // Second request: auth comes from the token cache (no DB query for auth),
-    // but should still trigger the last_used_at update via record_pak_last_used
+    // but should still trigger the last_used_at update via record_api_key_last_used
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {api_key_value}"))
@@ -2084,6 +2086,50 @@ async fn test_valid_pak_used_to_authenticate_from_cache_updates_last_used_at() {
         &context,
         &pak_id,
         "last_used_at should be set after authenticating from the auth token cache",
+    )
+    .await;
+}
+
+#[rstest::rstest]
+#[case::with_token_param(true)]
+#[case::bearer_only(false)]
+#[tokio::test]
+async fn test_project_secret_api_key_updates_last_used_at(#[case] with_token_param: bool) {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let (key_id, key) = context
+        .create_project_secret_api_key(team.id, "PSAK LastUsed", Some(vec!["feature_flag:read"]))
+        .await
+        .unwrap();
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    server.wait_until_ready().await;
+    let url = if with_token_param {
+        format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        )
+    } else {
+        format!("http://{}/flags/definitions", server.addr)
+    };
+    let response = reqwest::Client::new()
+        .get(url)
+        .header("Authorization", format!("Bearer {key}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    common::poll_for_psak_last_used_at(
+        &context,
+        &key_id,
+        "Timed out waiting for last_used_at to be set for the project secret API key",
     )
     .await;
 }

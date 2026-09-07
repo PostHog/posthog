@@ -41,10 +41,10 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 from products.signals.backend.slack_formatting import (
     escape_slack_mrkdwn as _escape_mrkdwn,
     is_safe_slack_http_url as _is_safe_http_url,
-    markdown_to_slack_mrkdwn as _markdown_to_slack_mrkdwn,
+    prepare_slack_markdown as _prepare_markdown,
     slack_channel_id_from_target as _channel_id_from_target,
+    slack_markdown_block as _markdown_block,
     strip_chart_references as _strip_chart_references,
-    truncate_slack_section as _truncate_slack_section,
 )
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
@@ -340,23 +340,23 @@ def _build_message_blocks(
     if sources_line:
         meta_parts.append(sources_line)
     if repository:
-        # Escape LLM/user-derived strings before they enter mrkdwn so a crafted value can't
-        # inject `<!here>` / `<@U…>` mentions. Reviewer mentions are added pre-escaped elsewhere.
-        meta_parts.append(_escape_mrkdwn(repository))
+        meta_parts.append(repository)
 
+    # The body is escaped once as a whole below, so the LLM-derived parts assembled here stay raw.
+    # The `**` this adds is the one piece of Markdown the message means, and escaping leaves it be.
     body_parts: list[str] = []
     if meta_parts:
-        body_parts.append(f"*{' · '.join(meta_parts)}*")
+        body_parts.append(f"**{' · '.join(meta_parts)}**")
     # Strip before excerpting so truncation can't slice a chart link mid-syntax.
     summary_text = _summary_excerpt(_strip_chart_references(report.summary or ""))
     if summary_text:
-        body_parts.append(_escape_mrkdwn(summary_text))
+        body_parts.append(summary_text)
     if not body_parts:
-        body_parts.append(f"*{_escape_mrkdwn(title_line)}*")
+        body_parts.append(f"**{title_line}**")
 
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": header_text}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(body_parts)}},
+        _markdown_block(_prepare_markdown("\n\n".join(body_parts))),
     ]
 
     # Reviewer mentions sit in the context line — they still carry the `<@U…>` token so Slack pings them.
@@ -478,13 +478,10 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
 
     content = (signal.get("content") or "").strip()
     if content:
-        # Render markdown to mrkdwn first, then truncate the rendered output: truncating raw
-        # markdown could slice a link/emphasis token mid-syntax, and conversion can lengthen
-        # text past Slack's section limit. Truncating post-defang output stays safe — a
-        # trailing cut can't synthesize a live mention (no closing `>` can appear).
-        rendered = _markdown_to_slack_mrkdwn(content)
-        rendered = _truncate_slack_section(rendered)
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered}})
+        # Slack renders the signal's Markdown itself, so the content goes out as written. Escaping
+        # comes first: a trailing cut can then only shorten an already-inert token, never leave a
+        # live mention behind.
+        blocks.append(_markdown_block(_prepare_markdown(content)))
 
     detail_parts = _signal_detail_parts(source_product, extra)
     if detail_parts:

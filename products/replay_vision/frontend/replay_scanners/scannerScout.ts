@@ -110,7 +110,7 @@ Every run leaves exactly one report: your digest. That report is what the team r
 
 ## First moves
 
-1. \`vision-scanners-get\` with scanner_id \`${scannerId}\` — the scanner's current name, type, prompt, and enabled state. If it no longer exists, close out with a one-line summary and no report.
+1. \`vision-scanners-get\` with id \`${scannerId}\` — the scanner's current name, type, prompt, and enabled state. If it no longer exists, close out with a one-line summary and no report.
 2. \`scout-runs-list\` filtered to your own skill_name — find your previous successful run. Your window is everything since it (fall back to the last 24 hours on the first run or after a gap).
 3. \`scout-scratchpad-search\` (text: \`${scannerId}\`) — baselines, known noise, and \`report:\`/\`dedupe:\` pointers from prior runs. Every entry you write is keyed on that id, so it is what finds them again.
 4. \`llma-skill-get\` \`exploring-replay-vision-observations\` — the observation data model, what \`confidence\` and each status mean, and how to cite a finding.
@@ -138,6 +138,25 @@ ${focus.skip}
 - Do not restate an unchanged issue from a previous run. Include a recurring one only when it materially worsened, recovered, relapsed, gained useful new evidence, or now needs a different action. This suppresses stale bullets, never the digest itself.
 - Scanners with \`emits_signals: true\` already push one per-session finding into this inbox, and the fleet's replay-vision scout watches cross-scanner aggregates. Don't restate what either already filed; cite it and add only what your window adds.
 
+## Charts, when the shape is the point
+
+Decide this while you write the summary, not after: a bullet whose point is a trajectory or a spread
+reads faster as a chart than as a sentence. \`scout-emit-report\` and \`scout-edit-report\` both take
+\`charts\`, and each entry is \`{ chart_id, title, query, caption?, size? }\` where \`chart_id\` is your
+own slug and \`query\` is an \`InsightVizNode\`, a \`DataVisualizationNode\` over a \`HogQLQuery\`, or a
+\`SavedInsightNode\`. Any other kind is refused when you write.
+
+- Attach one when a number's trajectory or spread carries the point, and place it in the summary with
+  \`[label](chart:<chart_id>)\` so it renders next to the bullet it belongs to.
+- A number you have tracked across several runs is exactly this case. Writing "X fell from 98% to
+  93%" in prose is the sentence to replace: pull the daily series and chart it instead.
+- Attach a query you already ran this session, and keep the chart only if the SQL behind it returned
+  more than one row. That check is what "looking at" a chart means here.
+- Skip it when a single number says the same thing. A chart of one bar is noise, and a quiet window
+  needs no chart at all.
+- The chart must answer the bullet it sits under.
+- \`charts\` replaces the report's whole set, so when you edit a report send every chart you want kept.
+
 ## File your digest — every run, exactly once
 
 Every successful run leaves exactly one report for the date, and it is the digest: never one report per finding, and never a run that files nothing.
@@ -156,21 +175,6 @@ ${focus.shape ?? DEFAULT_REPORT_SHAPE}
 
 ${focus.quietVerdict ?? DEFAULT_QUIET_VERDICT} ${focus.priority}
 These are watcher findings: \`repository=NO_REPO\`. Set \`actionability\` by what the report asks of its reader. \`requires_human_input\` only when someone has to decide or act on what you found: it lands in the inbox awaiting input, and a digest that reports a quiet day does not belong in that queue. Otherwise \`immediately_actionable\`, which surfaces the report without asking anything of anyone. Never \`not_actionable\`: it suppresses the report, which empties the scanner's digest card and stops delivery, so a quiet day reads as a run that never happened. After writing, stash the report id under \`${scannerId}:report:<your skill_name>:<today>\` — that pointer, not the title, is how the next run finds this report.
-
-## Charts, when the shape is the point
-
-A rate moving over weeks, a distribution shifting, a mix of tags: those are read faster as a chart
-than as a sentence. \`scout-emit-report\` and \`scout-edit-report\` both take \`charts\`, and each entry is
-\`{ chart_id, title, query, caption?, size? }\` where \`chart_id\` is your own slug and \`query\` is an
-insight query node of the kind \`execute-sql\` and the insight tools produce.
-
-- Attach one when a number's trajectory or spread carries the point, and place it in the summary with
-  \`[label](chart:<chart_id>)\` so it renders next to the bullet it belongs to.
-- A number you have now tracked across several runs (a rate that moved again today) is exactly this
-  case: pull the daily series and chart the trajectory instead of narrating it run by run.
-- Skip it when a single number says the same thing. A chart of one bar is noise, and a quiet window
-  needs no chart at all.
-- The chart must answer the bullet it sits under. Never attach one you have not looked at.
 
 ## Memory
 

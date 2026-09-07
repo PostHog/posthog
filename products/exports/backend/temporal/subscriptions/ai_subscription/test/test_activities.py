@@ -68,7 +68,12 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
             diagnostics=(
                 QueryStepDiagnostic(description="adoption", hogql="SELECT count()", ok=True, error_type=None),
                 QueryStepDiagnostic(
-                    description="reliability", hogql="SELECT bad", ok=False, error_type="ResolutionError"
+                    description="reliability",
+                    hogql="SELECT bad",
+                    ok=False,
+                    error_type="QueryError",
+                    error_code="hogql_query_error",
+                    human_readable_error="Unable to resolve field 'reliability'",
                 ),
             ),
         ),
@@ -83,6 +88,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
             "hogql": "SELECT count()",
             "ok": True,
             "error_type": None,
+            "error_code": None,
             "human_readable_error": None,
             "chart_dropped_reason": None,
         },
@@ -90,9 +96,10 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
             "description": "reliability",
             "hogql": "SELECT bad",
             "ok": False,
-            "error_type": "ResolutionError",
-            "human_readable_error": None,
+            "error_type": "QueryError",
+            "human_readable_error": "Unable to resolve field 'reliability'",
             "chart_dropped_reason": None,
+            "error_code": "hogql_query_error",
         },
     ]
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.
@@ -162,14 +169,31 @@ async def test_persist_ai_report_omits_blank_prompt(team, user, prompt) -> None:
 class TestReportDiagnosticCounts:
     @parameterized.expand(
         [
-            ("all_ok", [True, True], 0, 2, []),
-            ("partial", [True, False], 1, 2, ["ResolutionError"]),
-            ("all_failed", [False, False], 2, 2, ["ResolutionError"]),
-            ("none", [], 0, 0, []),
+            ("all_ok", [True, True], 0, 2, [], []),
+            (
+                "partial",
+                [True, False],
+                1,
+                2,
+                ["ResolutionError"],
+                [{"type": "ResolutionError", "code": None, "message": None}],
+            ),
+            (
+                "all_failed",
+                [False, False],
+                2,
+                2,
+                ["ResolutionError"],
+                [
+                    {"type": "ResolutionError", "code": None, "message": None},
+                    {"type": "ResolutionError", "code": None, "message": None},
+                ],
+            ),
+            ("none", [], 0, 0, [], []),
         ]
     )
     def test_counts_failures_and_distinct_error_types(
-        self, _name, oks, expected_failed, expected_total, expected_types
+        self, _name, oks, expected_failed, expected_total, expected_types, expected_errors
     ):
         result = AiReportResult(
             markdown="report",
@@ -184,9 +208,13 @@ class TestReportDiagnosticCounts:
                 for i, ok in enumerate(oks)
             ),
         )
-        assert _report_diagnostic_counts(result) == DiagnosticCounts(
-            failed_step_count=expected_failed, total_step_count=expected_total, error_types=expected_types
+        counts = _report_diagnostic_counts(result)
+        assert counts == DiagnosticCounts(
+            failed_step_count=expected_failed,
+            total_step_count=expected_total,
+            query_errors=expected_errors,
         )
+        assert counts.error_types == expected_types
 
     def test_distinct_error_types_are_sorted_and_deduped(self):
         result = AiReportResult(
@@ -198,8 +226,57 @@ class TestReportDiagnosticCounts:
                 QueryStepDiagnostic(description="c", hogql="z", ok=False, error_type="ResolutionError"),
             ),
         )
+        counts = _report_diagnostic_counts(result)
+        assert counts == DiagnosticCounts(
+            failed_step_count=3,
+            total_step_count=3,
+            query_errors=[
+                {"type": "ResolutionError", "code": None, "message": None},
+                {"type": "ExposedHogQLError", "code": None, "message": None},
+                {"type": "ResolutionError", "code": None, "message": None},
+            ],
+        )
+        assert counts.error_types == ["ExposedHogQLError", "ResolutionError"]
+
+    def test_pairs_each_safe_query_error_with_its_type(self):
+        result = AiReportResult(
+            markdown="report",
+            window_end_utc=_WINDOW_END_UTC,
+            diagnostics=(
+                QueryStepDiagnostic(
+                    description="memory",
+                    hogql="SELECT expensive",
+                    ok=False,
+                    error_type="ClickHouseQueryMemoryLimitExceeded",
+                    error_code="clickhouse_memory_limit_exceeded",
+                    human_readable_error="Query exceeded the memory limit.",
+                ),
+                QueryStepDiagnostic(
+                    description="resolution",
+                    hogql="SELECT bad",
+                    ok=False,
+                    error_type="QueryError",
+                    error_code="hogql_query_error",
+                    human_readable_error="Unable to resolve field 'bad'",
+                ),
+            ),
+        )
+
         assert _report_diagnostic_counts(result) == DiagnosticCounts(
-            failed_step_count=3, total_step_count=3, error_types=["ExposedHogQLError", "ResolutionError"]
+            failed_step_count=2,
+            total_step_count=2,
+            query_errors=[
+                {
+                    "type": "ClickHouseQueryMemoryLimitExceeded",
+                    "code": "clickhouse_memory_limit_exceeded",
+                    "message": "Query exceeded the memory limit.",
+                },
+                {
+                    "type": "QueryError",
+                    "code": "hogql_query_error",
+                    "message": "Unable to resolve field 'bad'",
+                },
+            ],
         )
 
 
@@ -214,20 +291,35 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
             window_end_utc=_WINDOW_END_UTC,
             diagnostics=(
                 QueryStepDiagnostic(description="ok step", hogql="SELECT 1", ok=True, error_type=None),
-                QueryStepDiagnostic(description="bad step", hogql="SELECT bad", ok=False, error_type="ResolutionError"),
+                QueryStepDiagnostic(
+                    description="bad step",
+                    hogql="SELECT bad",
+                    ok=False,
+                    error_type="QueryError",
+                    error_code="hogql_query_error",
+                    human_readable_error="Unable to resolve field 'bad'",
+                ),
             ),
         ),
         prompt=None,
     )
 
     assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == DiagnosticCounts(
-        failed_step_count=1, total_step_count=2, error_types=["ResolutionError"]
+        failed_step_count=1,
+        total_step_count=2,
+        query_errors=[
+            {
+                "type": "QueryError",
+                "code": "hogql_query_error",
+                "message": "Unable to resolve field 'bad'",
+            }
+        ],
     )
 
 
 async def test_snapshot_diagnostic_counts_handles_missing_diagnostics(team, user) -> None:
     delivery = await _create_delivery(team, user)
     # Empty content_snapshot (nothing persisted yet) and a fully-missing snapshot both report nothing failed.
-    empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[])
+    empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, query_errors=[])
     assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == empty_counts
     assert _snapshot_diagnostic_counts(None) == empty_counts

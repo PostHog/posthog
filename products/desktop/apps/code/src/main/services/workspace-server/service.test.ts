@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const { logError } = vi.hoisted(() => ({ logError: vi.fn() }));
+
 vi.mock("../../utils/logger.js", () => ({
   logger: {
     scope: () => ({
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
+      error: logError,
       debug: vi.fn(),
     }),
   },
@@ -68,13 +70,13 @@ describe("WorkspaceServerService", () => {
     vi.restoreAllMocks();
   });
 
-  describe("start", () => {
+  describe("getOrStart", () => {
     it("transitions idle -> starting -> ready and exposes the connection", async () => {
       const service = new WorkspaceServerService();
       withHealthySpawn(service);
       const statuses = trackStatuses(service);
 
-      const result = await service.start();
+      const result = await service.getOrStart();
 
       expect(result).toEqual(CONNECTION);
       expect(service.getConnection()).toEqual(CONNECTION);
@@ -93,12 +95,12 @@ describe("WorkspaceServerService", () => {
       const service = new WorkspaceServerService();
       const spawn = withHealthySpawn(service);
 
-      const first = service.start();
-      const second = service.start();
+      const first = service.getOrStart();
+      const second = service.getOrStart();
       expect(first).toBe(second);
       await first;
 
-      await expect(service.start()).resolves.toEqual(CONNECTION);
+      await expect(service.getOrStart()).resolves.toEqual(CONNECTION);
       expect(spawn).toHaveBeenCalledTimes(1);
     });
   });
@@ -110,7 +112,11 @@ describe("WorkspaceServerService", () => {
       const spawn = withFailingSpawn(service);
       const statuses = trackStatuses(service);
 
-      service.start().catch(() => {});
+      await expect(service.getOrStart()).rejects.toThrow("unhealthy");
+      await expect(service.getOrStart()).rejects.toThrow(
+        "workspace-server is retrying",
+      );
+      expect(spawn).toHaveBeenCalledTimes(1);
       await vi.runAllTimersAsync();
 
       expect(service.getStatus()).toBe(WorkspaceServerStatus.Failed);
@@ -119,6 +125,15 @@ describe("WorkspaceServerService", () => {
       expect(statuses[0]).toBe(WorkspaceServerStatus.Starting);
       expect(statuses).toContain(WorkspaceServerStatus.Retrying);
       expect(statuses[statuses.length - 1]).toBe(WorkspaceServerStatus.Failed);
+      expect(logError).toHaveBeenCalledOnce();
+      expect(logError).toHaveBeenCalledWith(
+        "workspace-server failed to start",
+        expect.objectContaining({ message: "unhealthy" }),
+      );
+      await expect(service.getOrStart()).rejects.toThrow(
+        "workspace-server is failed",
+      );
+      expect(spawn).toHaveBeenCalledTimes(6);
     });
 
     it("restart() resets the attempt budget after a failure", async () => {
@@ -126,7 +141,7 @@ describe("WorkspaceServerService", () => {
       const service = new WorkspaceServerService();
       const spawn = withFailingSpawn(service);
 
-      service.start().catch(() => {});
+      service.getOrStart().catch(() => {});
       await vi.runAllTimersAsync();
       expect(service.getStatus()).toBe(WorkspaceServerStatus.Failed);
 
@@ -146,7 +161,7 @@ describe("WorkspaceServerService", () => {
     it("goes idle, clears the connection and suppresses restarts", async () => {
       const service = new WorkspaceServerService();
       withHealthySpawn(service);
-      await service.start();
+      await service.getOrStart();
 
       service.stop();
 
