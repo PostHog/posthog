@@ -17,7 +17,7 @@ Nothing here trains or scores anything. It is the shared vocabulary that `../tra
   Three call sites share this module so they cannot drift: the wizard's live estimate (sampled), the trainer (full materialization with fold split), and inference (per-person cutoff = `now()`).
   That is why the training-side `labeled_anchors` CTE (inside `build_training_features_sql()`) and `build_inference_anchors_sql()` live here rather than next to their callers.
 
-  Also here: `_compile_population_filters()` (property filters → HogQL; a cohort filter or an unknown operator raises rather than being skipped), `_build_population_kind_conditions()` (semantic population kinds → HogQL, see below), `build_target_condition()` (event or action target → predicate), `NUM_FOLDS = 5` with fold 0 as holdout, and `IDENTIFIED_USERS_ONLY`.
+  Also here: `_compile_population_filters()` (property filters → HogQL; a cohort filter, an unknown operator, or a filter without a `type` raises rather than being skipped), `_build_population_kind_conditions()` (semantic population kinds → HogQL, see below), `build_target_condition()` (event or action target → predicate), `NUM_FOLDS = 5` with fold 0 as holdout, and `IDENTIFIED_USERS_ONLY`.
 
 - `validation.py`
   Pre-flight viability. `validate_pipeline_definition()` answers "is there enough here to learn anything?" before a run is launched — `MIN_TRAINING_ROWS` (100), `MIN_POSITIVE_EXAMPLES` (20), `MIN_IDENTIFIED_FRACTION` (0.5).
@@ -56,7 +56,7 @@ The two branches differ only in cutoff and whether labels and folds are attached
 - **Scorer** — `../inference/` materializes the unlabeled population from `build_inference_features_sql()`.
 - **API** — `../presentation/views/views.py` calls `validate_pipeline_definition()` for the pre-create check and `resolve_template()` for template-backed creation; `resolve_target()` lives in `../presentation/views/serializers.py` and pairs with `build_target_condition()`.
 - **Command** — `autoresearch_validate` is the headless entry to `validation.py`.
-- **Agent-authored SQL** — the agent's `feature_sql` is spliced against these anchors via `_substitute_anchors()`. The `{anchors}` placeholder is part of the agent's contract, so it is documented in the brief in `../training/runner.py`.
+- **Agent-authored SQL** — the agent's `feature_sql` is spliced against these anchors via `_substitute_anchors()`. The `{anchors}` placeholder is part of the agent's contract, so it is documented in the brief in `../training/runner.py`. Substitution is quote-aware: comments are stripped, a `{anchors}` inside a string literal is kept as a value, and a trailing `;` is dropped so the SQL can be nested.
 
 ## When editing this flow
 

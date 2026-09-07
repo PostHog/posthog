@@ -39,26 +39,23 @@ class TestStripSqlComments(BaseTest):
             ("line_comment", "SELECT a -- the count\nFROM t", "SELECT a \nFROM t"),
             ("block_comment", "SELECT a /* inline */ FROM t", "SELECT a   FROM t"),
             ("trailing_line_comment", "SELECT a FROM t -- trailing", "SELECT a FROM t "),
+            ("double_slash_line_comment", "SELECT a // the count\nFROM t", "SELECT a \nFROM t"),
             ("no_comment", "SELECT a FROM t", "SELECT a FROM t"),
         ]
     )
     def test_strips_comments(self, _name: str, sql: str, expected: str) -> None:
         self.assertEqual(strip_sql_comments(sql), expected)
 
-    def test_preserves_double_dash_inside_string_literal(self) -> None:
-        sql = "SELECT 'a -- b' AS x FROM t"
-        self.assertEqual(strip_sql_comments(sql), sql)
-
-    def test_preserves_escaped_quote_inside_string(self) -> None:
-        sql = "SELECT 'it''s -- fine' AS x FROM t"
-        self.assertEqual(strip_sql_comments(sql), sql)
-
-    def test_preserves_block_comment_markers_inside_string(self) -> None:
-        sql = "SELECT '/* not a comment */' AS x FROM t"
-        self.assertEqual(strip_sql_comments(sql), sql)
-
-    def test_preserves_double_dash_inside_backtick_identifier(self) -> None:
-        sql = "SELECT `weird--name` FROM t"
+    @parameterized.expand(
+        [
+            ("double_dash_inside_string_literal", "SELECT 'a -- b' AS x FROM t"),
+            ("doubled_quote_inside_string", "SELECT 'it''s -- fine' AS x FROM t"),
+            ("backslash_quote_inside_string", "SELECT 'it\\'s -- fine' AS x FROM t"),
+            ("block_comment_markers_inside_string", "SELECT '/* not a comment */' AS x FROM t"),
+            ("double_dash_inside_backtick_identifier", "SELECT `weird--name` FROM t"),
+        ]
+    )
+    def test_preserves_literals(self, _name: str, sql: str) -> None:
         self.assertEqual(strip_sql_comments(sql), sql)
 
 
@@ -78,6 +75,16 @@ class TestSubstituteAnchors(BaseTest):
         result = _substitute_anchors(feature_sql, "(SELECT 1)")
         self.assertEqual(result.count("(SELECT 1)"), 2)
         self.assertNotIn("{anchors}", result)
+
+    def test_placeholder_inside_a_string_literal_is_a_value(self) -> None:
+        feature_sql = "SELECT a.person_id AS distinct_id, '{anchors}' AS source FROM {anchors} a"
+        result = _substitute_anchors(feature_sql, "(SELECT 1)")
+        self.assertEqual(result, "SELECT a.person_id AS distinct_id, '{anchors}' AS source FROM (SELECT 1) a")
+
+    def test_trailing_statement_terminator_is_dropped(self) -> None:
+        # The training path nests the feature SQL as a derived table, where a `;` ends the statement early.
+        result = _substitute_anchors("SELECT a.person_id AS distinct_id FROM {anchors} a;\n", "(SELECT 1)")
+        self.assertEqual(result, "SELECT a.person_id AS distinct_id FROM (SELECT 1) a")
 
 
 class TestBuildInferenceFeaturesSql(BaseTest):
@@ -101,11 +108,45 @@ class TestPopulationFilterCompilation(SimpleTestCase):
             ("cohort_type", [{"key": "id", "type": "cohort", "operator": "exact", "value": 123}]),
             ("unknown_operator", [{"key": "plan", "type": "person", "operator": "regex", "value": "x"}]),
             ("missing_key", [{"type": "person", "operator": "is_set"}]),
+            ("missing_type", [{"key": "plan", "operator": "exact", "value": "pro"}]),
+            ("non_numeric_threshold", [{"key": "price", "type": "event", "operator": "gt", "value": "cheap"}]),
         ]
     )
     def test_uncompilable_filter_raises_instead_of_widening(self, _name: str, properties: list[dict[str, Any]]) -> None:
         with self.assertRaises(ValueError):
             _build_population_conditions(properties)
+
+    @parameterized.expand(
+        [
+            # is_set follows the canonical property compiler: an empty string is a set value.
+            ("is_set", {"operator": "is_set"}, "isNotNull(person.properties[{pop_k_0}])", {}),
+            ("is_not_set", {"operator": "is_not_set"}, "isNull(person.properties[{pop_k_0}])", {}),
+            (
+                "icontains_list_matches_any",
+                {"operator": "icontains", "value": ["pro", "enterprise"]},
+                "(person.properties[{pop_k_0}] ILIKE {pop_0_0} OR person.properties[{pop_k_0}] ILIKE {pop_0_1})",
+                {"pop_0_0": "%pro%", "pop_0_1": "%enterprise%"},
+            ),
+            (
+                "not_icontains_list_excludes_every",
+                {"operator": "not_icontains", "value": ["pro", "enterprise"]},
+                "(person.properties[{pop_k_0}] NOT ILIKE {pop_0_0} AND person.properties[{pop_k_0}] NOT ILIKE {pop_0_1})",
+                {"pop_0_0": "%pro%", "pop_0_1": "%enterprise%"},
+            ),
+            (
+                "string_threshold_is_bound_as_a_number",
+                {"operator": "gte", "value": "13"},
+                "toFloat64OrNull(person.properties[{pop_k_0}]) >= {pop_0}",
+                {"pop_0": 13.0},
+            ),
+        ]
+    )
+    def test_compiles_operator(
+        self, _name: str, filter_fields: dict[str, Any], expected_part: str, expected_values: dict[str, Any]
+    ) -> None:
+        parts, values = _build_population_conditions([{"key": "plan", "type": "person", **filter_fields}])
+        self.assertEqual(parts, [expected_part])
+        self.assertEqual({k: v for k, v in values.items() if k != "pop_k_0"}, expected_values)
 
     def test_empty_allowlist_matches_nobody(self) -> None:
         parts, _values = _build_population_conditions(
@@ -235,7 +276,7 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
                 {"kind": "active_not_performed_target", "active_within_days": 30},
                 [
                     f"HAVING max(({_EVENT_TS} >= u.t0_ts - {{popk_active_days}} * 86400 AND {_EVENT_TS} < u.t0_ts)) = 1",
-                    f"max(({_EVENT_TS} < u.t0_ts AND (event = {{target}}))) = 0",
+                    f"ifNull(max(({_EVENT_TS} < u.t0_ts AND (event = {{target}}))), 0) = 0",
                 ],
                 ["NOT IN"],
             ),
@@ -272,10 +313,26 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
                     ]
                 },
                 [
-                    "AND (isNotNull(person.properties[{pop_k_1}]) AND person.properties[{pop_k_1}] != '') AND person.is_identified",
+                    "AND (isNotNull(person.properties[{pop_k_1}])) AND person.is_identified",
                     f"HAVING max(({_EVENT_TS} < u.t0_ts AND (properties[{{pop_k_0}}] = {{pop_0}}))) = 1",
                 ],
                 ["AND (properties[{pop_k_0}] = {pop_0}) AND person.is_identified"],
+            ),
+            (
+                # Inference ANDs event filters on one row, so training must find one pre-T0 event
+                # that satisfies all of them, not one event per filter.
+                "event_property_filters_are_satisfied_by_one_event",
+                {
+                    "properties": [
+                        {"key": "plan", "type": "event", "operator": "exact", "value": "pro"},
+                        {"key": "country", "type": "event", "operator": "exact", "value": "US"},
+                    ]
+                },
+                [
+                    f"HAVING max(({_EVENT_TS} < u.t0_ts AND (properties[{{pop_k_0}}] = {{pop_0}}"
+                    " AND properties[{pop_k_1}] = {pop_1}))) = 1"
+                ],
+                ["= 1 AND max("],
             ),
         ]
     )

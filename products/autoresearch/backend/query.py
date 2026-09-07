@@ -16,6 +16,10 @@ class AutoresearchQueryError(Exception):
 class HogQLResult:
     columns: list[str]
     rows: list[list[Any]]
+    # True when the runner's default paginator cut the result short. A query with no
+    # top-level LIMIT is capped at 100 rows, so a caller that materializes rows must
+    # either bound the query itself or refuse a truncated result.
+    has_more: bool = False
 
     def as_dicts(self) -> list[dict[str, Any]]:
         return [dict(zip(self.columns, row)) for row in self.rows]
@@ -37,7 +41,11 @@ def run_hogql(
     response = HogQLQueryRunner(query=query, team=team).run(execution_mode=execution_mode)
     if isinstance(response, CacheMissResponse | QueryStatusResponse):
         raise AutoresearchQueryError(f"HogQL query did not execute: got {type(response).__name__}")
-    return HogQLResult(columns=[str(c) for c in (response.columns or [])], rows=response.results or [])
+    return HogQLResult(
+        columns=[str(c) for c in (response.columns or [])],
+        rows=response.results or [],
+        has_more=bool(response.hasMore),
+    )
 
 
 def run_hogql_rows(

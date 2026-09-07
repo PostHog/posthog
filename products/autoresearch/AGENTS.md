@@ -45,6 +45,7 @@ These are the ones that have actually broken things.
 
 - **Everything is keyed on `person_id`, one row per person.**
   Agent-authored `feature_sql` must be a read-only `SELECT` keyed on `person_id`, and the label and population queries key on it too.
+  The feature SQL exposes that key under the column name `distinct_id` (`a.person_id AS distinct_id`), which is what the training join and the materialized parquet read; the name is historical, the value is always the person id.
   A mismatch here does not raise, it silently produces all-zero labels and a degenerate model.
   **A uniform score distribution is an identifier mismatch until proven otherwise, not a bad model.**
 - **The agent proposes, the backend disposes.**

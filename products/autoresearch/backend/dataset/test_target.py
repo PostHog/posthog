@@ -56,6 +56,25 @@ class TestBuildTargetCondition(TeamScopedTestMixin, APIBaseTest):
                 target_event="", target_definition={"type": "action", "action_id": action.id}, team=self.team
             )
 
+    def test_action_target_resolves_from_a_secondary_environment(self):
+        # Actions are stored on the project's root team, so a pipeline in another
+        # environment of the same project must still find them.
+        environment = Team.objects.create(organization=self.organization, project=self.project, name="Env 2")
+        action = Action.objects.create(team=self.team, name="Upload", steps_json=[{"event": "uploaded_file"}])
+        cond, _values = build_target_condition(
+            target_event="", target_definition={"type": "action", "action_id": action.id}, team=environment
+        )
+        assert "uploaded_file" in cond
+
+    def test_action_target_with_no_steps_is_rejected(self):
+        # action_to_expr compiles an empty step list to a constant true, which would make
+        # every event in the horizon a positive label.
+        action = Action.objects.create(team=self.team, name="Empty", steps_json=[])
+        with self.assertRaises(ValueError):
+            build_target_condition(
+                target_event="", target_definition={"type": "action", "action_id": action.id}, team=self.team
+            )
+
 
 class TestTargetConditionAgainstClickhouse(ClickhouseTestMixin, APIBaseTest):
     def _count(self, cond: str, values: dict) -> int:

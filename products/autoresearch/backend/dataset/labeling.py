@@ -91,6 +91,19 @@ class _CompiledPopulationFilters:
     values: dict[str, Any] = field(default_factory=dict)
 
 
+def _numeric_threshold(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
 def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPopulationFilters:
     """
     Translate a list of PostHog property filter dicts into HogQL condition
@@ -101,14 +114,18 @@ def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPo
     - "event"   → properties[<key>]
 
     Operators: exact, is_not, icontains, not_icontains, gt, gte, lt, lte,
-               is_set, is_not_set.
+               is_set, is_not_set. ``is_set`` means not null, as in the canonical
+               property compiler, so an empty string is a set value.
 
     The property key is bound as a HogQL value (a parameterized subscript,
     ``properties[{param}]``) rather than interpolated into the query text, so any
     key — including PostHog system properties like ``$browser`` — is safe without
     an allowlist. A filter that cannot be compiled (a cohort filter, an unknown
-    operator, a missing key) raises ValueError: skipping it would silently widen
-    the population, and inference writes person properties for everyone it scores.
+    operator, a missing key or type, a non-numeric threshold) raises ValueError:
+    skipping it would silently widen the population, and inference writes person
+    properties for everyone it scores. ``type`` has no default because the
+    canonical compiler defaults it to ``event`` while this compiler's callers
+    mostly mean ``person``; a filter that says neither is ambiguous.
     """
     person_parts: list[str] = []
     event_parts: list[str] = []
@@ -116,12 +133,14 @@ def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPo
 
     for i, prop in enumerate(properties):
         key = prop.get("key")
-        prop_type = prop.get("type", "person")
+        prop_type = prop.get("type")
         operator = prop.get("operator", "exact")
         value = prop.get("value")
 
         if not key:
             raise ValueError("Population property filter is missing a 'key'")
+        if not prop_type:
+            raise ValueError(f"Population property filter '{key}' is missing a 'type'. Supported: event, person")
 
         if prop_type == "person":
             map_expr = "person.properties"
@@ -140,9 +159,9 @@ def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPo
         param = f"pop_{i}"
 
         if operator == "is_set":
-            parts.append(f"isNotNull({field_expr}) AND {field_expr} != ''")
+            parts.append(f"isNotNull({field_expr})")
         elif operator == "is_not_set":
-            parts.append(f"(isNull({field_expr}) OR {field_expr} = '')")
+            parts.append(f"isNull({field_expr})")
         elif operator in ("exact", "is_not") and isinstance(value, list):
             if not value:
                 # `IN ()` is not valid HogQL. An empty allowlist matches nobody and an
@@ -161,15 +180,27 @@ def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPo
         elif operator == "is_not":
             values[param] = value
             parts.append(f"{field_expr} != {{{param}}}")
-        elif operator == "icontains":
-            values[param] = f"%{value}%"
-            parts.append(f"{field_expr} ILIKE {{{param}}}")
-        elif operator == "not_icontains":
-            values[param] = f"%{value}%"
-            parts.append(f"{field_expr} NOT ILIKE {{{param}}}")
+        elif operator in ("icontains", "not_icontains"):
+            # A list matches any of its values, or none of them for the negative operator.
+            patterns = value if isinstance(value, list) else [value]
+            if not patterns:
+                if operator == "icontains":
+                    parts.append("1 = 0")
+                continue
+            for j, v in enumerate(patterns):
+                values[f"pop_{i}_{j}"] = f"%{v}%"
+            like = "ILIKE" if operator == "icontains" else "NOT ILIKE"
+            joiner = " OR " if operator == "icontains" else " AND "
+            clauses = joiner.join(f"{field_expr} {like} {{pop_{i}_{j}}}" for j in range(len(patterns)))
+            parts.append(f"({clauses})" if len(patterns) > 1 else clauses)
         elif operator in ("gt", "gte", "lt", "lte"):
             op_sql = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[operator]
-            values[param] = value
+            # The property side is cast to Float64, so the bound must be numeric too or
+            # ClickHouse rejects the comparison. Filter payloads often carry it as a string.
+            threshold = _numeric_threshold(value)
+            if threshold is None:
+                raise ValueError(f"Population property filter '{key}' needs a numeric value for '{operator}'")
+            values[param] = threshold
             parts.append(f"toFloat64OrNull({field_expr}) {op_sql} {{{param}}}")
         else:
             raise ValueError(f"Unsupported population property operator '{operator}'")
@@ -296,6 +327,9 @@ def _build_population_kind_conditions(
             parts.append(_members_within(now_expr, "popk_days", predicate=event_clause))
     elif kind == "person_first_seen_within_days":
         values["popk_days"] = _positive_int("days")
+        # Deliberately not bounded above by the anchor: an imported or backdated event
+        # stream carries person rows created after their events, and an upper bound would
+        # empty the training population for exactly those teams.
         if anchor_mode:
             having.append(f"min(toInt(toUnixTimestamp(e.person.created_at))) >= {_T0} - {{popk_days}} * 86400")
         else:
@@ -305,7 +339,10 @@ def _build_population_kind_conditions(
         target_clause = _target_clause()
         if anchor_mode:
             having.append(f"{_performed_before_t0('', days_param='popk_active_days')} = 1")
-            having.append(f"{_performed_before_t0(target_clause)} = 0")
+            # A property-filtered action predicate is NULL on rows missing the property. max()
+            # skips NULLs, so a user whose every pre-T0 row is NULL would compare NULL = 0 and
+            # drop out, while the row-mode NOT IN keeps them. Read that NULL as "not performed".
+            having.append(f"ifNull({_performed_before_t0(target_clause)}, 0) = 0")
         else:
             parts.append(_members_within(now_expr, "popk_active_days"))
             parts.append(_members_within(now_expr, "lookback", predicate=target_clause, negate=True))
@@ -376,8 +413,14 @@ def build_target_condition(
             raise ValueError("Action target requires 'action_id' in target_definition")
         if team is None:
             raise ValueError("Action target requires a team to resolve the action")
-        # Scope the lookup to the pipeline's team so a foreign action id can't leak across tenants.
-        action = Action.objects.get(id=action_id, team=team)
+        # Scope the lookup to the pipeline's project so a foreign action id can't leak across
+        # tenants. Actions live on the project's root team, so a team match would miss them
+        # from any other environment of the same project.
+        action = Action.objects.get(id=action_id, team__project_id=team.project_id)
+        if not action.steps:
+            # action_to_expr compiles an empty step list to a constant true, which would label
+            # every event in the horizon a positive.
+            raise ValueError(f"Action target {action_id} has no steps, so it matches no events")
         return f"({action_to_expr(action).to_hogql()})", {}
     return "event = {target}", {"target": target_event}
 
@@ -424,7 +467,12 @@ def _build_labeled_users_cte(
         else ""
     )
 
-    having_parts = [f"{_performed_before_t0(f' AND ({part})')} = 1" for part in compiled_filters.event_parts]
+    # One aggregate over the conjunction, not one per filter: inference ANDs the event
+    # filters on a single row, so training must require one pre-T0 event that satisfies all.
+    having_parts: list[str] = []
+    if compiled_filters.event_parts:
+        event_predicate = " AND ".join(compiled_filters.event_parts)
+        having_parts.append(f"{_performed_before_t0(f' AND ({event_predicate})')} = 1")
     having_parts.extend(compiled_kind.anchor_having_parts)
     anchor_having = f"\n              HAVING {' AND '.join(having_parts)}" if having_parts else ""
 
@@ -631,19 +679,19 @@ def build_inference_anchors_sql(
     return sql, values
 
 
-def strip_sql_comments(sql: str) -> str:
-    """
-    Remove ``--`` line comments and ``/* */`` block comments from HogQL, leaving
-    string/identifier literals intact.
+_LINE_COMMENT_STARTS = ("--", "//")
+_ANCHORS_PLACEHOLDER = "{anchors}"
 
-    Agent-authored feature SQL routinely carries comments. Blindly substituting
-    ``{anchors}`` with a multi-line subquery that happens to land inside a ``--``
-    comment injects newlines that escape the comment and corrupt the parse, and a
-    comment can also swallow the rest of a line it was never meant to. Stripping
-    comments before substitution sidesteps both. Single-quoted strings (with the
-    ``''`` escape), double-quoted identifiers, and backtick identifiers are
-    preserved verbatim so a literal ``--`` or ``/*`` inside them is not mistaken
-    for a comment.
+
+def _rewrite_outside_literals(sql: str, *, placeholder: str | None = None, replacement: str = "") -> str:
+    """
+    One quote-aware pass over HogQL text: drop ``--`` / ``//`` line comments and
+    ``/* */`` block comments, and replace ``placeholder`` where it appears in code.
+
+    Single-quoted strings, double-quoted and backtick identifiers are copied
+    verbatim, honoring both the doubled-quote and the backslash escape the HogQL
+    lexer accepts, so a comment marker or a placeholder inside a literal is left
+    alone: the literal is a feature value, not a table reference.
     """
     out: list[str] = []
     i = 0
@@ -653,10 +701,13 @@ def strip_sql_comments(sql: str) -> str:
         ch = sql[i]
         if quote is not None:
             out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(sql[i + 1])
+                i += 2
+                continue
             if ch == quote:
-                # '' inside a single-quoted string is an escaped quote, not a close.
-                if quote == "'" and i + 1 < n and sql[i + 1] == "'":
-                    out.append("'")
+                if i + 1 < n and sql[i + 1] == quote:
+                    out.append(quote)
                     i += 2
                     continue
                 quote = None
@@ -667,21 +718,36 @@ def strip_sql_comments(sql: str) -> str:
             out.append(ch)
             i += 1
             continue
-        if ch == "-" and i + 1 < n and sql[i + 1] == "-":
+        if sql.startswith(_LINE_COMMENT_STARTS, i):
             i += 2
             while i < n and sql[i] != "\n":
                 i += 1
             continue  # leave the newline so adjacent tokens don't fuse
-        if ch == "/" and i + 1 < n and sql[i + 1] == "*":
-            i += 2
-            while i + 1 < n and not (sql[i] == "*" and sql[i + 1] == "/"):
-                i += 1
-            i += 2  # skip the closing */
+        if sql.startswith("/*", i):
+            close = sql.find("*/", i + 2)
+            i = n if close < 0 else close + 2
             out.append(" ")  # block comment may sit mid-expression; keep a separator
+            continue
+        if placeholder and sql.startswith(placeholder, i):
+            out.append(replacement)
+            i += len(placeholder)
             continue
         out.append(ch)
         i += 1
     return "".join(out)
+
+
+def strip_sql_comments(sql: str) -> str:
+    """
+    Remove line and block comments from HogQL, leaving string/identifier literals intact.
+
+    Agent-authored feature SQL routinely carries comments. Blindly substituting
+    ``{anchors}`` with a multi-line subquery that happens to land inside a line
+    comment injects newlines that escape the comment and corrupt the parse, and a
+    comment can also swallow the rest of a line it was never meant to. Stripping
+    comments before substitution sidesteps both.
+    """
+    return _rewrite_outside_literals(sql)
 
 
 def _substitute_anchors(feature_sql: str, anchors_subquery: str) -> str:
@@ -690,10 +756,16 @@ def _substitute_anchors(feature_sql: str, anchors_subquery: str) -> str:
     cutoff subquery. The contract from Step B's static validator guarantees
     the placeholder is present.
 
-    Comments are stripped first so a placeholder sitting in (or adjacent to) a
-    comment can't break the substituted SQL — see ``strip_sql_comments``.
+    Comments are stripped in the same pass so a placeholder sitting in (or
+    adjacent to) a comment can't break the substituted SQL, and a placeholder
+    inside a literal is kept as the value it is. A trailing statement
+    terminator is dropped because the training path nests the result as a
+    derived table, where a ``;`` ends the statement early.
     """
-    return strip_sql_comments(feature_sql).replace("{anchors}", anchors_subquery)
+    substituted = _rewrite_outside_literals(
+        feature_sql, placeholder=_ANCHORS_PLACEHOLDER, replacement=anchors_subquery
+    ).rstrip()
+    return substituted[:-1] if substituted.endswith(";") else substituted
 
 
 def build_training_features_sql(
