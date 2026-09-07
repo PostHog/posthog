@@ -71,6 +71,11 @@ struct PartitionDeliveries {
     latest_kafka_ts: i64,
     /// Max ingestion lag (ms) — for `ingestion_lag_ms`.
     max_lag_ms: Option<i64>,
+    /// Messages the poll delivered, covered, and accepted from this
+    /// partition, so a revoked partition can leave the poll exactly.
+    delivered: u32,
+    covered: u32,
+    accepted: u32,
 }
 
 impl PartitionDeliveries {
@@ -82,6 +87,9 @@ impl PartitionDeliveries {
             charges: vec![(Offset(delivery.offset), delivery.charge)],
             latest_kafka_ts: delivery.kafka_ts,
             max_lag_ms: delivery.lag_ms,
+            delivered: 1,
+            covered: 0,
+            accepted: 0,
         }
     }
 
@@ -98,6 +106,7 @@ impl PartitionDeliveries {
         delivery: &Delivery,
     ) {
         self.span.extend(delivery.offset);
+        self.delivered += 1;
         self.latest_kafka_ts = self.latest_kafka_ts.max(delivery.kafka_ts);
         if let Some(lag_ms) = delivery.lag_ms {
             self.max_lag_ms = Some(self.max_lag_ms.map_or(lag_ms, |max| max.max(lag_ms)));
@@ -146,14 +155,41 @@ impl InFlightPoll {
     fn is_complete(&self) -> bool {
         self.covered >= self.message_count
     }
+}
 
-    fn contains(&self, partition: Partition, offset: i64) -> bool {
-        self.partitions.iter().any(|(topic_partition, deliveries)| {
-            topic_partition.partition == partition.0
-                && deliveries.span.first <= offset
-                && offset <= deliveries.span.last
-        })
+/// Remove revoked partitions from the in-flight polls, and remove polls left
+/// empty. Only the revoked partitions' slices go: a poll's kept partitions
+/// keep their counts and settle their ledger charges at commit, so the
+/// frontier never crosses a hole. Dropping whole polls here froze kept
+/// partitions' commits under cooperative rebalancing.
+fn strip_revoked_partitions(
+    in_flight_polls: &mut VecDeque<InFlightPoll>,
+    revoked: &[TopicPartition],
+) -> u64 {
+    let mut stripped: u64 = 0;
+    for poll in in_flight_polls.iter_mut() {
+        let mut removed_delivered = 0u32;
+        let mut removed_covered = 0u32;
+        let mut removed_accepted = 0u32;
+        poll.partitions.retain(|topic_partition, deliveries| {
+            if revoked.contains(topic_partition) {
+                removed_delivered += deliveries.delivered;
+                removed_covered += deliveries.covered;
+                removed_accepted += deliveries.accepted;
+                false
+            } else {
+                true
+            }
+        });
+        if removed_delivered > 0 {
+            stripped += u64::from(removed_delivered);
+            poll.message_count = poll.message_count.saturating_sub(removed_delivered);
+            poll.covered = poll.covered.saturating_sub(removed_covered);
+            poll.accepted = poll.accepted.saturating_sub(removed_accepted);
+        }
     }
+    in_flight_polls.retain(|poll| poll.message_count > 0);
+    stripped
 }
 
 /// Credit each of a completion's offsets to the poll that contains it: the
@@ -172,18 +208,27 @@ impl InFlightPoll {
 fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
     let mut accepted = completion.accepted;
     let mut unmatched: u64 = 0;
-    for offset in &completion.offsets {
+    'offsets: for offset in &completion.offsets {
         let is_accepted = accepted > 0;
         accepted = accepted.saturating_sub(1);
-        let Some(poll) = in_flight.iter_mut().find(|poll| {
-            poll.assignment_epoch == completion.assignment_epoch
-                && poll.contains(completion.partition, offset.0)
-        }) else {
-            unmatched += 1;
-            continue;
-        };
-        poll.covered += 1;
-        poll.accepted += u32::from(is_accepted);
+        for poll in in_flight
+            .iter_mut()
+            .filter(|poll| poll.assignment_epoch == completion.assignment_epoch)
+        {
+            for (topic_partition, deliveries) in poll.partitions.iter_mut() {
+                if topic_partition.partition == completion.partition.0
+                    && deliveries.span.first <= offset.0
+                    && offset.0 <= deliveries.span.last
+                {
+                    poll.covered += 1;
+                    poll.accepted += u32::from(is_accepted);
+                    deliveries.covered += 1;
+                    deliveries.accepted += u32::from(is_accepted);
+                    continue 'offsets;
+                }
+            }
+        }
+        unmatched += 1;
     }
     if unmatched > 0 {
         counter!("ingestion_consumer_stale_group_completions_total").increment(1);
@@ -598,12 +643,13 @@ impl IngestionConsumer {
         if revoked.is_empty() {
             return;
         }
-        let before = in_flight_polls.len();
-        in_flight_polls.retain(|poll| !revoked.iter().any(|tp| poll.partitions.contains_key(tp)));
-        let dropped = before - in_flight_polls.len();
-        if dropped > 0 {
-            counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(dropped as u64);
-            info!(dropped, "Dropped in-flight polls for revoked partitions");
+        let stripped = strip_revoked_partitions(in_flight_polls, &revoked);
+        if stripped > 0 {
+            counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
+            info!(
+                stripped,
+                "Removed revoked partitions' messages from in-flight polls"
+            );
         }
     }
 
@@ -1113,6 +1159,9 @@ mod tests {
                 charges: Vec::new(),
                 latest_kafka_ts: 0,
                 max_lag_ms: None,
+                delivered: count,
+                covered: 0,
+                accepted: 0,
             },
         );
         InFlightPoll {
@@ -1176,6 +1225,64 @@ mod tests {
             "the tail poll fails its accepted check"
         );
         assert_eq!(in_flight[1].covered, 2);
+    }
+
+    #[test]
+    fn strip_revoked_partitions_keeps_the_other_partitions_slices() {
+        // A cooperative rebalance revokes one partition of a two-partition
+        // poll. The kept partition's slice must stay accounted, or its
+        // ledger charges never settle and its commits freeze at the hole.
+        let mut two = poll(1, 0, 0, 1, 4);
+        two.partitions.insert(
+            TopicPartition::new("test", 1),
+            PartitionDeliveries {
+                span: OffsetSpan {
+                    first: 10,
+                    last: 11,
+                },
+                generation: 0,
+                generations_version_seen: 0,
+                charges: Vec::new(),
+                latest_kafka_ts: 0,
+                max_lag_ms: None,
+                delivered: 2,
+                covered: 0,
+                accepted: 0,
+            },
+        );
+        two.partitions
+            .get_mut(&TopicPartition::new("test", 0))
+            .unwrap()
+            .delivered = 2;
+        let mut in_flight = VecDeque::from([two]);
+        // Partition 1 already had one message covered before the revoke.
+        apply_completion(&mut in_flight, completion(1, 1, &[10], 1));
+
+        let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 1)]);
+
+        assert_eq!(stripped, 2);
+        assert_eq!(in_flight[0].message_count, 2);
+        assert_eq!(in_flight[0].covered, 0, "the revoked slice's credit goes");
+        assert!(!in_flight[0].is_complete());
+
+        // The kept partition completes the poll; a late completion for the
+        // revoked partition is discarded, not credited.
+        apply_completion(&mut in_flight, completion(1, 1, &[11], 1));
+        assert_eq!(in_flight[0].covered, 0);
+        apply_completion(&mut in_flight, completion(1, 0, &[0, 1], 2));
+        assert!(in_flight[0].is_complete());
+        assert_eq!(in_flight[0].accepted, 2);
+    }
+
+    #[test]
+    fn strip_revoked_partitions_removes_an_emptied_poll() {
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 2, 0, 3, 4)]);
+
+        let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 0)]);
+
+        assert_eq!(stripped, 4);
+        assert_eq!(in_flight.len(), 1);
+        assert_eq!(in_flight[0].message_count, 4);
     }
 
     #[test]
