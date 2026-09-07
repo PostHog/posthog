@@ -15,6 +15,9 @@ ui_apps:
         type: list
         detail_tool: cohorts-retrieve
 tools:
+    cohorts-abandon-population-create:
+        operation: cohorts_abandon_population_create
+        enabled: false
     cohorts-activity-retrieve:
         operation: cohorts_activity_retrieve
         enabled: false
@@ -217,6 +220,9 @@ tools:
                 - filters.properties.values.*.bytecode
                 - filters.properties.values.*.bytecode_error
                 - filters.properties.values.*.conditionHash
+    cohorts-retry-population-create:
+        operation: cohorts_retry_population_create
+        enabled: false
     cohorts-rm-person-from-static-cohort-partial-update:
         operation: cohorts_remove_person_from_static_cohort_partial_update
         enabled: true
