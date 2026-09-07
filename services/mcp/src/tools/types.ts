@@ -96,7 +96,7 @@ export type Env = {
      * GitHub release. Used for local skill authoring and by the integration
      * test harness.
      */
-    POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
+    POSTHOG_MCP_LOCAL_SKILLS_URL: string | undefined
 }
 
 export type Context = {

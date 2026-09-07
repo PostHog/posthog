@@ -132,8 +132,10 @@ describe('Hono Constants', () => {
     describe('getEnv', () => {
         it('should return env vars from process.env', () => {
             process.env.POSTHOG_ANALYTICS_API_KEY = 'test-key'
+            process.env.POSTHOG_MCP_LOCAL_SKILLS_URL = 'http://localhost:8765/skills-mcp-resources.zip'
             const env = getEnv()
             expect(env.POSTHOG_ANALYTICS_API_KEY).toBe('test-key')
+            expect(env.POSTHOG_MCP_LOCAL_SKILLS_URL).toBe('http://localhost:8765/skills-mcp-resources.zip')
         })
 
         it('should return undefined for unset env vars', () => {
@@ -153,6 +155,7 @@ describe('Hono Constants', () => {
             expect(env).toHaveProperty('POSTHOG_UI_APPS_TOKEN')
             expect(env).toHaveProperty('POSTHOG_ANALYTICS_API_KEY')
             expect(env).toHaveProperty('POSTHOG_ANALYTICS_HOST')
+            expect(env).toHaveProperty('POSTHOG_MCP_LOCAL_SKILLS_URL')
         })
     })
 })
