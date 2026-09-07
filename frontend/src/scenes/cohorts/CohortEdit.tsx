@@ -31,6 +31,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
@@ -53,7 +54,14 @@ import {
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    CohortType,
+    InsightShortId,
+    SidePanelTab,
+} from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { newWorkflowLogic } from 'products/workflows/frontend/Workflows/newWorkflowLogic'
@@ -225,6 +233,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const workflowDisabledReason = cohortWorkflowDisabledReason(cohort)
+    // Same gate as the workflows page's own "New workflow" button: creating a workflow needs editor access.
+    const workflowAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Workflow,
+        AccessControlLevel.Editor
+    )
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -288,6 +301,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
                                 ...(workflowDisabledReason ? { [workflowDisabledReason]: true } : {}),
+                                ...(workflowAccessDisabledReason ? { [workflowAccessDisabledReason]: true } : {}),
                             }}
                             data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
                             tooltip="Start a workflow that emails everyone in this cohort"
@@ -858,7 +872,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                                         'email'
                                                                     )
                                                                 }
-                                                                disabledReason={workflowDisabledReason ?? undefined}
+                                                                disabledReason={
+                                                                    workflowDisabledReason ??
+                                                                    workflowAccessDisabledReason ??
+                                                                    undefined
+                                                                }
                                                                 data-attr="cohort-message-with-workflow-table"
                                                             >
                                                                 Message cohort

@@ -8,6 +8,7 @@ import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAdd
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { cohortWorkflowDisabledReason, workflowTriggerPrefillForCohort } from 'scenes/cohorts/cohortUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -22,7 +23,7 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { CohortType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, CohortType } from '~/types'
 
 import { newWorkflowLogic } from 'products/workflows/frontend/Workflows/newWorkflowLogic'
 
@@ -48,7 +49,10 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     }
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
-    const workflowDisabledReason = cohortWorkflowDisabledReason(cohort)
+    // Same gate as the workflows page's own "New workflow" button: creating a workflow needs editor access.
+    const workflowDisabledReason =
+        cohortWorkflowDisabledReason(cohort) ??
+        getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor)
     const isDeleted = cohort.deleted
 
     const cohortIdNumber = typeof cohort.id === 'number' ? cohort.id : undefined
