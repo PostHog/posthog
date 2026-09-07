@@ -24,6 +24,7 @@ from posthog.errors import (
 )
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseBytesLimitExceeded,
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
@@ -657,6 +658,19 @@ def test_query_repair_decision_names_its_fields() -> None:
     decision = _query_repair_hint_and_plan_invalidation(ValueError("unexpected"))
 
     assert decision.repair_hint is None
+    assert decision.invalidates_plan is True
+
+
+def test_query_repair_decision_treats_remembered_bytes_limit_as_performance_failure() -> None:
+    error = MaxToolRetryableError("Query exceeded its byte limit")
+    error.__context__ = ClickHouseBytesLimitExceeded()
+
+    decision = _query_repair_hint_and_plan_invalidation(error)
+
+    assert decision.repair_hint == (
+        "The query exceeded its execution budget. Rewrite it to preaggregate data, avoid repeated scans, "
+        "and reduce high-cardinality grouping while preserving the requested metric and time window."
+    )
     assert decision.invalidates_plan is True
 
 
