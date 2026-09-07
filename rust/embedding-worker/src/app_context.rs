@@ -155,7 +155,11 @@ impl AppContext {
 
 const KAFKA_CONNECT_ATTEMPTS: u32 = 6;
 const KAFKA_CONNECT_FIRST_BACKOFF: Duration = Duration::from_secs(1);
-const KAFKA_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+// This bounds `init_transactions`, not the metadata ping before it. A
+// producer built without a broker transaction bound pings on the shared
+// 15s default, so one attempt can cost 25s. Six attempts, plus the 31s of
+// backoff, can hold startup for about 3 minutes before the worker exits.
+const KAFKA_TXN_INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 async fn connect_transactional_producer(
     config: &KafkaConfig,
@@ -169,7 +173,7 @@ async fn connect_transactional_producer(
         TransactionalProducer::with_context(
             config,
             &transactional_id,
-            KAFKA_CONNECT_TIMEOUT,
+            KAFKA_TXN_INIT_TIMEOUT,
             KafkaContext::from(liveness.clone()),
         )
     })
