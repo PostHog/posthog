@@ -135,7 +135,20 @@ The scope is the Azure Resource Manager path to read cost for, without a leading
         }
 
     def get_retryable_errors(self) -> set[str]:
-        return {"Azure Cost Management error (retryable)"}
+        return {
+            "Azure Cost Management error (retryable)",
+            # A dropped connection to Azure AD or ARM — an egress-proxy blip or a TLS handshake cut
+            # short. `AUTH_RETRY` and the client's own backoff already retry these in process, so a
+            # message that reaches here is transient and self-recovering. urllib3 wraps every such
+            # cause as "... Max retries exceeded with url: ...", so match that stable prefix rather
+            # than the per-request URL, which carries the customer's tenant id and would mint one
+            # tracked issue per Azure tenant.
+            "Max retries exceeded with url",
+            # The same drop, matched on the OpenSSL strings that sit inside the wrapper above, so
+            # the TLS EOF case stays recognized even if that wrapper changes.
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
+        }
 
     def get_schemas(
         self,
