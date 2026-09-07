@@ -248,6 +248,25 @@ describe('secure HTTP/2 requests', () => {
         await waitForExpect(() => expect(openHttp2Sessions.size).toBe(0), keepAliveTimeoutMs * 3)
     }, 15000)
 
+    it('keeps a session open for the idle timeout a caller asks for', async () => {
+        const http2Url = `https://origin.test:${serverPort(http2Origin)}`
+        const [defaultResponse, patientResponse] = await Promise.all([
+            requestModule.fetchStreamed(`${http2Url}/default-idle`, { allowH2: true, timeoutMs: 2000 }),
+            requestModule.fetchStreamed(`${http2Url}/patient-idle`, {
+                allowH2: true,
+                timeoutMs: 2000,
+                http2IdleTimeoutMs: 60_000,
+            }),
+        ])
+        expect((await defaultResponse.read(100)).bytes.toString()).toBe('/default-idle')
+        expect((await patientResponse.read(100)).bytes.toString()).toBe('/patient-idle')
+        expect(openHttp2Sessions.size).toBe(2)
+
+        // The default session closes first. The caller's session must outlive it.
+        await waitForExpect(() => expect(openHttp2Sessions.size).toBe(1), keepAliveTimeoutMs * 3)
+        expect(http2SessionCount).toBe(2)
+    }, 15000)
+
     it('closes open sessions and proxy tunnels when the shared agents shut down', async () => {
         const http2Url = `https://origin.test:${serverPort(http2Origin)}`
         const response = await requestModule.fetchStreamed(`${http2Url}/shutdown`, {

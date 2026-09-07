@@ -51,6 +51,8 @@ export type FetchOptions = {
     body?: string | Buffer
     timeoutMs?: number
     allowH2?: boolean
+    // How long an HTTP/2 session to the origin may sit idle before it closes. Defaults to the keep-alive timeout.
+    http2IdleTimeoutMs?: number
 }
 
 export type FetchResponse = {
@@ -271,21 +273,28 @@ class InsecureAgent extends Agent {
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
-function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
+// undici also uses keepAliveTimeout as the idle timeout of an HTTP/2 session.
+function makeSecureDispatcher({
+    allowH2,
+    keepAliveTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+}: {
+    allowH2: boolean
+    keepAliveTimeoutMs?: number
+}): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
 
     if (proxyUrl) {
         return new ProxyAgent({
             uri: proxyUrl,
-            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            keepAliveTimeout: keepAliveTimeoutMs,
             connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             allowH2,
             requestTls: { allowH2 },
         })
     }
     return new Agent({
-        keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
+        keepAliveTimeout: keepAliveTimeoutMs,
         connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
         allowH2,
         connect: {
@@ -296,9 +305,23 @@ function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
 }
 
 const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
-const sharedSecureH2Agent = makeSecureDispatcher({ allowH2: true })
 const sharedInsecureAgent = new InsecureAgent()
-const sharedAgents = [sharedSecureAgent, sharedSecureH2Agent, sharedInsecureAgent]
+// One HTTP/2 dispatcher per idle timeout, because undici sets the timeout per dispatcher. Callers are code, so the
+// set of timeouts stays small.
+const sharedSecureH2Agents = new Map<number, Dispatcher>()
+
+function getSecureH2Agent(idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS): Dispatcher {
+    let agent = sharedSecureH2Agents.get(idleTimeoutMs)
+    if (!agent) {
+        agent = makeSecureDispatcher({ allowH2: true, keepAliveTimeoutMs: idleTimeoutMs })
+        sharedSecureH2Agents.set(idleTimeoutMs, agent)
+    }
+    return agent
+}
+
+function getSecureDispatcher(options: { allowH2?: boolean; http2IdleTimeoutMs?: number }): Dispatcher {
+    return options.allowH2 ? getSecureH2Agent(options.http2IdleTimeoutMs) : sharedSecureAgent
+}
 
 function unrefDelay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms).unref())
@@ -311,9 +334,10 @@ function unrefDelay(ms: number): Promise<void> {
  * whatever remains after the grace period is destroyed.
  */
 export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
-    const closed = Promise.allSettled(sharedAgents.map((agent) => agent.close()))
+    const agents = [sharedSecureAgent, sharedInsecureAgent, ...sharedSecureH2Agents.values()]
+    const closed = Promise.allSettled(agents.map((agent) => agent.close()))
     await Promise.race([closed, unrefDelay(gracePeriodMs)])
-    await Promise.allSettled(sharedAgents.map((agent) => agent.destroy()))
+    await Promise.allSettled(agents.map((agent) => agent.destroy()))
 }
 
 function destroyBody(body: Dispatcher.ResponseData['body']): void {
@@ -427,8 +451,12 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     try {
-        const dispatcher = options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent
-        return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
+        return await _fetch(
+            url,
+            options,
+            getSecureDispatcher(options),
+            requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
+        )
     } finally {
         inflightExternalRequests.dec()
     }
@@ -438,6 +466,7 @@ export type StreamedFetchOptions = {
     headers?: HeadersInit
     timeoutMs: number
     allowH2?: boolean
+    http2IdleTimeoutMs?: number
 }
 
 export type StreamedResponse = {
@@ -541,7 +570,7 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         result = await request(parsed.toString(), {
             method: 'GET',
             headers: options.headers,
-            dispatcher: options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent,
+            dispatcher: getSecureDispatcher(options),
             signal: AbortSignal.timeout(options.timeoutMs),
             responseHeaders: 'raw',
         })
