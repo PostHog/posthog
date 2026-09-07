@@ -4731,6 +4731,13 @@ ${commonInstructions}
       };
       customHeaders = buildPosthogPropertiesHeaderLines(properties);
       openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
+      // The Go gateway writes this into the OpenAI body's `service_tier`, which
+      // is the only way a Codex run reaches the flex or priority queue: Codex
+      // itself omits a tier its model catalogue does not advertise. Codex-only,
+      // so it rides the OpenAI record; the Claude path has no tier concept.
+      if (this.config.serviceTier) {
+        openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
+      }
     } else {
       customHeaders = buildPosthogScopedPropertyHeaderLines(
         gatewayProperties,

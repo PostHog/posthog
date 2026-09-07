@@ -63,7 +63,10 @@ export interface AgentServerConfig {
   /**
    * Codex-only OpenAI service tier for the run's turns. "flex" is the cheaper,
    * slower queue; "priority" the faster one; "default" pins standard routing.
-   * Codex omits a tier its model catalogue doesn't advertise for the model.
+   * Sent two ways: as `serviceTier` on the Codex thread, which Codex omits for
+   * a model its catalogue does not advertise the tier for, and as the
+   * `X-PostHog-Service-Tier` header on every request to the Go gateway, which
+   * writes it into the body itself.
    */
   serviceTier?: ServiceTier;
   contextWindow?: "200k" | "1m";
