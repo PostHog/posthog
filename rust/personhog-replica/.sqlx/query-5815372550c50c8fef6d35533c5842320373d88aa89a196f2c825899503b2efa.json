@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)\n        SELECT pid, $1::bigint, $3\n        FROM UNNEST($2::bigint[]) AS t(pid)\n        ON CONFLICT DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5815372550c50c8fef6d35533c5842320373d88aa89a196f2c825899503b2efa"
+}

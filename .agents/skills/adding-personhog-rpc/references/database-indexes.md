@@ -87,19 +87,25 @@ Constraints: `group_type_index_is_less_than_or_equal_5`, `group_type_project_id_
 
 ## posthog_cohortpeople
 
-| Index name                                | Type  | Columns                  | Notes              |
-| ----------------------------------------- | ----- | ------------------------ | ------------------ |
-| `posthog_coh_cohort__89c25f_idx`          | INDEX | `(cohort_id, person_id)` | Composite lookup   |
-| `posthog_cohortpeople_cohort_id_1f371733` | INDEX | `(cohort_id)`            | Cohort-level scans |
-| `posthog_cohortpeople_person_id_33da7d3f` | INDEX | `(person_id)`            | Person-level scans |
+| Index name                                        | Type   | Columns                  | Notes                                                     |
+| ------------------------------------------------- | ------ | ------------------------ | --------------------------------------------------------- |
+| `posthog_cohortpeople_cohort_id_person_id_uniq`   | UNIQUE | `(cohort_id, person_id)` | One row per member. Also serves the composite lookup      |
+| `posthog_coh_cohort__89c25f_idx`                  | INDEX  | `(cohort_id, person_id)` | Redundant with the unique index; drop it out-of-band      |
+| `posthog_cohortpeople_cohort_id_1f371733`         | INDEX  | `(cohort_id)`            | Cohort-level scans                                        |
+| `posthog_cohortpeople_person_id_33da7d3f`         | INDEX  | `(person_id)`            | Person-level scans                                        |
 
 No FK — the FK to posthog_person was dropped during the partitioning migration and not re-added.
 
 **Typical query patterns:**
 
-- `WHERE cohort_id = $1 AND person_id = $2` → `posthog_coh_cohort__89c25f_idx` scan
+- `WHERE cohort_id = $1 AND person_id = $2` → `posthog_cohortpeople_cohort_id_person_id_uniq` scan
 - `WHERE cohort_id = $1` → `posthog_cohortpeople_cohort_id_1f371733` scan
 - `WHERE person_id = $1` → `posthog_cohortpeople_person_id_33da7d3f` scan
+
+**Write paths:**
+
+- Inserts rely on that unique index: a bare `ON CONFLICT DO NOTHING` arbitrates on every unique index of the table, so a duplicate member is skipped without a `NOT EXISTS` probe
+- Merges cannot repoint a member row onto a person that already holds the cohort; drop the colliding row instead
 
 ## posthog_featureflaghashkeyoverride
 

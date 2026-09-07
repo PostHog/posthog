@@ -2019,6 +2019,39 @@ describe('PostgresPersonRepository', () => {
             await repository.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
         })
 
+        it('drops a source cohort row the target already holds', async () => {
+            // One row per (cohort_id, person_id) is a unique index, so the source row cannot
+            // move onto the target. Leaving it behind would point it at a deleted person.
+            await insertRow(hub.postgres, 'posthog_cohortpeople', {
+                cohort_id: 6100,
+                person_id: targetPersonID,
+                version: 1,
+            })
+            await insertRow(hub.postgres, 'posthog_cohortpeople', {
+                cohort_id: 6100,
+                person_id: sourcePersonID,
+                version: 1,
+            })
+            await insertRow(hub.postgres, 'posthog_cohortpeople', {
+                cohort_id: 6101,
+                person_id: sourcePersonID,
+                version: 1,
+            })
+
+            await repository.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
+
+            const result = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT cohort_id, person_id FROM posthog_cohortpeople WHERE person_id = ANY($1) ORDER BY cohort_id',
+                [[sourcePersonID, targetPersonID]],
+                ''
+            )
+            expect(result.rows).toEqual([
+                { cohort_id: 6100, person_id: targetPersonID },
+                { cohort_id: 6101, person_id: targetPersonID },
+            ])
+        })
+
         it('updates all valid keys when target person had no overrides', async () => {
             await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
@@ -3212,6 +3245,40 @@ describe('PostgresPersonRepository', () => {
             const target = await createTestPerson(team.id, 'fold-ff-target-2', {})
 
             await repository.updateCohortsAndFeatureFlagsForMergeBatch(team.id, [], target.id)
+        })
+
+        it('drops cohort rows the target or an earlier source already holds', async () => {
+            const source1 = await createTestPerson(team.id, 'fold-cohort-source-1', {})
+            const source2 = await createTestPerson(team.id, 'fold-cohort-source-2', {})
+            const target = await createTestPerson(team.id, 'fold-cohort-target', {})
+
+            // Cohort 6200 is held by all three; cohort 6201 by both sources only.
+            for (const [cohortId, personId] of [
+                [6200, target.id],
+                [6200, source1.id],
+                [6200, source2.id],
+                [6201, source1.id],
+                [6201, source2.id],
+            ] as const) {
+                await insertRow(hub.postgres, 'posthog_cohortpeople', {
+                    cohort_id: cohortId,
+                    person_id: personId,
+                    version: 1,
+                })
+            }
+
+            await repository.updateCohortsAndFeatureFlagsForMergeBatch(team.id, [source1.id, source2.id], target.id)
+
+            const result = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT cohort_id, person_id FROM posthog_cohortpeople WHERE person_id = ANY($1) ORDER BY cohort_id',
+                [[source1.id, source2.id, target.id]],
+                ''
+            )
+            expect(result.rows).toEqual([
+                { cohort_id: 6200, person_id: target.id },
+                { cohort_id: 6201, person_id: target.id },
+            ])
         })
     })
 })
