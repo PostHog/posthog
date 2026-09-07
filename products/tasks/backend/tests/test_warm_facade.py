@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -633,27 +634,11 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
-    @parameterized.expand([(0,), (3,)])
-    def test_reuses_matching_warm_task_and_activates_it_in_place(self, startup_misses: int) -> None:
+    def test_reuses_matching_warm_task_and_activates_it_in_place(self) -> None:
         warm_task, run = self._warm_run()
-        handle = MagicMock(
-            signal=AsyncMock(
-                side_effect=[*[RPCError("starting", RPCStatusCode.NOT_FOUND, b"") for _ in range(startup_misses)], None]
-            )
-        )
-        elapsed = 0.0
-
-        def sleep(seconds: float) -> None:
-            nonlocal elapsed
-            elapsed += seconds
-
-        with (
-            patch("products.tasks.backend.temporal.client.sync_connect") as connect,
-            patch(f"{FACADE}.time") as clock,
-        ):
+        handle = MagicMock(signal=AsyncMock())
+        with patch("products.tasks.backend.temporal.client.sync_connect") as connect:
             connect.return_value.get_workflow_handle.return_value = handle
-            clock.monotonic.side_effect = lambda: elapsed
-            clock.sleep.side_effect = sleep
             dto = self._create(auto_publish=True)
 
         assert str(dto.id) == str(warm_task.id)
@@ -662,13 +647,12 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         run.refresh_from_db()
         assert warm_task.description == "fix the bug"
         assert warm_task.title
-        assert handle.signal.await_count == startup_misses + 1
+        assert handle.signal.await_count == 1
         payloads = [call.kwargs["args"] for call in handle.signal.await_args_list]
         assert payloads[0][0] == "fix the bug"
         assert payloads[0][2]
         assert all(payload == payloads[0] for payload in payloads)
         assert all(call.args == (run.workflow_id,) for call in connect.return_value.get_workflow_handle.call_args_list)
-        assert [call.args[0] for call in clock.sleep.call_args_list] == [0.25, 0.5, 1][:startup_misses]
         assert "await_user_message" not in run.state
         assert run.state["warm_activated"] is True
         # The agent-server re-reads run state on the forwarded first message, so this
@@ -680,19 +664,20 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             (endpoint, outcome)
             for endpoint in ("create", "resume")
             for outcome in (
-                "recovered",
-                "deadline",
-                "deadline_cancelled",
-                "deadline_replaced",
-                "deadline_invalid",
-                "deadline_workflow_changed",
-                "rpc_exhausted",
+                "retry",
+                "retry_cancelled",
+                "retry_replaced",
+                "retry_invalid",
+                "retry_expired",
+                "retry_workflow_changed",
                 "cancelled",
                 "failed",
                 "deleted",
                 "task_deleted",
                 "not_awaiting",
+                "workflow_changed",
                 "cancelled_after_delivery",
+                "workflow_changed_after_delivery",
             )
         ]
     )
@@ -726,46 +711,28 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         run_count = TaskRun.objects.filter(team=self.team).count()
         savepoints = list(transaction.get_connection().savepoint_ids)
-        elapsed = 0.0
-        rpc_timeouts: list[float] = []
+        handle = MagicMock(signal=AsyncMock(side_effect=RPCError("workflow starting", RPCStatusCode.NOT_FOUND, b"")))
 
-        def sleep(seconds: float) -> None:
-            nonlocal elapsed
+        def get_handle(workflow_id: str) -> MagicMock:
+            assert workflow_id == run.workflow_id
             assert transaction.get_connection().savepoint_ids == savepoints
-            elapsed += seconds
-            if outcome in ("cancelled", "failed"):
-                TaskRun.objects.filter(id=run.id).update(status=outcome)
+            if outcome in ("cancelled", "failed", "cancelled_after_delivery"):
+                TaskRun.objects.filter(id=run.id).update(status="failed" if outcome == "failed" else "cancelled")
             elif outcome == "deleted":
                 TaskRun.objects.filter(id=run.id).delete()
             elif outcome == "task_deleted":
                 Task.objects.filter(id=task.id).update(deleted=True)
             elif outcome == "not_awaiting":
                 TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
-
-        async def signal(*args: object, rpc_timeout: timedelta, **kwargs: object) -> None:
-            nonlocal elapsed
-            assert rpc_timeout.total_seconds() == 10 - elapsed
-            rpc_timeouts.append(rpc_timeout.total_seconds())
-            if outcome == "rpc_exhausted":
-                elapsed += rpc_timeout.total_seconds()
-            if outcome == "cancelled_after_delivery":
-                return
-            if outcome == "recovered" and len(rpc_timeouts) == 4:
-                return
-            raise RPCError("workflow starting", RPCStatusCode.NOT_FOUND, b"")
-
-        handle = MagicMock(signal=AsyncMock(side_effect=signal))
-
-        def get_handle(workflow_id: str) -> MagicMock:
-            assert workflow_id == run.workflow_id
-            assert transaction.get_connection().savepoint_ids == savepoints
-            if outcome == "cancelled_after_delivery":
-                TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.CANCELLED)
+            elif outcome in ("workflow_changed", "workflow_changed_after_delivery"):
+                TaskRun.update_state_atomic(run.id, updates={"workflow_id": "replacement-workflow"})
+            if outcome.endswith("after_delivery"):
+                handle.signal.side_effect = None
             return handle
 
         with (
             patch("products.tasks.backend.temporal.client.sync_connect") as connect,
-            patch(f"{FACADE}.time") as clock,
+            patch(f"{FACADE}.time.sleep") as sleep,
             patch("posthog.storage.object_storage.tag"),
             patch(
                 "products.tasks.backend.logic.services.title_generator.generate_task_title",
@@ -773,65 +740,62 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             ),
         ):
             connect.return_value.get_workflow_handle.side_effect = get_handle
-            clock.monotonic.side_effect = lambda: elapsed
-            clock.sleep.side_effect = sleep
             response = self.client.post(url, payload, format="json")
 
             assert Task.objects.filter(team=self.team).count() == 1
             assert TaskRun.objects.filter(team=self.team).count() == run_count - (outcome == "deleted")
-            if outcome == "recovered":
-                assert response.status_code == (201 if endpoint == "create" else 200), response.content
-                assert response.json()["id"] == str(task.id)
-                assert response.json()["latest_run"]["id"] == str(run.id)
-            else:
-                assert response.status_code == 503, response.content
-                error_body = response.json()
-                retry_token = error_body.pop("retry_token", None)
-                assert bool(retry_token) is (outcome.startswith("deadline") or outcome == "rpc_exhausted")
-                assert error_body == {
-                    "code": "warm_run_activation_unavailable",
-                    "error": "Couldn't start this run yet. Please try again.",
-                }
+            assert response.status_code == 503, response.content
+            error_body = response.json()
+            retry_token = error_body.pop("retry_token", None)
+            assert bool(retry_token) is outcome.startswith("retry")
+            assert error_body == {
+                "code": "warm_run_activation_unavailable",
+                "error": "Couldn't start this run yet. Please try again.",
+            }
+            handle.signal.assert_awaited_once()
+            assert handle.signal.call_args.kwargs["rpc_timeout"] == timedelta(seconds=10)
+            sleep.assert_not_called()
 
             if outcome != "deleted":
                 run.refresh_from_db()
-                assert bool(run.state.get("warm_activated")) is (outcome == "recovered")
-                assert bool(run.state.get("await_user_message")) is (outcome not in ("recovered", "not_awaiting"))
-            if outcome.startswith("deadline"):
-                assert elapsed == 10
-                assert min(rpc_timeouts) == 0.25
-                assert len(rpc_timeouts) == 12
-                first_message = handle.signal.call_args.args
-                handle.signal.side_effect = None
-                if outcome in ("deadline_cancelled", "deadline_replaced"):
+                assert not run.state.get("warm_activated")
+                assert bool(run.state.get("await_user_message")) is (outcome != "not_awaiting")
+            if outcome.startswith("retry"):
+                first_message = handle.signal.call_args.kwargs["args"]
+                if outcome in ("retry_cancelled", "retry_replaced"):
                     TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.CANCELLED)
-                if outcome == "deadline_replaced":
+                if outcome == "retry_replaced":
                     TaskRun.objects.create(task=task, team=self.team, state=run.state, branch=run.branch)
                     run_count += 1
-                if outcome == "deadline_invalid":
+                if outcome == "retry_invalid":
                     retry_token += "invalid"
-                if outcome == "deadline_workflow_changed":
+                if outcome == "retry_workflow_changed":
                     TaskRun.update_state_atomic(run.id, updates={"workflow_id": "replacement-workflow"})
-                retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
-                if outcome != "deadline":
+                with freeze_time(django_timezone.now() + timedelta(seconds=61 if outcome == "retry_expired" else 0)):
+                    retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
+                if outcome != "retry":
                     assert retry.status_code == 503, retry.content
                     assert "retry_token" not in retry.json()
-                    assert handle.signal.await_count == 12
+                    assert handle.signal.await_count == 1
                     assert Task.objects.filter(team=self.team).count() == 1
                     assert TaskRun.objects.filter(team=self.team).count() == run_count
                     return
+                assert retry.status_code == 503, retry.content
+                assert retry.json()["retry_token"]
+                assert handle.signal.await_count == 2
+                handle.signal.side_effect = None
+                retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
                 assert retry.status_code == (201 if endpoint == "create" else 200), retry.content
                 assert retry.json()["latest_run"]["id"] == str(run.id)
-                assert handle.signal.call_args.args == first_message
+                assert handle.signal.await_count == 3
+                assert all(call.kwargs["args"] == first_message for call in handle.signal.await_args_list)
                 run.refresh_from_db()
                 assert [entry["id"] for entry in run.artifacts] == [artifact["id"]]
                 assert "await_user_message" not in run.state
+                assert run.state["warm_activated"] is True
+                assert Task.objects.filter(team=self.team).count() == 1
                 assert TaskRun.objects.filter(team=self.team).count() == run_count
-            elif outcome != "recovered":
-                assert handle.signal.await_count == 1
-                if outcome == "rpc_exhausted":
-                    assert elapsed == 10
-                    clock.sleep.assert_not_called()
+                sleep.assert_not_called()
 
     @parameterized.expand([(False,), (None,), (RPCStatusCode.UNAVAILABLE,), (RPCStatusCode.DEADLINE_EXCEEDED,)])
     def test_warm_activation_does_not_retry_unconfirmed_delivery(self, outcome: bool | None | RPCStatusCode) -> None:

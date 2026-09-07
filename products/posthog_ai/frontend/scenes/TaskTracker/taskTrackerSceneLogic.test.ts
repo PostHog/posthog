@@ -184,7 +184,7 @@ describe('taskTrackerSceneLogic', () => {
                     '/api/projects/:team/tasks/': async ({ request }) => {
                         createBody = (await request.json()) as Record<string, unknown>
                         requests.push({ body: createBody, token: request.headers.get('X-PostHog-Warm-Retry') })
-                        if (automaticRetry && requests.length === 2) {
+                        if (automaticRetry && requests.length === 4) {
                             return [201, { id: 'warm-task', latest_run: { id: 'warm-run' } }]
                         }
                         requestStarted()
@@ -214,12 +214,17 @@ describe('taskTrackerSceneLogic', () => {
             logic.actions.submitNewTask()
             const firstBody = createBody
 
-            await expectLogic(logic, finishActivation).toFinishAllListeners()
+            jest.useFakeTimers({ advanceTimers: true })
+            try {
+                await expectLogic(logic, finishActivation).toFinishAllListeners()
+            } finally {
+                jest.useRealTimers()
+            }
 
             if (automaticRetry) {
                 expect(requests).toEqual([
                     { body: firstBody, token: null },
-                    { body: firstBody, token: 'synthetic-retry-token' },
+                    ...Array.from({ length: 3 }, () => ({ body: firstBody, token: 'synthetic-retry-token' })),
                 ])
                 expect(runBody).toBeNull()
                 expect(logic.values.activeCreation?.runId).toBe('warm-run')

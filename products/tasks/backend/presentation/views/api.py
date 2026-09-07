@@ -637,9 +637,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
-                    "PostHog Desktop access could not be verified, or warm run activation remained unavailable "
-                    "after waiting up to 10 seconds (code `warm_run_activation_unavailable`). A retry_token permits "
-                    "one frontend retry with an additional 10-second timeout, pinned by X-PostHog-Warm-Retry."
+                    "PostHog Desktop access could not be verified, or warm run activation is unavailable "
+                    "(code `warm_run_activation_unavailable`). After confirmed nondelivery, a retry_token permits "
+                    "retrying the same run and message with X-PostHog-Warm-Retry. Web retries for up to 20 seconds."
                 ),
             ),
         },
@@ -1144,9 +1144,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
-                    "PostHog Desktop access could not be verified, or warm run activation remained unavailable "
-                    "after waiting up to 10 seconds (code `warm_run_activation_unavailable`). A retry_token permits "
-                    "one frontend retry with an additional 10-second timeout, pinned by X-PostHog-Warm-Retry."
+                    "PostHog Desktop access could not be verified, or warm run activation is unavailable "
+                    "(code `warm_run_activation_unavailable`). After confirmed nondelivery, a retry_token permits "
+                    "retrying the same run and message with X-PostHog-Warm-Retry. Web retries for up to 20 seconds."
                 ),
             ),
             429: OpenApiResponse(

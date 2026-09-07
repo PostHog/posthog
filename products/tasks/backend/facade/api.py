@@ -6565,12 +6565,9 @@ def _deliver_warm_run_message(
     from temporalio.service import RPCError, RPCStatusCode
 
     started_at = time.monotonic()
-    deadline = started_at + 10
     workflow_id = run.workflow_id
     frontend_retry = message_id is not None
     message_id = message_id or str(uuid4())
-    attempts = 0
-    delay = 0.25
     eligible_runs = TaskRun.objects.filter(
         id=run.id,
         team_id=run.team_id,
@@ -6580,66 +6577,58 @@ def _deliver_warm_run_message(
     ).exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
 
     try:
-        while True:
+        current_run = eligible_runs.first()
+        if current_run is None or current_run.workflow_id != workflow_id:
+            raise WarmRunActivationUnavailable("target_unavailable")
+        try:
+            delivered = signal_task_run_user_message(
+                run.id,
+                run.task_id,
+                run.team_id,
+                content=message,
+                artifact_ids=artifact_ids,
+                message_id=message_id,
+                workflow_id=workflow_id,
+                rpc_timeout=timedelta(seconds=10),
+            )
+        except RPCError as error:
+            # NOT_FOUND proves the workflow did not receive this message. Other errors may follow delivery.
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
             current_run = eligible_runs.first()
             if current_run is None or current_run.workflow_id != workflow_id:
-                raise WarmRunActivationUnavailable("target_unavailable")
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise WarmRunActivationUnavailable("deadline")
-            attempts += 1
-            try:
-                delivered = signal_task_run_user_message(
-                    run.id,
-                    run.task_id,
-                    run.team_id,
-                    content=message,
-                    artifact_ids=artifact_ids,
-                    message_id=message_id,
-                    workflow_id=workflow_id,
-                    rpc_timeout=timedelta(seconds=remaining),
-                )
-            except RPCError as error:
-                # NOT_FOUND proves the workflow did not receive this message. Other errors may follow delivery.
-                if error.status != RPCStatusCode.NOT_FOUND:
-                    raise
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise WarmRunActivationUnavailable("deadline") from error
-                time.sleep(min(delay, remaining))
-                delay = min(delay * 2, 1)
-                continue
-            if delivered is not True:
-                raise WarmRunActivationUnavailable("delivery_failed")
-
-            with transaction.atomic():
-                activated_run = eligible_runs.select_for_update(of=("self",)).first()
-                if activated_run is None:
-                    raise WarmRunActivationUnavailable("target_unavailable")
-                activated_run.state.pop("await_user_message", None)
-                activated_run.state["warm_activated"] = True
-                activated_run.save(update_fields=["state", "updated_at"])
-            break
-    except WarmRunActivationUnavailable as error:
-        if error.reason == "deadline" and eligible_runs.exists():
-            error.retry_token = signing.TimestampSigner(salt="warm-run-activation").sign_object(
+                raise WarmRunActivationUnavailable("target_unavailable") from error
+            unavailable = WarmRunActivationUnavailable("starting")
+            unavailable.retry_token = signing.TimestampSigner(salt="warm-run-activation").sign_object(
                 [str(run.id), workflow_id, message_id]
             )
-        logger.warning(
+            raise unavailable from error
+        if delivered is not True:
+            raise WarmRunActivationUnavailable("delivery_failed")
+
+        with transaction.atomic():
+            activated_run = eligible_runs.select_for_update(of=("self",)).first()
+            if activated_run is None or activated_run.workflow_id != workflow_id:
+                raise WarmRunActivationUnavailable("target_unavailable")
+            activated_run.state.pop("await_user_message", None)
+            activated_run.state["warm_activated"] = True
+            activated_run.save(update_fields=["state", "updated_at"])
+    except WarmRunActivationUnavailable as error:
+        log = logger.info if error.retry_token else logger.warning
+        log(
             "task_warm_activation_unavailable",
             extra={
                 "run_id": str(run.id),
                 "task_id": str(run.task_id),
                 "team_id": run.team_id,
                 "workflow_id": workflow_id,
-                "attempts": attempts,
                 "elapsed_seconds": time.monotonic() - started_at,
                 "reason": error.reason,
                 "frontend_retry": frontend_retry,
             },
         )
         raise
-    if attempts > 1 or frontend_retry:
+    if frontend_retry:
         logger.info(
             "task_warm_activation_recovered",
             extra={
@@ -6647,7 +6636,6 @@ def _deliver_warm_run_message(
                 "task_id": str(run.task_id),
                 "team_id": run.team_id,
                 "workflow_id": workflow_id,
-                "attempts": attempts,
                 "elapsed_seconds": time.monotonic() - started_at,
                 "frontend_retry": frontend_retry,
             },

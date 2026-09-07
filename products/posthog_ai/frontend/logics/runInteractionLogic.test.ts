@@ -525,7 +525,7 @@ describe('runInteractionLogic', () => {
     })
 
     test.each(['recovered', 'exhausted', 'timeout', 'unmounted'])(
-        'keeps a resumed submission pending for one bounded frontend retry: %s',
+        'keeps a resumed submission pending through bounded frontend retries: %s',
         async (outcome) => {
             jest.useFakeTimers()
             const error = new ApiError('starting', 503, undefined, {
@@ -537,6 +537,8 @@ describe('runInteractionLogic', () => {
             let rejectRetry!: (error: unknown) => void
             ;(tasksRunCreate as jest.Mock)
                 .mockReturnValueOnce(new Promise((_, reject) => (rejectFirst = reject)))
+                .mockRejectedValueOnce(error)
+                .mockRejectedValueOnce(error)
                 .mockReturnValueOnce(
                     new Promise((resolve, reject) => {
                         resolveRetry = resolve
@@ -552,16 +554,18 @@ describe('runInteractionLogic', () => {
                 logic.actions.submitComposerForm()
                 await jest.advanceTimersByTimeAsync(10_000)
                 rejectFirst(error)
-                await jest.advanceTimersByTimeAsync(0)
-                expect(tasksRunCreate).toHaveBeenCalledTimes(2)
+                await jest.advanceTimersByTimeAsync(1750)
+                expect(tasksRunCreate).toHaveBeenCalledTimes(4)
                 const calls = (tasksRunCreate as jest.Mock).mock.calls
-                expect(calls[1].slice(0, 3)).toEqual(calls[0].slice(0, 3))
-                expect(calls[1][3].headers).toEqual({ 'X-PostHog-Warm-Retry': 'synthetic-retry-token' })
+                for (const call of calls.slice(1)) {
+                    expect(call.slice(0, 3)).toEqual(calls[0].slice(0, 3))
+                    expect(call[3].headers).toEqual({ 'X-PostHog-Warm-Retry': 'synthetic-retry-token' })
+                }
                 expect(logic.values.startingRun).toBe(true)
                 expect(logic.values.composerForm.draft).toBe('continue from here')
                 expect(attachedContextLogic().values.sentContextKeysByTask[TASK_ID]).toBeUndefined()
                 logic.actions.submitComposerForm()
-                expect(tasksRunCreate).toHaveBeenCalledTimes(2)
+                expect(tasksRunCreate).toHaveBeenCalledTimes(4)
                 if (outcome === 'unmounted') {
                     logic.unmount()
                     resolveRetry({ latest_run: { id: 'warm-run' } })
@@ -570,18 +574,20 @@ describe('runInteractionLogic', () => {
                     expect(onRunStarted).not.toHaveBeenCalled()
                     return
                 }
-                await jest.advanceTimersByTimeAsync(9_999)
+                await jest.advanceTimersByTimeAsync(8_249)
                 expect(logic.values.startingRun).toBe(true)
                 await expectLogic(logic, async () => {
                     if (outcome === 'recovered') {
                         resolveRetry({ latest_run: { id: 'warm-run' } })
                     } else if (outcome === 'exhausted') {
-                        rejectRetry(error)
+                        rejectRetry(
+                            new ApiError('starting', 503, undefined, { code: 'warm_run_activation_unavailable' })
+                        )
                     } else {
                         await jest.advanceTimersByTimeAsync(1)
                     }
                 }).toFinishAllListeners()
-                expect(tasksRunCreate).toHaveBeenCalledTimes(2)
+                expect(tasksRunCreate).toHaveBeenCalledTimes(4)
                 expect(logic.values.startingRun).toBe(false)
                 if (outcome === 'recovered') {
                     expect(onRunStarted).toHaveBeenCalledWith('warm-run')

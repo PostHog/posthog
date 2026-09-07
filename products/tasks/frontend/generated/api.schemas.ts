@@ -45,7 +45,7 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
-    /** On a confirmed warm startup timeout, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
+    /** After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
     retry_token?: string
     /** Why PostHog Desktop access was denied, when applicable.
      *
