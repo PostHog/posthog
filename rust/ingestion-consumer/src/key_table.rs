@@ -39,11 +39,15 @@ fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {
 
 /// One key's scheduling state.
 struct KeyState {
-    /// Queued messages in arrival order. A failed run returns to the front.
-    queue: VecDeque<SerializedKafkaMessage>,
+    /// Queued messages in arrival order, each with the assignment epoch it
+    /// was polled under. A failed run returns to the front.
+    queue: VecDeque<(u64, SerializedKafkaMessage)>,
     /// A request for this key is in flight. No second dispatch may happen
     /// until it settles.
     outstanding: bool,
+    /// The epoch of the outstanding run, so its failed messages requeue
+    /// under the epoch they were polled in.
+    outstanding_epoch: u64,
     /// The key waits for the parked-retry deadline. A parked key is never
     /// outstanding: it parks only when nothing of its is in flight.
     parked: bool,
@@ -58,6 +62,7 @@ impl KeyState {
         Self {
             queue: VecDeque::new(),
             outstanding: false,
+            outstanding_epoch: 0,
             parked: false,
             redelivering: false,
         }
@@ -114,18 +119,19 @@ impl KeyTable {
     }
 
     /// Append messages to the key's queue, creating the key when new.
-    fn enqueue_back(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) {
+    fn enqueue_back(&mut self, key: &str, epoch: u64, messages: Vec<SerializedKafkaMessage>) {
         self.queued_messages += messages.len();
         self.queued_bytes += payload_bytes(&messages);
         self.keys
             .entry(key.to_string())
             .or_insert_with(KeyState::new)
             .queue
-            .extend(messages);
+            .extend(messages.into_iter().map(|message| (epoch, message)));
     }
 
     /// Return a failed run to the front of its queue, ahead of anything that
     /// arrived while the run was in flight, so the redelivery keeps offset order.
+    /// The messages keep the outstanding run's epoch.
     fn requeue_front(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) {
         self.queued_messages += messages.len();
         self.queued_bytes += payload_bytes(&messages);
@@ -134,21 +140,29 @@ impl KeyTable {
             .entry(key.to_string())
             .or_insert_with(KeyState::new);
         state.redelivering = true;
+        let epoch = state.outstanding_epoch;
         for message in messages.into_iter().rev() {
-            state.queue.push_front(message);
+            state.queue.push_front((epoch, message));
         }
     }
 
-    /// Drain the key's queue into one run and mark the key outstanding.
+    /// Drain the queue's longest same-epoch prefix into one run and mark the
+    /// key outstanding. A run never mixes epochs, so its completions carry
+    /// one valid stamp; later-epoch messages wait for the next settlement.
     /// Returns None, with no state change, when there is nothing to dispatch.
-    fn take_run(&mut self, key: &str) -> Option<Vec<SerializedKafkaMessage>> {
+    fn take_run(&mut self, key: &str) -> Option<(u64, Vec<SerializedKafkaMessage>)> {
         let state = self.keys.get_mut(key)?;
         debug_assert!(!state.outstanding, "at most one request per key");
         if state.outstanding || state.queue.is_empty() {
             return None;
         }
-        let run: Vec<SerializedKafkaMessage> = state.queue.drain(..).collect();
+        let epoch = state.queue.front().expect("checked non-empty").0;
+        let mut run: Vec<SerializedKafkaMessage> = Vec::new();
+        while state.queue.front().is_some_and(|(e, _)| *e == epoch) {
+            run.push(state.queue.pop_front().expect("front checked").1);
+        }
         state.outstanding = true;
+        state.outstanding_epoch = epoch;
         state.parked = false;
         state.redelivering = false;
         self.outstanding_keys += 1;
@@ -157,7 +171,7 @@ impl KeyTable {
         debug_assert!(self.queued_messages >= run.len());
         self.queued_messages = self.queued_messages.saturating_sub(run.len());
         self.queued_bytes = self.queued_bytes.saturating_sub(payload_bytes(&run));
-        Some(run)
+        Some((epoch, run))
     }
 
     /// Put the key on the parked list, to be retried at the parked-retry
@@ -262,7 +276,7 @@ impl KeyTableScheduler {
             effects.deferred.unroutable += 1;
             return;
         };
-        let Some(messages) = self.table.take_run(key) else {
+        let Some((epoch, messages)) = self.table.take_run(key) else {
             return;
         };
         bump_load(working_load, &worker, messages.len());
@@ -271,6 +285,7 @@ impl KeyTableScheduler {
             routing_key: key.to_string(),
             messages,
             kind,
+            assignment_epoch: Some(epoch),
         });
     }
 
@@ -294,6 +309,7 @@ impl Scheduler for KeyTableScheduler {
         &mut self,
         snapshot: &WorkerSnapshot,
         _batch_id: &str,
+        assignment_epoch: u64,
         groups: Vec<KeyRun>,
     ) -> SchedulerEffects {
         let mut effects = SchedulerEffects::with_dispatch_capacity(groups.len());
@@ -301,7 +317,8 @@ impl Scheduler for KeyTableScheduler {
 
         let mut touched: Vec<String> = Vec::with_capacity(groups.len());
         for group in groups {
-            self.table.enqueue_back(&group.routing_key, group.messages);
+            self.table
+                .enqueue_back(&group.routing_key, assignment_epoch, group.messages);
             // The group queues behind an outstanding request or a parked
             // backlog: the "why is this key not moving" signal.
             if !self.table.is_runnable(&group.routing_key) {
@@ -425,7 +442,7 @@ impl Scheduler for KeyTableScheduler {
             } else {
                 SendKind::Fresh
             };
-            let Some(messages) = self.table.take_run(&key) else {
+            let Some((epoch, messages)) = self.table.take_run(&key) else {
                 continue;
             };
             bump_load(&mut load, &worker, messages.len());
@@ -435,6 +452,7 @@ impl Scheduler for KeyTableScheduler {
                 routing_key: key,
                 messages,
                 kind,
+                assignment_epoch: Some(epoch),
             });
         }
 
@@ -544,7 +562,7 @@ mod tests {
     fn test_fresh_key_dispatches_its_whole_run_and_goes_outstanding() {
         let mut sched = scheduler();
 
-        let effects = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1, 2])]);
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1, 2])]);
 
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(effects.dispatches[0].worker, wid(A));
@@ -558,9 +576,9 @@ mod tests {
     #[test]
     fn test_arrival_behind_an_outstanding_request_only_enqueues() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
-        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2])]);
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
 
         assert!(
             effects.dispatches.is_empty(),
@@ -581,6 +599,7 @@ mod tests {
         let effects = sched.on_groups(
             &snapshot(&[A, B], &[]),
             "b1",
+            0,
             vec![run("t:a", &[1, 2, 3]), run("t:b", &[1, 2, 3])],
         );
 
@@ -595,6 +614,7 @@ mod tests {
         let effects = sched.on_groups(
             &snapshot(&[A, B], &[]),
             "b1",
+            0,
             vec![run("t:small", &[1]), run("t:big", &[1, 2, 3, 4, 5])],
         );
 
@@ -611,6 +631,7 @@ mod tests {
         let effects = sched.on_groups(
             &snapshot(&[A], &[]),
             "b1",
+            0,
             vec![run("t:a", &[1]), run("t:a", &[2])],
         );
 
@@ -627,6 +648,7 @@ mod tests {
         let effects = sched.on_groups(
             &snapshot_narrowed(&[A, B], &[A], &[]),
             "b1",
+            0,
             vec![run("t:a", &[1])],
         );
 
@@ -639,7 +661,7 @@ mod tests {
     fn test_unroutable_arrival_parks_the_key() {
         let mut sched = scheduler();
 
-        let effects = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1, 2])]);
+        let effects = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1, 2])]);
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.unroutable, 1);
@@ -651,11 +673,11 @@ mod tests {
     #[test]
     fn test_arrival_behind_a_parked_key_waits_for_the_deadline() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
         // A worker is back, but the parked messages must go first, and only
         // the parked-retry deadline releases them.
-        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2])]);
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(sched.table().parked_keys(), 1);
@@ -667,8 +689,8 @@ mod tests {
     #[test]
     fn test_settlement_dispatches_the_next_queued_run() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2, 3])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2, 3])]);
 
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
 
@@ -683,7 +705,7 @@ mod tests {
     #[test]
     fn test_settlement_with_an_empty_queue_evicts_the_key() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
 
@@ -696,8 +718,8 @@ mod tests {
     #[test]
     fn test_settlement_parks_the_next_run_when_no_worker_is_routable() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
 
         // The pool emptied while the send was in flight (deploy overlap).
         let effects = sched.on_settled(&snapshot(&[], &[]), delivered(A, &["t:a"]));
@@ -724,9 +746,9 @@ mod tests {
     #[test]
     fn test_failed_settlement_requeues_at_the_front_and_parks() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[A, B], &[]), "b1", vec![run("t:a", &[1, 2])]);
+        let _ = sched.on_groups(&snapshot(&[A, B], &[]), "b1", 0, vec![run("t:a", &[1, 2])]);
         // Newer messages arrive while the send is in flight.
-        let _ = sched.on_groups(&snapshot(&[A, B], &[]), "b2", vec![run("t:a", &[3])]);
+        let _ = sched.on_groups(&snapshot(&[A, B], &[]), "b2", 0, vec![run("t:a", &[3])]);
 
         let effects = sched.on_settled(
             &snapshot(&[A, B], &[]),
@@ -752,8 +774,8 @@ mod tests {
     #[test]
     fn test_a_run_that_fails_twice_is_resent_again_and_ends_clean() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1, 2])]);
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[3])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1, 2])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[3])]);
         let _ = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1, 2])]));
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
         assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
@@ -788,10 +810,10 @@ mod tests {
     #[test]
     fn test_new_arrivals_queue_behind_a_failure_awaiting_retry() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
         let _ = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1])]));
 
-        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[2])]);
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
 
         assert!(
             effects.dispatches.is_empty(),
@@ -800,6 +822,24 @@ mod tests {
         assert_eq!(effects.deferred.queued_behind_deferral, 1);
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2]);
+    }
+
+    #[test]
+    fn test_a_run_never_mixes_assignment_epochs() {
+        let mut sched = scheduler();
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 5, vec![run("t:a", &[1])]);
+        // Arrivals from two epochs queue behind the outstanding request.
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 5, vec![run("t:a", &[2])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b3", 6, vec![run("t:a", &[3])]);
+
+        let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![2]);
+        assert_eq!(effects.dispatches[0].assignment_epoch, Some(5));
+
+        let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![3]);
+        assert_eq!(effects.dispatches[0].assignment_epoch, Some(6));
     }
 
     #[test]
@@ -837,7 +877,7 @@ mod tests {
     #[test]
     fn test_batch_deadline_is_a_noop_for_the_key_table() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Batch("b1"));
 
@@ -851,6 +891,7 @@ mod tests {
         let _ = sched.on_groups(
             &snapshot(&[], &[]),
             "b1",
+            0,
             vec![run("t:a", &[1]), run("t:b", &[1])],
         );
         assert_eq!(sched.table().parked_keys(), 2);
@@ -872,7 +913,7 @@ mod tests {
     #[test]
     fn test_parked_retry_keeps_keys_parked_when_no_worker_is_healthy() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
         let effects = sched.on_deadline(&snapshot(&[], &[]), Deadline::ParkedRetry);
 
@@ -880,7 +921,7 @@ mod tests {
         assert_eq!(sched.table().parked_keys(), 1, "kept for a later deadline");
 
         // Arrivals in the meantime still queue behind the parked work.
-        let effects = sched.on_groups(&snapshot(&[], &[]), "b2", vec![run("t:a", &[2])]);
+        let effects = sched.on_groups(&snapshot(&[], &[]), "b2", 0, vec![run("t:a", &[2])]);
         assert!(effects.dispatches.is_empty());
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2]);
@@ -889,7 +930,7 @@ mod tests {
     #[test]
     fn test_parked_retry_routes_over_the_whole_healthy_pool() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
         // The aperture slice is empty but a worker is healthy: the retry must
         // escape the slice, like a deferred flush.
@@ -914,15 +955,15 @@ mod tests {
         };
 
         // Arrive, dispatch, fail, queue more, retry, settle, queue drains.
-        let effects = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1, 2])]);
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1, 2])]);
         assert_eq!(record(&effects), 1);
-        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[3])]);
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[3])]);
         assert_eq!(record(&effects), 0);
         let effects = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1, 2])]));
         assert_eq!(record(&effects), 0);
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
         assert_eq!(record(&effects), 1);
-        let effects = sched.on_groups(&snapshot(&[A], &[]), "b3", vec![run("t:a", &[4])]);
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b3", 0, vec![run("t:a", &[4])]);
         assert_eq!(record(&effects), 0);
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
         assert_eq!(record(&effects), 1);
@@ -945,11 +986,13 @@ mod tests {
         let _ = sched.on_groups(
             &snapshot(&[A, B], &[]),
             "b1",
+            0,
             vec![run("t:a", &[1]), run("t:b", &[1])],
         );
         let _ = sched.on_groups(
             &snapshot(&[A, B], &[]),
             "b2",
+            0,
             vec![run("t:a", &[2]), run("t:b", &[2])],
         );
 

@@ -319,10 +319,11 @@ impl Dispatcher {
 
     /// Assign a batch of messages to workers. Demuxes the messages into
     /// groups first, as the collect path does for a poll, then assigns them
-    /// like [`Dispatcher::assign_and_send`].
+    /// like [`Dispatcher::assign_and_send`]. Test-only entry point; the
+    /// epoch is fixed at 0.
     pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
         let mut inner = self.inner.lock().unwrap();
-        self.assign_groups(&mut inner, batch_id, demux(messages))
+        self.assign_groups(&mut inner, batch_id, 0, demux(messages))
     }
 
     /// Assign a poll's groups to workers, then hand each sub-batch to `send`
@@ -340,11 +341,12 @@ impl Dispatcher {
     pub fn assign_and_send<T>(
         &self,
         batch_id: &str,
+        assignment_epoch: u64,
         groups: Vec<Group>,
         send: impl FnMut(SubBatch) -> T,
     ) -> Vec<T> {
         let mut inner = self.inner.lock().unwrap();
-        self.assign_groups(&mut inner, batch_id, groups)
+        self.assign_groups(&mut inner, batch_id, assignment_epoch, groups)
             .into_iter()
             .map(send)
             .collect()
@@ -354,6 +356,7 @@ impl Dispatcher {
         &self,
         inner: &mut DispatcherInner,
         batch_id: &str,
+        assignment_epoch: u64,
         groups: Vec<Group>,
     ) -> Vec<SubBatch> {
         let GroupedMessages {
@@ -374,7 +377,9 @@ impl Dispatcher {
             dispatches,
             deferred,
             ..
-        } = inner.scheduler.on_groups(&snapshot, batch_id, runs);
+        } = inner
+            .scheduler
+            .on_groups(&snapshot, batch_id, assignment_epoch, runs);
         let assignments = self.note_and_assemble(dispatches);
 
         // Add each worker's message volume to its outstanding load.
@@ -901,12 +906,14 @@ mod tests {
             routing_key: "tok:user-1".to_string(),
             messages: make_msgs(&["tok:user-1"]),
             kind: SendKind::Fresh,
+            assignment_epoch: None,
         });
         assignments.add_dispatch(Dispatch {
             worker: wid(1),
             routing_key: "tok:user-2".to_string(),
             messages: make_msgs(&["tok:user-2"]),
             kind: SendKind::Fresh,
+            assignment_epoch: None,
         });
 
         assert_eq!(
@@ -935,6 +942,7 @@ mod tests {
             routing_key: "tok:user-1".to_string(),
             messages: vec![make_msg_at("tok:user-1", 100)],
             kind: SendKind::Fresh,
+            assignment_epoch: None,
         });
         let sub_batches = assignments.into_sub_batches();
         assert_eq!(sub_batches[0].key_offsets.len(), 1);
@@ -948,6 +956,7 @@ mod tests {
             routing_key: ":7:42".to_string(),
             messages: vec![make_unkeyed_msg()],
             kind: SendKind::Fresh,
+            assignment_epoch: None,
         });
         assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
     }
@@ -1861,8 +1870,11 @@ mod tests {
 
         let racing = Arc::clone(&dispatcher);
         let mut race = None;
-        let sent =
-            dispatcher.assign_and_send("batch-2", demux(make_msgs(&["t:user-1"])), |sub_batch| {
+        let sent = dispatcher.assign_and_send(
+            "batch-2",
+            0,
+            demux(make_msgs(&["t:user-1"])),
+            |sub_batch| {
                 // Admitted behind batch-1's live pin. batch-1's send now fails
                 // and tries to stash its messages before this group is enqueued.
                 let dispatcher = Arc::clone(&racing);
@@ -1876,7 +1888,8 @@ mod tests {
                 );
                 race = Some(handle);
                 sub_batch
-            });
+            },
+        );
         assert_eq!(sent.len(), 1, "batch-2 was admitted and handed to send");
         race.take().expect("send ran").join().expect("defer_failed");
 

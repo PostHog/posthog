@@ -155,31 +155,44 @@ impl InFlightPoll {
     }
 }
 
-/// Credit a completion to the poll it belongs to: the one collected under the
-/// same assignment epoch whose offset span holds the completion's offsets.
+/// Credit each of a completion's offsets to the poll that contains it: the
+/// one collected under the same assignment epoch whose span holds the offset.
 /// Within one epoch, poll spans are disjoint per partition, so at most one
-/// poll matches. A completion that matches no in-flight poll (its partition
-/// was revoked and reassigned while the group was out, or its poll is gone)
-/// is discarded and counted.
+/// poll matches per offset. A key-table run merges messages from several
+/// polls into one send, so one completion can span polls; crediting per
+/// offset keeps every poll's count exact. Acceptance credits the leading
+/// offsets, so a worker that under-reports shorts the tail poll's accepted
+/// check, matching [`send_group_completions`]'s split across groups. An
+/// offset that matches no poll (its partition was revoked and reassigned
+/// while the group was out, or its poll is gone) is discarded; a completion
+/// with any discarded offset counts as stale once.
+///
+/// [`send_group_completions`]: crate::batcher
 fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
-    let Some(first) = completion.offsets.first().map(|offset| offset.0) else {
-        return;
-    };
-    let Some(poll) = in_flight.iter_mut().find(|poll| {
-        poll.assignment_epoch == completion.assignment_epoch
-            && poll.contains(completion.partition, first)
-    }) else {
+    let mut accepted = completion.accepted;
+    let mut unmatched: u64 = 0;
+    for offset in &completion.offsets {
+        let is_accepted = accepted > 0;
+        accepted = accepted.saturating_sub(1);
+        let Some(poll) = in_flight.iter_mut().find(|poll| {
+            poll.assignment_epoch == completion.assignment_epoch
+                && poll.contains(completion.partition, offset.0)
+        }) else {
+            unmatched += 1;
+            continue;
+        };
+        poll.covered += 1;
+        poll.accepted += u32::from(is_accepted);
+    }
+    if unmatched > 0 {
         counter!("ingestion_consumer_stale_group_completions_total").increment(1);
         warn!(
             partition = %completion.partition,
-            offset = first,
+            unmatched,
             epoch = completion.assignment_epoch,
-            "Discarding group completion that matches no in-flight poll"
+            "Discarding completion offsets that match no in-flight poll"
         );
-        return;
-    };
-    poll.covered += completion.offsets.len() as u32;
-    poll.accepted += completion.accepted;
+    }
 }
 
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
@@ -1073,6 +1086,34 @@ mod tests {
 
         apply_completion(&mut in_flight, completion(1, 0, &[5, 7], 2));
         assert!(in_flight[1].is_complete());
+    }
+
+    #[test]
+    fn apply_completion_spanning_two_polls_credits_each() {
+        // A key-table run merges messages from consecutive polls into one
+        // send, so its completion spans both spans.
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
+
+        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 4));
+
+        assert_eq!(in_flight[0].covered, 2);
+        assert_eq!(in_flight[0].accepted, 2);
+        assert_eq!(in_flight[1].covered, 2);
+        assert_eq!(in_flight[1].accepted, 2);
+    }
+
+    #[test]
+    fn apply_completion_under_report_shorts_the_tail_poll() {
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
+
+        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 3));
+
+        assert_eq!(in_flight[0].accepted, 2, "leading offsets are accepted");
+        assert_eq!(
+            in_flight[1].accepted, 1,
+            "the tail poll fails its accepted check"
+        );
+        assert_eq!(in_flight[1].covered, 2);
     }
 
     #[test]

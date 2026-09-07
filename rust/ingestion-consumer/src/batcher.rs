@@ -184,12 +184,12 @@ impl Batcher {
         self.inner.dispatcher.register_batch(&batch_id);
         let assign_start = Instant::now();
         let groups = accumulator.into_groups();
-        let pending = self
-            .inner
-            .dispatcher
-            .assign_and_send(&batch_id, groups, |sub_batch| {
-                begin_send(&self.inner.transport, &batch_id, sub_batch, false)
-            });
+        let pending = self.inner.dispatcher.assign_and_send(
+            &batch_id,
+            assignment_epoch,
+            groups,
+            |sub_batch| begin_send(&self.inner.transport, &batch_id, sub_batch, false),
+        );
         // Assignment serializes on the consumer loop (it does not overlap
         // batch collection) — watch this stays a small fraction of the batch
         // collection interval.
