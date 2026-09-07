@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
     cleanup_memory,
@@ -313,8 +314,13 @@ class PipelineV3(Generic[ResumableData]):
         self._pg_producer.is_first_ever_sync = True
 
     def _maintains_companion_table(self) -> bool:
-        """Whether this run's own table is a `_cdc` history table, keyed under its own watermark."""
-        return False
+        """Whether this run's own table is a `_cdc` history table, keyed under its own watermark.
+
+        Read off the resource rather than the lanes: a `cdc_only` run that stands down for
+        in-flight batches declares no lanes and runs this base class, and its table is the
+        history table all the same.
+        """
+        return self._resource.cdc_write_mode == SCD2_APPEND_MODE
 
     def _close_producers(self) -> None:
         self._pg_producer.close()

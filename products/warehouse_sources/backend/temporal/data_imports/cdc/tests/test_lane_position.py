@@ -180,6 +180,21 @@ class TestReadLanePosition:
         assert (await read_lane_position(table)).position == 30
 
 
+class TestPositionRowCap:
+    async def test_above_the_cap_the_lane_keeps_keys_and_operations_only(self, tmp_path, mocker):
+        # One bulk transaction stamps every row it touched with one position. Reading them all
+        # back as dicts on every tick until the next change would exhaust memory before the write
+        # that moves the position could ever happen.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position.MAX_POSITION_ROWS", 2)
+        table = _write(tmp_path / "t", [30, 30, 30], ids=[1, 1, 2])
+
+        position = await read_lane_position(table, key_columns=["id", CDC_OP_COLUMN])
+
+        assert position.position == 30
+        assert position.applied == {(1, "I"): [{}, {}], (2, "I"): [{}]}
+        assert position.content_schema is None
+
+
 class TestEnsurePositionStats:
     async def test_it_names_the_position_column_so_later_reads_are_a_lookup(self, tmp_path, mocker):
         table = _write(tmp_path / "t", [10], stats=False)

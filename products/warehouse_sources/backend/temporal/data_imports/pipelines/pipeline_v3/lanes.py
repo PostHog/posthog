@@ -26,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     record_companion_job,
     retire_companion_job,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
@@ -146,6 +145,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 **self._producer_args(s3_batch_writer, resource_name=lane.name, cdc_write_mode=lane.cdc_write_mode),
                 "job_id": str(job.id),
                 "workflow_run_id": None,
+                # The history table has no destination mapping: delivery names the destination
+                # table from the schema, and SCD2 rows merged by key there would clobber the
+                # consolidated table's rows. Legacy never delivered companion batches either.
+                "destination_ids": [],
             }
         )
         writer = _LaneWriter(lane, s3_batch_writer, producer, job=job)
@@ -180,7 +183,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                     "cdc_write_mode": lane.cdc_write_mode,
                     "companion_of": str(self._job.id),
                 },
-                destination_ids=list(self._job.destination_ids or []),
+                destination_ids=[],
             )
 
         job = await database_sync_to_async_pool(_create)()
@@ -193,11 +196,12 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     async def _fail_companion_jobs(self) -> None:
         """Take this run's open companion jobs terminal when extraction did not finish.
 
-        Only the job row. Its batches are left to the loader: a batch the loader is mid-write on
-        still lands (the pre-commit check is a lease, not a status read), and marking it failed
-        would also drop the run out of the in-flight guard, so the retry would read a position
-        the straggler is about to move past and stage the same rows again. Leaving the batches
-        non-terminal holds the retry until they are, exactly as the primary lane's are held.
+        Only the job row. Its batches are never marked failed here: a batch the loader is
+        mid-write on still lands (the pre-commit check is a lease, not a status read), and a
+        failed mark would drop the run out of the in-flight guard, so the retry would read a
+        position the straggler is about to move past and stage the same rows again. The loader
+        itself discards the batches it has not yet claimed once it sees the job Failed; the next
+        run re-reads those files from the table's position, so nothing is lost, only re-staged.
 
         Written directly, the way the legacy CDC path retires its own companion jobs. Going
         through `update_external_job_status` would repaint the customer's schema FAILED and fire a
@@ -280,12 +284,6 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         except Exception:
             # Bookkeeping for rows already written; never worth failing the run over.
             await self._logger.awarning("companion_job_rows_not_recorded", companion_job_id=str(job_id), exc_info=True)
-
-    def _maintains_companion_table(self) -> bool:
-        # A `cdc_only` schema's own table IS the history table. Without this the pre-write pass
-        # would vacuum it under the snapshot table's watermark while the loader's post-load pass
-        # uses the history one — two cadences on one table.
-        return self._output_lanes[0].cdc_write_mode == SCD2_APPEND_MODE
 
     def _mark_first_ever_sync(self) -> None:
         # The schema's own table only. A companion is append-only history the loader never

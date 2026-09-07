@@ -14,7 +14,7 @@ the next write carries the statistic again.
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import TYPE_CHECKING, Any, cast
 
 import pyarrow as pa
@@ -44,6 +44,11 @@ STATS_COLUMNS_PROPERTY = "delta.dataSkippingStatsColumns"
 # Delta's own default for `delta.dataSkippingNumIndexedCols`, restated because naming any column
 # at all overrides it.
 _DEFAULT_INDEXED_COLUMNS = 32
+
+# Rows at one position above which the history lane matches on key and operation alone. Each
+# row is read back as a Python dict of every content column; on a wide table this is the point
+# where that stops fitting alongside the batch being staged.
+MAX_POSITION_ROWS = 100_000
 
 _MAX_STAT = f"max.{CDC_SEQ_COLUMN}"
 _NULL_COUNT_STAT = f"null_count.{CDC_SEQ_COLUMN}"
@@ -124,7 +129,27 @@ async def read_lane_position(
 
     present = {field.name for field in delta_table.schema().fields}
     columns = [name for name in key_columns if name in present]
-    at_position = await asyncio.to_thread(_rows_at_position, delta_table, add_actions, highest)
+    candidates = _files_at_position(add_actions, highest)
+    rows_at_position = sum(candidates.values())
+    if rows_at_position > MAX_POSITION_ROWS:
+        # One bulk transaction stamps every row it touched with one position, and reading them
+        # all back as Python objects on every tick until the next change lands would exhaust
+        # memory before anything could be staged — the schema would never move again. Above the
+        # cap the lane matches on key and operation alone: a bulk change touches each key once,
+        # so the content is not needed to tell its rows apart, and a replay still spends the
+        # stored row rather than appending a copy.
+        logger.warning("cdc_position_identity_degraded", position=highest, rows=rows_at_position)
+        keys_only = await asyncio.to_thread(
+            _rows_at_position, delta_table, add_actions, highest, list(candidates), columns
+        )
+        return LanePosition(
+            position=highest,
+            applied={
+                key: [{} for _ in range(count)] for key, count in Counter(_identities(keys_only, columns)).items()
+            },
+            key_columns=tuple(columns),
+        )
+    at_position = await asyncio.to_thread(_rows_at_position, delta_table, add_actions, highest, list(candidates))
     return LanePosition(
         position=highest,
         applied=_group_by_identity(at_position, columns),
@@ -138,39 +163,59 @@ def _scan_position(delta_table: deltalake.DeltaTable) -> int | None:
     return pc.max(column).as_py() if column.length() else None
 
 
-def _rows_at_position(delta_table: deltalake.DeltaTable, add_actions: pa.Table, highest: int) -> pa.Table:
-    """Every row at `highest`, read from only the files that can hold one.
+def _files_at_position(add_actions: pa.Table, highest: int) -> dict[str, int]:
+    """Paths of the files that can hold a row at `highest`, with their row counts.
 
     A file's `max` is its highest position, so a row at `highest` sits in a file whose statistic
-    says exactly that. A file with no statistic is opened only as far as its footer: one that
-    lacks the column at all — every file of a snapshot seed — cannot hold the row and is skipped
-    without a read, and one that has it is a rewrite the statistic did not survive, so it is read.
+    says exactly that. A file with no statistic may hold one too — a rewrite the statistic did
+    not survive — unless its null count says every position in it is null, which is what a seed
+    file rewritten by schema evolution reports.
+    """
+    paths = add_actions.column("path").to_pylist()
+    counts = add_actions.column("num_records").to_pylist()
+    maxes = add_actions.column(_MAX_STAT).to_pylist() if _MAX_STAT in add_actions.column_names else [None] * len(paths)
+    all_null = _all_null(add_actions)
+    return {
+        str(path): int(count or 0)
+        for path, count, value in zip(paths, counts, maxes)
+        if path is not None and (value == highest or (value is None and path not in all_null))
+    }
+
+
+def _rows_at_position(
+    delta_table: deltalake.DeltaTable,
+    add_actions: pa.Table,
+    highest: int,
+    candidates: list[str],
+    columns: list[str] | None = None,
+) -> pa.Table:
+    """Every row at `highest`, read from only the candidate files.
+
+    A candidate with no statistic is opened only as far as its footer: one that lacks the column
+    at all cannot hold the row and is skipped without a read.
 
     `DeltaTable.to_pyarrow_table(filters=…)` would not do this. Its filter reaches pyarrow after
     the dataset is built over every active file, so it prunes by parquet footers alone, and a
     seed file's key columns would be read in full on every tick just to be filtered away.
     """
-    paths = add_actions.column("path").to_pylist()
-    maxes = add_actions.column(_MAX_STAT).to_pylist() if _MAX_STAT in add_actions.column_names else [None] * len(paths)
-    at_highest = {path for path, value in zip(paths, maxes) if value == highest}
-    # A `max` of null is also what a file whose every position is null reports — a seed file the
-    # schema evolution rewrote — and its null count says so without opening it.
-    unstated = {path for path, value in zip(paths, maxes) if value is None} - _all_null(add_actions)
-
+    wanted = set(candidates)
     dataset = cast(pa_ds.FileSystemDataset, delta_table.to_pyarrow_dataset())
-    fragments = []
-    for fragment in dataset.get_fragments():
-        if fragment.path in at_highest:
-            fragments.append(fragment)
-        elif fragment.path in unstated and CDC_SEQ_COLUMN in fragment.physical_schema.names:
-            fragments.append(fragment)
+    fragments = [
+        fragment
+        for fragment in dataset.get_fragments()
+        if fragment.path in wanted and CDC_SEQ_COLUMN in fragment.physical_schema.names
+    ]
     logger.info(
         "cdc_position_rows_read", position=highest, files_read=len(fragments), files_active=add_actions.num_rows
     )
     if not fragments:
         return dataset.schema.empty_table()
     selected = pa_ds.FileSystemDataset(fragments, dataset.schema, dataset.format, dataset.filesystem)
-    return selected.to_table(filter=pc.field(CDC_SEQ_COLUMN) == highest)
+    return selected.to_table(columns=columns, filter=pc.field(CDC_SEQ_COLUMN) == highest)
+
+
+def _identities(rows: pa.Table, key_columns: list[str]) -> list[tuple[Any, ...]]:
+    return list(zip(*(rows.column(name).to_pylist() for name in key_columns)))
 
 
 def _all_null(add_actions: pa.Table) -> set[str]:
@@ -189,7 +234,7 @@ def _all_null(add_actions: pa.Table) -> set[str]:
 def _group_by_identity(rows: pa.Table, key_columns: list[str]) -> dict[tuple[Any, ...], list[dict[str, Any]]]:
     if not key_columns or not rows.num_rows:
         return {}
-    keys = list(zip(*(rows.column(name).to_pylist() for name in key_columns)))
+    keys = _identities(rows, key_columns)
     contents = rows.select(content_columns(rows.column_names)).to_pylist()
     grouped: defaultdict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
     for key, content in zip(keys, contents):

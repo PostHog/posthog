@@ -153,7 +153,7 @@ class TestBufferedDispatch:
 
         _dispatch(_schema(cdc_table_mode="both"), inputs, retire_orphans=retire)
 
-        assert retire.call_args.kwargs["owner_job_id"] == inputs.job_id
+        retire.assert_called_once()
 
     def test_a_reset_on_a_streaming_buffered_schema_is_refused(self):
         with pytest.raises(ValueError, match="cdc_mode='snapshot'"):

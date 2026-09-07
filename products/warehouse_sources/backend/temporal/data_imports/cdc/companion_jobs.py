@@ -36,7 +36,7 @@ def retire_companion_job(job_id: str) -> None:
     )
 
 
-def retire_orphaned_companions(schema: ExternalDataSchema, *, owner_job_id: str) -> list[str]:
+def retire_orphaned_companions(schema: ExternalDataSchema) -> list[str]:
     """Retire this schema's Running companion jobs that no run owns any more.
 
     A companion is opened by the run that needs it, and that run's `finally` retires it when
@@ -46,8 +46,9 @@ def retire_orphaned_companions(schema: ExternalDataSchema, *, owner_job_id: str)
     `succeeded`. Left alone the row stays Running for good and blocks every flip and rollback.
 
     Safe to call once `has_batches_in_flight` is false: no batch of any earlier run can still be
-    executing, so nothing is mid-write on a job this retires. The caller's own companion is
-    skipped by `owner_job_id`; it is that run's to retire.
+    executing, so nothing is mid-write on a job this retires. That includes a companion an
+    earlier attempt of the caller's own job opened — the caller opens its own lazily, after
+    this runs, so any Running companion at this point belongs to a run that is gone.
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
@@ -58,9 +59,7 @@ def retire_orphaned_companions(schema: ExternalDataSchema, *, owner_job_id: str)
             schema_id=schema.id,
             status=ExternalDataJob.Status.RUNNING,
             schema_snapshot__companion_of__isnull=False,
-        )
-        .exclude(schema_snapshot__companion_of=owner_job_id)
-        .values_list("id", flat=True)
+        ).values_list("id", flat=True)
     )
     for job_id in orphans:
         retire_companion_job(str(job_id))

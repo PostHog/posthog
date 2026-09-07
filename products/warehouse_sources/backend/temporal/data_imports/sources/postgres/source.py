@@ -1547,7 +1547,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
         # Nothing of any earlier run is executing now, so a companion still Running belongs to a
         # run that died without its `finally` and nothing else will ever close it.
-        retired = retire_orphaned_companions(schema, owner_job_id=inputs.job_id)
+        retired = retire_orphaned_companions(schema)
         if retired:
             inputs.logger.warning("cdc_orphaned_companion_jobs_retired", schema_name=schema.name, job_ids=retired)
 

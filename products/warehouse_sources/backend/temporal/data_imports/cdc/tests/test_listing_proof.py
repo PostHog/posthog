@@ -157,7 +157,7 @@ class TestRetireOrphanedCompanions(BaseTest):
             schema_snapshot=snapshot,
         )
 
-    def test_only_running_companions_of_other_runs_are_retired(self):
+    def test_only_running_companions_are_retired(self):
         schema = self._schema()
         me = self._job(schema)
         mine = self._job(schema, companion_of=me.id)
@@ -166,12 +166,14 @@ class TestRetireOrphanedCompanions(BaseTest):
         finished = self._job(schema, status="Completed", companion_of=dead_run.id)
         plain_running = self._job(schema)
 
-        retired = retire_orphaned_companions(schema, owner_job_id=str(me.id))
+        retired = retire_orphaned_companions(schema)
 
-        assert retired == [str(orphan.id)]
+        # `mine` was opened by an earlier attempt of the running job: this attempt opens its own
+        # lazily, later, so at run start it is an orphan like any other.
+        assert sorted(retired) == sorted([str(orphan.id), str(mine.id)])
         for job in (me, mine, dead_run, finished, plain_running, orphan):
             job.refresh_from_db()
-        # The customer's schema is untouched: only the orphan row moved, and only to Failed.
-        assert orphan.status == "Failed"
-        assert [j.status for j in (me, mine, plain_running)] == ["Running"] * 3
+        # The customer's schema is untouched: only companion rows moved, and only to Failed.
+        assert orphan.status == "Failed" and mine.status == "Failed"
+        assert [j.status for j in (me, plain_running)] == ["Running"] * 2
         assert finished.status == "Completed"

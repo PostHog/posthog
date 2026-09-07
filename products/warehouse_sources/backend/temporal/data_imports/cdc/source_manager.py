@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
     build_scd2_table,
-    companion_resource_name as build_companion_resource_name,
+    companion_resource_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
     BufferFileSpan,
@@ -104,8 +104,8 @@ class CDCLane:
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
     """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
 
-    Fails closed on every axis: a table mode with no lanes, or a schema with no table yet, stays on
-    the legacy extraction path.
+    Fails closed on every axis: a table mode with no lanes, or a schema whose snapshot has not
+    completed (so its tables may not exist yet), stays on the legacy extraction path.
     """
     return bool(
         schema.is_cdc
@@ -120,11 +120,6 @@ def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
     return ingest_mode == "buffered" and serves_buffered_lane(schema)
 
 
-def companion_resource_name(schema: ExternalDataSchema) -> str:
-    """Storage name for this schema's `_cdc` companion — the same table capture and the seed write."""
-    return build_companion_resource_name(schema.name)
-
-
 def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
     """The tables this schema's change stream feeds.
 
@@ -134,7 +129,9 @@ def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
     return [
         CDCLane(
             resource_name=(
-                companion_resource_name(schema) if mode == COMPANION_WRITE_MODE else consolidated_resource_name(schema)
+                companion_resource_name(schema.name)
+                if mode == COMPANION_WRITE_MODE
+                else consolidated_resource_name(schema)
             ),
             write_mode=mode,
         )
@@ -393,6 +390,12 @@ class ReplayFilter:
     table. A row nothing matches has never been written, including one in a file capture wrote
     after the last run listed the buffer, and including the second change to a key whose first
     change is all the table holds.
+
+    One case content cannot settle: two changes to one key in one transaction with identical
+    content — an idempotent second update. If the file holding the first was consumed and
+    deleted before the second arrived, the second spends the single stored row and is dropped.
+    It is one row of history that adds nothing to the current state; a per-row ordinal from
+    capture would close it, and is the follow-up.
     """
 
     def __init__(self, position: LanePosition, *, team_id: int | None = None) -> None:
@@ -427,63 +430,81 @@ class ReplayFilter:
             # The batch cannot be keyed the way the table was, so nothing can be proven applied.
             return table
         seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
-        identities = list(zip(*(table.column(name).to_pylist() for name in self._key_columns)))
-        contents = self._batch_contents(table)
-        omitted = (
-            table.column(TOAST_OMITTED_COLUMN).to_pylist()
-            if TOAST_OMITTED_COLUMN in table.column_names
-            else [None] * table.num_rows
-        )
-        keep: list[int] = []
-        for i, seq in enumerate(seqs):
-            if seq != self._position:
-                keep.append(i)
-                continue
-            candidates = self._applied.get(identities[i])
-            if not candidates:
-                keep.append(i)
-                continue
-            skip = set(omitted[i] or ())
-            match = next((j for j, held in enumerate(candidates) if _same_content(contents[i], held, skip)), None)
-            if match is None:
-                keep.append(i)
-                continue
-            candidates.pop(match)
-            if not candidates:
-                del self._applied[identities[i]]
-        if len(keep) == table.num_rows:
+        # Only rows at the position can match anything, and they sit in a run's first batch;
+        # materializing the rest as Python objects would cost every batch for nothing.
+        candidates = [i for i, seq in enumerate(seqs) if seq == self._position]
+        if not candidates:
             return table
-        self._count_skipped(table.num_rows - len(keep), "already_written")
+        at_position = table.take(pa.array(candidates, type=pa.int64()))
+        identities = list(zip(*(at_position.column(name).to_pylist() for name in self._key_columns)))
+        contents, stringly = self._batch_contents(at_position)
+        omitted = (
+            at_position.column(TOAST_OMITTED_COLUMN).to_pylist()
+            if TOAST_OMITTED_COLUMN in at_position.column_names
+            else [None] * at_position.num_rows
+        )
+        ops = at_position.column(CDC_OP_COLUMN).to_pylist() if CDC_OP_COLUMN in at_position.column_names else []
+        dropped: set[int] = set()
+        for local, row_index in enumerate(candidates):
+            held = self._applied.get(identities[local])
+            if not held:
+                continue
+            skip = set(omitted[local] or ())
+            if ops and ops[local] == "D":
+                # A delete carries only its key under the default replica identity; the loader
+                # filled the rest from the table before storing it. Those nulls are unknowns,
+                # not values, the same as a TOAST-omitted column.
+                skip |= {name for name, value in contents[local].items() if value is None}
+            match = next((j for j, row in enumerate(held) if _same_content(contents[local], row, skip, stringly)), None)
+            if match is None:
+                continue
+            held.pop(match)
+            if not held:
+                del self._applied[identities[local]]
+            dropped.add(row_index)
+        if not dropped:
+            return table
+        self._count_skipped(len(dropped), "already_written")
+        keep = [i for i in range(table.num_rows) if i not in dropped]
         return table.take(pa.array(keep, type=pa.int64()))
 
-    def _batch_contents(self, table: pa.Table) -> list[dict[str, Any]]:
+    def _batch_contents(self, table: pa.Table) -> tuple[list[dict[str, Any]], set[str]]:
         """The batch's content columns as the table stores them, so values compare as equals.
 
         The batch carries the source's own arrow types and the table the loader's evolved ones;
-        a `real` reaches the table as a double, and the two floats are not equal. A column that
-        will not cast is left out of the comparison rather than failing it: the row then matches
-        on the rest, and a wrong match is a lost change where a missed one is only a copy.
+        a date widened to a timestamp reads back as a different Python value. A column that will
+        not cast is compared by its string form instead, so two changes that differ only there
+        still compare different: dropping it would make a wrong match likelier, and a wrong match
+        is a lost change where a missed one is only a copy.
         """
         names = content_columns(table.column_names)
         if self._content_schema is None:
-            return table.select(names).to_pylist()
+            return table.select(names).to_pylist(), set()
         columns: list[pa.ChunkedArray] = []
-        kept: list[str] = []
+        stringly: set[str] = set()
         for name in names:
             column = table.column(name)
             if name in self._content_schema.names:
                 try:
                     column = column.cast(self._content_schema.field(name).type)
                 except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-                    continue
+                    stringly.add(name)
             columns.append(column)
-            kept.append(name)
-        return pa.table(columns, names=kept).to_pylist()
+        return pa.table(columns, names=names).to_pylist(), stringly
 
 
-def _same_content(batch_row: dict[str, Any], held_row: dict[str, Any], skip: set[str]) -> bool:
+def _same_content(batch_row: dict[str, Any], held_row: dict[str, Any], skip: set[str], stringly: set[str]) -> bool:
     """Whether a batch row and a stored row agree on every column the batch row carries."""
-    return all(held_row[name] == value for name, value in batch_row.items() if name not in skip and name in held_row)
+    for name, value in batch_row.items():
+        if name in skip or name not in held_row:
+            continue
+        held = held_row[name]
+        if name in stringly:
+            if str(value) != str(held):
+                return False
+        elif held != value:
+            return False
+    return True
 
 
 class CDCSourceManager:

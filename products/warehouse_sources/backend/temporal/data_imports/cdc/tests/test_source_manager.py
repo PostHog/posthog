@@ -26,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     CDCSourceManager,
     ReplayFilter,
     build_output_lanes,
-    companion_resource_name,
     consumes_buffer,
     has_batches_in_flight,
     scheduled_sync_consumes_buffer,
@@ -285,8 +284,8 @@ class TestServedLanes:
         # The consolidated lane follows the snapshot's resolved folder, which diverges from `name`
         # for a row renamed bare to qualified. Following it here would append history into a table
         # no query reads — the companion is keyed on `name`, like its snapshot seed.
-        schema = _schema(name="public.users", resolved_s3_folder_name="users")
-        assert companion_resource_name(schema) == "public.users_cdc"
+        schema = _schema(name="public.users", resolved_s3_folder_name="users", cdc_table_mode="both")
+        assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
 
 
 class TestBufferedGating:
@@ -424,6 +423,35 @@ class TestReplayFilter:
         result = self._append(20, _held((1, "U", "a"))).apply(_ops([1, 1], [20, 20], ["U", "U"], labels=["a", "b"]))
 
         assert result.column("label").to_pylist() == ["b"]
+
+    def test_a_delete_rows_nulls_are_unknowns_not_values(self):
+        # Under the default replica identity a delete carries only its key; the loader filled the
+        # rest from the table before storing it. Comparing the batch's nulls against those values
+        # would never match, and the delete would be appended again on every re-read of its file.
+        replay = self._append(20, _held((1, "D", "filled-in")))
+
+        result = replay.apply(_ops([1], [20], ["D"], labels=[None]))
+
+        assert result.num_rows == 0
+
+    def test_a_deletes_non_null_column_still_has_to_match(self):
+        replay = self._append(20, _held((1, "D", "was-a")))
+
+        result = replay.apply(_ops([1], [20], ["D"], labels=["was-b"]))
+
+        assert result.num_rows == 1
+
+    def test_a_column_that_will_not_cast_compares_by_its_string_form(self):
+        # Dropping the column would make a wrong match likelier, and a wrong match is a lost change.
+        held = {(1, "U"): [{"id": 1, "label": "v1", "amount": "9.5"}]}
+        stored = pa.table({"amount": pa.array(["9.5"], pa.string())})
+        schema = _ops([1], [20]).select(["id", "label"]).append_column("amount", stored.column("amount")).schema
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=held, key_columns=("id", CDC_OP_COLUMN), content_schema=schema)
+        )
+        differs = _ops([1], [20], ["U"]).append_column("amount", pa.array([[9, 5]], pa.list_(pa.int64())))
+
+        assert replay.apply(differs).num_rows == 1
 
     def test_a_toast_omitted_column_is_left_out_of_the_comparison(self):
         # The source left `label` unchanged, so the batch row does not carry it and the table's

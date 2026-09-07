@@ -687,6 +687,27 @@ class TestCompanionJob:
         assert maintenance.return_value.run_scheduled.call_args.kwargs["is_cdc_companion"] is True
         assert self._laned(self._both())._maintains_companion_table() is False
 
+    def test_a_history_only_run_that_stands_down_still_maintains_under_the_companion_watermark(self) -> None:
+        # The in-flight no-op declares no lanes and runs the base class over the same history
+        # table. The answer has to come from the resource, not from the lanes.
+        pipeline = _make_pipeline()
+        pipeline._resource.cdc_write_mode = "scd2_append"
+
+        assert pipeline._maintains_companion_table() is True
+
+    def test_the_companion_delivers_to_no_destination(self) -> None:
+        # Delivery names the destination table from the schema, so history rows merged by key
+        # there would clobber the consolidated table's rows.
+        pipeline = self._laned(self._both())
+        pipeline._job.destination_ids = ["dest-1"]
+        created = MagicMock()
+        created.create.return_value = MagicMock(id="companion-job")
+
+        producer = self._open(pipeline, pipeline._output_lanes[1], created)
+
+        assert created.create.call_args.kwargs["destination_ids"] == []
+        assert producer.call_args.kwargs["destination_ids"] == []
+
 
 @pytest.mark.asyncio
 class TestSingleTableRunIsUntouched:

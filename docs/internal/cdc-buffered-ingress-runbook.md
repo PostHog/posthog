@@ -85,6 +85,19 @@ the pair: that table is paying a full column read every five minutes.
 A repartition carries the live table's properties onto the rebuilt one, so its files keep the
 statistic and nothing pauses.
 
+The history lane reads back every row at its position, with its content, to tell a replay from a
+new change. One bulk transaction can put millions of rows at one position, and reading them all
+back every tick until the next change lands would exhaust memory before that change could be
+staged. Above `MAX_POSITION_ROWS` the lane logs `cdc_position_identity_degraded` and matches on
+key and operation alone for that tick; a bulk change touches each key once, so nothing is lost by
+it. One such line per bulk change is expected. The same line on every tick means the table's
+newest transaction is huge and nothing has landed since — look at the source.
+
+**First run after this deploys.** Every already-flipped `consolidated` table declares the
+statistics property on its first run, and a table wider than 32 columns reports no position on that
+run, since none of its files carries the statistic yet. Its residual buffer is merged once more and
+billed once; the next write lands with the statistic and the position reads normally from then on.
+
 **A run stands down while any delivery for the schema is still in the queue** — a legacy one, or a
 previous attempt of this same job. Both would write alongside whatever this run reads, and on the
 append lane that is a second copy of the same history. Two scheduled runs cannot overlap on their
