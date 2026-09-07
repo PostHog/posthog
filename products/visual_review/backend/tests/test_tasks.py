@@ -52,8 +52,8 @@ def _make_png_with_single_changed_pixel() -> bytes:
 STRIPED_PAGE_ROWS = [(10 + (y * 2) % 240, 40 + y % 100, 200 - y % 150, 255) for y in range(100)]
 
 
-def _process_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes) -> RunSnapshot:
-    """Drive `process_diffs` over one CHANGED snapshot and return the stored row."""
+def _prepare_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes):
+    """Set up a run with one CHANGED snapshot; returns the run id and the storage write mock."""
     stored_bytes = {"old_hash": baseline_png, "new_hash": current_png}
     artifact_store.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
     artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
@@ -82,16 +82,21 @@ def _process_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes) -> 
         autospec=True,
         side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
     )
-    mocker.patch(
+    write = mocker.patch(
         "products.visual_review.backend.storage.ArtifactStorage.write",
         autospec=True,
         side_effect=lambda _storage, content_hash, content: (
             stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
         ),
     )
+    return create_result.run_id, write
 
-    assert process_diffs(create_result.run_id) == 1
-    return RunSnapshot.objects.get(run_id=create_result.run_id)
+
+def _process_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes) -> RunSnapshot:
+    """Drive `process_diffs` over one CHANGED snapshot and return the stored row."""
+    run_id, _write = _prepare_one_diff(repo, mocker, baseline_png, current_png)
+    assert process_diffs(run_id) == 1
+    return RunSnapshot.objects.get(run_id=run_id)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -403,6 +408,34 @@ class TestProcessRunDiffs:
             baseline_hash="old_hash",
             alternate_hash="new_hash",
         ).exists()
+
+    def test_absorbed_shift_stays_retryable_when_the_diff_upload_fails(self, repo, mocker):
+        # The diff pipeline retries CHANGED rows only. An absorbed shift that
+        # flipped to UNCHANGED before its artifact landed would finalize the
+        # run green with no trace of the shift and no way to get it back.
+        run_id, write = _prepare_one_diff(
+            repo,
+            mocker,
+            baseline_png=make_striped_png(STRIPED_PAGE_ROWS, width=100),
+            current_png=insert_background_rows(
+                make_striped_png(STRIPED_PAGE_ROWS, width=100), y=20, rows=1, fill=(255, 255, 255, 255)
+            ),
+        )
+        working_write = write.side_effect
+        write.side_effect = RuntimeError("object storage down")
+
+        process_diffs(run_id)
+
+        snapshot = RunSnapshot.objects.get(run_id=run_id)
+        assert snapshot.result == SnapshotResult.CHANGED
+        assert snapshot.classification_reason != ClassificationReason.BELOW_THRESHOLD
+        assert snapshot.diff_artifact is None
+
+        write.side_effect = working_write
+        assert process_diffs(run_id) == 1
+        snapshot.refresh_from_db()
+        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.diff_metadata["row_shift"]["inserted_rows"] == 1
 
     def test_process_diffs_absorbs_a_one_row_shift_but_keeps_its_trace(self, repo, mocker):
         # The whole point of row alignment: a page that moved down by a row is

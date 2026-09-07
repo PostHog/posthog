@@ -4,8 +4,8 @@ import io
 
 from PIL import Image
 
-from products.visual_review.backend.diff import compare_images
-from products.visual_review.backend.tests.conftest import make_striped_png
+from products.visual_review.backend.diff import ALIGN_MAX_ROWS, compare_images
+from products.visual_review.backend.tests.conftest import make_striped_png, to_png
 
 
 def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
@@ -126,6 +126,18 @@ class TestCompareImages:
         diff_img = Image.open(io.BytesIO(result.diff_image)).convert("RGBA")
         assert diff_img.size == (20, 21)  # the current image, one row taller than the baseline
         assert _red_row_indices(diff_img) == {8}
+
+    def test_alignment_skipped_past_the_row_cap(self):
+        rows = ALIGN_MAX_ROWS + 1
+        baseline = _make_png(1, rows, (255, 255, 255, 255))
+        current = Image.new("RGBA", (1, rows), (255, 255, 255, 255))
+        current.putpixel((0, 0), (0, 0, 0, 255))
+
+        result = compare_images(baseline, to_png(current))
+
+        assert result.diff_pixel_count == 1
+        assert result.row_shift is None
+        assert result.aligned_diff_pixel_count == result.diff_pixel_count
 
     def test_deleted_row_result_dimensions_follow_the_diff_image(self):
         # The baseline is the taller of the two, so the padded buffers the

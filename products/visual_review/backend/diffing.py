@@ -161,13 +161,12 @@ def _store_absorbed(snapshot: RunSnapshot, result: CompareResult) -> None:
     shift = result.row_shift
     has_shift = shift is not None and shift.shifted_rows > 0
 
-    snapshot.result = SnapshotResult.UNCHANGED
-    snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
-    snapshot.save(update_fields=["result", "classification_reason"])
-
+    # The row turns UNCHANGED last. A failed upload or metrics write leaves it
+    # CHANGED with no kind, which is what the next process_diffs pass retries.
+    diff_artifact = _write_diff_artifact(snapshot, result) if has_shift and result.diff_image else None
     snapshot_diffs.update_snapshot_diff(
         snapshot_id=snapshot.id,
-        diff_artifact=_write_diff_artifact(snapshot, result) if has_shift and result.diff_image else None,
+        diff_artifact=diff_artifact,
         diff_percentage=result.aligned_diff_percentage,
         diff_pixel_count=result.aligned_diff_pixel_count,
         ssim_score=result.ssim_score,
@@ -175,6 +174,9 @@ def _store_absorbed(snapshot: RunSnapshot, result: CompareResult) -> None:
         diff_metadata=_diff_metadata(result) if has_shift else None,
         team_id=snapshot.team_id,
     )
+    snapshot.result = SnapshotResult.UNCHANGED
+    snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
+    snapshot.save(update_fields=["result", "classification_reason"])
 
     logger.info(
         "visual_review.diff_below_threshold",

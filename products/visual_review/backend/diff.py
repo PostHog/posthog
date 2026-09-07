@@ -6,11 +6,12 @@ diff_count, ssim, diff_image, thumbnail, and clusters without paying for
 re-decode.
 """
 
-from dataclasses import dataclass
 from typing import Any
 
 from blake3 import blake3
 from pixelhog import ClustersResult, Comparison, RowAlignment
+
+from posthog.dataclasses import frozen
 
 from .diff_metadata import ClusterSummary, DiffCluster, RowShift, ShiftBand
 
@@ -42,8 +43,13 @@ CLUSTER_MIN_SIDE = 4
 CLUSTER_DILATION = 8
 CLUSTER_MAX = 20
 
+# Row alignment costs up to rows x edit budget, and the upload pixel cap alone
+# still admits a one pixel wide image with tens of millions of rows. Real pages
+# top out well under this, so past it the pair keeps the naive diff.
+ALIGN_MAX_ROWS = 32_768
 
-@dataclass
+
+@frozen
 class CompareResult:
     diff_image: bytes | None
     diff_hash: str
@@ -121,7 +127,9 @@ def compare_images(
 
     # Nothing to align when no pixel differs, which is also true of a pair
     # that only differs in how its PNG was encoded.
-    alignment: RowAlignment | None = cmp.row_alignment(threshold=threshold) if diff_pixel_count > 0 else None
+    alignment: RowAlignment | None = None
+    if 0 < diff_pixel_count and height <= ALIGN_MAX_ROWS:
+        alignment = cmp.row_alignment(threshold=threshold)
     aligned = alignment is not None and alignment.aligned
 
     row_shift: RowShift | None = None
