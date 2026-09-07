@@ -425,14 +425,14 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
 
                 // `content` and `sidebar` are declared as Record<string, any> on the config type but
                 // are stored as node arrays; cast to their real shape for the shared filter. A config
-                // that holds no layout — one saved for its pinned properties alone — falls back to the
-                // default layout rather than rendering an empty profile.
-                const storedNodes = Array.isArray(customerProfileConfig.content)
-                    ? (customerProfileConfig.content as JSONContent[])
-                    : []
-                if (!storedNodes.length) {
+                // saved for its pinned properties alone carries the `{}` the serializer defaults to,
+                // which holds no layout, so fall back to the default layout rather than render an
+                // empty profile. A stored `[]` is a layout somebody saved with every tile turned off,
+                // so keep it.
+                if (!Array.isArray(customerProfileConfig.content)) {
                     return null
                 }
+                const storedNodes = customerProfileConfig.content as JSONContent[]
 
                 // Saved configs bypass defaultContent, so apply the same availability filter here —
                 // otherwise a previously-saved Zendesk/support panel would render against a product
