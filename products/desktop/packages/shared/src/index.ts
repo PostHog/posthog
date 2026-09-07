@@ -6,16 +6,18 @@ export {
   showActionSchema,
   splitShowAction,
 } from "./agent-actions";
-export type {
-  AgentContent,
-  AgentConversationEvent,
-  AgentToolCall,
-  AgentToolCallContent,
-  AgentToolCallContentBlock,
-  AgentToolCallLocation,
-  AgentToolCallStatus,
-  AgentToolKind,
-  AgentTurnUsage,
+export {
+  type AgentContent,
+  type AgentConversationEvent,
+  type AgentToolCall,
+  type AgentToolCallContent,
+  type AgentToolCallContentBlock,
+  type AgentToolCallLocation,
+  type AgentToolCallStatus,
+  type AgentToolKind,
+  type AgentTurnUsage,
+  FOLLOWUP_DELIVERY_PROGRESS_STEP,
+  isFailedFollowupDelivery,
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";

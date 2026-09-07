@@ -17,6 +17,7 @@ import type {
   UserShellExecuteParams,
 } from "@posthog/shared";
 import {
+  FOLLOWUP_DELIVERY_PROGRESS_STEP,
   IMPORTED_USER_PROMPT_META_KEY,
   isJsonRpcNotification,
   isJsonRpcRequest,
@@ -601,6 +602,29 @@ export function isTurnCompleteEvent(event: AcpMessage): boolean {
   return (
     "method" in msg &&
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.TURN_COMPLETE)
+  );
+}
+
+/**
+ * Whether an event says a message never reached the agent.
+ *
+ * A run whose delivery failed keeps running, and the sandbox writes no turn
+ * boundary for a turn it never started, so this progress step is the only
+ * event that can disarm the optimistic pending state.
+ */
+export function isFailedFollowupDeliveryEvent(event: AcpMessage): boolean {
+  const msg = event.message;
+  if (
+    !("method" in msg) ||
+    !isNotification(msg.method, POSTHOG_NOTIFICATIONS.PROGRESS)
+  ) {
+    return false;
+  }
+  const params = (msg as { params?: { step?: unknown; status?: unknown } })
+    .params;
+  return (
+    params?.step === FOLLOWUP_DELIVERY_PROGRESS_STEP &&
+    params?.status === "failed"
   );
 }
 

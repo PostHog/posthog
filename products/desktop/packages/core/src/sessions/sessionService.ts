@@ -120,6 +120,7 @@ import {
   getUserShellExecutesSinceLastPrompt,
   hasSessionPromptEvent,
   hasSessionPromptEventForTaskRun,
+  isFailedFollowupDeliveryEvent,
   isSteerPromptParams,
   isTurnCompleteEvent,
   normalizePromptToBlocks,
@@ -3513,6 +3514,23 @@ export class SessionService {
             this.d.taskViewedApi.markActivity(session.taskId);
           }
           this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
+        }
+      }
+      if (isFailedFollowupDeliveryEvent(acpMsg)) {
+        // The message never reached the agent, so the turn the send started
+        // never began. The run stays alive and writes no turn boundary for a
+        // turn that never ran, so nothing else can disarm it: the footer
+        // generates forever and later messages queue behind it.
+        // A live tally means a `session/prompt` echo arrived, so a real turn
+        // is running and keeps the pending state. What failed then was a
+        // message queued behind that turn.
+        const session = this.getSessionByRunId(taskRunId);
+        if (session?.isPromptPending && !this.liveTurnContent.has(taskRunId)) {
+          this.d.store.updateSession(taskRunId, {
+            isPromptPending: false,
+            promptStartedAt: null,
+            currentPromptId: null,
+          });
         }
       }
       // Lifecycle handshake from the agent — flip status to "connected"

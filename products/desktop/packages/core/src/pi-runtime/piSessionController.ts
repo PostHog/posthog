@@ -11,6 +11,7 @@ import type {
 import {
   type AgentConversationEvent,
   classifyPromptFailure,
+  isFailedFollowupDelivery,
   type McpToolPermissionDecision,
   type McpToolPermissionRequest,
   type PiMessagingMode,
@@ -906,7 +907,10 @@ export class PiSessionController {
     if (status && hasTurnActivity) {
       status = { ...status, isStreaming: true };
     }
-    if (status && event.type === "turn_completed") {
+    if (
+      status &&
+      (event.type === "turn_completed" || isFailedFollowupDelivery(event))
+    ) {
       status = { ...status, isStreaming: false };
     }
 
@@ -946,6 +950,14 @@ export class PiSessionController {
       void this.refreshStats(taskId);
       this.disposeInactiveSessionIfIdle(taskId);
     }
+
+    if (isFailedFollowupDelivery(event)) {
+      // The clear above assumes the failed message was the only work in
+      // flight. A reachable agent corrects that with its own streaming state.
+      // An unreachable one rejects this call and keeps the clear, which is
+      // the case that strands the user.
+      void this.refreshStatus(taskId).catch(() => {});
+    }
   }
 
   private reconcileTurnState(
@@ -969,6 +981,12 @@ export class PiSessionController {
   ): void {
     const current = this.turnStates.get(taskId);
     const activeTurn = current?.phase === "active" ? current : undefined;
+    if (isFailedFollowupDelivery(event)) {
+      // The agent never got the message, so there is no turn to time or to
+      // announce as finished.
+      this.turnStates.set(taskId, { phase: "completed" });
+      return;
+    }
     const isDirectBash =
       (event.type === "tool_call_started" ||
         event.type === "tool_call_updated") &&

@@ -578,6 +578,43 @@ describe("PiSessionController", () => {
     );
   });
 
+  // The sandbox never got the message, so it writes no turn boundary. Without
+  // this the footer generates forever and the composer only queues.
+  it("stops the turn when the backend reports the message was never delivered", async () => {
+    let onEvent: (event: AgentConversationEvent) => void = () => {};
+    const session = createSession();
+    session.sendUserMessage = vi.fn(async () => {});
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      onEvent = handler;
+      return () => {};
+    });
+    const controller = createController(session, {
+      prepareCloudPiMessage: vi.fn(async () => ({
+        content: "proceed",
+        artifactIds: [],
+      })),
+    } as unknown as TaskService);
+
+    await controller.connect("task-1", "run-1");
+    await controller.submit("task-1", "proceed", false, "queue");
+    expect(controller.store.getState().sessions["task-1"].status).toMatchObject(
+      { isStreaming: true },
+    );
+
+    onEvent({
+      type: "progress",
+      timestamp: 2,
+      step: "followup_delivery",
+      status: "failed",
+      label: "Couldn't deliver your message",
+      group: "followup-delivery:message-1:run-1",
+    });
+
+    expect(controller.store.getState().sessions["task-1"].status).toMatchObject(
+      { isStreaming: false },
+    );
+  });
+
   it("notifies when a live completion arrives before history hydration", async () => {
     let onEvent: (
       event: AgentConversationEvent,

@@ -169,6 +169,7 @@ function createHarness() {
     updateSession: store.updateSession,
     emit: (event: AcpMessage) => onEvent?.(event),
     events: () => sessions[RUN_ID].events,
+    session: () => sessions[RUN_ID],
   };
 }
 
@@ -191,6 +192,22 @@ function promptResponse(id: number, ts: number): AcpMessage {
       jsonrpc: "2.0",
       id,
       result: { stopReason: "end_turn" },
+    },
+  } as unknown as AcpMessage;
+}
+
+function failedProgress(step: string, ts: number): AcpMessage {
+  return {
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/progress",
+      params: {
+        step,
+        status: "failed",
+        label: "Couldn't deliver your message",
+        group: `followup-delivery:message-1:${RUN_ID}`,
+      },
     },
   } as unknown as AcpMessage;
 }
@@ -276,5 +293,42 @@ describe("streamed event batching", () => {
       TASK_ID,
       5_000,
     );
+  });
+
+  // A run whose delivery failed keeps running and writes no turn boundary, so
+  // a turn left pending here never ends: the footer generates forever and every
+  // later message queues behind it.
+  it.each([
+    { step: "followup_delivery", stillPending: false },
+    { step: "preview", stillPending: true },
+  ])(
+    "a failed $step step leaves the optimistic turn pending: $stillPending",
+    ({ step, stillPending }) => {
+      const h = createHarness();
+
+      // What sending a message does before the agent has it.
+      h.updateSession(RUN_ID, {
+        isPromptPending: true,
+        promptStartedAt: 1_000,
+      });
+
+      h.emit(failedProgress(step, 2_000));
+      vi.advanceTimersByTime(FLUSH_MS);
+
+      expect(h.session().isPromptPending).toBe(stillPending);
+    },
+  );
+
+  it("keeps a running turn pending when a message queued behind it fails", () => {
+    const h = createHarness();
+
+    h.emit(promptEcho(1, 1_000));
+    vi.advanceTimersByTime(FLUSH_MS);
+    expect(h.session().isPromptPending).toBe(true);
+
+    h.emit(failedProgress("followup_delivery", 2_000));
+    vi.advanceTimersByTime(FLUSH_MS);
+
+    expect(h.session().isPromptPending).toBe(true);
   });
 });

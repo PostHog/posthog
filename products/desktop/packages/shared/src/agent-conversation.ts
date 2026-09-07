@@ -20,6 +20,9 @@ export type AgentToolCallStatus =
 
 export type AgentProgressStatus = "in_progress" | "completed" | "failed";
 
+/** Progress step the tasks backend reports for a message it tried to hand to the agent. */
+export const FOLLOWUP_DELIVERY_PROGRESS_STEP = "followup_delivery";
+
 export interface AgentTurnUsage {
   inputTokens: number;
   outputTokens: number;
@@ -196,3 +199,21 @@ export type AgentConversationEvent = (
     }
 ) &
   AgentConversationEventIdentity;
+
+/**
+ * Whether a progress event says a message never reached the agent.
+ *
+ * The turn a message starts is optimistic: the client marks the session busy
+ * when the backend accepts the message, before the sandbox has it. A failed
+ * delivery is therefore the only signal that no turn is running, and the run
+ * stays alive, so nothing else arrives to end it.
+ */
+export function isFailedFollowupDelivery(
+  event: AgentConversationEvent,
+): boolean {
+  return (
+    event.type === "progress" &&
+    event.step === FOLLOWUP_DELIVERY_PROGRESS_STEP &&
+    event.status === "failed"
+  );
+}
