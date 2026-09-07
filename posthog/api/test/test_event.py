@@ -1026,6 +1026,15 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=2")
         assert "X-PostHog-Warn" not in response.headers
 
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 4)
+    def test_csv_export_warning_reports_the_delivered_row_count(self):
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        for _i in range(2):
+            _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?format=csv")
+        assert "this export stops at 2 events" in response.headers["X-PostHog-Warn"]
+
     @patch("posthog.api.event.get_persons_mapped_by_distinct_id")
     def test_list_without_include_person_skips_person_lookup(self, mock_get_persons):
         _create_person(team=self.team, distinct_ids=["1"], is_identified=True)

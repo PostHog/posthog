@@ -335,7 +335,7 @@ class EventViewSet(
                 )
             if is_csv_request and has_more:
                 warn_messages.append(
-                    f"this export stops at {limit} events and more match the filters. "
+                    f"this export stops at {len(result)} events and more may match the filters. "
                     "Export in bulk with batch exports: https://posthog.com/docs/cdp/batch-exports"
                 )
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
