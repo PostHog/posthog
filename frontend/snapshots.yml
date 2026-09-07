@@ -365,9 +365,9 @@ snapshots:
     components-cyclotron-job-inputs--slack-fully-scoped--light:
         hash: v1.k794b7964.09c6b6060ccce1f0b0a49bb46a765200b5f68d8fdb61f39a18edae4b3d21b540.MvepyS3jqjmSn57ZsxLmzfXAWToxK17vDYihdF9C7sU
     components-cyclotron-job-inputs--slack-missing-optional-scope--dark:
-        hash: v1.k794b7964.7899640b40f8c63fcdf71dd630435fc34703f6beb7ddcaca58995722c4be2ccf.ivHTQet2bvZguJsGf5B3LHP3x7AgYJ19VwGO6mm03iU
+        hash: v1.k794b7964.e1d728f9adfdbda45275626876d376e2ae98c00186201f683628413badc3057c.rhwyg4RHd41vvfGl97Oh6I06VUC-DdT6fjd12qqiT4M
     components-cyclotron-job-inputs--slack-missing-optional-scope--light:
-        hash: v1.k794b7964.34d2c948ef34e6202c58bf14c9f77874301acf04cfad9166cdee523a8f611862.pngQdW6O2eVzOvL4Icd88uFnUj6yO2Rsqqp5TH_qMDI
+        hash: v1.k794b7964.1241f841266fed8307e644949d4fa6317253e930c2ad315fa3c71d816bdff7b1.7QmLkiKC8l2Fjhy9YLCjfb3AQJCggwx1d6NO7Ei-e0M
     components-cyclotron-job-inputs--slack-missing-required-scope--dark:
         hash: v1.k794b7964.632486ff7aefa1b8f51da6d5a7c2bc638f494a7b5db9c736b187ec89de6ced23.YVHF9x8aZnG5RuygbYdVOrYm1iMEKxV--fMovqtHbXs
     components-cyclotron-job-inputs--slack-missing-required-scope--light:
