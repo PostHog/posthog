@@ -131,34 +131,22 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: `\\b(?:${WEEKDAY} )?${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}`,
         replacement: '<TIMESTAMP>',
     },
-    // Vendor ids: a short lowercase prefix, an underscore, then a base62 body. Stripe (`cus_`, `sub_`,
-    // `seti_`), Clerk (`user_`), Vercel (`dpl_`) and ULID-shaped ids (`org_`, `partition_`) all take
-    // this shape, and none of the rules below reach them. The body opens on an underscore and closes
-    // on the end of a word, so it carries no interior word boundary: `num` and `hex` both need one and
-    // both skip the token, and the id survives into the pattern. One line per id is one pattern per
-    // line, which is the single largest source of pattern cardinality in real traffic.
+    // Vendor ids: a short lowercase prefix, an underscore, then a base62 body, as in Stripe
+    // `cus_`/`sub_`, Clerk `user_`, Vercel `dpl_`, and ULID-shaped `org_`. No rule below reaches
+    // them, because the body carries no interior word boundary and `num` and `hex` both need one.
     //
-    // The body must carry an uppercase letter *and* a digit. That pair is the whole guard, because the
-    // prefix and the underscore are also how ordinary snake_case English is spelled: without it,
-    // `push_subscriptions`, `pydantic_serializer` and `override_properties` all mask. Two of the words
-    // this rejects, `active_entitlements` and `balance_transactions`, are Stripe URL path segments, so
-    // masking them would merge distinct endpoints onto one pattern — the reverse of the rule's purpose.
+    // The body must carry an uppercase letter *and* a digit. That pair is the whole guard: ordinary
+    // snake_case English (`push_subscriptions`, `active_entitlements`) has the same prefix-and-
+    // underscore shape, and masking it would merge distinct endpoints onto one pattern. RE2 has no
+    // lookahead, so "contains both" is spelled as the two orders they can appear in. A length floor
+    // cannot ride on that spelling, so the body has none; the pair alone rejects prose.
     //
-    // RE2 has no lookahead, so "contains both" is spelled as the two orders they can appear in. That
-    // same limit is why the body carries no minimum length: a length floor and a contains-both
-    // requirement cannot ride on one RE2 expression together, and the pair is the half that rejects
-    // prose. A short body still needs both classes to match, and neither an English word nor a bare
-    // count has either.
+    // `\b` holds the prefix to a word start, so a lowercase run longer than the prefix cap matches
+    // nothing rather than matching mid-word and emitting a truncated stem.
     //
-    // `\b` holds the prefix to a word start. Without it the prefix can begin mid-word and emit a
-    // truncated stem, so one id shape reaches the pattern under two spellings. A lowercase run longer
-    // than the prefix cap then matches nothing at all rather than matching from the middle, which is
-    // the safe way to lose it.
-    //
-    // Listed ahead of `uuid`, and so ahead of every rule whose match can only start inside the body.
-    // The single pass takes the earliest start, and this rule starts at the prefix, so it already wins
-    // there; the chain has to run it in the same place or the two disagree. An uppercase UUID behind a
-    // prefix is the case that separates them, and it is in the agreement corpus.
+    // Listed ahead of `uuid`: this rule's match starts at the prefix, so the single pass already
+    // prefers it on an overlap, and the sequential chain must run it first for the two to agree.
+    // The agreement corpus asserts this with an uppercase UUID behind a prefix.
     {
         name: 'id',
         pattern: '\\b[a-z]{2,10}_(?:[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[0-9]|[A-Za-z0-9]*[0-9][A-Za-z0-9]*[A-Z])[A-Za-z0-9]*',

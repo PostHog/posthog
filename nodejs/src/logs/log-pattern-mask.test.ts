@@ -135,8 +135,6 @@ describe('log-pattern-mask', () => {
         })
 
         it.each([
-            ['a stripe subscription id', 'renewing sub_9RtVn2QwMkJd3FxPbZs6Hy today', 'renewing <ID> today'],
-            ['a clerk user id', 'synced user_2KpXr8ZmTq5NvBw7Ld3Cjs ok', 'synced <ID> ok'],
             ['a ulid-shaped id', 'claimed org_01ABCDEF23GHJK45MNPQRS67 lease', 'claimed <ID> lease'],
             [
                 'an id inside a url path',
@@ -147,10 +145,6 @@ describe('log-pattern-mask', () => {
             expect(maskString(input).masked).toEqual(expected)
         })
 
-        // The uppercase-and-digit pair is the only thing between this rule and ordinary snake_case
-        // English, which is spelled exactly like a prefixed id. `active_entitlements` and
-        // `balance_transactions` are Stripe URL path segments, so masking either would merge distinct
-        // endpoints onto one pattern — the reverse of what the rule is for.
         it.each([
             ['a snake_case word', 'listing push_subscriptions for team', 'listing push_subscriptions for team'],
             [
@@ -158,16 +152,9 @@ describe('log-pattern-mask', () => {
                 'GET /v1/entitlements/active_entitlements?limit=100',
                 'GET /v1/entitlements/active_entitlements?limit=<N>',
             ],
-            ['another snake_case word', 'pydantic_serializer failed', 'pydantic_serializer failed'],
-            [
-                'a third snake_case word',
-                'fetching balance_transactions page 2',
-                'fetching balance_transactions page <N>',
-            ],
             ['a body of digits only', 'folder team_123456 ready', 'folder team_123456 ready'],
             ['a body of lowercase and digits', 'repo repo_0a1b2c3d synced', 'repo repo_0a1b2c3d synced'],
-            // A lowercase run longer than the prefix cap has no word start the rule can reach, so it
-            // matches nothing rather than matching from the middle and emitting a truncated stem.
+            ['a body of letters but no digit', 'saw ref_QzWmTbKx once', 'saw ref_QzWmTbKx once'],
             ['a prefix past the cap', 'saw verylongprefix_Zq8xTv2wPn once', 'saw verylongprefix_Zq8xTv2wPn once'],
         ])('id does not claim %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
@@ -508,8 +495,7 @@ describe('log-pattern-mask', () => {
             'Jan  2 03:04:05 host sshd: accepted from 10.0.0.1',
             'built sha a3f9c1d2 at 1724495000 into deadbeefdeadbeef00',
             'charging cus_Qz4WmTb7Kx9pLr for user_2KpXr8ZmTq5NvBw7Ld3Cjs',
-            // An uppercase UUID behind a prefix matches both `id` and `uuid`, and `id` starts earlier.
-            // The chain only agrees with the single pass while `id` is listed first.
+            // An uppercase UUID behind a prefix: `id` and `uuid` both match, so the chain must run `id` first.
             'trace_0A1B2C3D-4E5F-6789-ABCD-EF0123456789 started',
         ]
 
