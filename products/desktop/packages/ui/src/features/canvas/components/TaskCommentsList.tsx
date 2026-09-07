@@ -42,6 +42,7 @@ import {
   threadSourceOptions,
 } from "@posthog/ui/features/canvas/components/taskCommentThreads";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
+import { useTaskCanvases } from "@posthog/ui/features/canvas/hooks/useTaskCanvases";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { usePrCommentActions } from "@posthog/ui/features/code-review/hooks/usePrCommentActions";
@@ -314,6 +315,7 @@ export function TaskCommentsList({
   onCanvasCommentOpen?: (versionId: string | null) => void;
 }) {
   const { runs } = useTaskRuns(onlySource ? undefined : task.id);
+  const canvases = useTaskCanvases(onlySource ? undefined : task.id);
   const { members } = useOrgMembers();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const activeArtifactId = useActiveArtifactId(task.id);
@@ -343,8 +345,8 @@ export function TaskCommentsList({
   }, [task.id]);
 
   const rows = useMemo(
-    () => buildRows(task, timeline, runs),
-    [task, timeline, runs],
+    () => buildRows(task, timeline, runs, canvases),
+    [task, timeline, runs, canvases],
   );
   const sources = useMemo(
     () => (onlySource ? [onlySource] : commentSources(task.id, rows)),

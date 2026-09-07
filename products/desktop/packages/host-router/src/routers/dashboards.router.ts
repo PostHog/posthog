@@ -21,6 +21,7 @@ import {
   fileDashboardInput,
   listComponentsInput,
   listDashboardsInput,
+  listTaskCanvasesInput,
   promoteCanvasInput,
   renameDashboardInput,
   reportCanvasErrorInput,
@@ -62,6 +63,14 @@ export const dashboardsRouter = router({
     .output(z.array(dashboardRecordSchema))
     .query(({ ctx }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).listAll(),
+    ),
+  listForTask: publicProcedure
+    .input(listTaskCanvasesInput)
+    .output(z.array(dashboardRecordSchema))
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .listForTask(input.taskId),
     ),
   get: publicProcedure
     .input(dashboardIdInput)

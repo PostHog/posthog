@@ -1,3 +1,4 @@
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import type { Task, TaskRun, TaskRunArtifact } from "@posthog/shared";
 import type { TaskThreadMessage } from "@posthog/shared/domain-types";
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   sessionEvents: [] as unknown[],
   sessionArtifacts: [] as TaskRunArtifact[],
   taskRunsRefreshKeys: [] as number[],
+  canvases: [] as DashboardRecord[],
 }));
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
@@ -37,6 +39,9 @@ vi.mock("@posthog/ui/shell/openExternal", () => ({
 
 vi.mock("@posthog/ui/features/auth/useMeQuery", () => ({
   useMeQuery: () => ({ data: { id: 42, first_name: "Sam" } }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskCanvases", () => ({
+  useTaskCanvases: () => mocks.canvases,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
   useTaskRuns: (_taskId: string | undefined, refreshKey = 0) => {
@@ -143,6 +148,7 @@ describe("TaskArtifactsList", () => {
     mocks.sessionEvents = [];
     mocks.sessionArtifacts = [];
     mocks.taskRunsRefreshKeys = [];
+    mocks.canvases = [];
     mocks.runs = [run("run-1", { prNumber: 1 }), run("run-2", { prNumber: 2 })];
     mocks.openArtifactTab.mockReset();
     mocks.openInboxReport.mockReset();
@@ -230,6 +236,25 @@ describe("TaskArtifactsList", () => {
 
     expect(screen.getByText("Canvas · 2d")).toBeInTheDocument();
     expect(screen.getByText("Open · 43m")).toBeInTheDocument();
+  });
+
+  // The thread announces a canvas only on its first publish, and only for some
+  // callers, so the canvas record itself has to put the row here.
+  it("lists a canvas the thread never announced", () => {
+    mocks.runs = [];
+    mocks.canvases = [
+      {
+        id: "canvas-1",
+        channelId: "channel-1",
+        name: "Weather board",
+        createdAt: Date.now() - 43 * 60_000,
+      } as DashboardRecord,
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByText("Weather board")).toBeInTheDocument();
+    expect(screen.getByText("Canvas · 43m")).toBeInTheDocument();
   });
 
   it("lists uploaded files with their comment count", () => {

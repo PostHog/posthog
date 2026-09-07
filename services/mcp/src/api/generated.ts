@@ -93191,6 +93191,10 @@ export namespace Schemas {
      */
     channel?: string;
     /**
+     * Only return canvases this task generated.
+     */
+    generation_task?: string;
+    /**
      * Only return canvases of this kind. kind=component lists the component store.
      */
     kind?: CanvasesListKind;
