@@ -14821,7 +14821,11 @@ export namespace Schemas {
        * * `remove` - remove
        * * `set` - set */
       action: BulkUpdateTagsActionEnum;
-      /** Tag names to add, remove, or set. */
+      /**
+         * Tag names to add, remove, or set.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags: string[];
     }
 
@@ -14859,7 +14863,11 @@ export namespace Schemas {
        * * `remove` - remove
        * * `set` - set */
       action: BulkUpdateTagsActionEnum;
-      /** Tag names to add, remove, or set. */
+      /**
+         * Tag names to add, remove, or set.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags: string[];
     }
 
@@ -17171,6 +17179,14 @@ export namespace Schemas {
       base_version?: number | null;
     }
 
+    export interface ChannelMembersWrite {
+      /**
+         * Required list of member user IDs. This list replaces the current members. The creator remains a member. Send an empty list to remove all other members. Each submitted user must have project access.
+         * @maxItems 100
+         */
+      user_ids: number[];
+    }
+
     /**
      * Request body for starring/unstarring a channel for the requesting user.
      */
@@ -17199,15 +17215,34 @@ export namespace Schemas {
     }
 
     /**
-     * Request body for creating (resolve-or-create) or renaming a public channel.
+     * * `public` - public
+     * * `private` - private
      */
+    export type TaskChannelWriteTypeEnum = typeof TaskChannelWriteTypeEnum[keyof typeof TaskChannelWriteTypeEnum];
+
+
+    export const TaskChannelWriteTypeEnum = {
+      Public: 'public',
+      Private: 'private',
+    } as const;
+
     export interface ChannelWrite {
       /**
-         * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+         * Channel name, shown as #<name>. Uses lowercase letters and hyphens.
          * @maxLength 128
          */
       name: string;
-      /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+      /** Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.
+       *
+       * * `public` - public
+       * * `private` - private */
+      channel_type?: TaskChannelWriteTypeEnum;
+      /**
+         * User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.
+         * @maxItems 100
+         */
+      member_ids?: number[];
+      /** Star a new channel for the requester. This field does not change stars on an existing channel. */
       star?: boolean;
     }
 
@@ -21816,6 +21851,11 @@ export namespace Schemas {
       kind: string | null;
       /** The query results, for an executable metric. Null for a markdown metric. */
       results: unknown;
+      /**
+         * Names of the result columns, in the order of the values in each positional result row. Null when the results are already labeled, or the query kind returns no column names.
+         * @nullable
+         */
+      columns: string[] | null;
       /**
          * The compiled HogQL, when available.
          * @nullable
@@ -49813,7 +49853,7 @@ export namespace Schemas {
       total_count: number;
       /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
       baseline_weeks: number;
-      /** Earliest bucket with data inside the fetched lookback. */
+      /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
       history_start: string;
       /**
          * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
@@ -61692,6 +61732,11 @@ export namespace Schemas {
          * @nullable
          */
       auto_archive_after_days?: number | null;
+      /** Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator and the requester as members. Making it public removes its member list. Personal #me spaces cannot change.
+       *
+       * * `public` - public
+       * * `private` - private */
+      channel_type?: TaskChannelWriteTypeEnum;
     }
 
     export type PatchedClusteringJobEventFiltersItem = { [key: string]: unknown };
@@ -68582,13 +68627,6 @@ export namespace Schemas {
       FullAccess: 'full-access',
     } as const;
 
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export interface PatchedTaskWrite {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
@@ -85273,13 +85311,6 @@ export namespace Schemas {
       next: string | null;
     }
 
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export interface TaskCreate {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
@@ -86678,13 +86709,6 @@ export namespace Schemas {
       total_cost_usd: number;
     }
 
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export interface TaskWrite {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
