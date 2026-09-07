@@ -35,8 +35,11 @@ SQL_LANGS = {"sql"}
 CODE_LANGS = HASH_LANGS | SLASH_LANGS | SQL_LANGS
 
 # Workflow YAML and shell are left out because they need prose to be readable.
+# `generated` anywhere in the path covers `/generated/`, `*.generated.ts`, and
+# `generated_configs/`, which all carry a generator header over little code.
 EXCLUDED_PATHS = re.compile(
-    r"(^\.github/|/generated/|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)"
+    r"(^\.github/|generated|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)",
+    re.IGNORECASE,
 )
 DIFF_SKIP_PREFIXES = ("+++", "---", "@@", "index ", "new file", "deleted file", "similarity", "rename ", "Binary")
 
@@ -82,40 +85,53 @@ def _classify_slash(line: str, in_block: bool) -> tuple[bool, bool]:
             return True, True
         # `/* note */ doWork()` is code with a leading comment, not a comment line.
         return line[end + 2 :].strip(" }") == "", False
-    # A `*` continuation line of a block whose opener sits outside the hunk. Rust
-    # dereferences (`*x = 1`) have no space after the star.
-    return line == "*" or line.startswith(("* ", "*/")), False
+    return False, False
 
 
-def _is_comment(lang: str, line: str) -> bool:
+def _classify_hash(line: str, in_string: bool) -> tuple[bool, bool]:
+    """Return (is_comment, in_string after this line) for Python.
+
+    A `#` line inside a triple-quoted string (a prompt, a SQL template) is text,
+    not a comment.
+    """
+    toggles = (line.count('"""') + line.count("'''")) % 2 == 1
+    if in_string:
+        return False, not toggles
+    return line.startswith("#") and not line.startswith("#!"), toggles
+
+
+def _classify(lang: str, line: str, inside: bool) -> tuple[bool, bool]:
+    if lang in SLASH_LANGS:
+        return _classify_slash(line, inside)
     if lang in HASH_LANGS:
-        return line.startswith("#") and not line.startswith("#!")
+        return _classify_hash(line, inside)
     if lang in SQL_LANGS:
-        return line.startswith("--")
-    return False
+        return line.startswith("--"), False
+    return False, False
 
 
 def analyze(diff_text: str) -> Report:
     report = Report()
     lang = ""
     stats: FileStats | None = None
-    in_block = False
+    # True inside a block comment or a triple-quoted string that spans lines.
+    inside = False
 
     for raw in diff_text.splitlines():
         if raw.startswith("diff --git "):
             path = raw.split(" b/", 1)[-1]
             lang = _extension(path)
             stats = None
-            in_block = False
+            inside = False
             if lang in CODE_LANGS and not EXCLUDED_PATHS.search(path):
                 stats = report.files.setdefault(path, FileStats(path))
             continue
         if stats is None or raw.startswith(DIFF_SKIP_PREFIXES):
             continue
         if raw.startswith("@@"):
-            in_block = False
+            inside = False
             continue
-        # Context lines are part of the new file too, so they move the block state;
+        # Context lines are part of the new file too, so they move the state;
         # removed lines are not and are skipped entirely.
         added = raw.startswith("+")
         if not added and not raw.startswith(" "):
@@ -124,10 +140,7 @@ def analyze(diff_text: str) -> Report:
         if not line:
             continue
 
-        if lang in SLASH_LANGS:
-            is_comment, in_block = _classify_slash(line, in_block)
-        else:
-            is_comment = _is_comment(lang, line)
+        is_comment, inside = _classify(lang, line, inside)
         if not added:
             continue
 

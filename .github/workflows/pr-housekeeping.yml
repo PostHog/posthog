@@ -97,7 +97,11 @@ jobs:
             GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
     comment-density:
-        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        # Also on a base retarget: the measured diff is base-relative, so a
+        # retarget changes it with no push to remeasure on.
+        if: >-
+            contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+            || (github.event.action == 'edited' && github.event.changes.base != null)
         uses: ./.github/workflows/pr-comment-density.yml
         permissions:
             contents: read

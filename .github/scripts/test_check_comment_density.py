@@ -35,11 +35,16 @@ def diff_for(path: str, body: str) -> str:
                 +
                 -# removed comment
                 -removed = 2
+                +PROMPT = '''
+                +# Markdown heading inside a string
+                +## Use this when:
+                +'''
+                +# a real comment after the string
                 """,
             ),
-            3,
-            1,
-            id="python-hash-shebang-and-removed-lines",
+            8,
+            2,
+            id="python-hash-shebang-strings-and-removed-lines",
         ),
         pytest.param(
             diff_for(
@@ -78,6 +83,8 @@ def diff_for(path: str, body: str) -> str:
         ),
         pytest.param(
             diff_for("frontend/src/generated/api.ts", "+// generated\n+// generated\n")
+            + diff_for("frontend/src/lib/agentScopes.generated.ts", "+// AUTO-GENERATED\n+// Do not edit\n")
+            + diff_for("products/x/backend/generated_configs/ably.py", "+# generated\n+# do not edit\n")
             + diff_for(".github/workflows/ci.yml", "+# yaml prose\n+run: echo\n")
             + diff_for("posthog/test/__snapshots__/x.ambr", "+# name: test\n")
             + diff_for("docs/readme.md", "+<!-- not code -->\n")
