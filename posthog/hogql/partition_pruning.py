@@ -71,6 +71,18 @@ _ORDER_PRESERVING_TIMESTAMP_FUNCTIONS = frozenset(
     }
 )
 
+# Arithmetic that maps a range of `timestamp` to a range, so a bound on the result still prunes
+# partitions. Addition and subtraction shift the value. Multiplication and division preserve a bound
+# only for a nonzero factor, and modulo repeats, so `toUnixTimestamp(timestamp) % 86400 = 0` matches
+# midnight in every partition. Like the wrapper allowlist above, a rejected operator warns about a
+# query that does prune, which is the safer direction.
+_BOUND_PRESERVING_ARITHMETIC_OPS = frozenset(
+    {
+        ast.ArithmeticOperationOp.Add,
+        ast.ArithmeticOperationOp.Sub,
+    }
+)
+
 _BOUNDING_COMPARE_OPS = frozenset(
     {
         ast.CompareOperationOp.Eq,
@@ -288,6 +300,8 @@ def _is_timestamp_expression(expr: ast.Expr) -> bool:
     if isinstance(expr, ast.Alias | ast.TypeCast | ast.TryCast):
         return _is_timestamp_expression(expr.expr)
     if isinstance(expr, ast.ArithmeticOperation):
+        if expr.op not in _BOUND_PRESERVING_ARITHMETIC_OPS:
+            return False
         return (_is_timestamp_expression(expr.left) and _is_time_constant(expr.right)) or (
             _is_timestamp_expression(expr.right) and _is_time_constant(expr.left)
         )

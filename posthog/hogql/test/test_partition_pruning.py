@@ -24,6 +24,16 @@ class TestFindUnprunedEventsScans(SimpleTestCase):
             ("order preserving wrapper", "SELECT count() FROM events WHERE toStartOfDay(timestamp) >= '2024-01-01'", 0),
             ("date truncation wrapper", "SELECT count() FROM events WHERE toDate(timestamp) = '2024-01-01'", 0),
             ("non monotonic wrapper", "SELECT count() FROM events WHERE toDayOfWeek(timestamp) = 3", 1),
+            (
+                "modulo repeats in every partition",
+                "SELECT count() FROM events WHERE toUnixTimestamp(timestamp) % 86400 = 0",
+                1,
+            ),
+            (
+                "scaling to zero bounds nothing",
+                "SELECT count() FROM events WHERE toUnixTimestamp(timestamp) * 0 = 0",
+                1,
+            ),
             ("inequality is not a range", "SELECT count() FROM events WHERE timestamp != now()", 1),
             ("one or branch unbounded", "SELECT count() FROM events WHERE event = 'x' OR timestamp > now()", 1),
             (
