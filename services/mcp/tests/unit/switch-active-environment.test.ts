@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { StateManager } from '@/lib/StateManager'
 import switchOrganizationTool from '@/tools/organizations/setActive'
 import switchProjectTool from '@/tools/projects/setActive'
 import type { CachedOrg, CachedProject, Context, State } from '@/tools/types'
@@ -14,17 +15,20 @@ interface FakeWorld {
     orgs?: Record<string, FakeOrg>
     orgProjects?: Record<string, FakeProject[]>
     failingOrgProjectLists?: string[]
+    apiKey?: NonNullable<State['apiKey']>
 }
 
-// switch-project / switch-organization only touch `context.cache` and `context.api`, so a
-// small in-memory fake of those two is enough to exercise the org/project reconciliation
-// without a live PostHog API.
-function makeContext(world: FakeWorld): {
+// switch-project / switch-organization only touch the cache, the API client and the state
+// manager's org resolution, so a small in-memory fake of the API plus the real state manager
+// is enough to exercise the org/project reconciliation without a live PostHog API.
+async function makeContext(world: FakeWorld): Promise<{
     context: Context
     listCalls: string[]
-} {
+    orgGetCalls: string[]
+}> {
     const cache = new MemoryCache<State>(`switch-env-${Math.random()}`)
     const listCalls: string[] = []
+    const orgGetCalls: string[] = []
     const api = {
         publicBaseUrl: 'https://us.posthog.com',
         projects: () => ({
@@ -37,6 +41,7 @@ function makeContext(world: FakeWorld): {
         }),
         organizations: () => ({
             get: async ({ orgId }: { orgId: string }) => {
+                orgGetCalls.push(orgId)
                 const org = world.orgs?.[orgId]
                 return org
                     ? { success: true as const, data: org as CachedOrg }
@@ -54,17 +59,21 @@ function makeContext(world: FakeWorld): {
         }),
     } as unknown as ApiClient
 
+    // The org resolution goes through StateManager, so use the real one over the fake API
+    // and pre-seed the key it reads for the scoped-token guard.
+    await cache.set('apiKey', world.apiKey ?? { scopes: ['*'], scoped_teams: [], scoped_organizations: [] })
+
     const context = {
         api,
         cache,
         env: {} as any,
-        stateManager: {} as any,
+        stateManager: new StateManager(cache, api),
         sessionManager: {} as any,
         getDistinctId: async () => 'test-distinct-id',
         trackEvent: async () => {},
     } as unknown as Context
 
-    return { context, listCalls }
+    return { context, listCalls, orgGetCalls }
 }
 
 describe('switch active environment', () => {
@@ -76,7 +85,7 @@ describe('switch active environment', () => {
         const tool = switchProjectTool()
 
         it('repoints the active org to the switched project parent org', async () => {
-            const { context } = makeContext({
+            const { context } = await makeContext({
                 projects: { '99': { id: 99, organization: 'org-b', name: 'B Project' } },
                 orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
             })
@@ -92,8 +101,24 @@ describe('switch active environment', () => {
             expect(text).not.toContain('Org A')
         })
 
+        it('skips the organization fetch for a project-scoped token', async () => {
+            const { context, orgGetCalls } = await makeContext({
+                projects: { '99': { id: 99, organization: 'org-b', name: 'B Project' } },
+                orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
+                apiKey: { scopes: ['project:read'], scoped_teams: [99], scoped_organizations: [] },
+            })
+
+            const result = await tool.handler(context, { projectId: 99 })
+
+            // The org detail endpoint is not project-nested and the backend rejects it for
+            // project-scoped keys, so the switch must not spend a round-trip on it.
+            expect(orgGetCalls).toEqual([])
+            expect(await context.cache.get('orgId')).toBe('org-b')
+            expect(result.content[0]!.text).toContain('B Project')
+        })
+
         it('falls back to the cached org when the project fetch fails', async () => {
-            const { context } = makeContext({
+            const { context } = await makeContext({
                 orgs: { 'org-a': { id: 'org-a', name: 'Org A' } },
             })
             await context.cache.set('orgId', 'org-a')
@@ -111,7 +136,7 @@ describe('switch active environment', () => {
         const tool = switchOrganizationTool()
 
         it('repoints the active project when it belongs to a different org', async () => {
-            const { context, listCalls } = makeContext({
+            const { context, listCalls } = await makeContext({
                 orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
                 orgProjects: { 'org-b': [{ id: 20, organization: 'org-b', name: 'B Project' }] },
             })
@@ -133,7 +158,7 @@ describe('switch active environment', () => {
         })
 
         it('keeps the active project when it already belongs to the selected org', async () => {
-            const { context, listCalls } = makeContext({
+            const { context, listCalls } = await makeContext({
                 orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
             })
             await context.cache.set('projectId', '10')
@@ -154,7 +179,7 @@ describe('switch active environment', () => {
         })
 
         it('keeps the active project when only the detail lookup failed and the org list still has it', async () => {
-            const { context } = makeContext({
+            const { context } = await makeContext({
                 orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
                 orgProjects: {
                     'org-b': [
@@ -174,7 +199,7 @@ describe('switch active environment', () => {
         })
 
         it('keeps the active project when the org project list fails', async () => {
-            const { context } = makeContext({
+            const { context } = await makeContext({
                 orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
                 failingOrgProjectLists: ['org-b'],
             })
@@ -196,7 +221,7 @@ describe('switch active environment', () => {
         })
 
         it('clears the stale project when the org has no accessible projects', async () => {
-            const { context } = makeContext({
+            const { context } = await makeContext({
                 orgs: { 'org-b': { id: 'org-b', name: 'Org B' } },
                 orgProjects: { 'org-b': [] },
             })

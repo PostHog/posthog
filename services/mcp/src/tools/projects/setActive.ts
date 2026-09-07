@@ -37,15 +37,10 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     const projectOrgId = project?.organization
     if (projectOrgId) {
         await context.cache.set('orgId', projectOrgId)
-        org = (await context.cache.get(`cachedOrg:${projectOrgId}` as const)) as CachedOrg | undefined
-        if (!org) {
-            const orgResult = await context.api.organizations().get({ orgId: projectOrgId })
-            if (orgResult.success) {
-                org = orgResult.data
-                await context.cache.set(`cachedOrg:${projectOrgId}` as const, org)
-                await context.cache.set(`cachedOrgFetchedAt:${projectOrgId}` as const, Date.now())
-            }
-        }
+        // Resolve through the shared helper so the scoped-token guard (it skips the
+        // non-project-nested `/api/organizations/{id}/` call the backend rejects for
+        // project-scoped keys) and the org caching stay in one place.
+        org = await context.stateManager.getCachedOrFetchOrg()
     } else {
         // Project fetch failed — fall back to whatever org is cached so the banner still renders.
         const cachedOrgId = (await context.cache.get('orgId')) ?? 'unknown'
