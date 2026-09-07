@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
+from dataclasses import replace
 
 from unittest.mock import patch
 
@@ -25,10 +26,10 @@ from products.tasks.backend.temporal.process_task.utils import get_reasoning_eff
 
 from ..engines.base import EvalEngine
 from ..engines.registry import resolve_engine
-from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, HarnessOptions
+from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, MULTI_TURN_CASE_TIMEOUT_MULTIPLIER, HarnessOptions
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
-from .discovery import EvalSuite, discover_suites
+from .discovery import MULTI_TURN_MODULE_MARKER, EvalSuite, discover_suites
 from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
@@ -103,6 +104,22 @@ class SandboxedEvalHarness:
                 print(f"{suite.id}  [{suite.kind.value}]")  # noqa: T201
             return 0
 
+        # Multi-turn cases poll once per turn, each poll with its own budget, so
+        # their per-case budget must scale with the turn count. Multi-turn modules
+        # declare the marker at module level (see discovery._collect_suites).
+        multi_turn_modules = {
+            suite.module_name for suite in suites if getattr(suite.fn, MULTI_TURN_MODULE_MARKER, False)
+        }
+        if multi_turn_modules:
+            scaled = self.options.per_case_timeout_seconds * MULTI_TURN_CASE_TIMEOUT_MULTIPLIER
+            logger.warning(
+                "Multi-turn eval module(s) %s selected: scaling --case-timeout from %ds to %ds",
+                sorted(multi_turn_modules),
+                self.options.per_case_timeout_seconds,
+                scaled,
+            )
+            self.options = replace(self.options, per_case_timeout_seconds=scaled)
+
         # Boot only what the selected suites' kinds require: a one-shot-only run
         # never pays for (or fails on) sandbox infrastructure.
         kinds = {suite.kind for suite in suites}
@@ -119,6 +136,7 @@ class SandboxedEvalHarness:
             agent_model=self.options.agent_model,
             max_sandboxes=self.options.max_sandboxes,
             trials=self.options.trials,
+            case_timeout_seconds=self.options.per_case_timeout_seconds,
         )
 
         started = time.monotonic()
