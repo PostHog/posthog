@@ -531,6 +531,10 @@ export interface LlmSkillListItem {
 export interface LlmSkill extends LlmSkillListItem {
   /** The SKILL.md markdown content. */
   body: string;
+  /** Length of the whole body, whatever slice of it `body` holds. */
+  body_total_length?: number;
+  /** Offset of the next body page, or null once `body` reaches the end. */
+  body_next_offset?: number | null;
   /** Companion file manifest (paths only; fetch contents separately). */
   files: LlmSkillFileManifest[];
 }
@@ -7022,11 +7026,49 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
-  /** Fetches the latest version of a team skill, including body and file manifest. */
+  /**
+   * Fetches the latest version of a team skill, including body and file manifest.
+   * The endpoint caps an unpaged body at its own page length, so follow
+   * `body_next_offset` to the end and return the whole body to every caller.
+   */
   async getLlmSkillByName(name: string): Promise<LlmSkill> {
+    const first = await this.getLlmSkillBodyPage(name);
+    const pages = [first.body];
+    let offset = first.body_next_offset;
+    while (offset != null) {
+      // Pin the version: a publish between pages would otherwise splice two bodies.
+      const page = await this.getLlmSkillBodyPage(name, {
+        offset,
+        version: first.version,
+      });
+      pages.push(page.body);
+      // An offset that does not advance would page forever; the length check below
+      // then reports the short body.
+      const next = page.body_next_offset;
+      offset = next != null && next > offset ? next : null;
+    }
+
+    const body = pages.join("");
+    const total = first.body_total_length;
+    if (total != null && body.length !== total) {
+      throw new Error(
+        `Failed to fetch team skill: got ${body.length} of ${total} characters of the body of "${name}"`,
+      );
+    }
+    return { ...first, body, body_next_offset: null };
+  }
+
+  private async getLlmSkillBodyPage(
+    name: string,
+    paging?: { offset: number; version: number },
+  ): Promise<LlmSkill> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/environments/${teamId}/llm_skills/name/${encodeURIComponent(name)}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    if (paging) {
+      url.searchParams.set("body_offset", String(paging.offset));
+      url.searchParams.set("version", String(paging.version));
+    }
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
