@@ -96,19 +96,22 @@ class TestSummarizeWithOpenAI:
                 )
 
     def test_api_error_raises_api_exception(self):
+        cause = Exception("API Error")
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
             mock_client.with_options.return_value = mock_client
-            mock_client.chat.completions.create.side_effect = Exception("API Error")
+            mock_client.chat.completions.create.side_effect = cause
 
-            with pytest.raises(exceptions.APIException, match="Failed to generate summary"):
+            with pytest.raises(exceptions.APIException, match="Failed to generate summary") as raised:
                 summarize_with_openai(
                     text_repr="L1: Test",
                     team_id=1,
                     mode=SummarizationMode.MINIMAL,
                     model=OpenAIModel.GPT_4_1_MINI,
                 )
+
+            assert raised.value.__cause__ is cause
 
     def test_uses_correct_model(self, valid_response_json):
         mock_response = MagicMock()

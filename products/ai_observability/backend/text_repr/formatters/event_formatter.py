@@ -12,7 +12,13 @@ from datetime import date, datetime
 from typing import Any
 
 from .constants import SEPARATOR
-from .message_formatter import FormatterOptions, add_line_numbers, format_input_messages, format_output_messages
+from .message_formatter import (
+    FormatterOptions,
+    add_line_numbers,
+    escape_lone_surrogates,
+    format_input_messages,
+    format_output_messages,
+)
 from .tool_formatter import format_tools
 
 
@@ -230,6 +236,10 @@ def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | No
     Generate complete text representation of any LLM event.
     Routes to the appropriate formatter based on event type.
     """
+    return escape_lone_surrogates(_dispatch_event_text_repr(event, options))
+
+
+def _dispatch_event_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     event_type = event.get("event")
 
     if event_type == "$ai_span":

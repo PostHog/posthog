@@ -448,3 +448,30 @@ class TestSpanToolResultFormatting:
         result = format_event_text_repr(self._span(state))
         assert "3 issues found" in result
         assert "'type': 'text'" not in result
+
+
+class TestLoneSurrogates:
+    """A stored message can hold one half of a surrogate pair, which UTF-8 cannot encode."""
+
+    def test_generation_text_repr_encodes_to_utf8(self):
+        event = {
+            "event": "$ai_generation",
+            "properties": {
+                "$ai_input": [{"role": "user", "content": "half an emoji: \ud83d"}],
+                "$ai_output": [{"role": "assistant", "content": "fine"}],
+            },
+        }
+
+        result = format_event_text_repr(event)
+
+        assert "\\ud83d" in result
+        result.encode("utf-8")
+
+    def test_ai_events_row_text_repr_encodes_to_utf8(self):
+        row = {
+            "uuid": "abc",
+            "event": "$ai_generation",
+            "input": json.dumps([{"role": "user", "content": "half an emoji: \ud83d"}]),
+        }
+
+        format_event_text_repr_from_ai_events_row(row).encode("utf-8")

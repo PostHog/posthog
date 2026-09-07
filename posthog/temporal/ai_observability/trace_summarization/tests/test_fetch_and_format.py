@@ -62,6 +62,14 @@ class TestFormatGenerationTextRepr:
         for fragment in expected_fragments:
             assert fragment in result
 
+    def test_lone_surrogate_encodes_to_utf8(self):
+        # Stored content can hold one half of a surrogate pair. The text repr goes to Redis and to
+        # the model over UTF-8, which cannot encode that half.
+        result = _format_generation_text_repr({"input": "half an emoji: \ud83d", "output": "fine"})
+
+        assert "\\ud83d" in result
+        result.encode("utf-8")
+
     def test_minimal_fields_excludes_absent(self):
         result = _format_generation_text_repr({"model": "gpt-4"})
         assert "Provider:" not in result

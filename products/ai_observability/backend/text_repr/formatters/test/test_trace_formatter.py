@@ -821,3 +821,18 @@ class TestLLMTraceToFormatterFormat:
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
 
         assert [node["event"]["id"] for node in hierarchy] == ["slow-start-first", "quick-start-second"]
+
+
+class TestLoneSurrogates:
+    def test_trace_text_repr_encodes_to_utf8(self):
+        event = {
+            "event": "$ai_generation",
+            "properties": {"$ai_input": [{"role": "user", "content": "half an emoji: \ud83d"}]},
+        }
+
+        result, _ = format_trace_text_repr(
+            {"properties": {}}, [{"event": event, "children": []}], {"include_markers": False}
+        )
+
+        assert "\\ud83d" in result
+        result.encode("utf-8")

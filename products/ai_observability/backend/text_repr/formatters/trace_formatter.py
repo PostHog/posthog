@@ -21,6 +21,7 @@ from .event_formatter import format_event_text_repr
 from .message_formatter import (
     FormatterOptions,
     add_line_numbers,
+    escape_lone_surrogates,
     format_input_messages,
     format_output_messages,
     reduce_by_uniform_sampling,
@@ -535,7 +536,7 @@ def format_trace_text_repr(
         lines.append("")
         lines.extend(_render_tree(hierarchy, options=options))
 
-    formatted_text = "\n".join(lines)
+    formatted_text = escape_lone_surrogates("\n".join(lines))
 
     # Add line numbers if requested
     if options and options.get("include_line_numbers", False):

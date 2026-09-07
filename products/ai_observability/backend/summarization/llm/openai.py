@@ -121,4 +121,6 @@ def summarize_with_openai(
         raise
     except Exception as e:
         logger.exception("OpenAI API call failed", error=str(e), team_id=team_id, model=model)
-        raise exceptions.APIException("Failed to generate summary")
+        # The user only reads the generic message, so the chained cause is the sole record of the
+        # real failure, for example a message that UTF-8 cannot encode.
+        raise exceptions.APIException("Failed to generate summary") from e

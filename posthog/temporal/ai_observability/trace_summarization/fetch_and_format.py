@@ -27,6 +27,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
+    escape_lone_surrogates,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
@@ -288,7 +289,7 @@ def _format_generation_text_repr(generation_data: dict, max_length: int | None =
             parts.extend(("--- Input ---", in_block, ""))
         if out_block:
             parts.extend(("--- Output ---", out_block))
-        return "\n".join(parts)
+        return escape_lone_surrogates("\n".join(parts))
 
     text_repr = assemble(input_block, output_block)
     if max_length is None or len(text_repr) <= max_length:

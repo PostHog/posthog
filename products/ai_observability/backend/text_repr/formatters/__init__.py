@@ -15,12 +15,13 @@ Main entry points:
 """
 
 from .event_formatter import format_event_text_repr, format_event_text_repr_from_ai_events_row
-from .message_formatter import FormatterOptions, add_line_numbers, reduce_by_uniform_sampling
+from .message_formatter import FormatterOptions, add_line_numbers, escape_lone_surrogates, reduce_by_uniform_sampling
 from .trace_formatter import format_trace_text_repr, llm_trace_to_formatter_format
 
 __all__ = [
     "FormatterOptions",
     "add_line_numbers",
+    "escape_lone_surrogates",
     "format_event_text_repr",
     "format_event_text_repr_from_ai_events_row",
     "format_trace_text_repr",

@@ -10,6 +10,8 @@ import json
 import base64
 from typing import Any, TypedDict
 
+from posthog.api.utils import safe_clickhouse_string
+
 from .constants import (
     CHAT_COMPLETIONS_MESSAGE_KEYS,
     DEFAULT_TRUNCATE_BUFFER,
@@ -50,6 +52,17 @@ class ToolCall(TypedDict, total=False):
     function: dict[str, Any]  # OpenAI format: {name, arguments}
     name: str  # LangChain format
     args: Any  # LangChain format
+
+
+def escape_lone_surrogates(text: str) -> str:
+    """Replace unpaired UTF-16 surrogates with their escape text.
+
+    A stored message can hold one half of a surrogate pair, for example half of an emoji. Python
+    decodes that half, but it cannot encode it back to UTF-8. A text representation travels to
+    Redis and to the summarization model over UTF-8, so one such character fails the whole trip.
+    The escape keeps the character visible instead of a silent drop.
+    """
+    return safe_clickhouse_string(text, with_counter=False)
 
 
 def add_line_numbers(text: str) -> str:
