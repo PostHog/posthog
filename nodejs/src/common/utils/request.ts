@@ -2,16 +2,20 @@ import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
+import tls from 'node:tls'
 import { Counter, Gauge } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
+    Client,
     Dispatcher,
     type HeadersInit,
+    Pool,
     ProxyAgent,
     RequestInfo,
     RequestInit,
     Response,
+    errors,
     request,
     fetch as undiciFetch,
 } from 'undici'
@@ -42,6 +46,11 @@ const unsafeRequestCounter = new Counter({
 const inflightExternalRequests = new Gauge({
     name: 'cdp_http_inflight_requests',
     help: 'Number of currently inflight external HTTP requests (undici). Use as HPA scaling metric for cdp-cyclotron-worker.',
+})
+
+const idleHttp2SessionsClosed = new Counter({
+    name: 'node_request_http2_idle_sessions_closed',
+    help: 'HTTP/2 sessions this process closed because the keep-alive timeout passed with no request in flight',
 })
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
@@ -266,6 +275,55 @@ class InsecureAgent extends Agent {
     }
 }
 
+/**
+ * undici retires an idle HTTP/1.1 socket after the keep-alive timeout, but leaves an idle HTTP/2 session
+ * open until the origin closes it. undici 8 fixes this (nodejs/undici#5406); this gives the same idle
+ * lifetime to a session on undici 7. Without it, a caller that fetches from many origins holds one open
+ * socket per origin it ever reached.
+ */
+function makeIdleReapingPoolFactory(idleTimeoutMs: number): (origin: string | URL, options: object) => Pool {
+    return (origin, options) =>
+        new Pool(origin, {
+            ...(options as Pool.Options),
+            factory: (clientOrigin, clientOptions) =>
+                makeIdleReapingClient(clientOrigin, clientOptions as Client.Options, idleTimeoutMs),
+        })
+}
+
+function makeIdleReapingClient(origin: URL, options: Client.Options, idleTimeoutMs: number): Client {
+    const connect = options.connect
+    if (typeof connect !== 'function') {
+        return new Client(origin, options)
+    }
+    const client: Client = new Client(origin, {
+        ...options,
+        connect: (connectOptions, callback) =>
+            connect(connectOptions, (...result) => {
+                const socket = result[1]
+                if (socket instanceof tls.TLSSocket && socket.alpnProtocol === 'h2') {
+                    closeSocketWhenIdle(client, socket, idleTimeoutMs)
+                }
+                callback(...result)
+            }),
+    })
+    return client
+}
+
+function closeSocketWhenIdle(client: Client, socket: tls.TLSSocket, idleTimeoutMs: number): void {
+    socket.setTimeout(idleTimeoutMs)
+    socket.on('timeout', () => {
+        // A stream that waits on a slow origin sends no bytes, so socket inactivity alone is not idleness.
+        const { running, pending, size } = client.stats
+        if (running > 0 || pending > 0 || size > 0) {
+            socket.setTimeout(idleTimeoutMs)
+            return
+        }
+        idleHttp2SessionsClosed.inc()
+        // The informational code keeps undici from failing a request queued on this client, so the client reconnects for the next one.
+        socket.destroy(new errors.InformationalError('socket idle timeout'))
+    })
+}
+
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
@@ -273,19 +331,24 @@ function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
 
+    const keepAliveTimeoutMs = Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS)
+    const idleReaping = allowH2 ? { factory: makeIdleReapingPoolFactory(keepAliveTimeoutMs) } : {}
+
     if (proxyUrl) {
         return new ProxyAgent({
             uri: proxyUrl,
-            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            keepAliveTimeout: keepAliveTimeoutMs,
             connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             allowH2,
             requestTls: { allowH2 },
+            ...idleReaping,
         })
     }
     return new Agent({
-        keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
+        keepAliveTimeout: keepAliveTimeoutMs,
         connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
         allowH2,
+        ...idleReaping,
         connect: {
             lookup: httpStaticLookup,
             timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,

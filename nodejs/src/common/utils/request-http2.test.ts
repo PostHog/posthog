@@ -33,6 +33,8 @@ describe('secure HTTP/2 requests', () => {
     let tlsConnectSpy: jest.SpyInstance
     let tlsIdentity: TestTlsIdentity | undefined
     const originalExternalRequestConnections = process.env.EXTERNAL_REQUEST_CONNECTIONS
+    const originalKeepAliveTimeout = process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
+    const keepAliveTimeoutMs = 1000
     const originalProxyEnvironment = Object.fromEntries(
         proxyEnvironmentNames.map((name) => [name, process.env[name]])
     ) as Record<(typeof proxyEnvironmentNames)[number], string | undefined>
@@ -58,6 +60,10 @@ describe('secure HTTP/2 requests', () => {
             const finishResponse = (): void => {
                 response.writeHead(200, { 'content-type': 'text/plain' })
                 response.end(request.url)
+            }
+            if (request.url === '/slow') {
+                setTimeout(finishResponse, keepAliveTimeoutMs * 1.5)
+                return
             }
             if (request.url?.startsWith('/concurrent-')) {
                 pendingConcurrentResponses.push(finishResponse)
@@ -118,6 +124,7 @@ describe('secure HTTP/2 requests', () => {
                 )) as typeof tls.connect)
         process.env.HTTPS_PROXY = `http://127.0.0.1:${serverPort(connectProxy)}`
         process.env.EXTERNAL_REQUEST_CONNECTIONS = '2'
+        process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS = String(keepAliveTimeoutMs)
         delete process.env.HTTP_PROXY
         delete process.env.https_proxy
         delete process.env.http_proxy
@@ -139,6 +146,11 @@ describe('secure HTTP/2 requests', () => {
             delete process.env.EXTERNAL_REQUEST_CONNECTIONS
         } else {
             process.env.EXTERNAL_REQUEST_CONNECTIONS = originalExternalRequestConnections
+        }
+        if (originalKeepAliveTimeout === undefined) {
+            delete process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
+        } else {
+            process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS = originalKeepAliveTimeout
         }
         tlsConnectSpy.mockRestore()
 
@@ -192,4 +204,25 @@ describe('secure HTTP/2 requests', () => {
         expect(http2SessionCount).toBe(2)
         expect(proxyAuthorities).toEqual([http2Authority, http2Authority, http2Authority, http1Authority])
     }, 10000)
+
+    it('closes an idle HTTP/2 session after the keep-alive timeout but not one with a slow response in flight', async () => {
+        const http2Url = `https://origin.test:${serverPort(http2Origin)}`
+        const slowResponse = await requestModule.fetchStreamed(`${http2Url}/slow`, {
+            allowH2: true,
+            timeoutMs: keepAliveTimeoutMs * 5,
+        })
+        expect((await slowResponse.read(100)).bytes.toString()).toBe('/slow')
+        const sessionsBeforeIdle = http2SessionCount
+
+        await new Promise((resolve) => setTimeout(resolve, keepAliveTimeoutMs * 2.5))
+        expect(openHttp2Sessions.size).toBe(0)
+
+        const response = await requestModule.fetchStreamed(`${http2Url}/after-idle`, {
+            allowH2: true,
+            timeoutMs: 2000,
+        })
+        expect((await response.read(100)).bytes.toString()).toBe('/after-idle')
+        expect(http2SessionCount).toBe(sessionsBeforeIdle + 1)
+        expect(openHttp2Sessions.size).toBe(1)
+    }, 15000)
 })
