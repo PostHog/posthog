@@ -1,9 +1,13 @@
-name: Dev Setup (Flox)
+name: Dev Setup
 
 on:
     pull_request:
         paths:
             - '.flox/**'
+            - 'devenv.nix'
+            - 'devenv.yaml'
+            - 'devenv.lock'
+            - 'bin/devenv-tasks.sh'
             - '.github/workflows/ci-dev-setup.yml'
             - 'bin/start'
             - 'pyproject.toml'
@@ -71,5 +75,84 @@ jobs:
                   fi
                   if ! git diff --exit-code -- uv.lock pnpm-lock.yaml .flox/env/manifest.lock; then
                     echo "::error::Lockfiles were modified by flox activate. Please commit the updated lockfiles."
+                    exit 1
+                  fi
+
+    devenv-dev-setup:
+        runs-on: ubuntu-24.04
+        # Longer than the flox job: this one also evaluates the flake inputs and
+        # builds devenv itself before the environment can be entered.
+        timeout-minutes: 45
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # A workflow edit reaches every open PR at once, but devenv.nix only
+            # reaches a branch when it rebases. The paths above still fire this
+            # workflow on a branch that predates devenv, so report the absence and
+            # skip instead of failing on a missing file.
+            - name: Check whether the branch carries devenv
+              id: has-devenv
+              run: |
+                  if [ -f devenv.nix ]; then
+                    echo "present=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "present=false" >> "$GITHUB_OUTPUT"
+                    echo "::notice::devenv.nix is absent on this branch. Rebase on master to run the devenv setup check."
+                  fi
+
+            - name: Install Nix
+              if: steps.has-devenv.outputs.present == 'true'
+              uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+              with:
+                  # Flake inputs are fetched from GitHub, which rate-limits anonymous
+                  # requests per runner IP.
+                  github_access_token: ${{ github.token }}
+
+            # devenv comes from the flake registry's nixpkgs, which cache.nixos.org
+            # already has built, so no extra substituter has to be trusted.
+            - name: Build devenv
+              if: steps.has-devenv.outputs.present == 'true'
+              run: nix build nixpkgs#devenv --out-link "$RUNNER_TEMP/devenv"
+
+            - name: Enter devenv and verify dev setup
+              if: steps.has-devenv.outputs.present == 'true'
+              run: |
+                  "$RUNNER_TEMP/devenv/bin/devenv" shell -- bash -c '
+                    set -euo pipefail
+
+                    echo "--- devenv environment entered successfully ---"
+
+                    echo "--- Toolchain versions ---"
+                    echo "Go:     $(go version)"
+                    echo "Node:   $(node --version)"
+                    echo "Python: $(python --version 2>&1)"
+                    echo "Rust:   $(rustc --version)"
+                    echo "pnpm:   $(pnpm --version)"
+                    echo "uv:     $(uv --version)"
+
+                    echo "--- Python environment ---"
+                    uv run python -c "import django; print(f\"Django: {django.__version__}\")"
+
+                    echo "--- Node packages ---"
+                    pnpm --filter=@posthog/frontend exec tsc --version
+                    pnpm --filter=@posthog/frontend exec tsgo --version
+                  '
+
+            - name: Check lockfile consistency
+              if: steps.has-devenv.outputs.present == 'true'
+              run: |
+                  # git diff cannot see an untracked file, so a deletion would
+                  # otherwise pass: devenv just regenerates it untracked.
+                  if ! git ls-files --error-unmatch devenv.lock > /dev/null 2>&1; then
+                    echo "::error::devenv.lock must stay tracked. Untracked, every clone re-resolves the flake inputs and gets a different package set."
+                    exit 1
+                  fi
+                  if ! git diff --exit-code -- uv.lock pnpm-lock.yaml devenv.lock; then
+                    echo "::error::Lockfiles were modified by devenv shell. Please commit the updated lockfiles."
                     exit 1
                   fi

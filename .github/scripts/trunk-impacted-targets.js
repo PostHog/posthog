@@ -753,6 +753,10 @@ const TRIPWIRE_RULES = [
     ['bin/setup-gateway-e2e', DEV_ENV],
     ['bin/sync-storage', DEV_ENV],
     ['bin/warm-flags-cache', DEV_ENV],
+    // Not on the dev-env lane with the other activation helpers: it holds the
+    // install steps of the devenv environment, so it decides which toolchain
+    // every suite runs inside. Same radius as devenv.nix below.
+    ['bin/devenv-tasks.sh', UNIVERSAL],
     // bin/ appears in the backend, frontend, and E2E path filters alike, and
     // what remains here is read across families: hogli and turbo drive the
     // suites, bin/docker is the image entrypoint, and download-mmdb and the
@@ -769,12 +773,16 @@ const TRIPWIRE_RULES = [
     // it to them.
     ['depot.json', 'repo-config-lane'],
     // The toolchain every suite runs inside. ci-python.yml gates on
-    // .flox/env/manifest.toml for that reason.
+    // .flox/env/manifest.toml for that reason. The devenv files declare the same
+    // toolchain for the opt-in devenv environment, so they carry the same radius.
     ['.flox/**', UNIVERSAL],
+    ['devenv.nix', UNIVERSAL],
+    ['devenv.yaml', UNIVERSAL],
+    ['devenv.lock', UNIVERSAL],
     // The environment every suite runs inside: hogli loads .env.development and
     // .env.services before starting anything, the sandbox image bakes the same
-    // pair, and .envrc activates the flox environment above. The two .example
-    // files ride along rather than earning a rule of their own.
+    // pair, and .envrc activates the flox or devenv environment above. The two
+    // .example files ride along rather than earning a rule of their own.
     ['.env*', UNIVERSAL],
     // ClickHouse, Postgres, and Temporal configuration mounted by every
     // docker-compose file, so it defines the services all the suites test
