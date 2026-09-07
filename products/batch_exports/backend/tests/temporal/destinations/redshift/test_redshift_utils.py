@@ -273,14 +273,21 @@ async def test_check_and_raise_redshift_copy_error_credentials(denied):
 
 
 @pytest.mark.parametrize(
-    "error,should_raise",
+    "error,expected_error",
     [
-        (_FakeInternalError("COPY with MANIFEST parameter requires full path of an S3 object"), True),
-        (_FakeInternalError("copy failed", detail="S3ServiceException: Access Denied"), True),
-        (_FakeInternalError("syntax error at or near 'foo'"), False),
+        (
+            _FakeInternalError("COPY with MANIFEST parameter requires full path of an S3 object"),
+            RedshiftS3CopyError,
+        ),
+        (_FakeInternalError("copy failed", detail="S3ServiceException: Access Denied"), RedshiftS3CopyError),
+        (
+            _FakeInternalError('permission denied to create temporary tables in database "my_data"'),
+            psycopg.errors.InsufficientPrivilege,
+        ),
+        (_FakeInternalError("syntax error at or near 'foo'"), None),
     ],
 )
-async def test_check_and_raise_redshift_copy_error_iam_role(error, should_raise):
+async def test_check_and_raise_redshift_copy_error_iam_role(error, expected_error):
     """IAM role auth can't be probed, so we translate only recognised S3 read/access failures."""
     call = check_and_raise_redshift_copy_error(
         error,
@@ -290,8 +297,8 @@ async def test_check_and_raise_redshift_copy_error_iam_role(error, should_raise)
         manifest_key="prefix/manifest.json",
         files_uploaded=["prefix/file-0.parquet.zst"],
     )
-    if should_raise:
-        with pytest.raises(RedshiftS3CopyError):
+    if expected_error is not None:
+        with pytest.raises(expected_error):
             await call
     else:
         await call  # should not raise

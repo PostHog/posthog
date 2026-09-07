@@ -879,6 +879,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(off).toContain('notebooks-retrieve')
         expect(off).not.toContain('notebooks-create-markdown')
         expect(off).not.toContain('notebooks-add-cell')
+        expect(off).not.toContain('notebooks-set-variables')
         expect(off).not.toContain('notebooks-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
@@ -886,6 +887,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('notebooks-add-cell')
         expect(on).toContain('notebooks-update-cell')
         expect(on).toContain('notebooks-delete-cell')
+        expect(on).toContain('notebooks-set-variables')
         expect(on).toContain('notebooks-run-cell-result')
         expect(on).toContain('notebooks-get')
         expect(on).toContain('notebooks-list-frames')
@@ -920,7 +922,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'revamped-py-notebooks',
                 'tasks',
                 'dashboard-widgets',
-                'heatmaps-mcp',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
@@ -945,7 +946,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(33)
     })
 
     it('every loops tool is gated on the loops flag', () => {

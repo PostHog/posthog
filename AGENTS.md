@@ -101,7 +101,7 @@ git commit --allow-empty -m "chore(ci): run the full matrix" && git push
 
 Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
 GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
-Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: always()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
+Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: !cancelled()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
 
 #### Stacked PRs
 
@@ -141,10 +141,12 @@ Never run `gh pr merge` or click the GitHub merge button — both are blocked by
 Agents must not enqueue, merge, re-enqueue, or otherwise cause a PR to land without explicit user approval in the current conversation for the identified PR or stack. Do not infer that approval from requests to prepare a PR, move it toward merge, make it ready, monitor it, or resolve its blockers. Agents may inspect status, fix code and CI, apply `stamphog` when approval is missing, and report that a PR is ready; then they must wait for a direct instruction to merge or enqueue it.
 
 - After explicit user approval: enqueue with `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`. Enqueueing a stacked PR also enqueues every unmerged layer below it — comment on the top PR to merge the whole stack. `--no-batch` opts the PR (or stack) out of batching.
-- The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. It ships in the flox environment and needs a one-time interactive `trunk login` — run it once even if you prefer the comments, because the same login arms the pre-push merge-queue guard that stops you from knocking a queued PR out of the queue. Agents and headless environments that can't complete the interactive login use the comments.
+- The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. `status` is also the only place Trunk's own reason for each queue transition is visible — a conflict, a PR that skipped the line, a human cancellation, the check that removed it — so read it before reconstructing a cause from CI, and see `/triaging-merge-queue-failures`. It ships in the flox environment and needs a one-time interactive `trunk login` — run it once even if you prefer the comments, because the same login arms the pre-push merge-queue guard that stops you from knocking a queued PR out of the queue. Agents and headless environments that can't complete the interactive login use the comments.
 - Missing required approval: apply the `stamphog` label (`gh pr edit <number> --add-label stamphog`) to trigger the automated review-and-approve flow, and re-apply it whenever it was stripped (`REFUSED`/`ESCALATE` verdict) once the feedback is addressed — re-applying is always safe.
 - After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
-- Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
+- Trunk publishes **no check run** in this repository, so there is nothing on the PR's head that reports queue progress.
+  Read progress from `trunk merge status <number>`, or from the `trunk-io[bot]` sticky comment on the PR.
+  The PR's own checks don't reflect the queue's testing either, because the queue runs CI on a `trunk-merge/**` branch.
 - On failure the Trunk bot comments with links to the failing workflows; fix and push if appropriate, then wait for explicit user approval before re-enqueueing.
 - Never force-push a branch while it is in the queue — it removes the PR from the queue.
 

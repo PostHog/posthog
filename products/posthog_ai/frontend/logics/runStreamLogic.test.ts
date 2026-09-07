@@ -14,6 +14,7 @@ import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/t
 import type { AttachedContextItem } from '../types/contextTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
 import {
@@ -930,6 +931,43 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(attachedContextLogic.values.seenContextLinesByTask).toEqual({})
+        })
+    })
+
+    describe('turn trace ids', () => {
+        const TRACE = '1d223305-d7ca-bfeb-3775-a4a15a6a31c6'
+
+        it('carries a replayed turn_complete traceId into the trailer and selector', async () => {
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/user_message', { content: 'say baseline' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'baseline' } }),
+                notification('_posthog/turn_complete', { sessionId: 's1', stopReason: 'end_turn', traceId: TRACE }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            const trailers = computeTurnTrailers(logic.values.threadItems)
+            const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
+            expect(lastTurn?.traceId).toBe(TRACE)
+            expect(logic.values.latestTurnTraceId).toBe(TRACE)
+        })
+
+        it('keeps the last real turn id when a trailing traceless separator follows', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'q' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'a' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: TRACE }))
+                // Synthetic idle-resume/error separators carry no trace id and are not turns.
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            }).toFinishAllListeners()
+
+            expect(logic.values.latestTurnTraceId).toBe(TRACE)
         })
     })
 
