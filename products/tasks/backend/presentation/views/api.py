@@ -628,7 +628,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description=(
+                    "PostHog Desktop access could not be verified, or warm run activation remained unavailable "
+                    "after waiting up to 10 seconds (code `warm_run_activation_unavailable`)"
+                ),
             ),
         },
     )
@@ -686,8 +689,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
+        except tasks_facade.WarmRunActivationUnavailable as error:
+            return self._warm_activation_unavailable_response(error)
         self._forward_signals_discussion_note(request, task, relationship, discussion_question)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    def _warm_activation_unavailable_response(self, error: tasks_facade.WarmRunActivationUnavailable) -> Response:
+        return Response(
+            TaskRunErrorResponseSerializer({"code": error.code, "error": str(error)}).data,
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
         """Refuse to add runs to a server-created analysis task; see the facade reader."""
@@ -1102,7 +1113,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task not found"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description=(
+                    "PostHog Desktop access could not be verified, or warm run activation remained unavailable "
+                    "after waiting up to 10 seconds (code `warm_run_activation_unavailable`)"
+                ),
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -1146,6 +1160,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             result = tasks_facade.run_task(
                 pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
             )
+        except tasks_facade.WarmRunActivationUnavailable as error:
+            return self._warm_activation_unavailable_response(error)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
         if result is None:

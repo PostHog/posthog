@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
@@ -831,9 +832,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.loadRepositories()
             } catch (error) {
                 actions.releaseApplyBackTargets(streamKey)
-                // Return to the composer with the typed text intact, and no toast: the composer is
-                // still on screen, so a failure banner over it reads as a dead end.
                 actions.clearActiveCreation()
+                if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
+                    lemonToast.error("Couldn't start this run yet. Please try again.")
+                }
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
         },

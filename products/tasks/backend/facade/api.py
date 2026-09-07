@@ -166,6 +166,7 @@ __all__ = [
     "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "WarmRunActivationUnavailable",
     "append_task_run_log",
     "apply_task_run_model_config",
     "ensure_task_run_session",
@@ -3933,6 +3934,8 @@ def signal_task_run_user_message(
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
     steer: bool = False,
+    rpc_timeout: timedelta | None = None,
+    workflow_id: str | None = None,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -3961,13 +3964,14 @@ def signal_task_run_user_message(
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
-            run.workflow_id,
+            workflow_id or run.workflow_id,
             content,
             artifact_ids,
             message_id,
             actor_user_id,
             context,
             steer=steer,
+            **({"rpc_timeout": rpc_timeout} if rpc_timeout is not None else {}),
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
@@ -6525,6 +6529,100 @@ def _attach_staged_artifacts_to_run(
     )
 
 
+class WarmRunActivationUnavailable(Exception):
+    code = "warm_run_activation_unavailable"
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__("Couldn't start this run yet. Please try again.")
+
+
+def _deliver_warm_run_message(run: TaskRun, *, message: str | None, artifact_ids: list[str]) -> None:
+    from temporalio.service import RPCError, RPCStatusCode
+
+    started_at = time.monotonic()
+    deadline = started_at + 10
+    workflow_id = run.workflow_id
+    message_id = str(uuid4())
+    attempts = 0
+    delay = 0.25
+    eligible_runs = TaskRun.objects.filter(
+        id=run.id,
+        team_id=run.team_id,
+        task_id=run.task_id,
+        task__deleted=False,
+        state__await_user_message=True,
+    ).exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
+
+    try:
+        while True:
+            current_run = eligible_runs.first()
+            if current_run is None or current_run.workflow_id != workflow_id:
+                raise WarmRunActivationUnavailable("target_unavailable")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise WarmRunActivationUnavailable("deadline")
+            attempts += 1
+            try:
+                delivered = signal_task_run_user_message(
+                    run.id,
+                    run.task_id,
+                    run.team_id,
+                    content=message,
+                    artifact_ids=artifact_ids,
+                    message_id=message_id,
+                    workflow_id=workflow_id,
+                    rpc_timeout=timedelta(seconds=remaining),
+                )
+            except RPCError as error:
+                # NOT_FOUND proves the workflow did not receive this message. Other errors may follow delivery.
+                if error.status != RPCStatusCode.NOT_FOUND:
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise WarmRunActivationUnavailable("deadline") from error
+                time.sleep(min(delay, remaining))
+                delay = min(delay * 2, 1)
+                continue
+            if delivered is not True:
+                raise WarmRunActivationUnavailable("delivery_failed")
+
+            with transaction.atomic():
+                activated_run = eligible_runs.select_for_update(of=("self",)).first()
+                if activated_run is None:
+                    raise WarmRunActivationUnavailable("target_unavailable")
+                activated_run.state.pop("await_user_message", None)
+                activated_run.state["warm_activated"] = True
+                activated_run.save(update_fields=["state", "updated_at"])
+            break
+    except WarmRunActivationUnavailable as error:
+        logger.warning(
+            "task_warm_activation_unavailable",
+            extra={
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "workflow_id": workflow_id,
+                "attempts": attempts,
+                "elapsed_seconds": time.monotonic() - started_at,
+                "reason": error.reason,
+            },
+        )
+        raise
+    if attempts > 1:
+        logger.info(
+            "task_warm_activation_recovered",
+            extra={
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "workflow_id": workflow_id,
+                "attempts": attempts,
+                "elapsed_seconds": time.monotonic() - started_at,
+            },
+        )
+
+
 def _activate_warm_run(
     run: TaskRun,
     task: Task,
@@ -6551,11 +6649,7 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    # Claims the Run as activated before the signal goes out. `await_user_message` can only be cleared
-    # after the signal — clearing it first would drop a Run out of the warm pool that a failed signal
-    # never activated, stranding its sandbox. That leaves a window where the Run is being activated but
-    # still looks idle, so this marker is what the unused-warm metric reads to tell the two apart.
-    activation_state_updates: dict[str, object] = {"warm_activated": True}
+    activation_state_updates: dict[str, object] = {}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -6567,8 +6661,7 @@ def _activate_warm_run(
         updates=activation_state_updates,
         remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
     )
-    signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
-    TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+    _deliver_warm_run_message(run, message=message, artifact_ids=artifact_ids)
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
     # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
     # warm Runs provisioned before this ships (await_user_message set, prewarmed absent) would push
@@ -6925,7 +7018,10 @@ def run_task(
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
     )
-    from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
+        get_task_run_artifacts_by_id,
+        get_task_staged_artifacts,
+    )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
@@ -7069,6 +7165,9 @@ def run_task(
                     if pending_user_artifact_ids
                     else ([], [])
                 )
+                if warm_missing_artifact_ids:
+                    # A previous activation attempt may have moved these out of staging before delivery failed.
+                    _, warm_missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, warm_missing_artifact_ids)
                 if not warm_missing_artifact_ids:
                     if warm_staged_artifacts:
                         _attach_staged_artifacts_to_run(

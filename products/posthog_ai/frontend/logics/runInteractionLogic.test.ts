@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -471,19 +472,47 @@ describe('runInteractionLogic', () => {
         expect(tasksRunCreate).toHaveBeenCalled()
     })
 
-    it('keeps the draft and toasts when starting a new run fails', async () => {
-        ;(tasksRunCreate as jest.Mock).mockRejectedValue(new Error('boom'))
+    test.each([
+        [new Error('boom'), 'Failed to start a new run. Please try again.'],
+        [
+            new ApiError('starting', 503, undefined, { code: 'warm_run_activation_unavailable' }),
+            "Couldn't start this run yet. Please try again.",
+        ],
+    ])('keeps the draft and unsent context when starting a run fails with %s', async (error, message) => {
+        let rejectSend!: (error: unknown) => void
+        ;(tasksRunCreate as jest.Mock).mockReturnValueOnce(
+            new Promise((_, reject) => {
+                rejectSend = reject
+            })
+        )
+        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'sig', label: 'Signups' }])
         setStatus('completed')
         logic.actions.setComposerFormValues({ draft: 'continue from here' })
+        logic.actions.submitComposerForm()
+
+        expect(logic.values.startingRun).toBe(true)
+        expect(logic.values.composerForm.draft).toBe('continue from here')
+        expect(attachedContextLogic().values.sentContextKeysByTask[TASK_ID]).toBeUndefined()
 
         await expectLogic(logic, () => {
-            logic.actions.submitComposerForm()
+            rejectSend(error)
         }).toFinishAllListeners()
 
-        expect(lemonToast.error).toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith(message)
         expect(onRunStarted).not.toHaveBeenCalled()
+        expect(logic.values.startingRun).toBe(false)
         expect(logic.values.composerForm.draft).toBe('continue from here')
+        expect(logic.values.pendingContextItems).toEqual([{ type: 'insight', key: 'sig', label: 'Signups' }])
         expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
+
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunCreate).toHaveBeenCalledTimes(2)
+        expect((tasksRunCreate as jest.Mock).mock.calls[1]).toEqual((tasksRunCreate as jest.Mock).mock.calls[0])
+        expect(onRunStarted).toHaveBeenCalledWith('run-2')
+        expect(logic.values.composerForm.draft).toBe('')
+        expect(logic.values.startingRun).toBe(false)
+        expect(attachedContextLogic().values.sentContextKeysByTask[TASK_ID]).toEqual(['insight:sig'])
     })
 
     it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per task', async () => {

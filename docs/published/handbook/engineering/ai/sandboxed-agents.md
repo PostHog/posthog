@@ -51,6 +51,32 @@ The agent inside the sandbox gets:
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
 
+## Submitting to a prewarmed run
+
+New-chat creation and resumed runs can reuse an existing sandbox that is awaiting its first message.
+If its Temporal workflow is still starting, submission stays loading for up to 10 seconds.
+Delivery starts immediately and retries only Temporal `NOT_FOUND`, after 250 ms, 500 ms, then 1-second delays.
+Each RPC uses the remaining monotonic deadline as its timeout. Retries retain the workflow ID, message, attachments, and message ID.
+Other RPC errors propagate without additional retries because delivery may already have occurred.
+
+Before each retry, the backend checks that the run still exists, is nonterminal, and awaits its first message.
+It holds no row locks while signaling or waiting, and records activation only after confirmed delivery.
+An exhausted deadline or unavailable run returns HTTP 503 from task creation or the task `run` endpoint:
+
+```json
+{
+  "code": "warm_run_activation_unavailable",
+  "error": "Couldn't start this run yet. Please try again."
+}
+```
+
+An eligible run stays available for another submission. Timeout handling does not cancel it or create a replacement task or run.
+The composer keeps the draft and unsent context on failure; submitted attachments remain available for retry.
+
+Deploy the backend before the frontend error handling. Existing clients already handle unsuccessful requests.
+Monitor submission latency and `task_warm_activation_unavailable` logs for recurrence.
+`task_warm_activation_recovered` records successful startup retries. Both logs include elapsed time, attempt count, and run identifiers, without message content.
+
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:

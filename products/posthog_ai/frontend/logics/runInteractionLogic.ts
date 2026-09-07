@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -904,9 +905,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     } else {
                         actions.releaseApplyBackTargets(streamKey)
                     }
-                } catch {
+                } catch (error) {
                     actions.releaseApplyBackTargets(claimedStreamKey)
-                    lemonToast.error('Failed to start a new run. Please try again.')
+                    lemonToast.error(
+                        error instanceof ApiError && error.code === 'warm_run_activation_unavailable'
+                            ? "Couldn't start this run yet. Please try again."
+                            : 'Failed to start a new run. Please try again.'
+                    )
                 } finally {
                     actions.setStartingRun(false)
                 }

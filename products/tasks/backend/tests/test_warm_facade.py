@@ -1,13 +1,16 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, Throttled
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
@@ -630,9 +633,27 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
-    def test_reuses_matching_warm_task_and_activates_it_in_place(self):
+    @parameterized.expand([(0,), (3,)])
+    def test_reuses_matching_warm_task_and_activates_it_in_place(self, startup_misses: int) -> None:
         warm_task, run = self._warm_run()
-        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal:
+        handle = MagicMock(
+            signal=AsyncMock(
+                side_effect=[*[RPCError("starting", RPCStatusCode.NOT_FOUND, b"") for _ in range(startup_misses)], None]
+            )
+        )
+        elapsed = 0.0
+
+        def sleep(seconds: float) -> None:
+            nonlocal elapsed
+            elapsed += seconds
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect") as connect,
+            patch(f"{FACADE}.time") as clock,
+        ):
+            connect.return_value.get_workflow_handle.return_value = handle
+            clock.monotonic.side_effect = lambda: elapsed
+            clock.sleep.side_effect = sleep
             dto = self._create(auto_publish=True)
 
         assert str(dto.id) == str(warm_task.id)
@@ -641,13 +662,169 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         run.refresh_from_db()
         assert warm_task.description == "fix the bug"
         assert warm_task.title
-        m_signal.assert_called_once()
-        _, kwargs = m_signal.call_args
-        assert kwargs["content"] == "fix the bug"
+        assert handle.signal.await_count == startup_misses + 1
+        payloads = [call.kwargs["args"] for call in handle.signal.await_args_list]
+        assert payloads[0][0] == "fix the bug"
+        assert payloads[0][2]
+        assert all(payload == payloads[0] for payload in payloads)
+        assert all(call.args == (run.workflow_id,) for call in connect.return_value.get_workflow_handle.call_args_list)
+        assert [call.args[0] for call in clock.sleep.call_args_list] == [0.25, 0.5, 1][:startup_misses]
         assert "await_user_message" not in run.state
+        assert run.state["warm_activated"] is True
         # The agent-server re-reads run state on the forwarded first message, so this
         # must be persisted for the warm run to honor the setting.
         assert run.state.get("auto_publish") is True
+
+    @parameterized.expand(
+        [
+            (endpoint, outcome)
+            for endpoint in ("create", "resume")
+            for outcome in (
+                "recovered",
+                "deadline",
+                "rpc_exhausted",
+                "cancelled",
+                "failed",
+                "deleted",
+                "task_deleted",
+                "not_awaiting",
+                "cancelled_after_delivery",
+            )
+        ]
+    )
+    def test_warm_activation_startup_through_endpoints(self, endpoint: str, outcome: str) -> None:
+        task, run = self._warm_run(extra_state={"initial_permission_mode": "default", "prewarmed": True})
+        artifact = _artifact_entry("startup-attachment")
+        payload: dict[str, Any] = {
+            "branch": "main",
+            "pending_user_message": "Inspect the example chart",
+            "pending_user_artifact_ids": [artifact["id"]],
+        }
+        if endpoint == "create":
+            url = "/api/projects/@current/tasks/"
+            payload.update(description="Inspect the example chart", repository="posthog/posthog")
+            run.artifacts = [artifact]
+            run.save(update_fields=["artifacts"])
+        else:
+            previous = TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                status=TaskRun.Status.COMPLETED,
+                state={"pr_base_branch": "main", "initial_permission_mode": "default"},
+            )
+            TaskRun.objects.filter(id=previous.id).update(created_at=run.created_at - timedelta(seconds=1))
+            TaskRun.update_state_atomic(run.id, updates={"resume_from_run_id": str(previous.id)})
+            payload.update(mode="interactive", resume_from_run_id=str(previous.id))
+            url = f"/api/projects/@current/tasks/{task.id}/run/"
+            get_tasks_cache().set(
+                build_task_staged_artifact_cache_key(str(task.id), artifact["id"]), artifact, timeout=60
+            )
+
+        run_count = TaskRun.objects.filter(team=self.team).count()
+        savepoints = list(transaction.get_connection().savepoint_ids)
+        elapsed = 0.0
+        rpc_timeouts: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            nonlocal elapsed
+            assert transaction.get_connection().savepoint_ids == savepoints
+            elapsed += seconds
+            if outcome in ("cancelled", "failed"):
+                TaskRun.objects.filter(id=run.id).update(status=outcome)
+            elif outcome == "deleted":
+                TaskRun.objects.filter(id=run.id).delete()
+            elif outcome == "task_deleted":
+                Task.objects.filter(id=task.id).update(deleted=True)
+            elif outcome == "not_awaiting":
+                TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+
+        async def signal(*args: object, rpc_timeout: timedelta, **kwargs: object) -> None:
+            nonlocal elapsed
+            assert rpc_timeout.total_seconds() == 10 - elapsed
+            rpc_timeouts.append(rpc_timeout.total_seconds())
+            if outcome == "rpc_exhausted":
+                elapsed += rpc_timeout.total_seconds()
+            if outcome == "cancelled_after_delivery":
+                return
+            if outcome == "recovered" and len(rpc_timeouts) == 4:
+                return
+            raise RPCError("workflow starting", RPCStatusCode.NOT_FOUND, b"")
+
+        handle = MagicMock(signal=AsyncMock(side_effect=signal))
+
+        def get_handle(workflow_id: str) -> MagicMock:
+            assert workflow_id == run.workflow_id
+            assert transaction.get_connection().savepoint_ids == savepoints
+            if outcome == "cancelled_after_delivery":
+                TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.CANCELLED)
+            return handle
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect") as connect,
+            patch(f"{FACADE}.time") as clock,
+            patch("posthog.storage.object_storage.tag"),
+            patch(
+                "products.tasks.backend.logic.services.title_generator.generate_task_title",
+                return_value="Example chart",
+            ),
+        ):
+            connect.return_value.get_workflow_handle.side_effect = get_handle
+            clock.monotonic.side_effect = lambda: elapsed
+            clock.sleep.side_effect = sleep
+            response = self.client.post(url, payload, format="json")
+
+            assert Task.objects.filter(team=self.team).count() == 1
+            assert TaskRun.objects.filter(team=self.team).count() == run_count - (outcome == "deleted")
+            if outcome == "recovered":
+                assert response.status_code == (201 if endpoint == "create" else 200), response.content
+                assert response.json()["id"] == str(task.id)
+                assert response.json()["latest_run"]["id"] == str(run.id)
+            else:
+                assert response.status_code == 503, response.content
+                assert response.json() == {
+                    "code": "warm_run_activation_unavailable",
+                    "error": "Couldn't start this run yet. Please try again.",
+                }
+
+            if outcome != "deleted":
+                run.refresh_from_db()
+                assert bool(run.state.get("warm_activated")) is (outcome == "recovered")
+                assert bool(run.state.get("await_user_message")) is (outcome not in ("recovered", "not_awaiting"))
+            if outcome == "deadline":
+                assert elapsed == 10
+                assert min(rpc_timeouts) == 0.25
+                assert len(rpc_timeouts) == 12
+                handle.signal.side_effect = None
+                retry = self.client.post(url, payload, format="json")
+                assert retry.status_code == (201 if endpoint == "create" else 200), retry.content
+                assert retry.json()["latest_run"]["id"] == str(run.id)
+                run.refresh_from_db()
+                assert [entry["id"] for entry in run.artifacts] == [artifact["id"]]
+                assert "await_user_message" not in run.state
+                assert TaskRun.objects.filter(team=self.team).count() == run_count
+            elif outcome != "recovered":
+                assert handle.signal.await_count == 1
+                if outcome == "rpc_exhausted":
+                    assert elapsed == 10
+                    clock.sleep.assert_not_called()
+
+    @parameterized.expand([(False,), (None,), (RPCStatusCode.UNAVAILABLE,), (RPCStatusCode.DEADLINE_EXCEEDED,)])
+    def test_warm_activation_does_not_retry_unconfirmed_delivery(self, outcome: bool | None | RPCStatusCode) -> None:
+        _, run = self._warm_run()
+        expected_error: type[Exception]
+        with patch(f"{FACADE}.signal_task_run_user_message") as signal:
+            if isinstance(outcome, RPCStatusCode):
+                signal.side_effect = RPCError("transport failure", outcome, b"")
+                expected_error = RPCError
+            else:
+                signal.return_value = outcome
+                expected_error = facade.WarmRunActivationUnavailable
+            with self.assertRaises(expected_error):
+                self._create()
+        signal.assert_called_once()
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+        assert not run.state.get("warm_activated")
 
     def test_reuses_warm_task_with_new_reasoning_effort_and_attachments(self):
         warm_task, run = self._warm_run(
