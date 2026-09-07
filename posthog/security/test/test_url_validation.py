@@ -235,6 +235,10 @@ class TestUrlValidation:
             # The whole of 127.0.0.0/8 is loopback, not just 127.0.0.1. Caught by parsing the
             # address, so no DNS lookup happens and every long form is caught the same way.
             ("127.0.0.2", "Private IP address not allowed"),
+            # IDNA maps fullwidth characters onto ASCII ones, so this is the resolver's
+            # "evil.corp". The name checks have to see the form the resolver will query.
+            ("ｅｖｉｌ．ｃｏｒｐ", "Internal domain pattern blocked"),
+            ("ｌｏｃａｌｈｏｓｔ", "Local/Loopback host not allowed"),
         ],
     )
     def test_host_and_url_paths_agree_on_internal_names(self, enforce_destination_validation, host, expected_reason):

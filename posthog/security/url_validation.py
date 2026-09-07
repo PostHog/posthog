@@ -189,7 +189,16 @@ def _canonicalize_host(host: str) -> str:
 
     We strip any trailing "." because an absolute FQDN carries the DNS root dot ("db.corp.").
     The block list matches exactly or by suffix, so it would otherwise miss that form.
+
+    An internationalized name becomes the punycode form the resolver queries. IDNA maps
+    several characters onto ASCII ones, so without this a host written in fullwidth
+    characters passes every name check and then resolves to the host those checks exist to
+    block. A name the codec rejects is returned unchanged, for the shape check to refuse.
     """
+    try:
+        host = host.encode("idna").decode("ascii")
+    except (ValueError, UnicodeError):
+        pass
     return host.lower().rstrip(".")
 
 
