@@ -4,8 +4,9 @@ Shared by the execution service (which decides the execution path) and the run
 throttle (which grants the materialized rate budget), so the two cannot disagree.
 """
 
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import TypedDict
 
 from posthog.schema import EndpointRefreshMode, EndpointRunRequest
 
@@ -14,6 +15,15 @@ from posthog.dataclasses import frozen
 from products.data_modeling.backend.facade.api import is_materialization_fresh
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy
 from products.endpoints.backend.models import EndpointVersion
+
+
+class CachedServingSnapshot(TypedDict):
+    """The shape a snapshot takes in the throttle cache."""
+
+    ready: bool
+    materialized_at: str | None
+    freshness_seconds: int | None
+    servable_variables: list[str]
 
 
 @frozen
@@ -42,7 +52,7 @@ class MaterializedServingState:
                 return False
         return True
 
-    def to_cache(self) -> dict[str, Any]:
+    def to_cache(self) -> CachedServingSnapshot:
         return {
             "ready": self.ready,
             "materialized_at": self.materialized_at.isoformat() if self.materialized_at else None,
@@ -51,13 +61,30 @@ class MaterializedServingState:
         }
 
     @classmethod
-    def from_cache(cls, payload: dict[str, Any]) -> "MaterializedServingState":
+    def from_cache(cls, payload: Mapping[str, object]) -> "MaterializedServingState | None":
+        """The snapshot a cache entry holds, or None when the entry is not in this shape.
+
+        A cache entry outlives the code that wrote it, so a payload in another shape counts
+        as a miss. The caller then reads the database and rewrites the entry.
+        """
         materialized_at = payload.get("materialized_at")
+        freshness_seconds = payload.get("freshness_seconds")
+        servable_variables = payload.get("servable_variables") or []
+        if (
+            not isinstance(materialized_at, str | None)
+            or not isinstance(freshness_seconds, int | None)
+            or not isinstance(servable_variables, list)
+        ):
+            return None
+        try:
+            parsed_at = datetime.fromisoformat(materialized_at) if materialized_at else None
+        except ValueError:
+            return None
         return cls(
             ready=bool(payload.get("ready")),
-            materialized_at=datetime.fromisoformat(materialized_at) if materialized_at else None,
-            freshness_seconds=payload.get("freshness_seconds"),
-            servable_variables=frozenset(payload.get("servable_variables") or ()),
+            materialized_at=parsed_at,
+            freshness_seconds=freshness_seconds,
+            servable_variables=frozenset(name for name in servable_variables if isinstance(name, str)),
         )
 
     @classmethod

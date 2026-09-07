@@ -25,6 +25,8 @@ from products.endpoints.backend.rate_limit import (
     _check_and_cache_materialization_status,
     check_materialized_request,
     clear_endpoint_materialization_cache,
+    get_endpoint_materialization_cache_key,
+    get_endpoint_materialization_state,
     is_endpoint_materialization_ready,
     set_endpoint_materialization_ready,
 )
@@ -45,6 +47,18 @@ class TestMaterializationCache(TestCase):
     def test_set_and_get_materialization_status(self, is_ready):
         set_endpoint_materialization_ready(123, "test_endpoint", is_ready)
         self.assertEqual(is_endpoint_materialization_ready(123, "test_endpoint"), is_ready)
+
+    @parameterized.expand(
+        [
+            ("unparsable_timestamp", {"ready": True, "materialized_at": "not-a-timestamp"}),
+            ("foreign_shape", {"ready": True, "materialized_at": 1234, "freshness_seconds": "3600"}),
+        ]
+    )
+    def test_payload_in_another_shape_reads_as_a_miss(self, _name, payload):
+        cache.set(get_endpoint_materialization_cache_key(123, "test_endpoint"), payload)
+
+        self.assertIsNone(get_endpoint_materialization_state(123, "test_endpoint"))
+        self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint"))
 
     def test_clear_cache(self):
         set_endpoint_materialization_ready(123, "test_endpoint", True)
