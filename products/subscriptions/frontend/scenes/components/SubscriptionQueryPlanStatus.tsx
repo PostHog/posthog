@@ -8,7 +8,7 @@ import {
 
 const AI_QUERY_PLAN_STATUSES = new Set<string>(Object.values(AIQueryPlanStatusEnumApi))
 
-export function isAIQueryPlanStatus(status: unknown): status is AIQueryPlanStatus {
+function isAIQueryPlanStatus(status: unknown): status is AIQueryPlanStatus {
     return typeof status === 'string' && AI_QUERY_PLAN_STATUSES.has(status)
 }
 
@@ -43,21 +43,26 @@ export function SubscriptionQueryPlanStatus({
     }
 
     return (
-        <Tooltip title={copy} delayMs={0}>
-            <span
-                role="img"
-                aria-label={copy}
-                tabIndex={0}
-                className={`inline-flex cursor-help rounded-sm text-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
-                    status === AIQueryPlanStatusEnumApi.NotFrozen
-                        ? 'text-secondary'
-                        : status === AIQueryPlanStatusEnumApi.PlannerUpdated
-                          ? 'text-warning'
-                          : ''
-                }`}
-            >
-                {icon}
-            </span>
-        </Tooltip>
+        <div>
+            <dt className="text-sm text-secondary">Query plan</dt>
+            <dd className="font-medium">
+                <Tooltip title={copy} delayMs={0}>
+                    <span
+                        role="img"
+                        aria-label={copy}
+                        tabIndex={0}
+                        className={`inline-flex cursor-help rounded-sm text-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
+                            status === AIQueryPlanStatusEnumApi.NotFrozen
+                                ? 'text-secondary'
+                                : status === AIQueryPlanStatusEnumApi.PlannerUpdated
+                                  ? 'text-warning'
+                                  : ''
+                        }`}
+                    >
+                        {icon}
+                    </span>
+                </Tooltip>
+            </dd>
+        </div>
     )
 }
