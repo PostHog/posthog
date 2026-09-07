@@ -23,7 +23,9 @@ Each item below was a real proposal, so read the reason before you reopen one.
 **Egress does not store response data.**
 The limiter keeps control state about a budget, which stays O(1) per scope and expires on its own, so its footprint does not grow with traffic.
 A response body is the opposite, because its footprint tracks request volume.
-Storing bodies therefore needs a size budget, an eviction policy, and a store of its own.
+The test is the entry count, not the entry size.
+A small entry per URL still grows with the number of URLs, so a store of validators fails this the same way a store of bodies does.
+Storing either therefore needs a size budget, an eviction policy, and a store of its own.
 The shared Django cache is not that store, because it also serves the request path.
 Cache what a caller needs in that caller's own cache, where the data is already smaller and better shaped than the raw response.
 
