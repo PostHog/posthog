@@ -283,8 +283,7 @@ def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query
 
 
 def test_csv_parse_failure_classifies_as_a_user_error():
-    # A bad file behind a warehouse table shares code 117 with server faults, so without the
-    # wrapper class it classifies as a platform error and lands in error tracking.
+    # Code 117 alone classifies as a platform error, which is what files it to error tracking.
     wrapped = wrap_clickhouse_query_error(ServerException(CSV_PARSE_FAILURE_MESSAGE, code=117))
 
     assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR

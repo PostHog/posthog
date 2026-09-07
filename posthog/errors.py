@@ -173,8 +173,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
     elif name == "INCORRECT_DATA" and "Expected end of line" in err.message and "(in file/uri" in err.message:
-        # A delimited file behind a warehouse table has a row that splits into the wrong number of
-        # columns. The raw message dumps every column with its parsed text, so replace it.
+        # The raw message dumps every column of the failing row with its parsed text.
         return _wrap_delimited_file_parse_error(err)
     elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
         # A Parquet file with corrupted or oversized thrift metadata (e.g.
@@ -243,9 +242,8 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
     if isinstance(e, CHQueryErrorDelimitedFileParseFailure):
-        # INCORRECT_DATA covers both a bad file behind a warehouse table and a genuine server fault,
-        # so the code alone cannot classify it. This wrapper only matches the file case, which is a
-        # user error and must stay out of error tracking.
+        # INCORRECT_DATA covers both a bad file and a genuine server fault, so the code alone cannot
+        # classify it. Only this wrapper knows the failure is the file's, so it must decide here.
         return QueryErrorCategory.USER_ERROR
 
     if isinstance(e, ServerException):
