@@ -97,7 +97,10 @@ import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitAc
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
-import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
+import {
+  isMcpToolItem,
+  isPlanItem,
+} from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
@@ -226,6 +229,11 @@ function isThoughtItem(item: ConversationItem): boolean {
  * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
  * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
  * thoughts ride along a run, they never make one.
+ *
+ * An MCP tool call never folds into a group, even alongside other tool calls: its result can
+ * mount a UI-app iframe (`McpAppHost`), and the group collapses to a "Thinking…" marker while a
+ * later tool in the run is still live, which would hide an already-rendered chart behind that
+ * label. It flushes the run and renders on its own row instead, mirroring `isPlanItem`.
  */
 /**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
@@ -277,7 +285,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      if (isPlanItem(item) || isShowActionsItem(item)) {
+      if (isPlanItem(item) || isShowActionsItem(item) || isMcpToolItem(item)) {
         flush();
         out.push(item);
         continue;

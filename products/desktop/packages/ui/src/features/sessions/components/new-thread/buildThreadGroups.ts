@@ -108,7 +108,7 @@ function subagentCount(item: ConversationItem): number {
     : 1;
 }
 
-function isMcpToolItem(item: ConversationItem): boolean {
+export function isMcpToolItem(item: ConversationItem): boolean {
   if (item.type !== "session_update") return false;
   if (item.update.sessionUpdate !== "tool_call") return false;
   const resolved = item.update.toolCallId

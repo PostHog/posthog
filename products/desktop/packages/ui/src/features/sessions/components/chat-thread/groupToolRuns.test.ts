@@ -121,4 +121,31 @@ describe("groupToolRuns", () => {
     ]);
     expect(out[1]).toMatchObject({ id: "action" });
   });
+
+  it("keeps an MCP tool call out of the chip so a mounted UI app never hides behind it", () => {
+    // Reproduces the bug: an MCP tool with a UI app (a rendered chart) sitting between
+    // other tool calls used to fold into the group, which collapses to "Thinking…" while
+    // a later tool in the run is still live — hiding the already-rendered chart.
+    const mcpCall = toolItem("chart", {
+      _meta: posthogToolMeta({
+        toolName: "posthog__query",
+        mcp: { server: "posthog", tool: "query" },
+      }),
+    });
+
+    const out = groupToolRuns([
+      toolItem("before-1"),
+      toolItem("before-2"),
+      mcpCall,
+      toolItem("after-1"),
+      toolItem("after-2"),
+    ]);
+
+    expect(out.map((row) => row.type)).toEqual([
+      "tool_group",
+      "session_update",
+      "tool_group",
+    ]);
+    expect(out[1]).toMatchObject({ id: "chart" });
+  });
 });
