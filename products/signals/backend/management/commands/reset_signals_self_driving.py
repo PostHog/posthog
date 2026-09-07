@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models import Team
@@ -135,18 +136,25 @@ class Command(BaseCommand):
 
         # 2. Postgres self-driving state, atomically.
         with transaction.atomic():
-            # Custom scouts: every version of each `signals-scout-*` skill NOT stamped by the
-            # seeding harness. We partition by SET DIFFERENCE (all scout names minus seeded
-            # names), NOT `.exclude(metadata__seeded_by=...)`. An ABSENT JSONB key makes
-            # `metadata->>'seeded_by'` SQL NULL, and `NOT (NULL = '...')` is NULL (not TRUE),
-            # so `.exclude()` silently skips rows whose metadata has no `seeded_by` key at all
-            # — which is the common case for a wizard-/hand-authored scout. The set diff is
-            # NULL-safe: a name is custom iff it is a scout name not among the seeded ones.
-            # No seeded name can land in `custom_scout_names`, so deleting by `name__in`
-            # (every version) never touches a canonical/companion row, and cascades LLMSkillFile.
+            # Custom scouts: every version of each scout skill NOT stamped by the seeding
+            # harness. The roster is the config rows plus the live `signals-scout-*` skills: a
+            # config row makes a scout under any name, and a prefixed skill authored through the
+            # skills API holds none until a coordinator tick registers one. We then partition by
+            # SET DIFFERENCE (all scout names minus seeded names), NOT
+            # `.exclude(metadata__seeded_by=...)`. An ABSENT
+            # JSONB key makes `metadata->>'seeded_by'` SQL NULL, and `NOT (NULL = '...')` is
+            # NULL (not TRUE), so `.exclude()` silently skips rows whose metadata has no
+            # `seeded_by` key at all — which is the common case for a wizard-/hand-authored
+            # scout. The set diff is NULL-safe: a name is custom iff it is a scout name not
+            # among the seeded ones. No seeded name can land in `custom_scout_names`, so
+            # deleting by `name__in` (every version) never touches a canonical/companion row,
+            # and cascades LLMSkillFile.
+            configured_scout_names = set(
+                SignalScoutConfig.all_teams.filter(team=team).values_list("skill_name", flat=True)
+            )
             scout_skills = LLMSkill.objects.filter(
+                Q(name__in=configured_scout_names) | Q(name__startswith=SIGNALS_SCOUT_SKILL_PREFIX),
                 team_id=team.id,
-                name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
                 is_latest=True,
                 deleted=False,
             )

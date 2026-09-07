@@ -892,6 +892,26 @@ class TestAdminShutdownErrorClassification:
 
         mock_capture.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_close_does_not_report_admin_shutdown_error(self):
+        # Queue DB terminates the poll connection via an administrator command (failover,
+        # maintenance restart) while _close() tries the best-effort lease release.
+        # _close() already notes this path is best-effort; the error must not reach
+        # error tracking.
+        consumer = _make_consumer()
+        with (
+            patch.object(
+                consumer._adapter,
+                "release_all_owned",
+                new_callable=AsyncMock,
+                side_effect=psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._close()
+
+        mock_capture.assert_not_called()
+
 
 class TestStartupLiveness:
     @pytest.mark.asyncio
@@ -1458,6 +1478,34 @@ class TestFailRun:
             )
 
         mock_fail_run.assert_called_once()  # queue batches still marked failed
+
+    @pytest.mark.asyncio
+    async def test_aborting_destinations_gets_a_parsed_export_signal(self):
+        # `to_export_signal()` returns a dict. Handing that straight to the abort path made every
+        # field access raise, so a destination that failed reported an AttributeError instead of
+        # the real error, and its scratch tables were never dropped.
+        consumer = _make_consumer()
+        batch = _make_batch(destination_ids=["11111111-1111-1111-1111-111111111111"])
+        seen: list[Any] = []
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery.abort_destinations",
+                side_effect=lambda signal: seen.append(signal),
+            ),
+        ):
+            await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
+
+        assert len(seen) == 1
+        assert seen[0].destination_ids == ["11111111-1111-1111-1111-111111111111"]
+        assert seen[0].team_id == 1
 
     @pytest.mark.asyncio
     async def test_attempts_job_status_update_even_when_queue_update_fails(self):

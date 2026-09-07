@@ -37,6 +37,15 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     SlackMessage,
     deliver_slack_message_data,
 )
+from ee.tasks.subscriptions.teams_subscriptions import (
+    TEAMS_CARD_TEXT_BUDGET,
+    TEAMS_UTM_TAGS,
+    fit_to_teams_budget,
+    teams_byte_size,
+    teams_card_message,
+    teams_open_url_action,
+    teams_text_block,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +87,14 @@ _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
 SLACK_IMAGE_TITLE_LIMIT = 2000
+
+TEAMS_TEXT_BLOCK_LIMIT = 3000
+# Upper bound on report blocks. It only stops the chunker from splitting an unbounded report into
+# thousands of pieces; TEAMS_CARD_TEXT_BUDGET is what keeps the payload inside what Teams accepts.
+TEAMS_REPORT_BLOCK_COUNT = 10
+# Chunking is quadratic in the number of chunks and nothing upstream bounds a report's length, so
+# the markdown is cut to what could fill the blocks above before it is chunked at all.
+_TEAMS_REPORT_CHUNKING_LIMIT = TEAMS_REPORT_BLOCK_COUNT * TEAMS_TEXT_BLOCK_LIMIT
 
 
 def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) -> list[str]:
@@ -417,8 +434,64 @@ async def send_slack_ai_subscription_report(
         return await deliver_slack_message_data(integration, subscription, build(None))
 
 
+def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_id: uuid.UUID) -> dict[str, Any]:
+    """Adaptive Card for an AI report. Adaptive Cards render a restricted markdown subset in a
+    TextBlock, so the report goes through mostly as written and a table degrades to plain text."""
+    title = strip_external_links_markdown(subscription.title or "Your PostHog AI report")
+    subscription_url = subscription.url or absolute_uri(
+        f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
+    )
+
+    report = strip_external_links_markdown(markdown)
+    sections = _split_text_into_chunks(report[:_TEAMS_REPORT_CHUNKING_LIMIT], TEAMS_TEXT_BLOCK_LIMIT)
+
+    heading = f"**{title}**"
+    shortened_notice = (
+        f"This report was shortened to fit. [Read all of it in PostHog]({subscription_url}?{TEAMS_UTM_TAGS})"
+    )
+    feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "teams")
+    feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "teams")
+    feedback = f"Was this report useful? [👍 Yes]({feedback_positive_url}) · [👎 No]({feedback_negative_url})"
+
+    # Chunking is by character and Teams measures the payload in UTF-8 bytes, so CJK or emoji text
+    # is several times the size the chunker accounted for. The report gets whatever the fixed blocks
+    # around it leave, which is what keeps such a report from being rejected on every scheduled run.
+    remaining = (
+        TEAMS_CARD_TEXT_BUDGET
+        - teams_byte_size(heading)
+        - teams_byte_size(shortened_notice)
+        - teams_byte_size(feedback)
+    )
+
+    kept: list[str] = []
+    over_budget = False
+    for section in sections[:TEAMS_REPORT_BLOCK_COUNT]:
+        size = teams_byte_size(section)
+        if size > remaining:
+            fitted = fit_to_teams_budget(section, remaining)
+            if teams_byte_size(fitted) <= remaining:
+                kept.append(fitted)
+            over_budget = True
+            break
+        kept.append(section)
+        remaining -= size
+
+    body: list[dict[str, Any]] = [teams_text_block(heading)]
+    if kept:
+        body.extend(teams_text_block(section) for section in kept)
+    else:
+        body.append(teams_text_block("_No report content was generated._"))
+    if over_budget or len(kept) < len(sections) or len(report) > _TEAMS_REPORT_CHUNKING_LIMIT:
+        body.append(teams_text_block(shortened_notice, is_subtle=True))
+    body.append(teams_text_block(feedback, is_subtle=True))
+
+    actions = [teams_open_url_action("Manage subscription", f"{subscription_url}?{TEAMS_UTM_TAGS}")]
+    return teams_card_message(body, actions)
+
+
 __all__ = [
     "build_ai_subscription_report",
+    "build_ai_teams_card",
     "build_chart_image_urls",
     "render_ai_email_html",
     "send_email_ai_subscription_report",

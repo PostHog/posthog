@@ -339,6 +339,7 @@ def _account_custom_properties_history_select(fields_accessed: dict[str, list[st
         FROM system._account_custom_property_values_history AS cpv
         WHERE isNotNull(cpv.value_num) AND (cpv.created_at >= now() - INTERVAL 180 DAY OR NOT cpv.is_deleted)
         GROUP BY cpv.account_id, cpv.definition_id
+        HAVING countIf(NOT cpv.is_deleted) > 0
         """
     )
     select: list[ast.Expr] = [parse_expr("account_id AS account_id")]
@@ -1329,7 +1330,7 @@ custom_property_definitions: PostgresTable = PostgresTable(
         ),
         "display_type": StringDatabaseField(
             name="display_type",
-            description="How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.",
+            description="How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select' (allowed options stored on the definition), or 'link'.",
         ),
         "_is_big_number": BooleanDatabaseField(name="is_big_number", hidden=True),
         "is_big_number": ExpressionField(

@@ -88,6 +88,14 @@
       "types": "./dist/adapters/codex-app-server/subscription-login.d.ts",
       "import": "./dist/adapters/codex-app-server/subscription-login.js"
     },
+    "./adapters/claude/machine-auth": {
+      "types": "./dist/adapters/claude/machine-auth.d.ts",
+      "import": "./dist/adapters/claude/machine-auth.js"
+    },
+    "./adapters/claude/subscription-login": {
+      "types": "./dist/adapters/claude/subscription-login.d.ts",
+      "import": "./dist/adapters/claude/subscription-login.js"
+    },
     "./adapters/claude/session/jsonl-hydration": {
       "types": "./dist/adapters/claude/session/jsonl-hydration.d.ts",
       "import": "./dist/adapters/claude/session/jsonl-hydration.js"
@@ -170,7 +178,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.1.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.197",
+    "@anthropic-ai/claude-agent-sdk": "0.3.251",
     "@anthropic-ai/sdk": "0.109.0",
     "@earendil-works/pi-agent-core": "catalog:",
     "@earendil-works/pi-ai": "catalog:",

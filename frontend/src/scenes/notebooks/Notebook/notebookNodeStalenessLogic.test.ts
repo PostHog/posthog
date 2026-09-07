@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import { notebookNodeSQLV2Logic } from '../Nodes/notebookNodeSQLV2Logic'
 import { NotebookNodeType } from '../types'
+import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from './markdownNotebookV2'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 
 describe('notebookNodeStalenessLogic', () => {
@@ -121,6 +122,82 @@ describe('notebookNodeStalenessLogic', () => {
         expect(runSpy.mock.calls[1][1]).toMatchObject({ node_id: 'c' })
         expect(stalenessLogic.values.staleNodeIds).toEqual({})
         expect(stalenessLogic.values.chainQueue).toEqual([])
+    })
+
+    it('runs only the requested widget data chain in dependency order', async () => {
+        mountNode('a')
+        mountNode('b')
+        mountNode('c')
+        mountNode('x')
+
+        stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b'])
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'upstream' })
+        expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
+    })
+
+    it('preserves mixed SQL and Python order for widget data in markdown notebooks', async () => {
+        const markdown = [
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'a',
+                returnVariable: 'sql_df',
+                code: 'select 1',
+            }),
+            serializeMarkdownNotebookComponent('PythonV2', {
+                nodeId: 'b',
+                returnVariable: 'new_events',
+                code: 'new_events = sql_df.head()',
+            }),
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'c',
+                returnVariable: 'joined',
+                code: 'select * from new_events',
+            }),
+        ].join('\n\n')
+        const markdownContent = buildMarkdownNotebookContent(markdown)
+        mountNode('a')
+        mountNode('b')
+        mountNode('c')
+
+        stalenessLogic.actions.runWidgetDataChain(markdownContent, ['a', 'b', 'c'])
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b', 'c'])
+    })
+
+    it('does not run a partial widget data chain when a requested cell is unmounted', async () => {
+        mountNode('a')
+
+        stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy).not.toHaveBeenCalled()
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+        expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
+    })
+
+    it('does not report success when a requested widget cell disappears during the chain', async () => {
+        let finishFirstRun: (value: { status: 'done'; result: null; error: null }) => void = () => undefined
+        resultSpy.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishFirstRun = resolve
+                })
+        )
+        mountNode('a')
+        const secondNode = mountNode('b')
+
+        stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
+        await expectLogic(stalenessLogic).toDispatchActions(['dispatchChainRun'])
+        secondNode.unmount()
+        finishFirstRun({ status: 'done', result: null, error: null })
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a'])
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+        expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
     })
 
     it('a chain run picks up cells its own completion marked stale', async () => {

@@ -58,8 +58,6 @@ import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
 // Re-export for backward compatibility — these are imported from this file by 28+ consumers
-export { MathAvailability } from './types'
-export type { ActionFilterRowProps, MathSelectorProps } from './types'
 export { taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
 export { MathSelector } from './MathSelector'
 

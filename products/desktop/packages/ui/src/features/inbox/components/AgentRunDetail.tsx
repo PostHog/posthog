@@ -1,9 +1,9 @@
 import {
   ArrowRightIcon,
   CaretDownIcon,
-  CopyIcon,
   FileTextIcon,
   GitPullRequestIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
   TerminalIcon,
   WarningIcon,
@@ -348,7 +348,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
               onClick={() => copyInboxReportLink(report)}
               title="Copy a deep link to this run"
             >
-              <CopyIcon size={12} />
+              <LinkIcon size={12} />
               Copy link
             </Button>
           </>

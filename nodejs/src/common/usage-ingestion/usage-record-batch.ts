@@ -11,6 +11,8 @@ interface PendingRecord {
     teamId: number
     usageKey: string
     recordId: string
+    quantity: number
+    unit?: string
 }
 
 /**
@@ -36,18 +38,18 @@ export class UsageRecordBatch {
         return this.records.size
     }
 
-    /** Whether a record for this team would be kept, so a caller can skip building one. */
+    /** Whether this team's records would be kept, so a caller can skip building one. */
     accepts(teamId: number): boolean {
         return this.client !== null && this.config.isTeamEnabled(teamId)
     }
 
-    add(teamId: number, usageKey: string, recordId: string): void {
-        if (!this.accepts(teamId)) {
+    add(teamId: number, usageKey: string, recordId: string, quantity = 1, unit?: string): void {
+        if (quantity <= 0 || !this.accepts(teamId)) {
             return
         }
         const key = `${teamId}:${usageKey}:${recordId}`
         if (!this.records.has(key)) {
-            this.records.set(key, { teamId, usageKey, recordId })
+            this.records.set(key, { teamId, usageKey, recordId, quantity, unit })
         }
     }
 
@@ -62,7 +64,7 @@ export class UsageRecordBatch {
         usageKey: string,
         recordId: string
     ): void {
-        // A team that is not reporting must not put the flush behind its Kafka writes.
+        // A record that would be dropped must not put the flush behind its Kafka writes.
         if (!this.accepts(teamId)) {
             return
         }
@@ -100,8 +102,8 @@ export class UsageRecordBatch {
             recordId: record.recordId,
             teamId: record.teamId,
             usageKey: record.usageKey,
-            unit: this.config.unit,
-            quantity: 1,
+            unit: record.unit ?? this.config.unit,
+            quantity: record.quantity,
             timestampMs,
         }))
         this.records.clear()

@@ -5,6 +5,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
+import { TRACING_DATE_FORMAT } from '../../dateFormats'
 import { COMPARE_CURRENT_BORDER, COMPARE_PREVIOUS_BORDER } from '../../SparklineCompareOverlay'
 import { type OverlayWindow, TIME_COMPARE_PRESET_DEFS, tracingFiltersLogic } from '../../tracingFiltersLogic'
 
@@ -13,8 +14,8 @@ import { type OverlayWindow, TIME_COMPARE_PRESET_DEFS, tracingFiltersLogic } fro
 function formatComparisonWindow(window: OverlayWindow): string {
     const start = dayjs(window.startMs).utc()
     const end = dayjs(window.endMs).utc()
-    const endFormat = start.isSame(end, 'day') ? 'HH:mm' : 'MMM D, HH:mm'
-    return `${start.format('MMM D, HH:mm')} – ${end.format(endFormat)} UTC`
+    const endFormat = start.isSame(end, 'day') ? 'HH:mm' : `${TRACING_DATE_FORMAT} HH:mm`
+    return `${start.format(`${TRACING_DATE_FORMAT} HH:mm`)} – ${end.format(endFormat)} UTC`
 }
 
 function ComparisonPill({ color, label, detail }: { color: string; label: string; detail: string }): JSX.Element {

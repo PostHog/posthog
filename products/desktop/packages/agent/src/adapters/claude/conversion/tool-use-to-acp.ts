@@ -618,6 +618,12 @@ export function toolUpdateFromToolResult(
                 },
               };
             }
+            if (itemObj.type === "document") {
+              return {
+                type: "content" as const,
+                content: text("Document content omitted from session updates."),
+              };
+            }
             return {
               type: "content" as const,
               content: item as { type: "text"; text: string },

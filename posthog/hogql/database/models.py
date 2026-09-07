@@ -242,7 +242,12 @@ class Table(FieldOrTable):
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
 
-    def get_predicates(self) -> list[Expr]:
+    def get_predicates(self, context: Optional["HogQLContext"] = None) -> list[Expr]:
+        """Predicates the printer ANDs onto every scan of this table.
+
+        `context` lets a table shape them per query — a predicate referencing another table has to
+        know whether that table is in this caller's schema, since access control may have removed it.
+        """
         return []
 
     def avoid_asterisk_fields(self) -> list[str]:

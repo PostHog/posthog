@@ -17,6 +17,9 @@ const mockGetSignalReports = vi.hoisted(() => vi.fn());
 const mockClient = vi.hoisted(() => ({
   getSignalReports: mockGetSignalReports,
 }));
+const filterMocks = vi.hoisted(() => ({
+  sourceProductFilter: [] as string[],
+}));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -39,8 +42,9 @@ vi.mock("@posthog/ui/features/inbox/stores/inboxSignalsFilterStore", () => ({
       searchQuery: "",
       sortField: "priority",
       sortDirection: "desc",
-      sourceProductFilter: [],
+      sourceProductFilter: filterMocks.sourceProductFilter,
       priorityFilter: [],
+      prFilter: "all",
     }),
 }));
 
@@ -68,10 +72,10 @@ function readyReport(index: number): SignalReport {
  * badge by subtraction silently overcounts.
  */
 function fakeServer(params?: SignalReportsQueryParams): SignalReportsResponse {
-  if (params?.has_implementation_pr === true) {
+  if (params?.count_only && params.has_implementation_pr === true) {
     return { count: PULL_REQUEST_TOTAL, results: [] };
   }
-  if (params?.has_implementation_pr === false) {
+  if (params?.count_only && params.has_implementation_pr === false) {
     return { count: REPORT_TAB_TOTAL, results: [] };
   }
   const offset = params?.offset ?? 0;
@@ -88,7 +92,7 @@ function fakeServer(params?: SignalReportsQueryParams): SignalReportsResponse {
 function pipelineRequests(): SignalReportsQueryParams[] {
   const requests: SignalReportsQueryParams[] = [];
   for (const [params] of mockGetSignalReports.mock.calls) {
-    if (params?.has_implementation_pr == null && params?.count_only == null) {
+    if (params?.count_only == null) {
       requests.push(params);
     }
   }
@@ -98,7 +102,8 @@ function pipelineRequests(): SignalReportsQueryParams[] {
 /** Params of the Reports-count request, or undefined if it was never fired. */
 function reportsCountParams(): SignalReportsQueryParams | undefined {
   for (const [params] of mockGetSignalReports.mock.calls) {
-    if (params?.has_implementation_pr === false) return params;
+    if (params?.count_only && params.has_implementation_pr === false)
+      return params;
   }
   return undefined;
 }
@@ -106,6 +111,12 @@ function reportsCountParams(): SignalReportsQueryParams | undefined {
 function renderCounts(options?: {
   enabled?: boolean;
   withReportsCount?: boolean;
+  applySourceFilter?: boolean;
+  groupByStatus?: boolean;
+  statusFilter?: string;
+  hasImplementationPr?: boolean;
+  actionabilityFilter?: string;
+  withPullRequestCount?: boolean;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -119,6 +130,7 @@ function renderCounts(options?: {
 describe("useInboxAllReports", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    filterMocks.sourceProductFilter = [];
     mockGetSignalReports.mockImplementation(async (params) =>
       fakeServer(params),
     );
@@ -173,5 +185,41 @@ describe("useInboxAllReports", () => {
     renderCounts({ enabled: false, withReportsCount: true });
 
     expect(mockGetSignalReports).not.toHaveBeenCalled();
+  });
+
+  it("ignores a saved source filter when its surface hides that control", async () => {
+    filterMocks.sourceProductFilter = ["github"];
+
+    const { result } = renderCounts({ applySourceFilter: false });
+
+    await waitFor(() => expect(pipelineRequests()).toHaveLength(1));
+    expect(pipelineRequests()[0]?.source_product).toBeUndefined();
+    expect(result.current.sourceProductFilter).toEqual([]);
+  });
+
+  it("interleaves statuses when the consumer renders one flat list", async () => {
+    const { result } = renderCounts({ groupByStatus: false });
+
+    await waitFor(() => expect(result.current.allReports).toHaveLength(50));
+    expect(pipelineRequests()[0]?.ordering).toBe("-priority");
+  });
+
+  it("applies an exact inbox bucket on the server without extra count queries", async () => {
+    renderCounts({
+      statusFilter: "ready,pending_input",
+      hasImplementationPr: false,
+      actionabilityFilter: "immediately_actionable,requires_human_input",
+      withPullRequestCount: false,
+    });
+
+    await waitFor(() => expect(pipelineRequests()).toHaveLength(1));
+    expect(pipelineRequests()[0]).toMatchObject({
+      status: "ready,pending_input",
+      has_implementation_pr: false,
+      actionability: "immediately_actionable,requires_human_input",
+    });
+    expect(
+      mockGetSignalReports.mock.calls.some(([params]) => params?.count_only),
+    ).toBe(false);
   });
 });

@@ -16,6 +16,8 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
+import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
+
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
 // built after the toolbar app build so it can embed the hashed entry filename). Consumers
 // depend on @posthog/esbuilder, not on esbuild directly, so pnpm's strict node_modules
@@ -107,23 +109,19 @@ export function copyIndexHtml(
     // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
     // they tell us which other files to load. This cascading loading is slow. That's why we cache
     // the list of chunks per scene, and load them all in parallel when a scene is loaded.
+    //
+    // The full map is written to its own content-hashed file in dist and fetched by the inline
+    // loader, instead of being inlined into the HTML: the map is hundreds of KB that changed on
+    // every deploy and had to be downloaded and parsed before the app could boot, on every page.
 
     // Don't use chunks in dev mode.
     // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
     const chunksToServe = isDev ? {} : chunks
-    const chunkCode = `
-        window.ESBUILD_LOADED_CHUNKS = new Set();
-        window.ESBUILD_LOAD_CHUNKS = function(name) {
-            const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
-            for (const chunk of chunks) {
-                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
-                    window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                }
-            }
-        }
-        window.ESBUILD_LOAD_CHUNKS('index');
-    `
+    const chunkMapFile = Object.keys(chunksToServe).length > 0 ? chunkMapFileName(entry, chunksToServe) : null
+    if (chunkMapFile) {
+        fse.writeFileSync(path.resolve(absWorkingDir, 'dist', chunkMapFile), chunkMapFileContents(chunksToServe))
+    }
+    const chunkCode = Object.keys(chunks).length > 0 ? chunkLoaderScript(chunksToServe, chunkMapFile) : ''
 
     // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
     // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
@@ -147,6 +145,14 @@ export function copyIndexHtml(
         };`
                 : ''
         }
+        // Resolves once the boot stylesheet is applied (or failed), so the entry script can hold
+        // React's first render until then. The entry JS is small enough to win the race against
+        // the stylesheet on slow networks; rendering before the sheet arrives paints the app
+        // unstyled for a frame or two.
+        window.ESBUILD_CSS_READY = new Promise(function (resolve) {
+            link.addEventListener("load", function () { resolve(true) }, { once: true });
+            link.addEventListener("error", function () { resolve(false) }, { once: true });
+        });
         document.head.appendChild(link)
     `
 
@@ -165,7 +171,7 @@ export function copyIndexHtml(
                     // adding elements to the DOM
                     ${cssFile ? cssLoader : ''}
                     ${scriptCode}
-                    ${Object.keys(chunks).length > 0 ? chunkCode : ''}
+                    ${chunkCode}
                 </script>
             </head>`
         )
