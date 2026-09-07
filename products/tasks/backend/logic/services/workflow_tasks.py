@@ -27,6 +27,7 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
+from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
 from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
     user_has_current_team_access,
@@ -339,6 +340,7 @@ def create_workflow_task(
                 hog_flow_id=hog_flow_id,
                 origin_key=origin_key,
                 extra_run_state=extra_run_state,
+                runtime_adapter=runtime_adapter_for(model),
                 model=model,
                 reasoning_effort=reasoning_effort,
                 slack_thread_context=thread_context,
