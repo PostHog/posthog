@@ -69,8 +69,8 @@ export interface marketingAnalyticsSettingsLogicValues {
     currentTeamId: number | null // teamLogic
     attribution_mode: AttributionMode
     attribution_window_days: number
-    filter_test_accounts: boolean
     conversion_goals: ConversionGoalFilter[]
+    filter_test_accounts: boolean
     integrationCampaignTables: Record<string, string>
     integrationCampaigns: Record<
         string,
@@ -168,9 +168,6 @@ export interface marketingAnalyticsSettingsLogicActions {
     updateAttributionMode: (mode: AttributionMode) => {
         mode: AttributionMode
     }
-    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
-        filterTestAccounts: boolean
-    }
     updateAttributionWindowDays: (days: number) => {
         days: number
     }
@@ -185,6 +182,9 @@ export interface marketingAnalyticsSettingsLogicActions {
     }
     updateCustomSourceMappings: (customSourceMappings: Record<string, string[]>) => {
         customSourceMappings: Record<string, string[]>
+    }
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
     }
     updateSourceMapping: (
         tableId: string,
@@ -204,6 +204,7 @@ export interface marketingAnalyticsSettingsLogicMeta {
         conversion_goals: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => ConversionGoalFilter[]
         attribution_window_days: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => number
         attribution_mode: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => AttributionMode
+        filter_test_accounts: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => boolean
         integrationCampaignTables: (
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null

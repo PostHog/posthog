@@ -241,6 +241,7 @@ const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 export interface marketingAnalyticsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
+    filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
@@ -307,7 +308,6 @@ export interface marketingAnalyticsLogicValues {
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupSection: SetupSection
-    filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
     shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
     uniqueConversionGoalName: string
@@ -572,6 +572,7 @@ export interface marketingAnalyticsLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             integrationFilter: IntegrationFilter
         ) => DataWarehouseNode[]
+        shouldFilterTestAccounts: (filter_test_accounts: boolean) => boolean
         overviewQuery: (
             dateFilter: {
                 dateFrom: string | null
