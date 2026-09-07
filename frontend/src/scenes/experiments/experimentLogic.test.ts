@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
@@ -180,6 +181,84 @@ describe('experimentLogic', () => {
                         },
                     ],
                 })
+        })
+
+        it('shows the cached result first, then replaces it with the recomputed one', async () => {
+            logic.actions.setExperiment(experiment)
+
+            const metricResult = (sum: number, cached: boolean): Record<string, any> => ({
+                kind: NodeKind.ExperimentQuery,
+                baseline: { key: 'control', number_of_samples: 100, sum: 10, sum_squares: 5 },
+                variants: [{ key: 'test', number_of_samples: 100, sum, sum_squares: 6 }],
+                is_cached: cached,
+                last_refresh: '2025-02-06T13:33:40.311Z',
+            })
+            const cachedResult = { ...metricResult(12, true), query_status: { id: 'recomputing', complete: false } }
+            const recomputedResult = metricResult(19, false)
+
+            let releasePoll = (): void => {}
+            const pollGate = new Promise<void>((resolve) => {
+                releasePoll = resolve
+            })
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [200, cachedResult],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': async () => {
+                        await pollGate
+                        return [200, { query_status: { id: 'recomputing', complete: true, results: recomputedResult } }]
+                    },
+                },
+            })
+
+            const loadPromise = logic.asyncActions.loadPrimaryMetricsResults(false)
+
+            await expectLogic(logic).toDispatchActions([
+                (action: any) =>
+                    action.type === logic.actionTypes.setPrimaryMetricsResults && !!action.payload.results[0],
+            ])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(cachedResult)
+
+            releasePoll()
+            await loadPromise
+
+            expect(logic.values.primaryMetricsResults[0]).toEqual(recomputedResult)
+        })
+
+        it('keeps the cached result and reports the failed revalidation when the recompute fails', async () => {
+            logic.actions.setExperiment(experiment)
+            eventUsageLogic.mount()
+
+            const cachedResult = {
+                kind: NodeKind.ExperimentQuery,
+                baseline: { key: 'control', number_of_samples: 100, sum: 10, sum_squares: 5 },
+                variants: [{ key: 'test', number_of_samples: 100, sum: 12, sum_squares: 6 }],
+                is_cached: true,
+                last_refresh: '2025-02-06T13:33:40.311Z',
+                query_status: { id: 'recomputing', complete: false },
+            }
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query/:kind': () => [200, cachedResult],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [500, { detail: 'Recompute failed' }],
+                },
+            })
+
+            await logic.asyncActions.loadPrimaryMetricsResults(false)
+
+            expect(logic.values.primaryMetricsResults[0]).toEqual(cachedResult)
+            expect(logic.values.primaryMetricsResultsErrors[0]).toBeFalsy()
+            await expectLogic(eventUsageLogic).toDispatchActions([
+                (action: any) =>
+                    action.type === eventUsageLogic.actionTypes.reportExperimentMetricFinished &&
+                    action.payload.context.is_cached === true &&
+                    action.payload.context.revalidation_failed === true,
+            ])
         })
     })
 

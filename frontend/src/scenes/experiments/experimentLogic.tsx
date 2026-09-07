@@ -51,7 +51,7 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '~/queries/query'
+import { performQuery, pollForResults } from '~/queries/query'
 import {
     AnyEntityNode,
     Breakdown,
@@ -260,6 +260,7 @@ interface MetricLoadingSummary {
     successfulCount: number
     erroredCount: number
     cachedCount: number
+    revalidationFailedCount: number
 }
 
 function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: boolean } {
@@ -337,6 +338,11 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
 // prevents mass rejections and retry churn when experiments have many metrics.
 const METRIC_QUERY_CONCURRENCY_LIMIT = 10
 
+/** A cached response the backend served while a background recompute for it is still running. */
+function isStaleCachedResponse(response: any): response is { query_status: { id: string } } {
+    return !!response?.is_cached && !!response?.query_status && !response.query_status.complete
+}
+
 const loadMetrics = async ({
     metrics,
     experimentId,
@@ -357,6 +363,7 @@ const loadMetrics = async ({
     let successfulCount = 0
     let erroredCount = 0
     let cachedCount = 0
+    let revalidationFailedCount = 0
 
     // Build tasks in display order so higher-priority metrics get dispatched first,
     // but each task writes to its original index so the UI stays consistent.
@@ -366,6 +373,7 @@ const loadMetrics = async ({
         const metric = metrics[originalIndex]
         return async (): Promise<void> => {
             let response: any = null
+            let revalidationFailed = false
             const startTime = performance.now()
             const metricIndex = metricIndexOffset + originalIndex
             const metricKind = metric.kind || 'unknown'
@@ -376,11 +384,39 @@ const loadMetrics = async ({
                     metric: metric,
                     experiment_id: experimentId,
                 }
+                // Show the cached numbers immediately when the backend is recomputing in the
+                // background, instead of hanging on the skeleton until the recompute finishes.
                 response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
                     undefined,
-                    getExperimentRefreshMode(featureFlags, !!refresh)
+                    getExperimentRefreshMode(featureFlags, !!refresh),
+                    undefined, // queryId
+                    undefined, // setPollResponse
+                    undefined, // filtersOverride
+                    undefined, // variablesOverride
+                    false, // pollOnly
+                    undefined, // limitContext
+                    true // acceptStaleCache
                 )
+
+                if (isStaleCachedResponse(response)) {
+                    // Put the cached numbers on screen now, then stay on the recompute: the task holds
+                    // its concurrency slot until the queue is done, and the fresher value replaces the
+                    // cached one in place when it lands.
+                    if (isNewExperimentResponse(response as CachedExperimentQueryResponse)) {
+                        results[originalIndex] = response as CachedNewExperimentQueryResponse
+                        onSetResults([...results])
+                    }
+                    try {
+                        response = (await pollForResults(response.query_status.id)).results
+                    } catch {
+                        // A recompute that stalls or fails leaves the cached numbers in place. They are
+                        // what the person is already reading, so an error state here would take away
+                        // results that work. The metric still carries the failure, so a served cache and
+                        // a failed recompute do not look the same in the telemetry.
+                        revalidationFailed = true
+                    }
+                }
 
                 const durationMs = Math.round(performance.now() - startTime)
                 const isCached = !!response?.is_cached
@@ -394,6 +430,9 @@ const loadMetrics = async ({
                 if (isCached) {
                     cachedCount++
                 }
+                if (revalidationFailed) {
+                    revalidationFailedCount++
+                }
 
                 eventUsageLogic.actions.reportExperimentMetricFinished(
                     experimentId,
@@ -403,6 +442,7 @@ const loadMetrics = async ({
                     {
                         duration_ms: durationMs,
                         is_cached: isCached,
+                        revalidation_failed: revalidationFailed,
                         metric_index: metricIndex,
                         is_primary: isPrimary,
                         is_retry: isRetry,
@@ -440,7 +480,7 @@ const loadMetrics = async ({
 
     await runWithLimit(tasks, METRIC_QUERY_CONCURRENCY_LIMIT)
 
-    return { successfulCount, erroredCount, cachedCount }
+    return { successfulCount, erroredCount, cachedCount, revalidationFailedCount }
 }
 
 export function isNewExperimentResponse(
@@ -2850,6 +2890,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
                 const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
                 const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
+                const revalidationFailedCount = refreshSummaries.reduce((sum, s) => sum + s.revalidationFailedCount, 0)
 
                 eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
                     values.experimentId,
@@ -2861,6 +2902,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         successful_count: successfulCount,
                         errored_count: erroredCount,
                         cached_count: cachedCount,
+                        revalidation_failed_count: revalidationFailedCount,
                         triggered_by: triggeredBy ?? 'manual',
                         force_refresh: !!forceRefresh,
                         refresh_id: refreshId,
