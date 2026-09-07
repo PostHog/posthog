@@ -881,6 +881,12 @@
                     "description": "Optional substring filter applied to prompt names and prompt content.",
                     "type": "string"
                 },
+                "label": {
+                    "description": "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                },
                 "content": {
                     "default": "none",
                     "description": "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.",

@@ -199,6 +199,14 @@ export const ScoreDefinitionConfigSchema = z
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    label: z
+        .string()
+        .min(1)
+        .max(128)
+        .optional()
+        .describe(
+            "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
+        ),
     content: z
         .enum(['full', 'preview', 'none'])
         .default('none')
