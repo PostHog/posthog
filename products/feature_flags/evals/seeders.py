@@ -38,8 +38,18 @@ def guard_claude_runtime(context: CustomPromptSandboxContext) -> dict[str, Any]:
     return {}
 
 
+def _backdate_updated_at(flag: FeatureFlag) -> None:
+    """Age the flag's ``updated_at``, which ``auto_now`` pins to the moment of creation.
+
+    ``feature-flag-get-all`` returns ``updated_at`` and not ``created_at``, so a freshly
+    seeded flag reads as modified seconds ago. The skill excludes a recently changed flag,
+    which would end the run at candidate selection instead of the branch under test.
+    """
+    FeatureFlag.objects.filter(pk=flag.id).update(updated_at=flag.created_at)
+
+
 def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    """A configuration-stale boolean flag: 100% rollout, no conditions, never called, 90 days old."""
+    """A configuration-stale boolean flag: one 100% condition, no property filters, never called, 90 days old."""
     _require_claude_runtime(context)
     flag = FeatureFlag.objects.create(
         team_id=context.team_id,
@@ -50,6 +60,7 @@ def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[st
         created_at=datetime.now(UTC) - timedelta(days=90),
         filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
     )
+    _backdate_updated_at(flag)
     return {"flag_id": flag.id, "flag_key": flag.key, "rollout": "full"}
 
 
@@ -66,4 +77,5 @@ def seed_stale_partial_rollout_flag(context: CustomPromptSandboxContext) -> dict
         last_called_at=datetime.now(UTC) - timedelta(days=60),
         filters={"groups": [{"properties": [], "rollout_percentage": 40}]},
     )
+    _backdate_updated_at(flag)
     return {"flag_id": flag.id, "flag_key": flag.key, "rollout": "partial"}
