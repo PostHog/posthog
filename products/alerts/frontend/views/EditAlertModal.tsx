@@ -15,7 +15,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    ForecastConditionType,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -41,8 +46,9 @@ import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } fro
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
+import { intervalSupportsForecast } from '../logic/forecastReach'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
-import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
+import { alertModeOf, supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
@@ -144,6 +150,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     )
     const insightAlertKind = insightAlertKindForQuery(query)
     const anomalyAlertGuidanceEnabled = useFeatureFlag('ANOMALY_ALERT_GUIDANCE_EXPERIMENT', 'anomaly_guidance')
+    const { currentTeam } = useValues(teamLogic)
+    const projectTimezone = currentTeam?.timezone ?? 'UTC'
 
     const formLogicProps = {
         alert,
@@ -151,6 +159,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
+        projectTimezone,
         insightAlertKind,
         defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
@@ -166,6 +175,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         alertFormSubmitAttempted,
         simulationResult,
         simulationResultLoading,
+        forecastSimulationResult,
+        forecastSimulationResultLoading,
         simulationDateFrom,
         clearSnoozeLoading,
         thresholdBoundsFormError,
@@ -180,15 +191,15 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         snoozeAlert,
         clearSnooze,
         simulateAlert,
+        simulateForecast,
         clearSimulation,
         setSimulationDateFrom,
         setAlertFormSubmitAttempted,
     } = useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
-    const { currentTeam } = useValues(teamLogic)
-    const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
+    const forecastAlertsEnabled = useFeatureFlag('FORECAST_ALERTS')
 
     const notificationLogic = alertNotificationLogic({ alertId })
     const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
@@ -214,7 +225,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
 
     const creatingNewAlert = alertId === undefined
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
-    const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
+    const alertMode = alertModeOf(alertForm)
     const nextPlannedEvaluationStale = useMemo(
         () =>
             isNextPlannedEvaluationStale(
@@ -319,6 +330,10 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
 
     const thresholdValidationError =
         typeof alertFormValidationErrors.threshold === 'string' ? alertFormValidationErrors.threshold : undefined
+    const forecastValidationError =
+        typeof alertFormValidationErrors.forecast_config === 'string'
+            ? alertFormValidationErrors.forecast_config
+            : undefined
 
     const definitionNode = (
         <AlertDefinitionSection
@@ -339,14 +354,25 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 labelColumnOptions: hogqlLabelColumnOptions,
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
+            supportsForecast={
+                forecastAlertsEnabled &&
+                !isNonTimeSeriesDisplay &&
+                !isBreakdownValid &&
+                intervalSupportsForecast(trendInterval) &&
+                supportsForecast(alertForm.config)
+            }
+            insightInterval={trendInterval}
+            projectTimezone={projectTimezone}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             twoColumnLayout
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}
+            forecastSimulationResultLoading={forecastSimulationResultLoading}
             simulationDateFrom={simulationDateFrom}
             onSetAlertFormValue={setAlertFormValue}
             thresholdRowRenderer={(props) => <ThresholdConditionRow {...props} />}
             onSimulateAlert={simulateAlert}
+            onSimulateForecast={simulateForecast}
             onSetSimulationDateFrom={setSimulationDateFrom}
             onClearSimulation={clearSimulation}
             onClearSimulationOverlay={clearSimulationOverlay}
@@ -415,6 +441,17 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
             checkPreview={checkPreview}
+            forecast={
+                alertMode === 'forecast' && forecastSimulationResult
+                    ? {
+                          result: forecastSimulationResult,
+                          thresholdBounds:
+                              alertForm.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
+                                  ? (alertForm.threshold?.configuration?.bounds ?? null)
+                                  : null,
+                      }
+                    : undefined
+            }
             loading={!useAlertCheckPreview && (insightLoading || insightDataLoading)}
         />
     )
@@ -453,6 +490,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                                 advancedNode,
                                 summary,
                                 thresholdValidationError,
+                                forecastValidationError,
                                 scheduleRestrictionFormError,
                                 alertFormHasErrors,
                                 alertName: alertForm.name,

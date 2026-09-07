@@ -1,10 +1,14 @@
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { z } from 'zod'
 
-import { AlertConditionType } from '~/queries/schema/schema-general'
+import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
+
+import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
+import { forecastTargetDateError, forecastTargetValueError } from './forecastReach'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
@@ -17,6 +21,9 @@ function isFiniteThresholdBound(value: number | null | undefined): value is numb
 
 export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boolean {
     if (alert.detector_config) {
+        return true
+    }
+    if (alert.forecast_config && alert.forecast_config.condition !== ForecastConditionType.FUTURE_BREACH) {
         return true
     }
     const bounds = alert.threshold?.configuration?.bounds
@@ -72,8 +79,11 @@ const alertFormSchema = z
         }
 
         const bounds = alert.threshold?.configuration?.bounds
+        const forecast = (alert as AlertFormType).forecast_config
+        const usesThresholdBounds = !forecast || forecast.condition === ForecastConditionType.FUTURE_BREACH
         if (
             !alert.detector_config &&
+            usesThresholdBounds &&
             isFiniteThresholdBound(bounds?.lower) &&
             isFiniteThresholdBound(bounds?.upper) &&
             bounds.lower > bounds.upper
@@ -83,6 +93,13 @@ const alertFormSchema = z
                 path: ['threshold'],
                 message: 'The “Less than” value must be lower than the “More than” value',
             })
+        }
+
+        if (forecast?.condition === ForecastConditionType.TARGET_BY_DATE) {
+            const targetError = forecastTargetValueError(forecast.target)
+            if (targetError) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['forecast_config'], message: targetError })
+            }
         }
 
         const hasNegativeRelativeBound =
@@ -97,13 +114,35 @@ const alertFormSchema = z
         }
     })
 
-export function getAlertFormValidationErrors(alert: AlertFormType): DeepPartialMap<AlertFormType, ValidationErrorType> {
-    const result = alertFormSchema.safeParse(alert)
-    if (result.success) {
-        return {}
+export interface AlertValidationContext {
+    savedTargetDate?: string
+    insightInterval?: IntervalType | null
+    projectTimezone?: string
+}
+
+export function getAlertFormValidationErrors(
+    alert: AlertFormType,
+    context: AlertValidationContext = {}
+): DeepPartialMap<AlertFormType, ValidationErrorType> {
+    const errors: Record<string, ValidationErrorType> = {}
+
+    const forecast = alert.forecast_config
+    if (
+        forecast?.condition === ForecastConditionType.TARGET_BY_DATE &&
+        forecast.target_date !== context.savedTargetDate
+    ) {
+        const today = context.projectTimezone ? dayjsNowInTimezone(context.projectTimezone) : dayjs()
+        const dateError = forecastTargetDateError(forecast.target_date, today, context.insightInterval)
+        if (dateError) {
+            errors.forecast_config = dateError
+        }
     }
 
-    const errors: Record<string, ValidationErrorType> = {}
+    const result = alertFormSchema.safeParse(alert)
+    if (result.success) {
+        return errors as DeepPartialMap<AlertFormType, ValidationErrorType>
+    }
+
     for (const issue of result.error.issues) {
         const field = issue.path[0]
         if (typeof field === 'string' && errors[field] === undefined) {

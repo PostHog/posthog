@@ -60,6 +60,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
     'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
     'draftScannerFromGoal', // replayScannerLogic's failure listener toasts and routes back to the goal questions
+    'simulateForecast', // alertFormLogic toasts the reason itself, including non-API failures
 ]
 
 /*

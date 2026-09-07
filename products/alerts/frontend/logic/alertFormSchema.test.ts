@@ -1,4 +1,13 @@
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { dayjs } from 'lib/dayjs'
+
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    ForecastConditionType,
+    ForecastTargetDirection,
+    ForecastEngineType,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { AlertFormType } from './alertFormLogic'
@@ -118,5 +127,122 @@ describe('alertFormSchema', () => {
                 },
             })
         ).toEqual({})
+    })
+
+    it('does not require threshold bounds for a target-by-date forecast', () => {
+        expect(
+            thresholdAlertHasBounds({
+                ...baseAlert,
+                forecast_config: {
+                    type: 'ForecastConfig',
+                    engine: ForecastEngineType.PROPHET,
+                    condition: ForecastConditionType.TARGET_BY_DATE,
+                    target: 100,
+                    target_direction: ForecastTargetDirection.AT_LEAST,
+                    target_date: '2026-12-31',
+                },
+                threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
+            })
+        ).toBe(true)
+    })
+
+    it('ignores stale hidden threshold bounds for a target-by-date forecast', () => {
+        const errors = getAlertFormValidationErrors({
+            ...baseAlert,
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.TARGET_BY_DATE,
+                target: 100,
+                target_direction: ForecastTargetDirection.AT_LEAST,
+                target_date: dayjs().add(30, 'day').format('YYYY-MM-DD'),
+            },
+            threshold: {
+                configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 10, upper: 5 } },
+            },
+        })
+
+        expect(errors).toEqual({})
+    })
+
+    it('requires threshold bounds for a future-breach forecast', () => {
+        expect(
+            thresholdAlertHasBounds({
+                ...baseAlert,
+                forecast_config: {
+                    type: 'ForecastConfig',
+                    engine: ForecastEngineType.PROPHET,
+                    condition: ForecastConditionType.FUTURE_BREACH,
+                },
+                threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
+            })
+        ).toBe(false)
+    })
+})
+
+describe('a target alert whose date has passed', () => {
+    const savedForecastConfig = {
+        type: 'ForecastConfig' as const,
+        engine: ForecastEngineType.PROPHET,
+        condition: ForecastConditionType.TARGET_BY_DATE,
+        target: 100,
+        target_direction: ForecastTargetDirection.AT_LEAST,
+        target_date: '2020-01-01',
+    }
+    const finishedAlert: AlertFormType = { ...baseAlert, forecast_config: savedForecastConfig }
+
+    const savedTargetDate = savedForecastConfig.target_date
+
+    it.each([
+        ['nothing about the forecast changed', {}],
+        ['only the target changed', { target: 250 }],
+        ['only the direction changed', { target_direction: ForecastTargetDirection.AT_MOST }],
+    ] as const)('saves when %s, so it can still be renamed or turned off', (_n, patch) => {
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, name: 'Renamed', forecast_config: { ...savedForecastConfig, ...patch } },
+            { savedTargetDate }
+        )
+        expect(errors).toEqual({})
+    })
+
+    it('blocks when the edit moves the date into the past, which the server also rejects', () => {
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, forecast_config: { ...savedForecastConfig, target_date: '2021-01-01' } },
+            { savedTargetDate }
+        )
+        expect(errors.forecast_config).toBe('The target date must be in the future.')
+    })
+})
+
+describe('a target alert with no target', () => {
+    it('blocks the save and names the field, rather than failing at the server', () => {
+        const errors = getAlertFormValidationErrors({
+            ...baseAlert,
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.TARGET_BY_DATE,
+                target: Number.NaN,
+                target_direction: ForecastTargetDirection.AT_MOST,
+                target_date: dayjs().add(30, 'day').format('YYYY-MM-DD'),
+            },
+        })
+        expect(errors.forecast_config).toBe('Enter a target value')
+    })
+
+    it('blocks the save when the target date is cleared', () => {
+        const errors = getAlertFormValidationErrors({
+            ...baseAlert,
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.TARGET_BY_DATE,
+                target: 100,
+                target_direction: ForecastTargetDirection.AT_MOST,
+                target_date: '',
+            },
+        })
+
+        expect(errors.forecast_config).toBe('Choose a target date')
     })
 })

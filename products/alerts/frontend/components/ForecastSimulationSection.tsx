@@ -1,0 +1,92 @@
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+
+import { dayjsNowInTimezone } from 'lib/dayjs'
+
+import { ForecastConditionType } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
+
+import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
+import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import {
+    forecastTargetDateError,
+    forecastTargetValueError,
+    usableSimulationRanges,
+} from 'products/alerts/frontend/logic/forecastReach'
+
+import { getSimulationRangeOptions } from './editAlertModalUtils'
+
+interface ForecastSimulationSectionProps {
+    alertForm: AlertFormType
+    insightInterval: IntervalType | null | undefined
+    projectTimezone: string
+    forecastSimulationResultLoading: boolean
+    simulationDateFrom: string | null
+    onSimulateForecast: () => void
+    onSetSimulationDateFrom: (value: string) => void
+}
+
+export function ForecastSimulationSection({
+    alertForm,
+    insightInterval,
+    projectTimezone,
+    forecastSimulationResultLoading,
+    simulationDateFrom,
+    onSimulateForecast,
+    onSetSimulationDateFrom,
+}: ForecastSimulationSectionProps): JSX.Element {
+    const forecastConfig = alertForm.forecast_config
+    const targetDateError =
+        forecastConfig?.condition === ForecastConditionType.TARGET_BY_DATE
+            ? forecastTargetDateError(forecastConfig.target_date, dayjsNowInTimezone(projectTimezone), insightInterval)
+            : null
+    const targetValueError =
+        forecastConfig?.condition === ForecastConditionType.TARGET_BY_DATE
+            ? forecastTargetValueError(forecastConfig.target)
+            : null
+    const thresholdBounds = alertForm.threshold?.configuration?.bounds
+    const thresholdError =
+        forecastConfig?.condition === ForecastConditionType.FUTURE_BREACH &&
+        thresholdBounds?.lower == null &&
+        thresholdBounds?.upper == null
+            ? 'Set a less-than or more-than threshold first'
+            : null
+    const disabledReason = targetValueError ?? targetDateError ?? thresholdError ?? undefined
+    const rangeOptions = usableSimulationRanges(
+        getSimulationRangeOptions(alertForm.calculation_interval),
+        insightInterval
+    )
+    const selectedRange = simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)
+    const range = rangeOptions.some((o) => o.value === selectedRange) ? selectedRange : rangeOptions[0].value
+    return (
+        <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex items-center gap-1.5">
+                <h4 className="m-0">Forecast preview</h4>
+                <Tooltip
+                    title="Runs the configured forecast over the selected history. It does not change what the alert evaluates."
+                    delayMs={0}
+                >
+                    <IconInfo className="text-muted size-3.5" />
+                </Tooltip>
+            </div>
+            <LemonSelect
+                size="small"
+                data-attr="alertForm-simulate-forecast-range"
+                value={range}
+                onChange={onSetSimulationDateFrom}
+                options={rangeOptions}
+            />
+            <LemonButton
+                type="secondary"
+                size="small"
+                data-attr="alertForm-simulate-forecast"
+                onClick={onSimulateForecast}
+                loading={forecastSimulationResultLoading}
+                disabledReason={disabledReason}
+                tooltip="Run the forecast on historical data to preview the point forecast and its uncertainty range"
+            >
+                Preview forecast
+            </LemonButton>
+        </div>
+    )
+}
