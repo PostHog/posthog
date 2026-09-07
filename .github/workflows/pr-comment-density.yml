@@ -55,7 +55,7 @@ jobs:
               if: steps.diff.outputs.available == 'true'
               env:
                   GITHUB_TOKEN: ${{ github.token }}
-                  WARN: ${{ steps.measure.outputs.warn }}
+                  STATUS: ${{ steps.measure.outputs.status }}
                   SUMMARY: ${{ steps.measure.outputs.summary }}
                   BODY: ${{ steps.measure.outputs.body }}
               run: node .github/scripts/post-comment-density-section.mjs

@@ -4,9 +4,9 @@
 Measure the share of added code lines in a pull request diff that are comments.
 
 Reads a unified diff on stdin, counts the added non-blank lines in code files, and
-counts how many of those are full-line comments. Writes `warn`, a one-line
-`summary`, and a Markdown `body` for the shared CI report to `$GITHUB_OUTPUT`
-(or to stdout when that variable is unset).
+counts how many of those are full-line comments. Writes a `status` (ok, warn, or
+alert), a one-line `summary`, and a Markdown `body` for the shared CI report to
+`$GITHUB_OUTPUT` (or to stdout when that variable is unset).
 
 Usage:
     gh api repos/OWNER/REPO/pulls/N -H "Accept: application/vnd.github.diff" \\
@@ -21,7 +21,9 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 
-WARN_RATIO = 0.25
+# Before agent-assisted PRs were common, the median PR had about 2% comment lines.
+WARN_RATIO = 0.03
+ALERT_RATIO = 0.06
 MIN_ADDED_LINES = 50
 TOP_FILES = 8
 
@@ -57,8 +59,10 @@ class Report:
         return self.comments / self.added if self.added else 0.0
 
     @property
-    def warn(self) -> bool:
-        return self.added >= MIN_ADDED_LINES and self.ratio > WARN_RATIO
+    def status(self) -> str:
+        if self.added < MIN_ADDED_LINES or self.ratio <= WARN_RATIO:
+            return "ok"
+        return "alert" if self.ratio > ALERT_RATIO else "warn"
 
 
 def _extension(path: str) -> str:
@@ -119,7 +123,8 @@ def render_body(report: Report) -> str:
     top = sorted(report.files.values(), key=lambda s: (-s.comments, s.path))[:TOP_FILES]
     top = [s for s in top if s.comments]
     lines = [
-        f"This section appears when comments are more than {round(100 * WARN_RATIO)}% of the code lines a PR adds. "
+        f"This section warns when comments are more than {round(100 * WARN_RATIO)}% of the code lines a PR adds, "
+        f"and alerts above {round(100 * ALERT_RATIO)}%. Before agent-assisted PRs, the typical share was about 2%. "
         "Only full-line comments count. Docstrings, generated files, snapshots, migrations, and workflow files are left out.",
         "",
         "Comments that restate the code, record how the change came about, or narrate the next line "
@@ -145,15 +150,15 @@ def write_outputs(report: Report) -> None:
     body = render_body(report)
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
-        print(f"warn={report.warn} {summary}")
+        print(f"status={report.status} {summary}")
         print(body)
         return
     delimiter = f"EOF-{uuid.uuid4()}"
     with open(output_path, "a") as fh:
-        fh.write(f"warn={'true' if report.warn else 'false'}\n")
+        fh.write(f"status={report.status}\n")
         fh.write(f"summary={summary}\n")
         fh.write(f"body<<{delimiter}\n{body}\n{delimiter}\n")
-    print(f"warn={report.warn} {summary}")
+    print(f"status={report.status} {summary}")
 
 
 def main() -> int:

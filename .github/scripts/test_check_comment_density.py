@@ -78,19 +78,21 @@ def test_analyze_counts_added_code_lines_and_full_line_comments(
 
 
 @pytest.mark.parametrize(
-    "code_lines,comment_lines,expected_warn",
+    "code_lines,comment_lines,expected_status",
     [
-        pytest.param(10, 30, False, id="below-min-added-lines-never-warns"),
-        pytest.param(40, 10, False, id="at-threshold-does-not-warn"),
-        pytest.param(35, 15, True, id="above-threshold-warns"),
+        pytest.param(10, 30, "ok", id="below-min-added-lines-is-always-ok"),
+        pytest.param(97, 3, "ok", id="at-warn-threshold-is-ok"),
+        pytest.param(96, 4, "warn", id="above-warn-threshold-warns"),
+        pytest.param(94, 6, "warn", id="at-alert-threshold-warns"),
+        pytest.param(93, 7, "alert", id="above-alert-threshold-alerts"),
     ],
 )
-def test_warn_requires_min_size_and_ratio_above_threshold(
-    code_lines: int, comment_lines: int, expected_warn: bool
+def test_status_requires_min_size_and_steps_up_with_ratio(
+    code_lines: int, comment_lines: int, expected_status: str
 ) -> None:
     body = "".join("+x = 1\n" for _ in range(code_lines)) + "".join("+# c\n" for _ in range(comment_lines))
     report = check_comment_density.analyze(diff_for("posthog/a.py", body))
-    assert report.warn is expected_warn
+    assert report.status == expected_status
 
 
 def test_render_body_lists_comment_heavy_files_first() -> None:
