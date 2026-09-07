@@ -513,7 +513,11 @@ def _deliver_investigation_outcome(
         if insight_chart_url:
             extra_properties["insight_chart_url"] = insight_chart_url
         try:
-            deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties or None)
+            # render_chart=False: the chart was already rendered above, before this
+            # transaction took its row lock.
+            deliveries = dispatch_alert_notification(
+                alert, check, breaches, extra_properties=extra_properties or None, render_chart=False
+            )
             record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
@@ -581,6 +585,9 @@ def _dispatch_verdict_change_followup(
                 breaches,
                 extra_properties=extra_properties,
                 idempotency_key=f"{check.id}:investigation-verdict-change",
+                # The caller holds a row lock, and this check was already notified, so
+                # prepare_alert_insight_chart_url would return None anyway.
+                render_chart=False,
             )
     except Exception:
         # Best-effort, like the signal emit: the verdict is persisted and the user already

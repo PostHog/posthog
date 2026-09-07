@@ -212,6 +212,26 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         assert notified == 0
         mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
 
+    @patch("posthog.tasks.alerts.investigation_notifications.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_chart_is_rendered_outside_the_row_lock(self, mock_dispatch: object, mock_prepare: object) -> None:
+        # The render blocks for up to RENDER_TIMEOUT. Doing it under the select_for_update
+        # below would stall the workflow's own dispatcher for the same check.
+        mock_prepare.return_value = "https://export/chart.png?token=abc"  # type: ignore[attr-defined]
+        mock_dispatch.return_value = [  # type: ignore[attr-defined]
+            AlertDelivery(channel="email", target="alerts@example.com", at="2026-08-11T00:00:00+00:00")
+        ]
+        self._make_check(
+            age_minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES + 60,
+            investigation_status=InvestigationStatus.DONE,
+        )
+
+        run_investigation_notification_safety_net()
+
+        kwargs = mock_dispatch.call_args.kwargs  # type: ignore[attr-defined]
+        assert kwargs["render_chart"] is False
+        assert kwargs["extra_properties"] == {"insight_chart_url": "https://export/chart.png?token=abc"}
+
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
     def test_skips_non_agent_alert(self, mock_dispatch: object) -> None:
         self.alert.investigation_agent_enabled = False

@@ -319,6 +319,15 @@ class TestDispatchAlertInsightChart(APIBaseTest):
 
     @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
     @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_render_chart_false_skips_render_under_a_lock(self, _mock_send: MagicMock, mock_prepare: MagicMock) -> None:
+        # Callers holding a row lock pre-render instead; rendering here would block the
+        # lock for up to RENDER_TIMEOUT.
+        dispatch_alert_notification(self.alert, self.alert_check, ["breach"], render_chart=False)
+
+        mock_prepare.assert_not_called()
+
+    @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
     def test_supplied_chart_url_is_not_re_rendered(self, mock_send: MagicMock, mock_prepare: MagicMock) -> None:
         dispatch_alert_notification(
             self.alert,

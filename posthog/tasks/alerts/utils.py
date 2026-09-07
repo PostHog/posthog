@@ -431,6 +431,7 @@ def dispatch_alert_notification(
     breaches: list[str] | None,
     extra_properties: dict[str, str] | None = None,
     idempotency_key: str | None = None,
+    render_chart: bool = True,
 ) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -442,6 +443,13 @@ def dispatch_alert_notification(
     `idempotency_key` defaults to the check id, which gives at-most-once email delivery per
     check. A caller that deliberately sends a second message about the same check must pass
     its own key, or MessagingRecord drops that email as a duplicate of the first.
+
+    `render_chart` controls the Slack chart render for a FIRING check. Pass False from a
+    caller that holds an open transaction or a row lock: the render blocks for up to
+    exports.RENDER_TIMEOUT, and waiting that long under a lock stalls every other
+    dispatcher of the same check. Such a caller renders with
+    prepare_alert_insight_chart_url before it opens the transaction, then passes the URL
+    through `extra_properties`.
 
     Raises:
         ValueError: state is FIRING but breaches is None/empty.
@@ -490,10 +498,13 @@ def dispatch_alert_notification(
                 # Attach the chart for any firing alert whose caller did not already supply
                 # one, so ordinary threshold and anomaly alerts get the chart too, not just
                 # the anomaly investigation path (which renders it early and passes it in).
-                # Real-time alerts skip it to keep their per-check budget, because the render
-                # blocks on a synchronous export that takes a few seconds.
+                # Real-time alerts never render here: the render is capped at
+                # exports.RENDER_TIMEOUT (90s), which outlasts the 60s notify_start_to_close
+                # of _REAL_TIME_TIMEOUTS, so a slow render would time out the whole notify
+                # activity and lose the notification it was supposed to carry.
                 if (
-                    "insight_chart_url" not in properties
+                    render_chart
+                    and "insight_chart_url" not in properties
                     and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
                 ):
                     chart_url = prepare_alert_insight_chart_url(alert=alert, alert_check=alert_check)
