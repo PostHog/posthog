@@ -10,7 +10,6 @@ import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/
 import { subscriptionDestination } from './subscriptionDestination'
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
-import { SubscriptionQueryPlanStatus } from './SubscriptionQueryPlanStatus'
 import { subscriptionResourceLabel, subscriptionResourceViewUrl } from './SubscriptionsTable'
 
 export function SubscriptionSummary({ sub }: { sub: SubscriptionApi }): JSX.Element {
@@ -81,7 +80,6 @@ export function SubscriptionSummary({ sub }: { sub: SubscriptionApi }): JSX.Elem
                         <TZLabel time={sub.created_at} />
                     </dd>
                 </div>
-                <SubscriptionQueryPlanStatus status={sub.ai_query_plan_status} />
             </dl>
         </div>
     )

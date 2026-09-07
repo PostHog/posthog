@@ -27,42 +27,37 @@ export function SubscriptionQueryPlanStatus({
     switch (status) {
         case AIQueryPlanStatusEnumApi.Frozen:
             copy =
-                'Frozen query plan. PostHog will reuse these query definitions for each delivery. Date ranges, results, and the written report will still update. PostHog generates a new plan when you edit the prompt or when the query planner is updated.'
+                "This delivery's query plan was frozen for reuse. PostHog will reuse it for future deliveries until the prompt or query planner changes. Date ranges, results, and the written report still update."
             icon = <IconPinFilled aria-hidden="true" />
             break
         case AIQueryPlanStatusEnumApi.NotFrozen:
             copy =
-                'Query plan not frozen. No reusable plan is available yet. PostHog will freeze the plan when it can be safely reused.'
+                "This delivery's query plan was not frozen for reuse. PostHog will generate a new plan for the next delivery."
             icon = <IconPin aria-hidden="true" />
             break
         case AIQueryPlanStatusEnumApi.PlannerUpdated:
             copy =
-                'Query plan will be regenerated. The query planner changed. The next successful delivery will freeze a new plan.'
+                'The query planner changed, so this delivery generated a new plan. The new plan was frozen for future deliveries.'
             icon = <IconRefresh aria-hidden="true" />
             break
     }
 
     return (
-        <div>
-            <dt className="text-sm text-secondary">Query plan</dt>
-            <dd className="font-medium">
-                <Tooltip title={copy} delayMs={0}>
-                    <span
-                        role="img"
-                        aria-label={copy}
-                        tabIndex={0}
-                        className={`inline-flex cursor-help rounded-sm text-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
-                            status === AIQueryPlanStatusEnumApi.NotFrozen
-                                ? 'text-secondary'
-                                : status === AIQueryPlanStatusEnumApi.PlannerUpdated
-                                  ? 'text-warning'
-                                  : ''
-                        }`}
-                    >
-                        {icon}
-                    </span>
-                </Tooltip>
-            </dd>
-        </div>
+        <Tooltip title={copy} delayMs={0}>
+            <span
+                role="img"
+                aria-label={copy}
+                tabIndex={0}
+                className={`inline-flex cursor-help rounded-sm text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
+                    status === AIQueryPlanStatusEnumApi.NotFrozen
+                        ? 'text-secondary'
+                        : status === AIQueryPlanStatusEnumApi.PlannerUpdated
+                          ? 'text-warning'
+                          : ''
+                }`}
+            >
+                {icon}
+            </span>
+        </Tooltip>
     )
 }

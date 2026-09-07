@@ -8,11 +8,11 @@ import { SubscriptionQueryPlanStatus } from './SubscriptionQueryPlanStatus'
 
 const EXPECTED_COPY = {
     [AIQueryPlanStatusEnumApi.Frozen]:
-        'Frozen query plan. PostHog will reuse these query definitions for each delivery. Date ranges, results, and the written report will still update. PostHog generates a new plan when you edit the prompt or when the query planner is updated.',
+        "This delivery's query plan was frozen for reuse. PostHog will reuse it for future deliveries until the prompt or query planner changes. Date ranges, results, and the written report still update.",
     [AIQueryPlanStatusEnumApi.NotFrozen]:
-        'Query plan not frozen. No reusable plan is available yet. PostHog will freeze the plan when it can be safely reused.',
+        "This delivery's query plan was not frozen for reuse. PostHog will generate a new plan for the next delivery.",
     [AIQueryPlanStatusEnumApi.PlannerUpdated]:
-        'Query plan will be regenerated. The query planner changed. The next successful delivery will freeze a new plan.',
+        'The query planner changed, so this delivery generated a new plan. The new plan was frozen for future deliveries.',
 } as const
 
 describe('SubscriptionQueryPlanStatus', () => {

@@ -586,6 +586,8 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly ai_report_prompt: string | null
+    /** Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. Null for older deliveries and non-AI deliveries. */
+    readonly ai_query_plan_status: AIQueryPlanStatusEnumApi | null
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {

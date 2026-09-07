@@ -27,11 +27,11 @@ describe('SubscriptionSummary', () => {
         cleanup()
     })
 
-    it('shows the current query plan state for an AI prompt subscription', () => {
+    it('does not show current query plan state because the state belongs to each delivery', () => {
         render(<SubscriptionSummary sub={AI_SUBSCRIPTION} />)
 
-        expect(screen.getByText('Query plan')).toBeInTheDocument()
-        expect(screen.getByRole('img', { name: /^Frozen query plan\./ })).toBeInTheDocument()
+        expect(screen.queryByText('Query plan')).not.toBeInTheDocument()
+        expect(screen.queryByRole('img', { name: /query plan/i })).not.toBeInTheDocument()
     })
 
     it('does not show a query plan state for a non-AI subscription', () => {
@@ -39,14 +39,5 @@ describe('SubscriptionSummary', () => {
 
         expect(screen.queryByText('Query plan')).not.toBeInTheDocument()
         expect(screen.queryByRole('img', { name: /query plan/i })).not.toBeInTheDocument()
-    })
-
-    it.each([
-        ['unavailable', null],
-        ['unknown', 'future_status' as AIQueryPlanStatusEnumApi],
-    ])('does not show an empty query plan item when the status is %s', (_name, aiQueryPlanStatus) => {
-        render(<SubscriptionSummary sub={{ ...AI_SUBSCRIPTION, ai_query_plan_status: aiQueryPlanStatus }} />)
-
-        expect(screen.queryByText('Query plan')).not.toBeInTheDocument()
     })
 })
