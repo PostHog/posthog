@@ -284,7 +284,12 @@ export class TaskService {
     if (runtime === "pi") {
       try {
         const cwd = await this.host.ensureScratchDir(taskId);
-        await this.piRunner.resume({ taskContext: { taskId, cwd } });
+        // A scratch dir holds no repository, so channel mode supplies the tools
+        // that find and clone one. A resume with no local session file has
+        // nothing on disk to restore the flag from.
+        await this.piRunner.resume({
+          taskContext: { taskId, cwd, channelMode: true },
+        });
         return {
           success: true,
           data: { task, workspace: null },

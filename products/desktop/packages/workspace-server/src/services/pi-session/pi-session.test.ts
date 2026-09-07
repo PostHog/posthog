@@ -278,6 +278,55 @@ describe("PiSessionService start", () => {
   });
 });
 
+describe("PiSessionService resume", () => {
+  it("starts a new session when the device holds no session file", async () => {
+    const client = {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      getState: vi.fn().mockResolvedValue({
+        isStreaming: false,
+        sessionFile: "/tmp/fresh.jsonl",
+        sessionId: "session-1",
+      }),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      onMcpToolPermissionRequest: vi.fn(),
+    } as unknown as PiRpcClient;
+    const runtimeFactory = {
+      create: vi.fn(async () => ({
+        client,
+        process: undefined,
+        onRuntimeEvent: vi.fn(),
+        onConversationEvent: vi.fn(),
+      })),
+    } as unknown as PiRuntimeFactory;
+    const taskMetadataRepository = {
+      findByTaskId: vi.fn(() => null),
+      upsert: vi.fn(),
+    } as unknown as ITaskMetadataRepository;
+    const service = new PiSessionService(
+      runtimeFactory,
+      taskMetadataRepository,
+      {
+        register: vi.fn(),
+        unregister: vi.fn(),
+      } as unknown as ProcessTrackingService,
+      { approveMcpTool: vi.fn() },
+      rootLogger,
+    );
+
+    await service.resume({ taskContext: { taskId: "task-1", cwd: "/tmp" } });
+
+    expect(runtimeFactory.create).toHaveBeenCalledWith({
+      taskContext: { taskId: "task-1", cwd: "/tmp" },
+      sessionFile: undefined,
+    });
+    expect(client.prompt).not.toHaveBeenCalled();
+    expect(taskMetadataRepository.upsert).toHaveBeenCalledWith("task-1", {
+      piSessionFile: "/tmp/fresh.jsonl",
+    });
+  });
+});
+
 describe("PiSessionService extension UI", () => {
   it("streams current-session extension events and forwards responses", async () => {
     const extensionHandlers: Array<(event: PiExtensionEvent) => void> = [];

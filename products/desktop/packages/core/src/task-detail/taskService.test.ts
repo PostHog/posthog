@@ -64,15 +64,26 @@ function makeService(): TaskService {
 }
 
 describe("TaskService.openTask", () => {
-  it("passes the main repository path when resuming Pi in a worktree", async () => {
+  it.each([
+    {
+      case: "passes the main repository path when resuming Pi in a worktree",
+      workspace: { folderPath: "/repo", worktreePath: "/worktrees/task-1" },
+      taskContext: { taskId: "task-1", cwd: "/worktrees/task-1" },
+    },
+    {
+      case: "resumes in channel mode when the device holds no workspace",
+      workspace: null,
+      taskContext: {
+        taskId: "task-1",
+        cwd: "/scratch/task-1",
+        channelMode: true,
+      },
+    },
+  ])("$case", async ({ workspace, taskContext }) => {
     const task = {
       id: "task-1",
       runtime: "pi",
       latest_run: { id: "run-1", environment: "local", status: "running" },
-    };
-    const workspace = {
-      folderPath: "/repo",
-      worktreePath: "/worktrees/task-1",
     };
     const piRunner = {
       create: vi.fn(),
@@ -85,6 +96,7 @@ describe("TaskService.openTask", () => {
           getTask: vi.fn(async () => task),
         })),
         getWorkspace: vi.fn(async () => workspace),
+        ensureScratchDir: vi.fn(async () => "/scratch/task-1"),
       } as unknown as ITaskCreationHost,
       {} as SessionService,
       {} as TaskCreationEffects,
@@ -96,9 +108,7 @@ describe("TaskService.openTask", () => {
     await expect(service.openTask("task-1")).resolves.toMatchObject({
       success: true,
     });
-    expect(piRunner.resume).toHaveBeenCalledWith({
-      taskContext: { taskId: "task-1", cwd: "/worktrees/task-1" },
-    });
+    expect(piRunner.resume).toHaveBeenCalledWith({ taskContext });
   });
 
   it("opens a completed cloud Pi run without resuming it", async () => {
