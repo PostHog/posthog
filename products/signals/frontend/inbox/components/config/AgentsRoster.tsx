@@ -3,6 +3,7 @@ import { memo, useCallback, useMemo, useState } from 'react'
 
 import { IconArrowUpRight, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSkeleton,
@@ -614,6 +615,7 @@ export function AgentsRoster(): JSX.Element {
         isCiSignalsToggling,
         toolStatusBySource,
         enablingTool,
+        sourceConfigsLoadFailed,
     } = useValues(signalSourcesLogic)
     const {
         toggleConversations,
@@ -627,6 +629,7 @@ export function AgentsRoster(): JSX.Element {
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
         loadToolDataEvents,
+        loadSourceConfigs,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
@@ -843,6 +846,17 @@ export function AgentsRoster(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
+            {/* Without the configs every warehouse source reads as never connected, so the roster
+                has to say the rows are unreliable rather than let a person act on them. */}
+            {sourceConfigsLoadFailed && (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadSourceConfigs, 'data-attr': 'retry-source-configs' }}
+                >
+                    Couldn't load which sources are on. The rows below may be wrong until this loads.
+                </LemonBanner>
+            )}
+
             {!redesign && (
                 <div className="flex items-center gap-1.5 text-xs text-muted">
                     <span className={`size-2 rounded-full ${armedCount ? 'bg-success' : 'bg-border-bold'}`} />

@@ -1,4 +1,7 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import OperationalError
 
 from parameterized import parameterized
 
@@ -60,3 +63,32 @@ class TestSignalSourceConfigStatus(BaseTest):
         ExternalDataSchema.objects.create(team=self.team, source=source, name="posthog/posthog.issues", status=RUNNING)
 
         assert self._status() is None
+
+    def test_reports_no_status_when_the_warehouse_read_fails(self) -> None:
+        self._github_source_with_schemas(("posthog/posthog.issues", RUNNING))
+
+        with patch.object(ExternalDataSchema.objects, "filter", side_effect=OperationalError("query_wait_timeout")):
+            assert self._status() is None
+
+    def test_reads_every_source_status_in_one_query(self) -> None:
+        self._github_source_with_schemas(("posthog/posthog.issues", RUNNING))
+        for source_product, source_type in (
+            (SignalSourceProduct.GITHUB, SignalSourceType.ISSUE),
+            (SignalSourceProduct.LINEAR, SignalSourceType.ISSUE),
+            (SignalSourceProduct.ZENDESK, SignalSourceType.TICKET),
+            (SignalSourceProduct.PGANALYZE, SignalSourceType.ISSUE),
+        ):
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product=source_product, source_type=source_type, enabled=True
+            )
+        configs = list(SignalSourceConfig.objects.filter(team=self.team))
+
+        with self.assertNumQueries(1):
+            rows = SignalSourceConfigSerializer(configs, many=True).data
+
+        assert {row["source_product"]: row["status"] for row in rows} == {
+            SignalSourceProduct.GITHUB: "running",
+            SignalSourceProduct.LINEAR: None,
+            SignalSourceProduct.ZENDESK: None,
+            SignalSourceProduct.PGANALYZE: None,
+        }

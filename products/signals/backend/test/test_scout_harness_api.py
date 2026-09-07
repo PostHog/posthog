@@ -2667,6 +2667,23 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.output_destinations == destination
 
+    def test_list_reads_past_a_destination_it_cannot_parse(self) -> None:
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        slack = {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings"}
+        SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            output_destinations={"slack": slack, "webhook": {"url": "https://example.com/hook"}},
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["output_destinations"] == {
+            "slack": {**slack, "users": None, "thread_reports": False},
+            "webhook": None,
+        }
+
     @parameterized.expand(
         [
             ("missing_integration_scope", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, "integration:read"),

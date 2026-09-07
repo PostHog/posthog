@@ -3,18 +3,20 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import cast
 
-from django.db.models import Q, TextChoices
+from django.db.models import TextChoices
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
@@ -91,25 +93,21 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at", "status"]
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._schema_statuses_by_team: dict[int, dict[tuple[str, str], set[str]]] = {}
+
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if mapping is None:
             return None
-        ext_source_type, schema_name = mapping
-        return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
-
-    def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-
-        statuses = set(
-            ExternalDataSchema.objects.filter(
-                Q(name=schema_name) | Q(name__endswith=f".{schema_name}"),
-                team_id=team_id,
-                source__source_type=ext_source_type,
-            )
-            .exclude(source__deleted=True)
-            .values_list("status", flat=True)
-        )
+        try:
+            statuses = self._schema_statuses(obj.team_id).get(mapping, set())
+        except Exception as exc:
+            # The inbox reads this list on load. A warehouse read that fails costs the row its
+            # sync badge, never the whole list, so the sources stay configurable.
+            capture_exception(exc)
+            return None
         if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
@@ -122,6 +120,36 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
+
+    def _schema_statuses(self, team_id: int) -> dict[tuple[str, str], set[str]]:
+        """Warehouse schema statuses for every data-import source on a team, in one query.
+
+        DRF reuses one child serializer for a whole list, so the first row that needs a status
+        pays for all of them. Each source used to run its own cross-product lookup, which made
+        the list cost a query per row.
+        """
+        cached = self._schema_statuses_by_team.get(team_id)
+        if cached is not None:
+            return cached
+        rows = (
+            ExternalDataSchema.objects.filter(
+                team_id=team_id,
+                source__source_type__in={source_type for source_type, _ in _DATA_IMPORT_SOURCE_MAP.values()},
+            )
+            .exclude(source__deleted=True)
+            .values_list("source__source_type", "name", "status")
+        )
+        statuses: dict[tuple[str, str], set[str]] = {}
+        for row_source_type, row_name, schema_status in rows:
+            name = row_name or ""
+            for key in _DATA_IMPORT_SOURCE_MAP.values():
+                source_type, schema_name = key
+                # A repo-qualified row reads as `<owner>/<repo>.<endpoint>`, a legacy row as the
+                # bare endpoint name.
+                if row_source_type == source_type and (name == schema_name or name.endswith(f".{schema_name}")):
+                    statuses.setdefault(key, set()).add(schema_status)
+        self._schema_statuses_by_team[team_id] = statuses
+        return statuses
 
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))

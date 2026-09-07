@@ -27,6 +27,7 @@ from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
@@ -2264,6 +2265,22 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             "reference lives here so the owning product can manage the destination's lifecycle."
         ),
     )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        """Read the stored blob, reporting a destination this shape cannot read as absent.
+
+        Each destination is written by whichever product provisioned it, so a stored entry can
+        stop matching these fields. That must cost the entry alone, not the list it is read in.
+        """
+        data: dict[str, Any] = {}
+        for name, field in self.fields.items():
+            try:
+                value = field.get_attribute(instance)
+                data[name] = None if value is None else field.to_representation(value)
+            except Exception as exc:
+                capture_exception(exc)
+                data[name] = None
+        return data
 
 
 def _validate_output_destinations(value: dict, context: dict) -> dict:
