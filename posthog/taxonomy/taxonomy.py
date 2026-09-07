@@ -3110,11 +3110,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Vendor client captured at session initialize and carried across every request in that session.",
             "examples": ["ClaudeCode", "ClaudeAI"],
         },
-        # Replay Vision properties, all on `$recording_observed`.
-        "session_id": {
-            "label": "Observed session ID (Replay Vision)",
-            "description": "Session recording the scanner analyzed. Deliberately not `$session_id`: the observation is emitted long after the recording ended, and `$session_id` would fold it into that session's duration and bounce rate. Join to a recording on this property instead.",
-        },
+        # Replay Vision properties, all on `$recording_observed`. `session_id` is deliberately absent:
+        # this group labels a property name everywhere it appears, and error tracking and signals
+        # already send their own `session_id`.
         "scanner_id": {
             "label": "Scanner ID (Replay Vision)",
             "description": "Scanner that produced the observation.",

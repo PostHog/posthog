@@ -3856,10 +3856,6 @@
             "description": "Snapchat Click ID",
             "label": "sccid"
         },
-        "session_id": {
-            "description": "Session recording the scanner analyzed. Deliberately not `$session_id`: the observation is emitted long after the recording ended, and `$session_id` would fold it into that session's duration and bounce rate. Join to a recording on this property instead.",
-            "label": "Observed session ID (Replay Vision)"
-        },
         "token": {
             "description": "Token used for authentication.",
             "examples": [
@@ -8993,10 +8989,6 @@
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
             "label": "Latest sccid"
-        },
-        "session_id": {
-            "description": "Session recording the scanner analyzed. Deliberately not `$session_id`: the observation is emitted long after the recording ended, and `$session_id` would fold it into that session's duration and bounce rate. Join to a recording on this property instead.",
-            "label": "Observed session ID (Replay Vision)"
         },
         "token": {
             "description": "Token used for authentication.",
