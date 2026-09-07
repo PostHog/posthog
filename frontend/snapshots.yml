@@ -9616,6 +9616,14 @@ snapshots:
         hash: v1.k794b7964.035587a8b5e312e7090802ce64658770e8203ed95a272199a59fb854d07b8e4c.xPEsURT17vLAz5gEM4ChIgLSXTy8WIipv5pZUUhoSwA
     scenes-other-org-member-invites--current-user-is-owner--light:
         hash: v1.k794b7964.f4fe409e93f3be73dbbd723a795233dafc57b47fa9a10e1586bb123bd4975dfd.oCEutKjA-YPKNncWVj3xSWMHnOgv6_xXWT7ZJr2wVqw
+    scenes-other-organization-deactivated--deactivated--dark:
+        hash: v1.k794b7964.c97f1ed943259f5567c27813c96bbb0566aca0adbf84459ee7d56b2ebea36b57.SgcQHuoYp4dLjnk797pwVsGonoLU6rH2XdLf0lrzefk
+    scenes-other-organization-deactivated--deactivated--light:
+        hash: v1.k794b7964.8b2936f2f73a9576c3f5d8108d81fadb1669eb2f65e20f5d9a79cee96d6103c5.kJep-xkW_R6RDRqH385kSLgRdomjewdycLhO5QpAdd4
+    scenes-other-organization-pending-deletion--pending-deletion--dark:
+        hash: v1.k794b7964.a6c16e6775a08807ece079306c8f686050629a1a3da244534e2b7145c25f7502.SzP_amO7Op2xfUeFilO6OGdks-qkK8byu5m22BfmTkY
+    scenes-other-organization-pending-deletion--pending-deletion--light:
+        hash: v1.k794b7964.b4d3bd0691c3b878ef1fa5a6404b79206e9de433cb52aaf2765246fea64da6c5.rllVi0no6y64yflVpXVCGrC7HibRFl84s-LXEOp4Zi0
     scenes-other-password-reset--initial--dark:
         hash: v1.k794b7964.e3d5f708ff09306e1f06f485f1e389207698e60a0388f606900b947ca5a70ec9.3XJguWf4w1HF8NIOqLCRARBInuoUXmbo9esa81izrrM
     scenes-other-password-reset--initial--light:
