@@ -113,6 +113,13 @@ interface ExceptionHint {
     extra: Record<string, any>
 }
 
+// Without a distinct id, posthog-node gives each captured exception a new
+// anonymous id, which makes one person per exception during an incident.
+const serverDistinctId = [
+    defaultConfig.OTEL_SERVICE_NAME || defaultConfig.PLUGIN_SERVER_MODE || 'plugin-server',
+    defaultConfig.OTEL_SERVICE_ENVIRONMENT || defaultConfig.CLOUD_DEPLOYMENT || 'unknown',
+].join(':')
+
 export function captureException(exception: any, hint?: Partial<ExceptionHint>): void {
     if (posthog) {
         let additionalProperties = {}
@@ -123,6 +130,6 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
             }
         }
 
-        posthog.captureException(exception, undefined, additionalProperties)
+        posthog.captureException(exception, serverDistinctId, additionalProperties)
     }
 }
