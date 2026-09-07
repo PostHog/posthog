@@ -1,4 +1,5 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
+import { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG, getSqlV2PropsFromQueryProp } from '../Notebook/markdownNotebookV2'
@@ -323,6 +324,35 @@ export const getUniqueSqlV2ReturnVariable = (
     return resolvedReturnVariable
 }
 
+// Every content change re-runs several collectors, and each one re-expands the same markdown
+// attribute. The parse JSON-decodes every cell's props (stored result envelopes included), so
+// it dominates the per-keystroke cost of editing a cell — cache the parsed component blocks
+// per markdown string so one edit pays for one parse. The blocks are shared, read-only input
+// for the walkers below. A few entries, so notebooks mounted side by side don't evict each other.
+const MARKDOWN_COMPONENT_BLOCK_CACHE_MAX_ENTRIES = 4
+const markdownComponentBlockCache = new Map<string, NotebookComponentBlockNode[]>()
+
+const getMarkdownNotebookComponentBlocks = (markdown: string): NotebookComponentBlockNode[] => {
+    const cachedBlocks = markdownComponentBlockCache.get(markdown)
+    if (cachedBlocks) {
+        markdownComponentBlockCache.delete(markdown)
+        markdownComponentBlockCache.set(markdown, cachedBlocks)
+        return cachedBlocks
+    }
+    const blocks = parseMarkdownNotebook(markdown).nodes.filter(
+        (block): block is NotebookComponentBlockNode => block.type === 'component'
+    )
+    markdownComponentBlockCache.set(markdown, blocks)
+    while (markdownComponentBlockCache.size > MARKDOWN_COMPONENT_BLOCK_CACHE_MAX_ENTRIES) {
+        const oldestMarkdown = markdownComponentBlockCache.keys().next().value
+        if (oldestMarkdown === undefined) {
+            break
+        }
+        markdownComponentBlockCache.delete(oldestMarkdown)
+    }
+    return blocks
+}
+
 // Markdown notebooks hold their cells as component tags inside a single markdown attribute,
 // so walking the tiptap JSON alone never finds them. Expand the given cell tag into
 // tiptap-shaped nodes so the collectors and the dependency graph see the same cells in both
@@ -342,10 +372,7 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
             nodeTypeByTag.set(tag, nodeType)
         }
     }
-    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block): JSONContent[] => {
-        if (block.type !== 'component') {
-            return []
-        }
+    return getMarkdownNotebookComponentBlocks(node.attrs.markdown).flatMap((block): JSONContent[] => {
         const nodeType = nodeTypeByTag.get(block.tagName)
         if (!nodeType) {
             return []
