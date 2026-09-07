@@ -71,6 +71,38 @@ export function readParentToolCallId(meta: unknown): string | undefined {
 }
 
 /**
+ * Optional MCP `CallToolResult` fields that hosts and apps type as
+ * `.optional()`. A payload that carries one of these as an explicit `null` is
+ * rejected by the app-side zod schema, which drops the whole tool result and
+ * leaves the app on its loading state. Sources that model the fields as
+ * nullable can emit such a payload: the Codex app-server serializes an
+ * absent MCP optional as JSON `null`. Call this where a raw MCP result enters
+ * the desktop, and before one is handed to an MCP App.
+ */
+const CALL_TOOL_RESULT_OPTIONAL_KEYS = [
+  "structuredContent",
+  "isError",
+  "_meta",
+] as const;
+
+/**
+ * Return `result` with optional `CallToolResult` fields removed when they are
+ * `null`. Absent keys stay absent, non-null values pass through unchanged.
+ */
+export function omitNullCallToolResultFields<T>(result: T): T {
+  if (result == null || typeof result !== "object") return result;
+  const record = result as Record<string, unknown>;
+  if (!CALL_TOOL_RESULT_OPTIONAL_KEYS.some((key) => record[key] === null)) {
+    return result;
+  }
+  const stripped: Record<string, unknown> = { ...record };
+  for (const key of CALL_TOOL_RESULT_OPTIONAL_KEYS) {
+    if (stripped[key] === null) delete stripped[key];
+  }
+  return stripped as T;
+}
+
+/**
  * The MCP `{ server, tool }` descriptor for a tool call, or undefined for a
  * non-MCP call. Prefers the structured channel, else parses the legacy
  * `mcp__…` name.

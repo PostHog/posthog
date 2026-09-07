@@ -349,6 +349,7 @@ export {
 } from "./time";
 export {
   mcpToolKey,
+  omitNullCallToolResultFields,
   parseMcpToolName,
   posthogToolMeta,
   readAgentToolName,

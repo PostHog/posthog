@@ -743,6 +743,42 @@ describe("mcpToolCall result rendering", () => {
     });
   });
 
+  it("strips null optional fields from the raw MCP result", () => {
+    const result = mapAppServerNotification(
+      "s-1",
+      APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED,
+      {
+        item: {
+          type: "mcpToolCall",
+          id: "m3",
+          server: "posthog",
+          tool: "exec",
+          status: "completed",
+          arguments: { command: "call query-trends" },
+          result: {
+            content: [{ type: "text", text: "Date|Pageviews" }],
+            structuredContent: null,
+            _meta: {
+              ui: { resourceUri: "ui://posthog/query-results.html" },
+              "com.posthog.mcp/app_data": { query: {}, results: [] },
+            },
+          },
+        },
+      },
+    );
+    const rawOutput = result?.update as {
+      rawOutput?: Record<string, unknown>;
+    };
+    expect(rawOutput.rawOutput).toEqual({
+      content: [{ type: "text", text: "Date|Pageviews" }],
+      _meta: {
+        ui: { resourceUri: "ui://posthog/query-results.html" },
+        "com.posthog.mcp/app_data": { query: {}, results: [] },
+      },
+    });
+    expect("structuredContent" in (rawOutput.rawOutput ?? {})).toBe(false);
+  });
+
   it("renders a failed mcpToolCall's error message", () => {
     const result = mapAppServerNotification(
       "s-1",

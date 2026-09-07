@@ -3,7 +3,11 @@ import type {
   ToolCallContent,
   ToolCallLocation,
 } from "@agentclientprotocol/sdk";
-import { mcpToolKey, posthogToolMeta } from "@posthog/shared";
+import {
+  mcpToolKey,
+  omitNullCallToolResultFields,
+  posthogToolMeta,
+} from "@posthog/shared";
 import { APP_SERVER_NOTIFICATIONS } from "./protocol";
 import { readTokenUsage } from "./token-usage";
 
@@ -560,8 +564,11 @@ function mapItem(
       ...(meta ? { _meta: meta } : {}),
       // Carries the raw MCP CallToolResult (content, structuredContent, _meta.ui)
       // so the desktop MCP Apps host can render UI resources, not just text.
+      // Codex models absent MCP result optionals as nullable and serializes
+      // them as explicit nulls; strip those, because the app-side schema
+      // rejects them and drops the whole result.
       ...(item.type === "mcpToolCall" && item.result !== undefined
-        ? { rawOutput: item.result }
+        ? { rawOutput: omitNullCallToolResultFields(item.result) }
         : {}),
     },
   };
