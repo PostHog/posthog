@@ -1,69 +1,34 @@
 # Testing and stories
 
-The library's [TESTING.md](../../../../packages/quill/packages/charts/src/docs/TESTING.md) is the contract.
-This file is the app-side layer on top of it.
+Use [writing-tests](../../writing-tests/SKILL.md) before changing coverage.
+Name the regression the change could introduce, then choose the lowest test level that catches it.
+Extend an existing test when possible; do not add transform and adapter suites for every chart.
 
-## Three test layers
+## Choose the test level
 
-Keep them separate.
-A test that renders a chart to assert series content, or asserts raw series from inside a rendered scene, is in the wrong layer.
+- Test changed data conversion or formatting through an existing pure helper test.
+- Test state transitions through the existing kea logic test.
+- Render the component only when the regression concerns rendered content or interaction wiring.
+  Do not mock `@posthog/quill-charts` to inspect props instead of testing the behavior.
+- Use browser checks for behavior or appearance that jsdom cannot prove.
 
-| Layer          | File                                              | Renders   | Asserts on                                                                                       |
-| -------------- | ------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------ |
-| Pure transform | `*Transforms.test.ts` next to the transform       | Nothing   | The `Series[]`, `labels`, config, and meta the transform returns                                 |
-| Adapter        | `<ChartComponent>.test.tsx` next to the component | The scene | What the user sees: ticks, tooltip rows, reference lines, legend rows, the persons modal opening |
+For insight integration tests, reuse [renderInsight and its interaction helpers](../../../../frontend/src/test/insight-testing/index.ts).
+[TrendsLineChart.test.tsx](../../../../products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart.test.tsx) shows tooltip, legend, and persons-modal checks.
+For other consumers, use your existing render helper and `getHogChart(container)`.
+See the [package consumer testing guide](../../../../packages/quill/packages/charts/src/docs/TESTING.md#testing-code-that-uses-hog-charts) for jsdom setup and DOM accessors.
+Preserve `data-attr` values that these helpers use.
 
-## Pure transform tests
+## Stories and visual checks
 
-Call the transform with hand-built results and assert on the output shape.
-Cover the branches the transform adds: hidden series, compare-to-previous, percent layout, the in-progress tail, multi-axis assignment.
+Reuse the nearest story and add only cases that expose a relevant visual difference.
+Do not create every display permutation.
+[TrendsLineChart.stories.tsx](../../../../products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart.stories.tsx) shows a sized stage, cached insight fixtures, and `parameters.mockDate`.
 
-```ts
-it('dashes the in-progress tail of the current period only', () => {
-  const series = buildTrendsSeries(results, { incompletenessOffsetFromEnd: -1, getColor: () => '#000' })
-  expect(series[0].stroke?.partial?.fromIndex).toBe(results[0].data.length - 1)
-  expect(series[1].stroke).toBeUndefined()
-})
-```
+- Give the chart container real dimensions and use deterministic data.
+- Pin the date when relative dates or incomplete buckets affect the output.
+- Wait for the chart to render before taking a screenshot; use the existing story's readiness pattern.
+- Check the changed surface at wide and narrow scene widths, including about 520px.
+- Check light and dark themes when colors or contrast change.
 
-## Adapter tests
-
-Render the real scene and read the chart through the DOM.
-
-- Insight charts: `renderInsight` from `~/test/insight-testing`, then the `chart`, `legend`, `display`, `compare`, `breakdown`, and `personsModal` interaction helpers from the same module. `chart.hoverTooltip(index)` returns an accessor with `title()`, `row(label)`, and `rows()`.
-- Any other chart: your own `render`, then `getHogChart(container)` from `@posthog/quill-charts/testing` for `yTicks()`, `xTicks()`, `referenceLines()`, `valueLabels()`, `seriesCount`, and `hoverAtIndex` / `clickAtIndex` / `waitForHogChartTooltip` for interactions. `createDefaultTooltipAccessor(el)` reads a `DefaultTooltip` by its `hog-chart-tooltip-*` attributes.
-
-Every test file installs the jsdom shims from `@posthog/quill-charts/testing`: `ensureJsdom()` once at the top, or the `setupJsdom` and `setupSyncRaf` pair per test when the file needs cleanup between tests.
-
-The trends test files are the reference:
-
-- `products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart.test.tsx`
-- `products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart.test.tsx`
-
-Rules:
-
-- Do not mock `@posthog/quill-charts`. A `jest.mock` that captures the chart's props skips the only thing the test could prove.
-- The library's TESTING.md rules apply: no canvas pixel checks, no `scales._private` reads.
-- Pass an explicit `timeout` to `hoverUntilTooltip` / `clickAtIndex` when the call sits behind another wait, so two 3s budgets do not exceed Jest's 5s per-test limit.
-- Keep the cases that catch a regression. An `it.each` matrix whose rows only prove "a canvas rendered" catches nothing.
-
-## Stories
-
-Every new chart component gets a story next to it.
-Visual review runs on chromium snapshots of these stories.
-
-The insight chart stories follow one shape (`TrendsLineChart.stories.tsx`):
-
-- A `Stage` wrapper with an explicit `height` and `width`. A chart in a zero-height flex child renders nothing.
-- `parameters.mockDate` pinned, so the in-progress tail and date labels are stable.
-- Fixtures from `~/mocks/fixtures/api/projects/team_id/insights/*.json`, bound through `insightLogic` and `dataNodeLogic` with `doNotLoad: true` and `cachedResults`.
-- `testOptions.waitForSelector` pointing at the chart's canvas (`'[data-attr=trend-line-graph] > canvas'`) for full-scene stories, so the snapshot waits for the paint.
-- One story per display permutation that changes what the user sees: single series, multi series, breakdown, area, compare, percent stack.
-
-For a chart outside insights, the same rules apply with your own data: stable numbers, a fixed date, an explicit-height stage.
-
-Snapshots of a chart whose canvas paints asynchronously can flake.
-The `storybook-skip-chart-canvas` body class sets `theme.skipDraw` through `buildTheme`, which mounts the canvas but skips painting, so overlays and layout stay testable while the pixels stay blank.
-Reach for it only when a story flakes on the canvas paint, not by default.
-
-Never snapshot a story built on `Date.now()`, random data, or locale-dependent formatting.
+The [app theme builder](../../../../frontend/src/lib/charts/utils/theme.ts) supports `storybook-skip-chart-canvas` for snapshots that only need DOM overlays.
+Do not use it to validate chart painting or hide a rendering regression.
