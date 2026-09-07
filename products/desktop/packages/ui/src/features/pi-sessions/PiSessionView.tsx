@@ -697,7 +697,11 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           <PromptInput
             sessionId={taskId}
             toolbarEndSlot={
-              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+              <ContextUsageIndicator
+                usage={contextUsage}
+                taskId={taskId}
+                originProduct={task.origin_product}
+              />
             }
             taskId={taskId}
             repoPath={repoPath}

@@ -2,6 +2,7 @@ import sqlite3
 from contextlib import closing
 
 import pytest
+from unittest import mock
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -14,8 +15,9 @@ from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseF
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.transforms.trino.transpiler import TrinoTranspilerInput, transpile_prepared_hogql_to_trino
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 from posthog.schema_enums import PersonsOnEventsMode
@@ -68,6 +70,39 @@ def test_prints_resolved_query_with_explicit_trino_locator_and_bound_value() -> 
         'FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" = %(hogql_val_0)s)'
     )
     assert context.values == {"hogql_val_0": "person-1"}
+
+
+def test_prepared_trino_transpiler_does_not_rebuild_the_schema_database() -> None:
+    preparation_context = _context_with_trino_table()
+    prepared = prepare_ast_for_printing(
+        parse_select("SELECT user_id FROM users WHERE user_id = 'person-1'"), preparation_context, "trino"
+    )
+    assert prepared is not None
+    assert preparation_context.database is not None
+
+    transpiler_input = TrinoTranspilerInput(
+        node=prepared,
+        values=tuple(preparation_context.values.items()),
+        table_locators=tuple(preparation_context.trino_table_locators.items()),
+        persons_on_events_mode=preparation_context.modifiers.personsOnEventsMode,
+        convert_to_project_timezone=preparation_context.modifiers.convertToProjectTimezone,
+        limit_top_select=preparation_context.limit_top_select,
+        limit_context=preparation_context.limit_context,
+        timezone=preparation_context.database.get_timezone(),
+        week_start_day=preparation_context.database.get_week_start_day(),
+    )
+
+    with mock.patch(
+        "posthog.hogql.database.database.Database.create_for",
+        side_effect=AssertionError("the prepared transpiler must not build a database"),
+    ):
+        transpiled = transpile_prepared_hogql_to_trino(transpiler_input)
+
+    assert transpiled.sql == (
+        'SELECT "users"."user_id" FROM "ducklake"."analytics"."users" AS "users" '
+        'WHERE ("users"."user_id" = %(hogql_val_0)s)'
+    )
+    assert transpiled.values == {"hogql_val_0": "person-1"}
 
 
 def test_prints_trino_lambda_syntax() -> None:

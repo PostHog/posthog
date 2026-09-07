@@ -3,6 +3,8 @@
 Notebooks can generate interactive widgets from instructions and the notebook's SQL and Python dataframe context.
 
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
+- Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
+- Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.
 - Successful source, generated titles, prompts, models, dataframe contracts, and security reviews are stored as immutable versions.
 - People can inspect history and source, request source changes, restore an earlier version, improve the current widget, or regenerate it.
 - A new widget uses “Create an interactive visualization of the data in this notebook” when its instruction field is left empty.

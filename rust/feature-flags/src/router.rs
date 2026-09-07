@@ -9,7 +9,7 @@ use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimite
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
-    extract::DefaultBodyLimit,
+    extract::{DefaultBodyLimit, Extension},
     http::{Method, StatusCode},
     routing::{any, get, post},
     Router,
@@ -21,6 +21,7 @@ use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
 use common_metrics::setup_metrics_routes_for_product_with_overrides;
 use common_redis::Client as RedisClient;
+use governor::clock;
 use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
 use sqlx::PgPool;
@@ -66,6 +67,15 @@ use crate::{
 };
 
 #[derive(Clone)]
+pub struct FlagsEndpointRateLimiters<C = clock::DefaultClock>
+where
+    C: clock::Clock,
+{
+    pub(crate) token: FlagsRateLimiter<C>,
+    pub(crate) ip: IpRateLimiter<C>,
+}
+
+#[derive(Clone)]
 pub struct State {
     // Shared Redis for non-critical path (analytics counters, billing limits)
     // ReadWriteClient automatically routes reads to replica and writes to primary
@@ -87,8 +97,6 @@ pub struct State {
     /// mirroring Django's RemoteConfigThrottle. Separate budget from flag definitions.
     pub(crate) remote_config_limiter: RemoteConfigRateLimiter,
     pub config: Config,
-    pub(crate) flags_rate_limiter: FlagsRateLimiter,
-    pub(crate) ip_rate_limiter: IpRateLimiter,
     /// Pre-initialized HyperCacheReader for feature flags (flags.json)
     /// Initialized once at startup to avoid per-request AWS SDK initialization
     pub flags_hypercache_reader: Arc<HyperCacheReader>,
@@ -182,6 +190,62 @@ pub fn router(
     billing_aggregator: Arc<BillingAggregator>,
     config: Config,
 ) -> Router {
+    router_with_rate_limiter_clock(
+        redis_client,
+        dedicated_redis_client,
+        database_pools,
+        cohort_cache,
+        group_type_cache,
+        geoip,
+        readiness,
+        liveness,
+        feature_flags_billing_limiter,
+        session_replay_billing_limiter,
+        cookieless_manager,
+        flags_hypercache_reader,
+        flag_definitions_cache,
+        flags_with_cohorts_hypercache_reader,
+        team_hypercache_reader,
+        config_hypercache_reader,
+        rayon_dispatcher,
+        team_negative_cache,
+        auth_token_cache,
+        cohort_membership_provider,
+        billing_aggregator,
+        config,
+        clock::DefaultClock::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn router_with_rate_limiter_clock<C>(
+    redis_client: Arc<dyn RedisClient + Send + Sync>,
+    dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
+    database_pools: Arc<DatabasePools>,
+    cohort_cache: Arc<CohortCacheManager>,
+    group_type_cache: Arc<GroupTypeCacheManager>,
+    geoip: Arc<GeoIpClient>,
+    readiness: ReadinessHandler,
+    liveness: LivenessHandler,
+    feature_flags_billing_limiter: FeatureFlagsLimiter,
+    session_replay_billing_limiter: SessionReplayLimiter,
+    cookieless_manager: Arc<CookielessManager>,
+    flags_hypercache_reader: Arc<HyperCacheReader>,
+    flag_definitions_cache: Arc<FlagDefinitionsCache>,
+    flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    team_hypercache_reader: Arc<HyperCacheReader>,
+    config_hypercache_reader: Arc<HyperCacheReader>,
+    rayon_dispatcher: RayonDispatcher,
+    team_negative_cache: NegativeCache,
+    auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
+    cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    billing_aggregator: Arc<BillingAggregator>,
+    config: Config,
+    rate_limiter_clock: C,
+) -> Router
+where
+    C: clock::Clock + Clone + Send + Sync + 'static,
+{
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
@@ -215,13 +279,14 @@ pub fn router(
         config.flags_warn_capacity_ratio,
         *config.flags_rate_limit_log_only,
     );
-    let flags_rate_limiter = FlagsRateLimiter::new(
+    let flags_rate_limiter = FlagsRateLimiter::new_with_clock(
         *config.flags_rate_limit_enabled,
         config.flags_bucket_replenish_rate,
         flags_warn_cap,
         flags_enforce_cap,
         flags_warn_only,
         config.flags_token_rate_limit_overrides.0.clone(),
+        rate_limiter_clock.clone(),
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -236,12 +301,13 @@ pub fn router(
         config.flags_warn_capacity_ratio,
         *config.flags_ip_rate_limit_log_only,
     );
-    let ip_rate_limiter = IpRateLimiter::new(
+    let ip_rate_limiter = IpRateLimiter::new_with_clock(
         *config.flags_ip_rate_limit_enabled,
         config.flags_ip_replenish_rate,
         ip_warn_cap,
         ip_enforce_cap,
         ip_warn_only,
+        rate_limiter_clock,
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -257,6 +323,10 @@ pub fn router(
         remote_config_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
     );
+    let rate_limiters = FlagsEndpointRateLimiters {
+        token: flags_rate_limiter,
+        ip: ip_rate_limiter,
+    };
 
     // Force eager construction of the bot UA matcher and IP-range table so
     // the first `/flags` request after a pod restart doesn't pay the
@@ -304,8 +374,6 @@ pub fn router(
         flag_definitions_limiter,
         remote_config_limiter,
         config: config.clone(),
-        flags_rate_limiter,
-        ip_rate_limiter,
         flags_hypercache_reader,
         flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
@@ -369,12 +437,13 @@ pub fn router(
     let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
         flags_endpoints = flags_endpoints
-            .route("/flags", any(endpoint::flags))
-            .route("/flags/", any(endpoint::flags))
-            .route("/decide", any(endpoint::flags))
-            .route("/decide/", any(endpoint::flags))
+            .route("/flags", any(endpoint::flags::<C>))
+            .route("/flags/", any(endpoint::flags::<C>))
+            .route("/decide", any(endpoint::flags::<C>))
+            .route("/decide/", any(endpoint::flags::<C>))
             .layer(axum::middleware::from_fn(record_body_read))
-            .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES));
+            .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES))
+            .layer(Extension(rate_limiters));
     }
 
     // Internal-only batch flag evaluation for static cohort generation. Kept outside
@@ -526,13 +595,15 @@ fn resolve_rate_limit_capacities(
 /// Without this, the rate limiters would accumulate entries for every unique
 /// token/IP that makes a request, leading to unbounded memory growth.
 /// See: https://docs.rs/governor/latest/governor/struct.RateLimiter.html#method.retain_recent
-fn spawn_rate_limiter_cleanup_task(
-    flags_rate_limiter: FlagsRateLimiter,
-    ip_rate_limiter: IpRateLimiter,
+fn spawn_rate_limiter_cleanup_task<C>(
+    flags_rate_limiter: FlagsRateLimiter<C>,
+    ip_rate_limiter: IpRateLimiter<C>,
     flag_definitions_limiter: FlagDefinitionsRateLimiter,
     remote_config_limiter: RemoteConfigRateLimiter,
     cleanup_interval_secs: u64,
-) {
+) where
+    C: clock::Clock + Clone + Send + Sync + 'static,
+{
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(cleanup_interval_secs));
         loop {

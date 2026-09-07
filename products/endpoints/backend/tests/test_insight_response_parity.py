@@ -50,19 +50,14 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
+        self.v2_dag_ids_patcher = mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
         )
-        self.workflow_exists_patcher = mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-            return_value=False,
-        )
-        self.sync_workflow_patcher.start()
-        self.workflow_exists_patcher.start()
+        self.v2_dag_ids_patcher.start()
 
     def tearDown(self):
-        self.sync_workflow_patcher.stop()
-        self.workflow_exists_patcher.stop()
+        self.v2_dag_ids_patcher.stop()
         super().tearDown()
 
     def _materialize_endpoint(self, endpoint):

@@ -4,7 +4,11 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '../../types'
-import { MAX_CONVERSION_WINDOW_MINUTES, buildConversionWatcher } from './conversion-watcher'
+import {
+    DEFAULT_CONVERSION_WINDOW_MINUTES,
+    MAX_CONVERSION_WINDOW_MINUTES,
+    buildConversionWatcher,
+} from './conversion-watcher'
 
 describe('buildConversionWatcher', () => {
     const propertyBytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11]
@@ -72,8 +76,8 @@ describe('buildConversionWatcher', () => {
     })
 
     it.each([
-        ['an unbounded window', null, MAX_CONVERSION_WINDOW_MINUTES],
-        ['a window longer than the cap', 60 * 24 * 90, MAX_CONVERSION_WINDOW_MINUTES],
+        ['no configured window', null, DEFAULT_CONVERSION_WINDOW_MINUTES],
+        ['a window longer than the cap', 60 * 24 * 400, MAX_CONVERSION_WINDOW_MINUTES],
         ['a window inside the cap', 60, 60],
     ])('expires after %s', (_name, windowMinutes, expectedMinutes) => {
         // Treating null as "forever" would leave rows the expiry sweep can never reach.

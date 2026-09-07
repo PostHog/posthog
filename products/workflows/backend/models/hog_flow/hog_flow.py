@@ -161,6 +161,20 @@ class HogFlow(UUIDTModel):
     # Enforced per workflow by the email worker, which spreads sends instead of dropping them.
     email_sending_rate_limit = models.JSONField(null=True, blank=True)
 
+    # Automatic per-workflow email pause, set by the deliverability detector when this workflow's
+    # complaint or hard-bounce rate crosses a threshold. All workflow email shares one SES account,
+    # so one bad workflow degrades every customer's deliverability. Enforced at the send choke point
+    # in the email worker. Only the resume endpoint (or a staff admin action) clears it; a normal
+    # workflow update must not, so the API exposes these read-only.
+    email_sending_paused_at = models.DateTimeField(null=True, blank=True)
+    email_sending_paused_reason = models.TextField(blank=True, default="", db_default="")
+    # Start bound for every detector window on this workflow. Without it, resuming instantly
+    # re-trips on the feedback that caused the pause in the first place.
+    email_sending_resumed_at = models.DateTimeField(null=True, blank=True)
+    # When the deliverability detector last warned this workflow's admins that its rates are
+    # approaching the pause thresholds. Bounds how often the warning email can repeat.
+    email_sending_warned_at = models.DateTimeField(null=True, blank=True)
+
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)
     # Secret function inputs (schema fields marked secret, e.g. API keys / auth headers) split out of

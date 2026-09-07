@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -78,6 +78,37 @@ export const CanvasesCreateBody = () => zod
             .describe('Canvas template identifier.'),
     })
     .describe('Payload for creating a new, empty canvas in a channel.')
+
+/**
+ * Update canvas metadata, including the space it belongs to.
+ */
+export const CanvasesPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesPartialUpdateBodyNameMax = 400
+
+export const CanvasesPartialUpdateBody = () => zod
+    .object({
+        name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional().describe('Updated display name.'),
+        context: zod.string().optional().describe('Updated author context markdown.'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Updated canvas description (for components, the store-search text).'),
+        channel_id: zod.string().optional().describe('Id of the space the canvas belongs to.'),
+        pinned: zod.boolean().optional().describe('Whether the canvas is pinned in its channel.'),
+        generation_task_id: zod
+            .string()
+            .nullish()
+            .describe('Task currently generating this canvas, or null to clear it.'),
+    })
+    .describe('Writable canvas fields: metadata only — source changes go through publish\/edit.')
 
 /**
  * Read the canvas's build lifecycle: live pointers plus recent builds.

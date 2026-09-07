@@ -282,6 +282,10 @@ def test_teams_registry_is_root_only(tmp_path: Path) -> None:
         ("teams:\n  team-a: '#a'\n", "entry must be a mapping"),
         ("teams:\n  '@alice':\n    slack: '#a'\n", "not @handles"),
         ("teams:\n  123:\n    slack: '#a'\n", "slug must be a string"),
+        ("teams:\n  team-a:\n    slack:\n      stamphog: false\n", "takes a single channel"),
+        ("teams:\n  team-a:\n    notifications:\n      nosuchbot: false\n", "unknown producer 'nosuchbot'"),
+        ("teams:\n  team-a:\n    notifications:\n      stamphog: 'no-hash'\n", "'stamphog' must be a string"),
+        ("teams:\n  team-a:\n    notifications: {}\n", "mapping names no producer"),
     ],
 )
 def test_teams_registry_invalid_shapes(tmp_path: Path, teams_yaml: str, needle: str) -> None:
@@ -316,10 +320,40 @@ def test_team_channel_falls_back_by_purpose(
     assert (resolved.channel, resolved.declared) == (channel, declared)
 
 
+@pytest.mark.parametrize(
+    "notifications,producer,channel,declared",
+    [
+        # Silencing one producer leaves every other reader on the people channel, which is the
+        # whole point of the per-producer form over `notifications: false`.
+        ({"stamphog": False}, "stamphog", None, True),
+        ({"stamphog": False}, None, "#team-a", True),
+        ({"stamphog": "#bots-a"}, "stamphog", "#bots-a", True),
+        # A scalar answers every producer, so naming one must not move the channel.
+        ("#bots-a", "stamphog", "#bots-a", True),
+        (False, "stamphog", None, True),
+    ],
+)
+def test_team_channel_resolves_per_producer(
+    notifications: str | bool | dict[str, str | bool], producer: str | None, channel: str | None, declared: bool
+) -> None:
+    entry = TeamEntry(slack="#team-a", notifications=notifications)
+    resolved = team_channel("team-a", {"team-a": entry}, "notifications", producer)
+    assert (resolved.channel, resolved.declared) == (channel, declared)
+
+
 def test_team_channel_derives_for_an_unregistered_slug() -> None:
     assert team_channel("team-b", {"team-a": TeamEntry(slack="#a")}, "notifications") == team_channel(
         "team-b", {}, "notifications"
     )
+
+
+def test_an_unreadable_producer_map_registers_as_silence(tmp_path: Path) -> None:
+    # Dropping the key instead would fall through to the derived channel, so a typo in a repo our
+    # lint never reads would post the digest the team asked to be left out of.
+    text = "version: 1\nowners: []\nteams:\n  team-a:\n    notifications:\n      stamphogg: false\n"
+    file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert any("unknown producer" in e for e in errors)
+    assert file is not None and file.teams == {"team-a": TeamEntry(notifications=False)}
 
 
 def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
