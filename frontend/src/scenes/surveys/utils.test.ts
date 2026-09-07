@@ -1120,10 +1120,15 @@ describe('survey utils', () => {
             )
         })
 
-        it('surfaces every submission regardless of completion when partial responses are on', () => {
-            const survey = buildSurvey(true)
+        it.each([
+            ['the survey collects partial responses', true, {}],
+            // The switch on the results filters has to reach the question charts too, otherwise a
+            // partial answer stays hidden there after the user asked to see it.
+            ['the viewer asked to see partial responses', false, { includePartialResponses: true }],
+        ])('surfaces every submission regardless of completion when %s', (_case, enablePartialResponses, overrides) => {
+            const survey = buildSurvey(enablePartialResponses)
 
-            const query = buildAggregateQuery(survey, buildFilters(survey))
+            const query = buildAggregateQuery(survey, buildFilters(survey, overrides))
 
             expect(query).not.toContain('is_completed_event')
         })

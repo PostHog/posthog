@@ -692,10 +692,43 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }
 
+/**
+ * Matches the `survey dismissed` events that carry the answers a respondent gave before they
+ * closed the survey. When a `survey sent` event followed for the same submission it holds those
+ * same answers, so the dismissal is left out to keep one row per submission. A dismissal with no
+ * submission id predates that property and can never be matched to a `survey sent` event, so it
+ * always counts as its own response.
+ */
+export function buildPartiallyCompletedDismissalFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
+    const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
+    const submissionId = `properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\``
+
+    return `(
+        event == '${SurveyEventName.DISMISSED}'
+        AND coalesce(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), '') == 'true'
+        AND (
+            coalesce(${submissionId}, '') == ''
+            OR ${submissionId} NOT IN (
+                SELECT ${submissionId}
+                FROM events
+                WHERE and(
+                    equals(event, '${SurveyEventName.SENT}'),
+                    equals(properties.\`${SurveyEventProperties.SURVEY_ID}\`, '${survey.id}'),
+                    notEquals(coalesce(${submissionId}, ''), ''),
+                    greaterOrEquals(timestamp, '${fromDate}'),
+                    lessOrEquals(timestamp, '${toDate}')
+                )
+            )
+        )
+    )`
+}
+
 export interface SurveyQueryFilters {
     timestampFilter: string
     answerFilters: EventPropertyFilter[]
     archivedResponsesFilter: string
+    /** Keep submissions the respondent never completed, for the "Show partial responses" switch. */
+    includePartialResponses?: boolean
 }
 
 /**
@@ -768,7 +801,7 @@ function buildMergedSubmissionsSubquery(
     // With partial responses off, only completed submissions may surface. That check has to run
     // against the whole submission rather than a single event, because the answers still need
     // merging from the partial events that led up to the completed one.
-    const requiresCompletedEvent = !survey.enable_partial_responses
+    const requiresCompletedEvent = !survey.enable_partial_responses && !filters.includePartialResponses
     const completedEventExpr = buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')
 
     const innerColumns = [

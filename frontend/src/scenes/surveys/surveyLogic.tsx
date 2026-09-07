@@ -135,6 +135,7 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildPartialResponsesFilter,
+    buildPartiallyCompletedDismissalFilter,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateSurveyRates,
@@ -714,6 +715,7 @@ export interface surveyLogicValues {
     selectedPageIndex: number | null
     selectedSection: SurveyEditSection | null
     showArchivedResponses: boolean
+    showPartialResponses: boolean
     showSurveyErrors: boolean
     showSurveyRepeatSchedule: boolean
     sidePanelContext: SidePanelSceneContext | null
@@ -1265,6 +1267,9 @@ export interface surveyLogicActions {
     setShowArchivedResponses: (show: boolean) => {
         show: boolean
     }
+    setShowPartialResponses: (show: boolean) => {
+        show: boolean
+    }
     setSurveyManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -1370,7 +1375,11 @@ export interface surveyLogicMeta {
             personNames: Record<string, string>
         ) => ConsolidatedSurveyResults
         timestampFilter: (survey: NewSurvey | Survey, dateRange: SurveyDateRange | null) => string
-        partialResponsesFilter: (survey: NewSurvey | Survey, dateRange: SurveyDateRange | null) => string
+        partialResponsesFilter: (
+            survey: NewSurvey | Survey,
+            dateRange: SurveyDateRange | null,
+            showPartialResponses: boolean
+        ) => string
         archivedResponsesFilter: (showArchivedResponses: boolean, archivedResponseUuids: Set<string>) => string
         archivedResponsesPropertyFilter: (
             showArchivedResponses: boolean,
@@ -1421,6 +1430,7 @@ export interface surveyLogicMeta {
             partialResponsesFilter: string,
             archivedResponsesFilter: string,
             dateRange: SurveyDateRange | null,
+            showPartialResponses: boolean,
             archivedResponseUuids: Set<string>,
             showArchivedResponses: boolean
         ) => DataTableNode | null
@@ -1575,6 +1585,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
         setShowArchivedResponses: (show: boolean) => ({ show }),
+        setShowPartialResponses: (show: boolean) => ({ show }),
         archiveResponse: (responseUuid: string) => ({ responseUuid }),
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
         startResultsRequery: true,
@@ -1860,6 +1871,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     timestampFilter: values.timestampFilter,
                     answerFilters: values.answerFilters,
                     archivedResponsesFilter: values.archivedResponsesFilter,
+                    includePartialResponses: values.showPartialResponses,
                 }
                 const queryParams = {
                     queryParams: { filters: { properties: values.propertyFilters } },
@@ -2314,6 +2326,9 @@ export const surveyLogic = kea<surveyLogicType>([
             setShowArchivedResponses: () => {
                 reloadAllSurveyResults()
             },
+            setShowPartialResponses: () => {
+                reloadAllSurveyResults()
+            },
             archiveResponse: async ({ responseUuid }) => {
                 try {
                     actions.startResultsRequery()
@@ -2481,6 +2496,13 @@ export const surveyLogic = kea<surveyLogicType>([
             { persist: true },
             {
                 setShowArchivedResponses: (_, { show }) => show,
+            },
+        ],
+        showPartialResponses: [
+            false,
+            { persist: true },
+            {
+                setShowPartialResponses: (_, { show }) => show,
             },
         ],
         filterSurveyStatsByDistinctId: [
@@ -2841,10 +2863,13 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         partialResponsesFilter: [
-            (s) => [s.survey, s.dateRange],
-            (survey: Survey, dateRange: SurveyDateRange): string => {
+            (s) => [s.survey, s.dateRange, s.showPartialResponses],
+            (survey: Survey, dateRange: SurveyDateRange, showPartialResponses: boolean): string => {
                 if (survey.enable_partial_responses) {
                     return buildPartialResponsesFilter(survey, dateRange)
+                }
+                if (showPartialResponses) {
+                    return ''
                 }
                 /**
                  * Return only complete responses. For pre-partial responses, we didn't have the survey_completed property.
@@ -3087,6 +3112,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.partialResponsesFilter,
                 s.archivedResponsesFilter,
                 s.dateRange,
+                s.showPartialResponses,
                 s.archivedResponseUuids,
                 s.showArchivedResponses,
             ],
@@ -3096,7 +3122,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 answerFilterHogQLExpression: string,
                 partialResponsesFilter: string,
                 archivedResponsesFilter: string,
-                dateRange: SurveyDateRange
+                dateRange: SurveyDateRange,
+                showPartialResponses: boolean
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -3104,7 +3131,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
 
-                const where = [`event == '${SurveyEventName.SENT}'`, partialResponsesFilter.replace(/^AND\s+/, '')]
+                const sentCondition = [
+                    `event == '${SurveyEventName.SENT}'`,
+                    partialResponsesFilter.replace(/^AND\s+/, ''),
+                ]
+                    .filter((condition) => condition !== '')
+                    .join(' AND ')
+                const where = showPartialResponses
+                    ? [`(${sentCondition}) OR ${buildPartiallyCompletedDismissalFilter(survey, dateRange)}`]
+                    : [sentCondition]
 
                 if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix

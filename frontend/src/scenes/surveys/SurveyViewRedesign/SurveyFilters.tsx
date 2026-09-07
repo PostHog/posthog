@@ -50,9 +50,11 @@ export function SurveyResultsFiltersBar(): JSX.Element {
         defaultAnswerFilters,
         dateRange,
         showArchivedResponses,
+        showPartialResponses,
         surveyAsInsightURL,
     } = useValues(surveyLogic)
-    const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses } = useActions(surveyLogic)
+    const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses, setShowPartialResponses } =
+        useActions(surveyLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [questionFiltersExpanded, setQuestionFiltersExpanded] = useState(false)
 
@@ -149,6 +151,12 @@ export function SurveyResultsFiltersBar(): JSX.Element {
                     />
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
+                    <LemonSwitch
+                        checked={showPartialResponses}
+                        onChange={setShowPartialResponses}
+                        label="Show partial responses"
+                        tooltip="Include answers people gave before they finished or closed the survey."
+                    />
                     <LemonSwitch
                         checked={showArchivedResponses}
                         onChange={setShowArchivedResponses}

@@ -1313,6 +1313,37 @@ describe('survey filters', () => {
             })
     })
 
+    it.each([
+        // A dismissal can carry the answers given before the survey was closed, and a survey with
+        // `enable_partial_responses` off hides its incomplete `survey sent` events. Without both
+        // branches the responses table can never show an answer a notification already delivered.
+        ['shows partial answers, and dismissals that carry them', true, false, true],
+        ['keeps the responses table to complete answers', false, true, false],
+    ])(
+        '%s when the partial responses switch is %s',
+        async (_case, showPartialResponses, expectsCompletedOnly, expectsDismissals) => {
+            const survey: Survey = { ...MULTIPLE_CHOICE_SURVEY, enable_partial_responses: false }
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(survey)
+                logic.actions.setShowPartialResponses(showPartialResponses)
+            }).toDispatchActions(['loadSurveySuccess', 'setShowPartialResponses'])
+
+            const where = (logic.values.dataTableQuery as unknown as { source: { where: string[] } }).source.where
+            const whereClause = where.join(' AND ')
+
+            expect(whereClause.includes(SurveyEventProperties.SURVEY_COMPLETED)).toBe(expectsCompletedOnly)
+            expect(whereClause.includes(`event == '${SurveyEventName.DISMISSED}'`)).toBe(expectsDismissals)
+            if (expectsDismissals) {
+                expect(whereClause).toContain(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED)
+                // The same answers sit on the `survey sent` event when one followed, so that
+                // submission must not produce a second row.
+                expect(whereClause).toContain('NOT IN (')
+                expect(whereClause).toContain(SurveyEventProperties.SURVEY_SUBMISSION_ID)
+            }
+        }
+    )
+
     it('collapses newlines in question text so the generated HogQL select stays single-line', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
         // whose text spans multiple lines used to leak past the `--` comment appended per response
@@ -1704,6 +1735,16 @@ describe('surveyLogic filters for surveys responses', () => {
         await expectLogic(logic, () => {
             logic.actions.setAnswerFilters([answerFilter])
         }).toDispatchActions(['setAnswerFilters', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
+    })
+
+    it('reloads survey results when the partial responses switch changes', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setShowPartialResponses(true)
+        }).toDispatchActions(['setShowPartialResponses', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
     })
 
     it('clears filters with a single results reload', async () => {
