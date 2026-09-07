@@ -9,6 +9,7 @@ from rest_framework import status
 
 from posthog.models import OrganizationMembership, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import BillingReadBurstRateThrottle
 
 from ee.api.test.base import APILicensedTest
 
@@ -81,13 +82,37 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.organization_membership.save()
         owner_only = patch("ee.billing.grants._owner_only_billing_enabled", return_value=False)
         member_read = patch("ee.billing.grants._member_billing_usage_spend_read_access_enabled", return_value=False)
+        # The viewset is behind a feature flag; on for the suite, off in the one test about the gate.
+        api_flag = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         self.owner_only = owner_only.start()
         self.member_read = member_read.start()
+        self.api_flag = api_flag.start()
         self.addCleanup(owner_only.stop)
         self.addCleanup(member_read.stop)
+        self.addCleanup(api_flag.stop)
 
     def _url(self, path: str) -> str:
         return f"/api/organizations/{self.organization.id}/billing/{path}"
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_endpoints_are_behind_the_feature_flag(self, mock_get):
+        self.api_flag.return_value = False
+        response = self.client.get(self._url("subscription/"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get.assert_not_called()
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_session_callers_are_throttled_too(self, mock_get):
+        mock_get.return_value = _response(SUBSCRIPTION)
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(BillingReadBurstRateThrottle, "rate", "1/minute"),
+        ):
+            first = self.client.get(self._url("subscription/"))
+            second = self.client.get(self._url("subscription/"))
+        self.assertEqual(
+            (first.status_code, second.status_code), (status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS)
+        )
 
     @patch("ee.billing.billing_manager.requests.get")
     def test_subscription_is_reshaped_to_the_public_contract(self, mock_get):
@@ -143,7 +168,29 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertIsNone(rows["events"]["quota_limited_until"])
         self.assertEqual(rows["recordings"]["quota_limited_until"], "2026-10-01T00:00:00Z")
         self.assertEqual(body["usage_reported_through"], "2026-09-14")
-        self.assertEqual(body["products"][0]["usage_ratio"], 0.62)
+        # Today's 120 events are added to the product row, as the root billing read does.
+        self.assertEqual(body["products"][0]["current_usage"], 3120520)
+        self.assertEqual(body["products"][0]["usage_ratio"], 3120520 / 5000000)
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_member_reads_the_usage_status_and_needs_the_read_flag_for_the_counts(self, mock_get):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.usage = {"recordings": {"usage": 15000, "limit": 15000, "quota_limited_until": PERIOD_END}}
+        self.organization.save()
+        response = self.client.get(self._url("usage/"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get.assert_not_called()
+
+        mock_get.return_value = _response(USAGE_STATUS)
+        response = self.client.get(self._url("usage/status/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/usage/status/"))
+        products = {p["key"]: p for p in response.json()["products"]}
+        self.assertEqual(products["session_replay"]["quota_limited_until"], "2026-10-01T00:00:00Z")
+        self.assertTrue(products["session_replay"]["has_exceeded_limit"])
+        self.assertNotIn("current_usage", products["session_replay"])
+        self.assertNotIn("usage_summary", response.json())
 
     @patch("ee.billing.billing_manager.requests.get")
     def test_products_and_one_product(self, mock_get):
@@ -195,6 +242,33 @@ class TestOrganizationBillingAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
+
+USAGE_STATUS: dict[str, Any] = {
+    "status": "ok",
+    "customer_id": 42,
+    "billing_period": USAGE["billing_period"],
+    "usage_reported_through": "2026-09-14",
+    "products": [
+        {
+            "kind": "product",
+            "key": "product_analytics",
+            "usage_key": "events",
+            "usage_limit": 5000000,
+            "has_exceeded_limit": False,
+            "approaching_limit": False,
+            "addons": [],
+        },
+        {
+            "kind": "product",
+            "key": "session_replay",
+            "usage_key": "recordings",
+            "usage_limit": 15000,
+            "has_exceeded_limit": True,
+            "approaching_limit": False,
+            "addons": [],
+        },
+    ],
+}
 
 SPEND: dict[str, Any] = {
     "status": "ok",

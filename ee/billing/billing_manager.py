@@ -782,6 +782,9 @@ class BillingManager:
     def get_public_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._public_get(organization, grants, "usage/")
 
+    def get_public_usage_status(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._public_get(organization, grants, "usage/status/")
+
     def get_public_spend(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._public_get(organization, grants, "spend/")
 

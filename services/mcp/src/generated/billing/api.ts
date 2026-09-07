@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -193,6 +193,20 @@ export const BillingSubscriptionRetrieveParams = () => zod.object({
  * @summary Get usage so far this billing period
  */
 export const BillingUsageSummaryRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * What any member may know about usage: per product and add-on, the limit in effect,
+ * whether usage is over or approaching it, and whether the resource is being limited right
+ * now. The counts themselves are on `usage` and need usage read access.
+ * @summary Get usage against limits, without the counts
+ */
+export const BillingUsageStatusRetrieveParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(

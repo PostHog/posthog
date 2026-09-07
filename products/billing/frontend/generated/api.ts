@@ -34,6 +34,7 @@ import type {
     BillingSubscriptionApi,
     BillingTimeSeriesResponseApi,
     BillingUsageRetrieveParams,
+    BillingUsageStatusApi,
     BillingUsageSummaryApi,
     BillingUsageTimeseriesRetrieveParams,
     PaginatedBillingAlertConfigurationListApi,
@@ -835,6 +836,26 @@ export const billingUsageSummaryRetrieve = async (
     options?: RequestInit
 ): Promise<BillingUsageSummaryApi> => {
     return apiMutator<BillingUsageSummaryApi>(getBillingUsageSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageStatusRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/usage/status/`
+}
+
+/**
+ * What any member may know about usage: per product and add-on, the limit in effect,
+ * whether usage is over or approaching it, and whether the resource is being limited right
+ * now. The counts themselves are on `usage` and need usage read access.
+ * @summary Get usage against limits, without the counts
+ */
+export const billingUsageStatusRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingUsageStatusApi> => {
+    return apiMutator<BillingUsageStatusApi>(getBillingUsageStatusRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })

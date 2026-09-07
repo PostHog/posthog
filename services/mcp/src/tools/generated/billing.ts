@@ -308,6 +308,24 @@ const billingUsageSummaryGet = (): ToolBase<
     },
 })
 
+const BillingUsageStatusGetSchema = () => z.object({})
+
+const billingUsageStatusGet = (): ToolBase<
+    ReturnType<typeof BillingUsageStatusGetSchema>,
+    Schemas.BillingUsageStatus
+> => ({
+    name: 'billing-usage-status-get',
+    schema: BillingUsageStatusGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingUsageStatusGetSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.BillingUsageStatus>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/usage/status/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'billing-features-get': billingFeaturesGet,
     'billing-forecast-get': billingForecastGet,
@@ -320,4 +338,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'billing-subscription-get': billingSubscriptionGet,
     'billing-usage-get': billingUsageGet,
     'billing-usage-summary-get': billingUsageSummaryGet,
+    'billing-usage-status-get': billingUsageStatusGet,
 }

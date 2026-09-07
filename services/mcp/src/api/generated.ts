@@ -14532,6 +14532,44 @@ export namespace Schemas {
       next?: string;
     }
 
+    export interface UsageStatusItem {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      /** @nullable */
+      usage_limit: number | null;
+      has_exceeded_limit: boolean;
+      approaching_limit: boolean;
+      /** @nullable */
+      quota_limited_until: string | null;
+      /** @nullable */
+      quota_limiting_suspended_until: string | null;
+    }
+
+    export interface ProductUsageStatus {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      /** @nullable */
+      usage_limit: number | null;
+      has_exceeded_limit: boolean;
+      approaching_limit: boolean;
+      /** @nullable */
+      quota_limited_until: string | null;
+      /** @nullable */
+      quota_limiting_suspended_until: string | null;
+      addons: UsageStatusItem[];
+    }
+
+    export interface BillingUsageStatus {
+      billing_period: BillingPeriod | null;
+      /** @nullable */
+      usage_reported_through: string | null;
+      products: ProductUsageStatus[];
+    }
+
     export interface UsageKeySummary {
       usage_key: string;
       /** @nullable */

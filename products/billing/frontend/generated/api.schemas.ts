@@ -1129,6 +1129,44 @@ export interface BillingUsageSummaryApi {
     products: ProductUsageApi[]
 }
 
+export interface UsageStatusItemApi {
+    kind: CatalogKindEnumApi
+    key: string
+    /** @nullable */
+    usage_key: string | null
+    /** @nullable */
+    usage_limit: number | null
+    has_exceeded_limit: boolean
+    approaching_limit: boolean
+    /** @nullable */
+    quota_limited_until: string | null
+    /** @nullable */
+    quota_limiting_suspended_until: string | null
+}
+
+export interface ProductUsageStatusApi {
+    kind: CatalogKindEnumApi
+    key: string
+    /** @nullable */
+    usage_key: string | null
+    /** @nullable */
+    usage_limit: number | null
+    has_exceeded_limit: boolean
+    approaching_limit: boolean
+    /** @nullable */
+    quota_limited_until: string | null
+    /** @nullable */
+    quota_limiting_suspended_until: string | null
+    addons: UsageStatusItemApi[]
+}
+
+export interface BillingUsageStatusApi {
+    billing_period: BillingPeriodApi | null
+    /** @nullable */
+    usage_reported_through: string | null
+    products: ProductUsageStatusApi[]
+}
+
 export type BillingSpendRetrieveParams = {
     /**
      * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.

@@ -388,8 +388,24 @@ tools:
         description: >
             Usage so far this billing period: per usage key the usage, the limit in effect, today's usage where PostHog
             tracks it and whether the resource is being limited right now, and per product and add-on the current usage,
-            limit, ratio and over-limit flag. Quantities only, with the date the usage was reported through. Readable by
-            any member. Use it for "am I near my events limit" or "is ingestion being limited"; for amounts call
+            limit, ratio and over-limit flag. Quantities only, with the date the usage was reported through. Needs usage
+            read access; billing-usage-status-get is the member's read. Use it for "how many events have we used"; for amounts call
             billing-overview-get, for history call billing-usage-get.
+        feature_flag: billing-mcp-read-tools
+        url_prefix: /organization/billing/usage
+    billing-usage-status-get:
+        operation: billing_usage_status_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get usage limit status
+        description: >
+            Per product and add-on: the limit in effect, whether usage is over or approaching it, and whether the
+            resource is being limited right now. No counts, so any member can read it. Use it for "am I near my events
+            limit" or "is ingestion being limited"; for the counts call billing-usage-summary-get.
         feature_flag: billing-mcp-read-tools
         url_prefix: /organization/billing/usage

@@ -31,7 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization, OrganizationIntegration, Team, User
-from posthog.permissions import OrganizationMemberPermissions
+from posthog.permissions import OrganizationMemberPermissions, PostHogFeatureFlagPermission
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
 
@@ -50,6 +50,22 @@ class CatalogKind(models.TextChoices):
 
 
 PUBLIC_BILLING_PROVIDER = {"posthog": "stripe", "vercel": "vercel"}
+
+
+def _with_todays_usage(products: list[dict[str, Any]], organization_usage: dict[str, Any]) -> list[dict[str, Any]]:
+    """Product and add-on rows with today's usage added to the count and the ratio, as the root
+    billing read does. Billing's figures stop at the last report; PostHog holds today's."""
+
+    def add(item: dict[str, Any]) -> dict[str, Any]:
+        own = organization_usage.get(item.get("usage_key") or "")
+        todays = own.get("todays_usage") if isinstance(own, dict) else None
+        if not todays:
+            return item
+        current = int(item.get("current_usage") or 0) + int(todays)
+        limit = item.get("usage_limit")
+        return {**item, "current_usage": current, "usage_ratio": current / limit if limit else 0}
+
+    return [{**add(product), "addons": [add(addon) for addon in product.get("addons", [])]} for product in products]
 
 
 def fetch_invoice_document(url: str) -> requests.Response:
@@ -260,6 +276,27 @@ class ProductUsageSerializer(UsageItemSerializer):
     addons = UsageItemSerializer(many=True)
 
 
+class UsageStatusItemSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=CatalogKind.choices)
+    key = serializers.CharField()
+    usage_key = serializers.CharField(allow_null=True)
+    usage_limit = serializers.IntegerField(allow_null=True)
+    has_exceeded_limit = serializers.BooleanField()
+    approaching_limit = serializers.BooleanField()
+    quota_limited_until = serializers.DateTimeField(allow_null=True)
+    quota_limiting_suspended_until = serializers.DateTimeField(allow_null=True)
+
+
+class ProductUsageStatusSerializer(UsageStatusItemSerializer):
+    addons = UsageStatusItemSerializer(many=True)
+
+
+class BillingUsageStatusSerializer(serializers.Serializer):
+    billing_period = BillingPeriodSerializer(allow_null=True)
+    usage_reported_through = serializers.DateField(allow_null=True)
+    products = ProductUsageStatusSerializer(many=True)
+
+
 class BillingUsageSummarySerializer(serializers.Serializer):
     billing_period = BillingPeriodSerializer(allow_null=True)
     usage_reported_through = serializers.DateField(allow_null=True)
@@ -401,6 +438,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "products",
         "product",
         "usage",
+        "usage_status",
         "spend",
         "forecast",
         "usage_timeseries",
@@ -410,7 +448,10 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "limits",
     ]
     scope_object_write_actions: list[str] = []
-    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
+    # The routes are open to any eligible caller once deployed, so they are behind the flag the
+    # MCP billing tools carry, until the API is opened up.
+    posthog_feature_flag = "billing-mcp-read-tools"
+    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, PostHogFeatureFlagPermission]
     throttle_classes = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle]
     # Opt into the generated schema. The MCP scaffolding and generated clients read it from there.
     force_include_in_api_docs = True
@@ -721,6 +762,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.USAGE_READ)
         data = self._manager().get_public_usage(organization, grants)
         organization_usage = organization.usage or {}
         usage_summary = []
@@ -740,6 +782,41 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 "billing_period": _billing_period(data.get("billing_period")),
                 "usage_reported_through": data.get("usage_reported_through"),
                 "usage_summary": usage_summary,
-                "products": data.get("products", []),
+                "products": _with_todays_usage(data.get("products", []), organization_usage),
+            }
+        )
+
+    @extend_schema(
+        operation_id="billing_usage_status_retrieve",
+        summary="Get usage against limits, without the counts",
+        responses={200: OpenApiResponse(response=BillingUsageStatusSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="usage/status")
+    def usage_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """What any member may know about usage: per product and add-on, the limit in effect,
+        whether usage is over or approaching it, and whether the resource is being limited right
+        now. The counts themselves are on `usage` and need usage read access."""
+        organization = self.organization
+        grants = self._grants(request, organization)
+        data = self._manager().get_public_usage_status(organization, grants)
+        organization_usage = organization.usage or {}
+
+        def with_quota_state(item: dict[str, Any]) -> dict[str, Any]:
+            own = organization_usage.get(item.get("usage_key") or "")
+            own = own if isinstance(own, dict) else {}
+            return {
+                **item,
+                "quota_limited_until": _iso(own.get("quota_limited_until")),
+                "quota_limiting_suspended_until": _iso(own.get("quota_limiting_suspended_until")),
+            }
+
+        return Response(
+            {
+                "billing_period": _billing_period(data.get("billing_period")),
+                "usage_reported_through": data.get("usage_reported_through"),
+                "products": [
+                    {**with_quota_state(product), "addons": [with_quota_state(a) for a in product.get("addons", [])]}
+                    for product in data.get("products", [])
+                ],
             }
         )

@@ -63,7 +63,7 @@ test.describe('Organization billing API', () => {
             expect(usage).toHaveProperty('usage_reported_through')
             expect(usage).not.toHaveProperty('customer_id')
 
-            for (const path of ['spend/', 'forecast/', 'limits/']) {
+            for (const path of ['usage/status/', 'spend/', 'forecast/', 'limits/']) {
                 expect((await get(path)).status(), path).toBe(200)
             }
             for (const kind of ['usage', 'spend']) {
@@ -150,13 +150,14 @@ test.describe('Organization billing API', () => {
         test('a member reads what their role and flags allow', async ({ request }) => {
             test.skip(!memberKey, 'needs BILLING_E2E_MEMBER_KEY')
             const get = billing(request, orgId, memberKey)
-            for (const path of ['subscription/', 'features/', 'products/', 'usage/']) {
+            for (const path of ['subscription/', 'features/', 'products/', 'usage/status/']) {
                 expect((await get(path)).status(), path).toBe(200)
             }
             for (const path of ['forecast/', 'invoices/', 'limits/']) {
                 expect((await get(path)).status(), path).toBe(403)
             }
             const withFlag = memberHasReadFlag ? 200 : 403
+            expect((await get('usage/')).status()).toBe(withFlag)
             expect((await get('spend/')).status()).toBe(withFlag)
             expect((await get('usage/timeseries/', SERIES)).status()).toBe(withFlag)
         })
