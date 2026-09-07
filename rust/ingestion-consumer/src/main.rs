@@ -141,7 +141,14 @@ async fn async_main(config: Config) -> Result<()> {
                     204_800.0,
                 ],
             )
-            .expect("consumer_batch_size_kb buckets");
+            .expect("consumer_batch_size_kb buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("ingestion_consumer_key_table_queue_wait_seconds".into()),
+                &[
+                    0.005, 0.025, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
+                ],
+            )
+            .expect("key_table_queue_wait buckets");
 
         // Global default labels (match the Node.js `initializePrometheusLabels`
         // defaults): every metric carries ingestion_pipeline / ingestion_lane so
