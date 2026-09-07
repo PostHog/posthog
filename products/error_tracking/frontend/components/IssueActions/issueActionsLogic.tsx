@@ -350,7 +350,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
 
 const MUTATION_FAILURE_MESSAGES: Record<string, string> = {
     mergeIssues: 'Could not merge these issues.',
-    splitIssues: 'Could not split this issue.',
+    splitIssues: 'Could not unmerge this fingerprint.',
     resolveIssues: 'Could not resolve these issues.',
     suppressIssues: 'Could not suppress these issues.',
     activateIssues: 'Could not activate these issues.',

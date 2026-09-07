@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -62,6 +63,21 @@ describe('issueActionsLogic', () => {
         }).toDispatchActions(['mutationFailure'])
 
         expect(errorToast).toHaveBeenCalledWith('Could not merge these issues. These issues were merged already.')
+    })
+
+    it('reports a failed unmerge once, in the words the fingerprints scene uses', async () => {
+        jest.spyOn(api.errorTracking, 'split').mockRejectedValue(
+            new ApiError('Conflict', 409, undefined, { detail: 'Issue fingerprints changed before merge.' })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.splitIssue('issue-one', [{ fingerprint: 'fingerprint-one' }])
+        }).toDispatchActions(['mutationFailure'])
+
+        expect(errorToast).toHaveBeenCalledTimes(1)
+        expect(errorToast).toHaveBeenCalledWith(
+            'Could not unmerge this fingerprint. Issue fingerprints changed before merge.'
+        )
     })
 
     it('follows the issue the merge wrote into', async () => {

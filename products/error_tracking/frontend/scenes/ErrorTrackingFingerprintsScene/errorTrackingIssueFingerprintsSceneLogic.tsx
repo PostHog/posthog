@@ -345,7 +345,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         },
         mutationFailure: ({ mutationName }) => {
             if (mutationName === 'splitIssues') {
-                lemonToast.error('Failed to unmerge fingerprint')
+                // issueActionsLogic already toasts the reason, so only the reload belongs here.
                 actions.loadIssueFingerprints()
             }
         },
