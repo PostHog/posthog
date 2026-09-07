@@ -62,6 +62,7 @@ import {
 } from "../claude/context-breakdown";
 import {
   classifyAgentError,
+  isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
 } from "../error-classification";
 import { isLocalSkillCommandChunk } from "../local-skill";
@@ -1816,7 +1817,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
             classification,
             result: sanitizeAgentErrorCause(message, classification),
           }),
-          classification !== "upstream_provider_failure",
+          !isRetryableUpstreamErrorClassification(classification),
         );
       }
     }

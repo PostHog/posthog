@@ -70,6 +70,7 @@ import {
   type AgentErrorClassification,
   classifyAgentError,
   isPromptTooLongError,
+  isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
 import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
@@ -155,14 +156,6 @@ const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 
 export const UPSTREAM_PROVIDER_FAILURE_MESSAGE =
   "The upstream AI provider failed to process the request. Please retry the task in a few minutes.";
-
-const upstreamProviderFailureClassifications =
-  new Set<AgentErrorClassification>([
-    "upstream_stream_terminated",
-    "upstream_connection_error",
-    "upstream_timeout",
-    "upstream_provider_failure",
-  ]);
 
 type TurnFailureDisposition =
   | "terminal"
@@ -2243,14 +2236,21 @@ export class AgentServer {
     prompt: ContentBlock[];
     _meta?: Record<string, unknown>;
   }): Promise<PromptResponse> {
+    const originatingSession = this.session;
+    if (
+      !originatingSession ||
+      originatingSession.acpSessionId !== request.sessionId
+    ) {
+      throw new Error("Agent session changed before the turn could be sent");
+    }
     let retries = 0;
     let continueInterruptedTurn = false;
     for (;;) {
-      // Re-read the session on every attempt: it can be torn down or
-      // replaced while the retry delay is pending.
       const session = this.session;
-      if (!session) {
-        throw new Error("Agent session ended before the turn could be sent");
+      if (session !== originatingSession) {
+        throw new Error(
+          "Agent session changed before the turn could be retried",
+        );
       }
       this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
@@ -2270,7 +2270,7 @@ export class AgentServer {
         const { classification, message } =
           this.extractErrorClassification(error);
         if (
-          !upstreamProviderFailureClassifications.has(classification) ||
+          !isRetryableUpstreamErrorClassification(classification) ||
           retries >= MAX_UPSTREAM_TURN_RETRIES
         ) {
           throw error;
@@ -2304,7 +2304,7 @@ export class AgentServer {
     const { classification, message, cause } =
       this.extractErrorClassification(error);
     const isUpstreamFailure =
-      upstreamProviderFailureClassifications.has(classification);
+      isRetryableUpstreamErrorClassification(classification);
     const isTurnWithoutResponse =
       classification === "turn_ended_without_response";
     const displayMessage = isUpstreamFailure

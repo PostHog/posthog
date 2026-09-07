@@ -1608,6 +1608,7 @@ describe("AgentServer HTTP Mode", () => {
       };
       return testServer as unknown as {
         eventStreamSender: { enqueue: ReturnType<typeof vi.fn> };
+        session: unknown;
         promptWithUpstreamRetry(request: {
           sessionId: string;
           prompt: ContentBlock[];
@@ -1649,6 +1650,35 @@ describe("AgentServer HTTP Mode", () => {
                 ?.method === POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
           );
         expect(dispatchEvents).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops a retry after another session replaces its session", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("API Error: Connection error."));
+        const testServer = createRetryTestServer(prompt);
+        const resultPromise = testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        });
+        const assertion = expect(resultPromise).rejects.toThrow(
+          "Agent session changed before the turn could be retried",
+        );
+        await Promise.resolve();
+        testServer.session = {
+          acpSessionId: "acp-2",
+          payload: { run_id: "run-2" },
+          clientConnection: { prompt: vi.fn() },
+        };
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        await assertion;
+        expect(prompt).toHaveBeenCalledOnce();
       } finally {
         vi.useRealTimers();
       }

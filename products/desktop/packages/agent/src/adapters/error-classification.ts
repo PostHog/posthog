@@ -10,6 +10,20 @@ export type AgentErrorClassification =
   | "subscription_usage_limit"
   | "agent_error";
 
+const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
+  new Set<AgentErrorClassification>([
+    "upstream_stream_terminated",
+    "upstream_connection_error",
+    "upstream_timeout",
+    "upstream_provider_failure",
+  ]);
+
+export function isRetryableUpstreamErrorClassification(
+  classification: AgentErrorClassification,
+): boolean {
+  return RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS.has(classification);
+}
+
 const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 // The codex app-server reports a provider HTTP failure as
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.

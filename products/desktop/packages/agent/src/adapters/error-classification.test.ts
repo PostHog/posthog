@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyAgentError,
   isPromptTooLongError,
+  isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
 } from "./error-classification";
 
@@ -64,6 +65,23 @@ describe("classifyAgentError", () => {
     [undefined, "agent_error"],
   ] as const)("classifies %j as %s", (message, expected) => {
     expect(classifyAgentError(message)).toBe(expected);
+  });
+});
+
+describe("isRetryableUpstreamErrorClassification", () => {
+  it.each([
+    ["upstream_stream_terminated", true],
+    ["upstream_connection_error", true],
+    ["upstream_timeout", true],
+    ["upstream_provider_failure", true],
+    ["content_block_rejection", false],
+    ["turn_ended_without_response", false],
+    ["subscription_usage_limit", false],
+    ["agent_error", false],
+  ] as const)("marks %s as retryable: %s", (classification, expected) => {
+    expect(isRetryableUpstreamErrorClassification(classification)).toBe(
+      expected,
+    );
   });
 });
 
