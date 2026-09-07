@@ -1,4 +1,5 @@
 from posthog.hogql import ast
+from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -10,6 +11,19 @@ class _WindowFunctionFinder(TraversingVisitor):
     def visit_window_function(self, node: ast.WindowFunction) -> None:
         self.found = True
         super().visit_window_function(node)
+
+
+class _AggregateFunctionFinder(TraversingVisitor):
+    found: bool = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        pass
+
+    def visit_call(self, node: ast.Call) -> None:
+        if find_hogql_aggregation(node.name):
+            self.found = True
+        else:
+            super().visit_call(node)
 
 
 class TrinoQueryWrapperLowerer(CloningVisitor):
@@ -170,10 +184,12 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
                 if key in projections:
                     name = output_names[projections.index(key)]
                 else:
-                    if node.distinct:
+                    finder = _AggregateFunctionFinder()
+                    finder.visit(unwrapped)
+                    if node.distinct or node.group_by is not None or finder.found:
                         raise TrinoLoweringError(
                             "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
-                            "DISTINCT wrapper ORDER BY expression not present in SELECT",
+                            "DISTINCT or grouped wrapper, or aggregate ORDER BY expression not present in SELECT",
                             order.expr,
                         )
                     name = self._helper_name(node, f"__hogql_order_{len(outer)}")

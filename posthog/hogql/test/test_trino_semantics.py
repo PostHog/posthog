@@ -62,7 +62,7 @@ class TestTrinoSemantics(APIBaseTest):
         sql, node = prepare_and_print_ast(
             parse_select(
                 f"SELECT event, count() AS total FROM events WHERE matchesAction({action.pk}) "
-                "GROUP BY event ORDER BY max(timestamp) DESC LIMIT 1 BY event"
+                "GROUP BY event ORDER BY total DESC LIMIT 1 BY event"
             ),
             context,
             "trino",
@@ -73,7 +73,7 @@ class TestTrinoSemantics(APIBaseTest):
         self.assertIn("checkout completed", context.values.values())
         self.assertIsInstance(node, ast.SelectQuery)
         self.assertIn("GROUP BY 1", sql)
-        self.assertIn('ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC', sql)
+        self.assertIn('ORDER BY "__hogql_trino_source_0"."total" DESC', sql)
 
     def test_cohort_semantics_expand_before_trino_printing(self) -> None:
         cohort = Cohort.objects.create(team=self.team, name="active accounts")

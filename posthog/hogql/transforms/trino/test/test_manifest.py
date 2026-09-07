@@ -35,8 +35,7 @@ def _events() -> TrinoManifestTable:
     "query",
     [
         "SELECT event FROM events WHERE event = {event}",
-        "SELECT event, count() AS total FROM events WHERE event = {event} "
-        "GROUP BY event ORDER BY max(timestamp) DESC LIMIT 1 BY event",
+        "SELECT event FROM events WHERE event = {event} ORDER BY timestamp DESC LIMIT 1 BY event",
     ],
 )
 def test_transpiles_core_table_with_values_without_django_queries(

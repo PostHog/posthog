@@ -172,9 +172,9 @@
     }),
   )
 # ---
-# name: test_wrapper_sort_projections_preserve_output[SELECT user_id, count() AS total FROM users GROUP BY user_id ORDER BY max(created_at) DESC LIMIT 2 BY user_id]
+# name: test_wrapper_sort_projections_preserve_output[SELECT user_id, count() AS total FROM users GROUP BY user_id ORDER BY total DESC LIMIT 2 BY user_id]
   tuple(
-    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."total" FROM (SELECT "users"."user_id" AS "user_id", count(*) AS "total", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY max("users"."created_at") DESC) AS "__hogql_limit_by_row_0", max("users"."created_at") AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1) AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
+    'SELECT "__hogql_trino_source_0"."user_id", "__hogql_trino_source_0"."total" FROM (SELECT "users"."user_id" AS "user_id", count(*) AS "total", row_number() OVER (PARTITION BY "users"."user_id" ORDER BY count(*) DESC) AS "__hogql_limit_by_row_0" FROM "ducklake"."analytics"."users" AS "users" GROUP BY 1) AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."total" DESC',
     dict({
     }),
   )
