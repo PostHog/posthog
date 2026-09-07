@@ -1912,7 +1912,6 @@ class TestCSPMiddleware(APIBaseTest):
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",
-            "frame-ancestors https://posthog.com",
         ]:
             assert directive in enforced
         # Enforcing default-src clamps every fetch directive through the fallback, so the ones the
@@ -1928,6 +1927,24 @@ class TestCSPMiddleware(APIBaseTest):
         assert "nonce-" not in enforced
         # The tight value of each of those directives stays report-only until its reports stop.
         assert "worker-src 'self';" in response["Content-Security-Policy-Report-Only"]
+
+    @parameterized.expand(
+        [
+            # A browser ignores X-Frame-Options once an enforced frame-ancestors is present, so a
+            # value without 'self' takes same-origin framing away from every deployment, and hands
+            # a self-hosted install's framing rights to origins its operator does not control.
+            (
+                "cloud",
+                {"CLOUD_DEPLOYMENT": "EU"},
+                "frame-ancestors 'self' https://posthog.com https://preview.posthog.com https://vercel.com",
+            ),
+            ("self_hosted", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}, "frame-ancestors 'self'"),
+        ]
+    )
+    def test_enforced_frame_ancestors_follows_the_deployment(self, _name, overrides, expected):
+        with override_settings(**overrides):
+            enforced = self._html_response()["Content-Security-Policy"]
+        assert [part for part in enforced.split("; ") if part.startswith("frame-ancestors")] == [expected]
 
     def test_a_policy_the_view_already_set_survives(self):
         # Public surveys, canvas artifacts and message assets sandbox untrusted content with their

@@ -1282,8 +1282,14 @@ class CSPMiddleware:
             # `xframe_options_exempt` marks a response a customer is meant to frame on their own
             # site: a shared dashboard, an embedded insight or a rendered query. Naming
             # frame-ancestors there blocks the embed, like the X-Frame-Options header it lifts.
+            #
+            # Every other page keeps `'self'`, because a browser ignores `X-Frame-Options` once an
+            # enforced `frame-ancestors` is present, and the app already sends SAMEORIGIN. The
+            # PostHog and Vercel origins frame only the deployments PostHog runs, so a self-hosted
+            # install must not grant them the right to frame it.
             if not getattr(response, "xframe_options_exempt", False):
-                enforced_parts.append(f"frame-ancestors {frame_ancestors}")
+                ancestors = f"'self' {frame_ancestors}" if is_cloud() else "'self'"
+                enforced_parts.append(f"frame-ancestors {ancestors}")
             # Views that serve untrusted content, such as public surveys and canvas artifacts, set
             # their own far stricter enforced policy. Replacing it here would unsandbox them.
             response.headers.setdefault("Content-Security-Policy", "; ".join(enforced_parts))
