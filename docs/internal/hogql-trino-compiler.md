@@ -1,12 +1,12 @@
 # HogQL to Trino compilation
 
-The Trino backend compiles a resolved HogQL query into SQL and bound values. It does not connect to Trino or enable HogQL on an existing Query Editor connection.
+The Trino backend compiles a resolved HogQL query into SQL and bound values. The compiler itself does not connect to Trino. A separate adapter integration enables HogQL on Query Editor connections.
 
 ## Release boundary
 
-Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backend. Normal query routing and the raw-only Trino adapter remain unchanged. The compiler and lowering modules load only when a caller selects the Trino dialect.
+Call `prepare_and_print_ast(node, context, "trino")` explicitly for standalone compilation. Query Editor uses the same backend when a selected direct connection advertises the Trino dialect. The compiler and lowering modules load only when a caller selects the Trino dialect.
 
-The returned SQL uses named placeholders, with values stored in `context.values`. `convert_pyformat_placeholders` converts these into positional placeholders and values for a Trino client; calling this helper does not execute SQL.
+The returned SQL uses named placeholders, with values stored in `context.values`. The direct Trino adapter converts them into positional placeholders and submits the ordered values to the Trino client.
 
 The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindings, table locators, modifiers, limits, timezone, and week start. It clones the AST and creates a fresh print context without a team, user, or schema database before final lowering, validation, and printing.
 
@@ -14,7 +14,15 @@ The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindi
 
 Pure transpilation accepts caller-supplied constant values. It rejects unresolved placeholders, action and cohort references, tables absent from the manifest, non-leaf warehouse column types, and invalid or incomplete manifest entries. Callers needing Django-backed semantics must select the explicit expansion mode described below.
 
-Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to separate integration changes. They are not prerequisites for compilation.
+## Query Editor connection integration
+
+The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query calls the same pure transpiler as managed compilation, handing it the connection-scoped database directly. It does not enable Django semantic expansion. Catalog introspection through `system.information_schema` keeps running on the ClickHouse path. Editor validation prints with the same dialect and rejects the same unsupported features, so a query that validates also compiles.
+
+Table and field lookup follow Trino's case-insensitive identifier rules for discovered tables and columns, including table-qualified column references; explicit aliases keep their written case. Printed relations use the connection's catalog, schema, and physical table name. Tables outside the selected connection are absent from the connection-scoped database. Actions, cohorts, saved queries, content-carrying query filters, variables, and Django-only modifiers receive the pure compiler's existing unsupported-feature errors; a content-free filters object and modifiers carried as explicit nulls pass through.
+
+The adapter converts compiler placeholders into positional parameters and never concatenates values into SQL itself. The Trino client submits them through its prepared-statement emulation, which escapes each value into the `EXECUTE` statement text, so values still appear in Trino's query log and UI. Raw SQL requests without bound values still pass through unchanged. Existing source configuration validation, raw read-only checks, timeouts, and row caps remain in place.
+
+The integration does not provision catalogs, alter deployments, or make source-only ClickHouse tables available in Trino.
 
 ## Managed Trino connections
 
@@ -78,6 +86,8 @@ Creating a job through Django admin starts the Temporal workflow after the datab
 Compilation is best effort per view. Unsupported HogQL records a failed result and processing continues. A definition changed after the snapshot records a stale result. The workflow stores generated SQL and named values directly from activities so large SQL strings do not cross the Temporal workflow payload boundary. It never executes the SQL, creates Trino relations, or updates `DataWarehouseSavedQuery.query`.
 
 The result admin can retry selected failed or stale rows. A retry creates a new selected-view job linked to the source job, preserving the original job and results as an immutable audit record.
+
+The data modeling shadow path uses these results as an eligibility gate. It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
 
 ## Validation
 

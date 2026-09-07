@@ -7,12 +7,10 @@ import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
@@ -839,18 +837,16 @@ function EditSubscriptionForm({
                                         )}
 
                                     {subscription.summary_enabled && (
-                                        <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
-                                            <LemonField
-                                                name="summary_prompt_guide"
-                                                label="Context for the AI summary"
-                                                showOptional
-                                            >
-                                                <LemonTextArea
-                                                    placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
-                                                    maxLength={500}
-                                                />
-                                            </LemonField>
-                                        </FlaggedFeature>
+                                        <LemonField
+                                            name="summary_prompt_guide"
+                                            label="Context for the AI summary"
+                                            showOptional
+                                        >
+                                            <LemonTextArea
+                                                placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                                maxLength={500}
+                                            />
+                                        </LemonField>
                                     )}
                                 </>
                             )}

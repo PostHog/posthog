@@ -41,6 +41,22 @@ describe("createPiConversationTranslator", () => {
     });
   });
 
+  it("marks aborted history turns as cancelled", () => {
+    const translator = createPiConversationTranslator();
+
+    translator.translateHistoryMessage({
+      role: "user",
+      content: "Stop this task",
+      timestamp: 5,
+    });
+
+    expect(
+      translator.translateHistoryMessage(assistant([], "aborted", 10)),
+    ).toEqual([
+      { type: "turn_completed", timestamp: 10, stopReason: "cancelled" },
+    ]);
+  });
+
   it("uses message_update deltas without repeating cumulative text at message_end", () => {
     const translator = createPiConversationTranslator();
     const message = assistant([{ type: "text", text: "complete" }]);
@@ -118,11 +134,11 @@ describe("createPiConversationTranslator", () => {
   });
 
   it.each([
-    ["error" as const, 1_000],
-    ["aborted" as const, 1_000],
+    ["error" as const, "error", 1_000],
+    ["aborted" as const, "cancelled", 1_000],
   ])(
     "bills a %s final response but keeps it out of the context reading",
-    (stopReason, expectedContextTokens) => {
+    (stopReason, expectedStopReason, expectedContextTokens) => {
       vi.useFakeTimers();
       vi.setSystemTime(20);
       const translator = createPiConversationTranslator();
@@ -145,15 +161,17 @@ describe("createPiConversationTranslator", () => {
         {
           type: "turn_completed",
           timestamp: 20,
-          stopReason,
+          stopReason: expectedStopReason,
           totalTokens: 1_030,
           usage: {
             inputTokens: 1_030,
             outputTokens: 0,
             cachedReadTokens: 0,
             cachedWriteTokens: 0,
+            thoughtTokens: undefined,
             totalTokens: 1_030,
             contextTokens: expectedContextTokens,
+            contextWindow: undefined,
           },
         },
       ]);
@@ -344,9 +362,12 @@ describe("createPiConversationTranslator", () => {
     ).toEqual([]);
   });
 
-  it.each(["stop", "aborted"] as const)(
-    "completes a %s turn using the settlement time and final stop reason",
-    (stopReason) => {
+  it.each([
+    ["stop", "stop"],
+    ["aborted", "cancelled"],
+  ] as const)(
+    "completes a %s turn using the settlement time and normalized stop reason",
+    (stopReason, expectedStopReason) => {
       vi.useFakeTimers();
       vi.setSystemTime(30);
       const translator = createPiConversationTranslator();
@@ -368,7 +389,11 @@ describe("createPiConversationTranslator", () => {
       translator.translateEvent({ type: "message_end", message: laterMessage });
 
       expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
-        { type: "turn_completed", timestamp: 30, stopReason },
+        {
+          type: "turn_completed",
+          timestamp: 30,
+          stopReason: expectedStopReason,
+        },
       ]);
       vi.useRealTimers();
     },

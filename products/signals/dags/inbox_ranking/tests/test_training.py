@@ -45,8 +45,20 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     capture_training_events,
     examples_events,
     promotion_event,
+    unseen_head_graded_events,
+    unseen_report_graded_events,
+    unseen_score_events,
 )
 from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_auc, train_head
+from products.signals.dags.inbox_ranking.training.unseen import (
+    CANDIDATE_ROLE,
+    graded_rows,
+    head_grades,
+    report_grade_rows,
+    sample_unseen,
+    score_event_rows,
+    unseen_pool,
+)
 
 D0 = datetime.date(2026, 8, 10)
 NOW = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
@@ -445,6 +457,75 @@ def _patch_capture(monkeypatch, *, cloud: bool, debug: bool) -> _FakeClient:
     return client
 
 
+def _scores(report_ids: list[str], **overrides) -> pd.DataFrame:
+    n = len(report_ids)
+    base = {
+        "report_id": report_ids,
+        "team_id": [2] * n,
+        "report_created_at": [pd.Timestamp("2026-08-09T12:00:00Z")] * n,
+        "snapshot_date": [D0] * n,
+        "model_version": ["2026-08-10"] * n,
+        "model_role": [CANDIDATE_ROLE] * n,
+        "feature_schema_version": [1] * n,
+        "head": ["open"] * n,
+        "score": [0.5] * n,
+        "age_hours": [12.0] * n,
+        "label_at_scoring": [False] * n,
+    }
+    base.update(overrides)
+    return pd.DataFrame(base)
+
+
+def test_unseen_pool_excludes_every_report_the_examples_cover():
+    # The pool is the whole point of the unseen read: a report that appears in any example, for any
+    # head, in train or in holdout, is a report the shipped booster was refit on.
+    ids = ["a", "b", "c", "d", "e"]
+    state = _state(ids, signal_count=[3, 3, 3, None, 3])
+    examples = pd.DataFrame({"head": ["open", "action"], "report_id": ["a", "b"]})
+    pool = unseen_pool(state, D0, examples["report_id"])
+    # d carries no signal_count, so build_examples would have skipped it too.
+    assert pool.index.tolist() == ["c", "e"]
+
+
+def test_unseen_sample_is_reproducible_for_a_partition():
+    # A re-run of the partition rewrites the scores object, so the sample must not move: a second
+    # sample would score reports whose outcomes are never graded, and drop ones already promised.
+    pool = _state([f"r{index}" for index in range(50)])
+    first = sample_unseen(pool, "2026-08-10", size=10)
+    second = sample_unseen(pool, "2026-08-10", size=10)
+    assert first.index.tolist() == second.index.tolist()
+    assert len(first) == 10
+    assert sample_unseen(pool, "2026-08-11", size=10).index.tolist() != first.index.tolist()
+
+
+def test_grading_keeps_the_scoring_moment_rows_and_reads_the_outcome_later():
+    # Same rule build_examples applies, so the unseen AUC is comparable to the holdout AUC: the
+    # outcome must not have happened at scoring time, and the cohort is read at the later snapshot.
+    head = HEADS_BY_NAME["open"]
+    scores = _scores(["a", "b", "c", "d", "e"], label_at_scoring=[False, True, False, False, False])
+    labels = _labels(["a", "b", "c", "e"], open_count=[1, 1, 1, 0], impression_unit_count=[1, 1, 0, 1])
+    graded = graded_rows(scores, labels, head).set_index("report_id")
+    # b was already opened when it was scored, c was never impressed, d has no labels row at all.
+    assert graded["in_cohort"].to_dict() == {"a": True, "b": False, "c": False, "d": False, "e": True}
+    assert (graded.loc["a", "outcome"], graded.loc["e", "outcome"]) == (True, False)
+    # An excluded row keeps its score with no outcome, so a calibration read can filter on the flag.
+    assert graded.loc[["b", "c", "d"], "outcome"].isna().all()
+
+
+def test_head_grades_report_counts_and_a_null_auc_on_a_single_class():
+    head = HEADS_BY_NAME["open"]
+    labels = _labels(["a", "e"], open_count=[1, 0])
+    two_classes = graded_rows(_scores(["a", "e"], score=[0.9, 0.1]), labels, head)
+    (grade,) = head_grades(two_classes, head, scoring_partition="2026-08-10")
+    assert (grade.rows, grade.positives, grade.auc, grade.base_rate) == (2, 1, 1.0, 0.5)
+    assert grade.recency_auc == 0.5  # both reports are the same age, so newest-first cannot rank them
+    # A head with rows but one outcome class still reports, so the daily series has no gap.
+    (single_class,) = head_grades(
+        graded_rows(_scores(["e"]), _labels(["e"], open_count=[0]), head), head, scoring_partition="2026-08-10"
+    )
+    assert (single_class.rows, single_class.positives, single_class.auc) == (1, 0, None)
+
+
 @pytest.mark.parametrize(
     "cloud,debug,expected_distinct_id,expected_environment",
     [
@@ -484,6 +565,9 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ],
         "skipped_heads": ["dismiss_wrong"],
     }
+    scores = _scores(["a"], model_version=["2026-08-25"], score=[0.8])
+    graded = graded_rows(scores, _labels(["a"], open_count=[1]), HEADS_BY_NAME["open"])
+    grades = head_grades(graded, HEADS_BY_NAME["open"], scoring_partition="2026-08-22")
     events = [
         *candidate_events(metadata),
         *examples_events(
@@ -501,6 +585,12 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             champion_version="none",
             incumbent_champion_version="none",
             champion_aucs={"open": 0.6},
+        ),
+        *unseen_score_events(run_id="run-1", rows=score_event_rows(scores, _state(["a"]), unseen_pool_size=40)),
+        *unseen_head_graded_events(run_id="run-1", grades=grades),
+        *unseen_report_graded_events(
+            run_id="run-1",
+            rows=report_grade_rows({"open": graded}, horizon_days=3, scoring_partition="2026-08-22"),
         ),
     ]
     client = _patch_capture(monkeypatch, cloud=True, debug=False)
@@ -530,6 +620,37 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "incumbent_champion_version": "none",
         "champion_open_auc_on_this_holdout": 0.6,
     }.items() <= promotion_props.items()
+    # The unseen series is charted next to the holdout series, so it breaks down on the same head
+    # property and carries the model it graded; the p_/outcome_ naming is what a calibration read joins on.
+    scored_props = by_event["inbox_ranking_unseen_report_scored"][0]["properties"]
+    assert {
+        "report_id": "a",
+        "model_role": CANDIDATE_ROLE,
+        "p_open": 0.8,
+        "unseen_pool": 40,
+        "sample_size": 1,
+        "signal_count": 3,
+    }.items() <= scored_props.items()
+    head_graded_props = by_event["inbox_ranking_unseen_head_graded"][0]["properties"]
+    assert {
+        "head": "open",
+        "model_role": CANDIDATE_ROLE,
+        "scoring_partition": "2026-08-22",
+        "horizon_days": 3,
+        "rows": 1,
+        "positives": 1,
+        "auc": None,
+    }.items() <= head_graded_props.items()
+    report_graded_props = by_event["inbox_ranking_unseen_report_graded"][0]["properties"]
+    assert {
+        "report_id": "a",
+        "model_role": CANDIDATE_ROLE,
+        "scoring_partition": "2026-08-22",
+        "horizon_days": 3,
+        "in_cohort_open": True,
+        "outcome_open": True,
+        "p_open": 0.8,
+    }.items() <= report_graded_props.items()
 
 
 @pytest.mark.parametrize(

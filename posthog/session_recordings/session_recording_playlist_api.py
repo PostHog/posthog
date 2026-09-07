@@ -93,6 +93,12 @@ class SessionRecordingPlaylistPagination(LimitOffsetPagination):
     max_limit = PLAYLIST_LIST_MAX_LIMIT
 
 
+# Built-in (synthetic) collections have no DB row and derive their contents per request,
+# so recordings cannot be pinned to them. Guard the write paths with a clear message.
+SYNTHETIC_PLAYLIST_ADD_ERROR = (
+    "This is a built-in collection, so you can't add recordings to it. Create your own collection to save recordings."
+)
+
 DEFAULT_PLAYLIST_ORDER = "-last_modified_at"
 # Orders the list endpoint supports. An unrecognised `order` normalises to the
 # default so the DB slice and the synthetic-rank maths can't disagree on an unknown
@@ -1014,6 +1020,9 @@ class SessionRecordingPlaylistViewSet(
     ) -> response.Response:
         playlist = self.get_object()
 
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError(SYNTHETIC_PLAYLIST_ADD_ERROR)
+
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
             if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
@@ -1054,6 +1063,9 @@ class SessionRecordingPlaylistViewSet(
         **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
+
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError(SYNTHETIC_PLAYLIST_ADD_ERROR)
 
         # Get session_recording_ids from request body
         session_recording_ids = request.data.get("session_recording_ids", [])

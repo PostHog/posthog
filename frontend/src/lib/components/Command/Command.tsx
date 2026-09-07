@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useCallback } from 'react'
 
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { Search } from '../Search/Search'
@@ -24,7 +24,7 @@ export function Command(): JSX.Element {
                 if (openInNewTab) {
                     newInternalTab(item.href)
                 } else {
-                    router.actions.push(item.href)
+                    navigateToHref(item.href)
                 }
             }
         },

@@ -262,8 +262,39 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
 
 // A thrown fetch has no HTTP status, so its message is the raw "Failed to fetch", most often an ad
 // blocker or extension blocking the request. Name that likely cause instead of echoing it.
+// Django REST Framework's placeholder detail for an unhandled 500. It carries no more meaning
+// than the status code itself, so don't let it stand in for a message the source wrote.
+const GENERIC_SERVER_ERROR_DETAIL = 'A server error occurred.'
+
+// A wrong-but-valid JSON file (a client config instead of a service account key, say) parses
+// fine, so the API is left rejecting it by naming its own config fields. Check the keys the
+// source declared while the file is still in hand.
+export function missingUploadedFileKeys(parsed: unknown, keys: '*' | string[]): string[] {
+    if (keys === '*') {
+        return []
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return [...keys]
+    }
+    const record = parsed as Record<string, unknown>
+    return keys.filter((key) => record[key] === undefined || record[key] === null || record[key] === '')
+}
+
+// Carries the failed submit out of the form without the outer handler mistaking it for an API
+// error; the toast has already said what to do, so nothing else reports it.
+export class UnusableUploadedFileError extends Error {
+    constructor(fieldName: string) {
+        super(`Uploaded "${fieldName}" file is missing the keys this source requires`)
+        this.name = 'UnusableUploadedFileError'
+    }
+}
+
+export const WRONG_UPLOADED_FILE_MESSAGE =
+    'This JSON file is missing the fields PostHog needs. Upload the key file exactly as it was generated, without editing its contents.'
+
 export function resolveConnectErrorMessage(e: any): string {
-    const apiMessage = e?.data?.message ?? e?.detail
+    const detail = e?.detail === GENERIC_SERVER_ERROR_DETAIL ? undefined : e?.detail
+    const apiMessage = e?.data?.message ?? detail
     if (apiMessage) {
         return apiMessage
     }
@@ -914,6 +945,7 @@ export interface sourceWizardLogicActions {
             | 'Custom'
             | 'CustomerIO'
             | 'Customerly'
+            | 'Cybersource'
             | 'D2lBrightspace'
             | 'DagsterCloud'
             | 'Databricks'
@@ -1035,6 +1067,7 @@ export interface sourceWizardLogicActions {
             | 'Flowlu'
             | 'Flutterwave'
             | 'FlyIo'
+            | 'Folk'
             | 'Formbricks'
             | 'Fortnox'
             | 'Fourthwall'
@@ -1759,6 +1792,7 @@ export interface sourceWizardLogicActions {
             | 'Tempo'
             | 'TemporalIO'
             | 'TenableVulnerabilityManagement'
+            | 'Tenjin'
             | 'TeraBox'
             | 'Ternary'
             | 'TerraApi'
@@ -3928,14 +3962,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => ({
                             name: n.name,
                             type: n.type,
+                            fileKeys: n.type === 'file-upload' ? n.fileFormat.keys : ([] as string[]),
                         }))
 
                         const fieldPayload: Record<string, any> = {
                             source_type: values.selectedConnector.name,
                         }
 
-                        for (const { name, type } of payloadKeys) {
+                        for (const { name, type, fileKeys } of payloadKeys) {
                             if (type === 'file-upload') {
+                                let parsedFile: unknown
                                 try {
                                     // Assumes we're loading a JSON file
                                     const loadedFile: string = await new Promise((resolve, reject) => {
@@ -3945,13 +3981,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                             reject(fileReader.error ?? new Error(`Failed to read the "${name}" file`))
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
-                                    fieldPayload[name] = JSON.parse(loadedFile)
+                                    parsedFile = JSON.parse(loadedFile)
                                 } catch (e: any) {
                                     posthog.captureException(e)
-                                    return lemonToast.error(
+                                    lemonToast.error(
                                         `The "${name}" file is not valid — it must be a readable JSON file.`
                                     )
+                                    // Returning here would resolve the submit, so the wizard would go
+                                    // on to discover schemas for a source it never updated.
+                                    throw e
                                 }
+                                if (missingUploadedFileKeys(parsedFile, fileKeys).length > 0) {
+                                    lemonToast.error(WRONG_UPLOADED_FILE_MESSAGE)
+                                    throw new UnusableUploadedFileError(name)
+                                }
+                                fieldPayload[name] = parsedFile
                             } else {
                                 fieldPayload[name] = payload['payload'][name]
                             }

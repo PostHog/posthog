@@ -8,7 +8,8 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.schema import ActionsNode, FunnelsQuery, InsightVizNode
+
 from posthog.models import Person, PropertyDefinition
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
@@ -78,29 +79,15 @@ class WebDataGenerator(DataGenerator):
             team=self.team,
             name="Hogflix signup -> watching movie",
             description="Shows a conversion funnel from sign up to watching a movie.",
-            filters={
-                "actions": [
-                    {
-                        "id": homepage.id,
-                        "name": "Hogflix homepage view",
-                        "order": 0,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                    {
-                        "id": user_signed_up.id,
-                        "name": "Hogflix signed up",
-                        "order": 1,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                    {
-                        "id": user_paid.id,
-                        "name": "Hogflix paid",
-                        "order": 2,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                ],
-                "insight": "FUNNELS",
-            },
+            query=InsightVizNode(
+                source=FunnelsQuery(
+                    series=[
+                        ActionsNode(id=homepage.id, name="Hogflix homepage view"),
+                        ActionsNode(id=user_signed_up.id, name="Hogflix signed up"),
+                        ActionsNode(id=user_paid.id, name="Hogflix paid"),
+                    ],
+                )
+            ).model_dump(),
         )
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         dashboard.save()  # to update the insight's filter hash

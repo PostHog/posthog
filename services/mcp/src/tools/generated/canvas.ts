@@ -311,6 +311,45 @@ const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, Schemas.Pag
     },
 })
 
+const CanvasMoveSchema = () => {
+    const CanvasesPartialUpdateBody = orvalSchemas.CanvasesPartialUpdateBody()
+    const CanvasesPartialUpdateParams = orvalSchemas.CanvasesPartialUpdateParams()
+    return CanvasesPartialUpdateParams.omit({ project_id: true })
+        .extend(
+            CanvasesPartialUpdateBody.omit({
+                name: true,
+                context: true,
+                description: true,
+                pinned: true,
+                generation_task_id: true,
+            }).shape
+        )
+        .extend({
+            id: CanvasesPartialUpdateParams.shape['id'].describe('ID of the canvas to move.'),
+            channel_id: CanvasesPartialUpdateBody.shape['channel_id']
+                .unwrap()
+                .describe('ID of the visible destination space.'),
+        })
+}
+
+const canvasMove = (): ToolBase<ReturnType<typeof CanvasMoveSchema>, Schemas.Canvas> => ({
+    name: 'canvas-move',
+    schema: CanvasMoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasMoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.channel_id !== undefined) {
+            body['channel_id'] = params.channel_id
+        }
+        const result = await context.api.request<Schemas.Canvas>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CanvasPromoteCreateSchema = () => {
     const CanvasesPromoteCreateBody = orvalSchemas.CanvasesPromoteCreateBody()
     const CanvasesPromoteCreateParams = orvalSchemas.CanvasesPromoteCreateParams()
@@ -528,6 +567,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-layout-patch': canvasLayoutPatch,
     'canvas-layout-publish': canvasLayoutPublish,
     'canvas-list': canvasList,
+    'canvas-move': canvasMove,
     'canvas-promote-create': canvasPromoteCreate,
     'canvas-publish-create': canvasPublishCreate,
     'canvas-publish-current-version': canvasPublishCurrentVersion,
