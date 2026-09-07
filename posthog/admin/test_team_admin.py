@@ -707,7 +707,7 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         # script, which needs the request in the render context.
         request = self.factory.get(f"/admin/posthog/team/{self.team.pk}/change/")
         request.user = self.user
-        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]
         _attach_messages(request)
         self.admin._current_request = request
 

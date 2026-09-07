@@ -7,6 +7,7 @@ import { RustVmExecutor } from './rust-vm-executor'
 jest.mock('@posthog/hogvm-node', () => ({
     init: jest.fn(),
     executeSync: jest.fn(),
+    executeBatch: jest.fn(),
 }))
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
@@ -133,5 +134,60 @@ describe('RustVmExecutor', () => {
 
         expect(executor.execute(createExampleInvocation(), [])).toBeNull()
         expect(mockHogvmNode.executeSync).not.toHaveBeenCalled()
+    })
+
+    describe('executeBatched', () => {
+        beforeEach(() => {
+            // clearAllMocks doesn't clear implementations: without this, the sync-path
+            // "addon unavailable" test's throwing init would leak into these tests.
+            mockHogvmNode.init.mockImplementation(() => {})
+        })
+
+        it('runs the invocation through executeBatch off the JS thread and maps the result like the sync path', async () => {
+            const invocation = createExampleInvocation({ bytecode: ['_H', 1, 38] })
+            mockHogvmNode.executeBatch.mockResolvedValue([rustResult()])
+
+            const result = await executor.executeBatched(invocation, [])
+
+            expect(mockHogvmNode.executeBatch).toHaveBeenCalledWith(['_H', 1, 38], [invocation.state.globals], {
+                parallel: true,
+                maxSteps: 1_000_000,
+            })
+            expect(result!.finished).toEqual(true)
+            expect(result!.execResult).toEqual({ properties: { a: 1 } })
+            expect(result!.invocation.state.timings).toEqual([{ kind: 'hog', duration_ms: 1.5 }])
+        })
+
+        it('a marshal error means the event never executed, so it alone falls back to the node vm', async () => {
+            mockHogvmNode.executeBatch.mockResolvedValue([
+                rustResult({ result: undefined, error: 'marshal_error:Failed to convert js number' }),
+            ])
+
+            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
+        })
+
+        it('falls back to the node vm on unsupported-program errors, same predicate as the sync path', async () => {
+            mockHogvmNode.executeBatch.mockResolvedValue([
+                rustResult({ result: undefined, error: 'Native call failed: unsupported_ext_fn:geoipLookup' }),
+            ])
+
+            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+        })
+
+        it('falls back to the node vm when the whole batch call rejects', async () => {
+            mockHogvmNode.executeBatch.mockRejectedValue(new Error('native fault'))
+
+            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+        })
+
+        it('falls back to the node vm when the native addon is unavailable, without enqueueing', async () => {
+            mockHogvmNode.init.mockImplementation(() => {
+                throw new Error('addon not built')
+            })
+
+            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+            expect(mockHogvmNode.executeBatch).not.toHaveBeenCalled()
+        })
     })
 })

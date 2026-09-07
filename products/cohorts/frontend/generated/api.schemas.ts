@@ -116,9 +116,10 @@ export interface StaffStuckCohortsResponseApi {
     total_count: number
 }
 
-export type PropertyGroupOperatorApi = (typeof PropertyGroupOperatorApi)[keyof typeof PropertyGroupOperatorApi]
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
 
-export const PropertyGroupOperatorApi = {
+export const PropertyGroupOperatorEnumApi = {
     And: 'AND',
     Or: 'OR',
 } as const
@@ -207,7 +208,7 @@ export interface PersonMetadataFilterApi {
  * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
  */
 export interface CohortFilterGroupApi {
-    type: PropertyGroupOperatorApi
+    type: PropertyGroupOperatorEnumApi
     values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
 }
 

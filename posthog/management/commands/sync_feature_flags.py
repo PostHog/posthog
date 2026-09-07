@@ -5,6 +5,7 @@ from typing import cast
 
 from django.core.management.base import BaseCommand
 
+from posthog.management.desktop_feature_flag_sync import load_desktop_feature_flags
 from posthog.models import Team, User
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -58,6 +59,8 @@ class Command(BaseCommand):
                             pass
                 elif "export const FEATURE_FLAGS" in line:
                     parsing_flags = True
+
+        flags.update(load_desktop_feature_flags())
 
         first_user = cast(User, User.objects.first())
         for team in Team.objects.all():

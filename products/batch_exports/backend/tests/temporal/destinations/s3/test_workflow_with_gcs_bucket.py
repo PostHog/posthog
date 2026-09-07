@@ -55,17 +55,17 @@ async def gcs_batch_export(
     exclude_events,
     temporal_client,
     file_format,
+    gcs_integration,
 ):
     assert bucket_name
     destination_data = {
         "type": "S3Compatible",
+        # Credentials and the endpoint URL come from the integration.
+        "integration_id": gcs_integration.id,
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": s3_key_prefix,
-            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
-            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
-            "endpoint_url": "https://storage.googleapis.com",
             "compression": compression,
             "exclude_events": exclude_events,
             "file_format": file_format,
@@ -132,6 +132,7 @@ async def test_s3_export_workflow_with_gcs_bucket_with_various_file_formats(
         model=model,
         ateam=ateam,
         batch_export_id=str(gcs_batch_export.id),
+        integration_id=gcs_batch_export.destination.integration_id,
         s3_destination_config=gcs_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,

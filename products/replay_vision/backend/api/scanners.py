@@ -2,7 +2,7 @@ import json
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import CharField, Count, F, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
 from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
@@ -63,8 +63,12 @@ from products.replay_vision.backend.api.trigger import (
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
-from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
-from products.replay_vision.backend.digest import provision_scanner_digest
+from products.replay_vision.backend.billing import (
+    observation_credits_case,
+    observation_credits_for_model,
+    projected_monthly_credits,
+)
+from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -124,10 +128,29 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 GOAL_FLOW_FLAG = "vision-goal-based-creation-flow"
 
 
-def _goal_flow_enabled(user: User, team: Team) -> bool:
-    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
-    it returns True for EVERY variant, control included, which would ship the new flow to the
-    experiment's control group."""
+class ScannerCreationMethod(models.TextChoices):
+    """How a person built a scanner in the UI. Reported once at creation, never stored.
+
+    Shares its values with the `creation_method` property on `replay_vision_scanner_creation_started`,
+    which the app sends when the person picks a path. Same words at both ends, so a report can see
+    who switched paths between starting and saving.
+
+    Separate from the creation-flow experiment arm, which says only which flow a person was offered.
+    Someone offered the AI flow can still fill the form by hand, so this is what says what they did.
+    """
+
+    AI = "ai", "AI draft"
+    TEMPLATE = "template", "Template"
+    SCRATCH = "scratch", "From scratch"
+
+
+def _goal_flow_variant(user: User, team: Team) -> str | None:
+    """The user's arm of the creation-flow experiment, or None when the flag is off for them.
+
+    Never sends an exposure event. The frontend already records one when a person opens the editor,
+    which is the point they enter the flow; a second exposure from here would also enroll API-only
+    callers who never see the UI.
+    """
     variant = get_feature_flag_or_none(
         GOAL_FLOW_FLAG,
         str(user.distinct_id),
@@ -135,7 +158,14 @@ def _goal_flow_enabled(user: User, team: Team) -> bool:
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
-    return isinstance(variant, str) and variant != "control"
+    return variant if isinstance(variant, str) else None
+
+
+def _goal_flow_enabled(user: User, team: Team) -> bool:
+    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
+    it returns True for EVERY variant, control included, which would ship the new flow to the
+    experiment's control group."""
+    return (variant := _goal_flow_variant(user, team)) is not None and variant != "control"
 
 
 def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
@@ -321,6 +351,18 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         choices=ScannerType.choices,
         help_text="What the scanner does: monitor, classifier, scorer, or summarizer.",
     )
+    creation_method = serializers.ChoiceField(
+        choices=ScannerCreationMethod.choices,
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "How the creator built this scanner: from an AI draft, from a template, or from scratch. "
+            "Reported to product analytics at creation and not stored on the scanner. Independent of "
+            "any experiment the creator is in, since a person offered the AI flow can still fill the "
+            "form by hand. Ignored on update."
+        ),
+    )
     scanner_config = serializers.JSONField(
         help_text=(
             "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, "
@@ -390,11 +432,22 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         allow_null=True,
         help_text="Latest projected observations/month for this scanner. Null until first computed.",
     )
+    estimated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed "
+            "after a config change or has never run, so the stored number may be stale."
+        ),
+    )
     credits_per_observation = serializers.SerializerMethodField(
         help_text="Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`.",
     )
     estimated_monthly_credits = serializers.SerializerMethodField(
-        help_text="`estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.",
+        help_text=(
+            "`estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one "
+            "is set. Null until the estimate is first computed."
+        ),
     )
     credits_this_month = serializers.SerializerMethodField(
         help_text=(
@@ -455,6 +508,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "description",
             "tags",
             "scanner_type",
+            "creation_method",
             "scanner_config",
             "query",
             "sampling_rate",
@@ -467,6 +521,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "experiment_targeting",
             "scanner_version",
             "estimated_monthly_observations",
+            "estimated_at",
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
@@ -484,6 +539,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "id",
             "scanner_version",
             "estimated_monthly_observations",
+            "estimated_at",
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
@@ -504,9 +560,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
-        if scanner.estimated_monthly_observations is None:
-            return None
-        return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
+        return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
     def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
         root = self.root
@@ -684,10 +738,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         user = acting_user(self.context)
         if not team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(
-                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
+                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner.",
+                code=AI_CONSENT_REQUIRED_CODE,
             )
         # Tags become TaggedItem rows below, not a scanner column.
         tags = validated_data.pop("tags", None)
+        # Telemetry only, so it must not reach the model constructor.
+        creation_method = validated_data.pop("creation_method", None)
         # One transaction so a failed tag write can't leave an untagged scanner behind. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -697,12 +754,19 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 self._reraise_unique_name_violation(e)
             self._attempt_set_tags(tags, scanner)
         _refresh_estimate_fail_soft(scanner)
-        # Every scanner starts with a built-in featured digest so the overview has a summary to show.
-        provision_scanner_digest(scanner, user)
         report_user_action(
             user,
             "replay_vision_scanner_created",
-            _scanner_lifecycle_properties(scanner),
+            # Two different questions ride this event. `creation_flow_variant` is the experiment arm,
+            # read from the flag, so it carries intent to treat and keeps the arms comparable: someone
+            # offered the AI flow counts as treated even when they ignore it. `creation_method` is what
+            # the person actually did, which is what says whether AI-built scanners turn out better.
+            # None when the caller is not the app, since only the UI knows how the form was filled.
+            {
+                **_scanner_lifecycle_properties(scanner),
+                "creation_flow_variant": _goal_flow_variant(user, team),
+                "creation_method": creation_method,
+            },
             team=team,
             request=self.context.get("request"),
         )
@@ -712,6 +776,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # Tags are not a scanner column: keep them out of the before/after getattr diff below.
         # The mixin's update (reached via super()) persists them as TaggedItem rows.
         tags = validated_data.pop("tags", None)
+        # A scanner is built once, so this says nothing about an edit. Dropped here because the UI
+        # PATCHes the whole form back and would otherwise send it into the getattr diff below.
+        validated_data.pop("creation_method", None)
         # Compared as tagify()d names, since that is what set_tags_on_object stores.
         tags_changed = tags is not None and {tagify(t) for t in tags} != set(
             instance.tagged_items.values_list("tag__name", flat=True)
@@ -1091,8 +1158,8 @@ class EstimateRequestSerializer(serializers.Serializer):
             required=False,
             help_text=(
                 "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate "
-                "against all recordings."
+                "ignored — the estimate scans a recent window (`window_days` in the response) and "
+                "scales it to 30 days. Omit to estimate against all recordings."
             ),
         )
     )
@@ -1189,18 +1256,20 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
-            "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
-            "filter but before random sampling."
+            "Distinct sessions matching the query within the scanned window (`window_days`), after the "
+            "sampling_mode quality filter but before random sampling."
         ),
     )
     window_days = serializers.IntegerField(
         help_text=(
-            "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
+            "Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's "
+            "operand rules out sampling); smaller when the team has fewer days of recordings."
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(
         help_text=(
-            "Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate."
+            "Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, "
+            "times sampling_rate."
         ),
     )
     credits_per_observation = serializers.IntegerField(
@@ -2213,9 +2282,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "goal_flow": goal_flow,
             "monthly_credit_budget": monthly_credit_budget,
         }
-        # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
-        # receive its content through the draft either.
-        include_business_context = get_authenticator_scopes(request.successful_authenticator) is None
+        # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
+        # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
+        # actions) is gated per resource against these scopes inside the drafter.
+        allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
+        include_business_context = allowed_scopes is None
 
         try:
             if goal_flow:
@@ -2226,6 +2297,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     monthly_credit_budget=cast(int, monthly_credit_budget),
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
+                    allowed_scopes=allowed_scopes,
                 )
             else:
                 drafted = draft_scanner_from_goal(
@@ -2235,12 +2307,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
                 )
-        except DraftError:
+        except DraftError as e:
+            # The 503 below is deliberately uniform, so the reason only survives here.
+            logger.warning(
+                "replay_vision.scanner_draft.failed",
+                team_id=self.team_id,
+                reason=e.reason,
+                goal_flow=goal_flow,
+            )
             # Report failures too, so model errors don't read as user abandonment.
             report_user_action(
                 cast(User, request.user),
                 "replay_vision_scanner_drafted",
-                {**draft_properties, "success": False},
+                {**draft_properties, "success": False, "failure_reason": e.reason},
                 team=self.team,
                 request=request,
             )

@@ -30,6 +30,7 @@ from products.conversations.backend.models import (
     EmailChannelKind,
     EmailChannelSetup,
     EmailChannelSetupProvider,
+    EmailMessageMapping,
     EmailOutboxMessage,
 )
 from products.conversations.backend.models.ticket import Ticket
@@ -764,6 +765,23 @@ class TestEmailMultiConfig(BaseTest):
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
+    def test_support_channel_rejects_shared_provider_domain(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@gmail.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "gmail.com" in response.json()["error"]
+        mock_mailgun.assert_not_called()
+        assert not EmailChannel.objects.filter(team=self.team).exists()
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
     def test_same_domain_skips_mailgun_add(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
@@ -942,10 +960,15 @@ class TestEmailMultiConfig(BaseTest):
         # Domain NOT deleted from Mailgun since billing@ still uses it
         mock_delete.assert_not_called()
 
+    @patch("products.conversations.backend.api.email_settings.logger.info")
     @patch("products.conversations.backend.api.email_settings.mailgun_get_domain", return_value=None)
     @patch(
         "products.conversations.backend.api.email_settings.mailgun_add_domain",
-        side_effect=MailgunDomainConflict("Domain example.com is already registered by another Mailgun account"),
+        side_effect=MailgunDomainConflict(
+            "Domain example.com already exists",
+            provider_message="domain example.com already exists",
+            status_code=400,
+        ),
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch(
@@ -958,6 +981,7 @@ class TestEmailMultiConfig(BaseTest):
         mock_mailgun_delete: MagicMock,
         _mock_mailgun_add: MagicMock,
         _mock_get_domain: MagicMock,
+        mock_logger_info: MagicMock,
     ):
         response = self.client.post(
             "/api/conversations/v1/email/connect",
@@ -965,9 +989,22 @@ class TestEmailMultiConfig(BaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 409
+        assert response.json()["error"] == (
+            "example.com is already registered with another Mailgun account. If that registration is no longer "
+            "needed, remove it and try again. If you cannot find it, contact Mailgun support."
+        )
         assert EmailChannel.objects.filter(team=self.team).count() == 0
         mock_mailgun_delete.assert_not_called()
+        mock_logger_info.assert_called_once_with(
+            "email_connect_mailgun_domain_conflict",
+            team_id=self.team.id,
+            domain="example.com",
+            error="Domain example.com already exists",
+            mailgun_status=400,
+            mailgun_message="domain example.com already exists",
+            conflict_reason="registered_to_another_account",
+        )
 
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
@@ -977,8 +1014,8 @@ class TestEmailMultiConfig(BaseTest):
         [
             ("already_unverified", "unverified", "unverified", 200),
             ("stale_active_reverifies_unverified", "active", "unverified", 200),
-            ("still_active_after_reverify", "active", "active", 400),
-            ("disabled", "disabled", "disabled", 400),
+            ("still_active_after_reverify", "active", "active", 409),
+            ("disabled", "disabled", "disabled", 409),
         ]
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_verify_domain")
@@ -1018,7 +1055,7 @@ class TestEmailMultiConfig(BaseTest):
             assert config.dns_records == fresh_records
             mock_delete.assert_called_once_with("example.com")
         else:
-            assert "cannot be registered" in response.json()["error"]
+            assert "already registered with Mailgun" in response.json()["error"]
             assert not EmailChannel.objects.filter(team=self.team).exists()
             mock_delete.assert_not_called()
 
@@ -1046,8 +1083,8 @@ class TestEmailMultiConfig(BaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == 400
-        assert "cannot be registered" in response.json()["error"]
+        assert response.status_code == 502
+        assert "could not check the existing Mailgun registration" in response.json()["error"]
         assert EmailChannel.objects.filter(team=self.team).count() == 0
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
@@ -1664,7 +1701,12 @@ class TestEmailInboundContent(BaseTest):
         assert response.status_code == 200
 
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        mapping = EmailMessageMapping.objects.get(comment=comment)
+        item_context = comment.item_context
+        assert item_context is not None
         assert comment.content == expected_content
+        assert item_context["has_full_email_content"] is False
+        assert mapping.full_body_plain is None
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_reply_strips_quoted_thread(self, _mock_sig: MagicMock):
@@ -1691,6 +1733,75 @@ class TestEmailInboundContent(BaseTest):
 
         reply = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
         assert reply.content == "Thanks, that worked"
+
+    @parameterized.expand(
+        [
+            (
+                "different_content",
+                "I added the details below.\n\nUnsubscribe from this list.",
+                "I added the details below.\n\nStep 1: open the report.\nStep 2: run it again."
+                "\n\nOn Mon, Support wrote:\n> Initial question",
+                (
+                    "<p>I added the details below.</p>"
+                    '<p>Step 1: open <a href="https://example.com/report">the report</a>.</p>'
+                    "<p>Step 2: run it again.</p>"
+                    "<blockquote>On Mon, Support wrote: Initial question</blockquote>"
+                ),
+                "I added the details below.\n\nStep 1: open [the report](https://example.com/report)."
+                "\nStep 2: run it again.\n\nOn Mon, Support wrote:\n> Initial question",
+            ),
+            ("line_endings_only", "Same reply\nSame details", "Same reply\r\nSame details", "", None),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_reply_full_body_preservation(
+        self,
+        _name: str,
+        stripped_text: str,
+        full_body_plain: str,
+        body_html: str,
+        expected_full_body: str | None,
+        _mock_sig: MagicMock,
+    ) -> None:
+        base = {
+            "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
+            "from": "customer@example.com",
+            "subject": "Help",
+        }
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {**base, "Message-Id": "<full-body-init@example.com>", "stripped-text": "Initial question"},
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                **base,
+                "Message-Id": f"<full-body-reply-{_name}@example.com>",
+                "In-Reply-To": "<full-body-init@example.com>",
+                "stripped-text": stripped_text,
+                "body-plain": full_body_plain,
+                "body-html": body_html,
+            },
+        )
+        assert response.status_code == 200
+
+        ticket = Ticket.objects.get(team=self.team)
+        reply = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
+        mapping = EmailMessageMapping.objects.get(comment=reply)
+        item_context = reply.item_context
+        assert item_context is not None
+        assert reply.content == stripped_text
+        assert item_context["has_full_email_content"] is (expected_full_body is not None)
+        assert mapping.full_body_plain == expected_full_body
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/messages/{reply.id}/full_email/"
+        )
+        assert response.status_code == (200 if expected_full_body is not None else 404)
+        if expected_full_body is not None:
+            assert response.json() == {"content": expected_full_body}
 
 
 class TestSendEmailReplyMultiConfig(BaseTest):
