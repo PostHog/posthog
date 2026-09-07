@@ -116,6 +116,11 @@ class TestValidateSuggestionItems(SimpleTestCase):
             ("interval_below_floor", _item(proposed_config={"run_interval_minutes": 5})),
             ("blank_title", _item(title="  ")),
             ("custom_reuses_a_stored_skill_name", _custom(skill_name="signals-scout-disabled-custom")),
+            # Reserved by the inbox, which reads them as sub-pages of `/inbox/scouts/`. They pass
+            # the generic skill-name contract, so only the scout-specific rule drops them.
+            ("custom_reserved_scratchpad", _custom(skill_name="scratchpad")),
+            ("custom_reserved_findings", _custom(skill_name="findings")),
+            ("custom_reserved_runs", _custom(skill_name="runs")),
         ]
     )
     def test_drops_items_create_could_not_apply(self, _name, item):

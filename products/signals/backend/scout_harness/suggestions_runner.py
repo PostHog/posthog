@@ -28,6 +28,7 @@ from products.signals.backend.scout_harness.config_registry import (
     MIN_RUN_INTERVAL_MINUTES,
     cron_schedule_error,
 )
+from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.suggestions import (
     MAX_DESCRIPTION_CHARS,
     MAX_DRAFT_BODY_CHARS,
@@ -65,7 +66,9 @@ def _valid_custom_name(name: str) -> bool:
         validate_skill_name_value(name)
     except serializers.ValidationError:
         return False
-    return True
+    # The inbox-reserved names clear the generic contract but the create serializer refuses them,
+    # so a draft under one would fail on the click this validation exists to protect.
+    return reserved_scout_name_error(name) is None
 
 
 def validate_suggestion_items(
