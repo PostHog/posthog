@@ -38,4 +38,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
+rstest = "0.26"
 uuid = { workspace = true }
