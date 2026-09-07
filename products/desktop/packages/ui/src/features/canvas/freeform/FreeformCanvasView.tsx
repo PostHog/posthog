@@ -140,11 +140,6 @@ const AGENT_REQUEST_OUTCOME_TOASTS: Record<
   reported: "Request sent to the canvas creator",
 };
 
-// Badge tone for a draft's latest build status: ready is good, failed is bad,
-// in-flight is cautionary, and no build yet is neutral.
-// "Published by Ada · 2h ago" — who made a version live and when. A version
-// published by a run without a signed-in user (or before attribution existed)
-// still gets its age.
 function describeCanvasVersion(version: CanvasVersion): string {
   const age = formatRelativeAge(version.createdAt);
   return version.createdBy
@@ -214,12 +209,10 @@ export function FreeformCanvasView({
   const channelId = dashboard?.channelId ?? "";
 
   useEffect(() => {
-    if (genTaskId) setStartedTaskId(null);
-  }, [genTaskId]);
+    if (genTaskId === startedTaskId) setStartedTaskId(null);
+  }, [genTaskId, startedTaskId]);
 
-  // The run whose chat the panel shows: the record's id, or the optimistic
-  // bridge until the poll catches up.
-  const effectiveTaskId = genTaskId ?? startedTaskId;
+  const effectiveTaskId = startedTaskId ?? genTaskId;
 
   const { channels } = useChannels();
   const channelName = useMemo(
@@ -251,7 +244,7 @@ export function FreeformCanvasView({
   // Whether the agent is actively producing the canvas right now. Drives the
   // "Generating…" UI (notice, composer, undo/redo). Shares the tested helper
   // with the completion-toast watcher so both read the same signal. Keys off
-  // effectiveTaskId (genTaskId ?? startedTaskId), matching isSyncing above.
+  // effectiveTaskId, matching isSyncing above.
   const isGenerating = isCanvasGenerating({
     genTaskId: effectiveTaskId,
     genTaskLoading,
@@ -262,7 +255,7 @@ export function FreeformCanvasView({
   // The record keeps a finished run's id (comments hang off it), but its chat
   // is not reopened, so every visit starts a fresh run from the composer.
   const chatTaskId =
-    startedTaskId ?? (isSyncing && !genTaskLoading ? genTaskId : null);
+    startedTaskId ?? (isGenerating && !genTaskLoading ? genTaskId : null);
 
   // Poll the record while the session is alive so a just-published head version
   // appears (the publish lands while the prompt is still pending).
@@ -1086,15 +1079,14 @@ export function FreeformCanvasView({
                     </Text>
                   </Flex>
                   <Flex align="center" gap="2">
-                    {browsedVersion?.taskId && channelId && (
+                    {browsedVersion?.taskId && (
                       <Button
                         variant="link-muted"
                         size="sm"
                         render={
                           <Link
-                            to="/spaces/$channelId/tasks/$taskId"
+                            to="/tasks/$taskId"
                             params={{
-                              channelId,
                               taskId: browsedVersion.taskId,
                             }}
                           />

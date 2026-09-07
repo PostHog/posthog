@@ -544,6 +544,15 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert version.created_by_id == self.user.id
         assert version.task_id == bound_task.id
 
+        rebuild_response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/publish-current-version/",
+            {"expected_current_version_id": str(version.id)},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+        assert rebuild_response.status_code == status.HTTP_200_OK, rebuild_response.json()
+        assert rebuild_response.json()["source_version_id"] == str(version.id)
+
     def test_personal_space_sandbox_can_read_authenticated_users_canvas(self):
         with team_scope(self.team.id):
             personal_channel = Channel.objects.create(
@@ -730,14 +739,42 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert body["current_version_id"] == version_id
         assert body["project"]["files"]["src/extra.ts"] == "export const x = 1"
 
-    def test_public_members_can_edit_and_publish_but_not_rename(self):
+    @parameterized.expand([("member", False), ("sandbox", True)])
+    def test_public_members_can_edit_and_publish_but_not_rename(self, _name: str, sandbox: bool) -> None:
         canvas_id = self._create_canvas()
         first = self._publish(canvas_id, expected_current_version_id=None)
         assert first.status_code == status.HTTP_200_OK
         version_id = first.json()["current_version_id"]
         other_user = self._create_user("canvas-member@example.com")
-        self.client.force_login(other_user)
+        if sandbox:
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=other_user,
+                title="Canvas edit",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            self.client = self._sandbox_client(task.id, user=other_user)
+            self.client.defaults["HTTP_X_POSTHOG_TASK_ID"] = str(task.id)
+        else:
+            self.client.force_login(other_user)
         base = f"/api/projects/{self.team.id}/canvases/{canvas_id}"
+
+        for action, payload in [
+            ("publish", {"project": self._project()}),
+            ("edit", {"operations": [{"path": "src/canvas.tsx", "content": "export default () => 1"}]}),
+        ]:
+            with self.subTest(action=action):
+                rename = self.client.post(
+                    f"{base}/{action}/",
+                    {**payload, "name": "Changed", "expected_current_version_id": version_id},
+                    format="json",
+                )
+                assert rename.status_code == status.HTTP_403_FORBIDDEN, rename.json()
+                canvas = Canvas.objects.unscoped().get(id=canvas_id)
+                assert canvas.name == "My canvas"
+                assert str(canvas.current_source_version_id) == version_id
+                assert CanvasSourceVersion.objects.for_team(self.team.id).filter(canvas_id=canvas_id).count() == 1
 
         metadata_edit = self.client.patch(f"{base}/", {"name": "Changed"}, format="json")
         source_edit = self.client.post(

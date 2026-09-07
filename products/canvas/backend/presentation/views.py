@@ -352,6 +352,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     _EDITOR_ACTIONS = {
         "partial_update",
         "publish",
+        "publish_current_version",
         "edit",
         "draft",
         "promote",
@@ -685,6 +686,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         request=CanvasSourcePublishSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
+            403: OpenApiResponse(description="Only the canvas creator can supply a name when publishing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="The source project failed validation.",
@@ -725,6 +727,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         request=CanvasSourceEditSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
+            403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="An edit targeted a missing file, or the edited project failed validation.",
@@ -792,11 +795,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         has_expected_version: bool,
         expected_version_id: str | None,
     ) -> Response:
+        user = self._request_user()
+        if name is not None and (user is None or canvas.created_by_id != user.id):
+            raise PermissionDenied("Only the canvas creator can rename it.")
+
         diagnostics = validate_source_project(project, kind=canvas.kind)
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
 
-        user = self._request_user()
         task_id = self._sandbox_task_id(request)
         try:
             canvas, version, _build, first_publish = build_service.publish_source_project(
