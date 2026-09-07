@@ -43,6 +43,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
+import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -1829,8 +1830,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (values.indexReportStale) {
                     return
                 }
-                const start = model.getPositionAt(quickfix.start + values.activeQueryOffset)
-                const end = model.getPositionAt(quickfix.end + values.activeQueryOffset)
+                // The offsets count characters; Monaco counts UTF-16 units. Convert against the
+                // analyzed statement before adding its offset, which the editor already measures
+                // in Monaco's units.
+                const analyzed = values.activeQueryText ?? (values.suggestedQueryInput || values.queryInput) ?? ''
+                const start = model.getPositionAt(
+                    characterOffsetToUtf16(analyzed, quickfix.start) + values.activeQueryOffset
+                )
+                const end = model.getPositionAt(
+                    characterOffsetToUtf16(analyzed, quickfix.end) + values.activeQueryOffset
+                )
                 editor.executeEdits('index-quickfix', [
                     {
                         range: {
