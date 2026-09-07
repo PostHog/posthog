@@ -35,6 +35,7 @@ export const Single: Story = {
 
 export const WaitingForApproval: Story = {
     args: { messages: [{ id: '1', content: 'Also break it down by browser' }], steerPending: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const Multiple: Story = {
