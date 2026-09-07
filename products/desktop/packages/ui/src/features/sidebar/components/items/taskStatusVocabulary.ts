@@ -82,11 +82,7 @@ export interface TaskDot {
   style: "solid" | "hollow";
   /** Flashing = happening now, or wanting you now. */
   pulse: boolean;
-  /**
-   * Draw as the braille dots spinner instead of one dot — still dot-shaped, so
-   * it stays in the dot column's vocabulary, but the motion is a *cycle* rather
-   * than a blink, which is the honest shape for "output is arriving".
-   */
+  /** Draw a standard spinner instead of a status dot. */
   spinner?: boolean;
   /**
    * Draw the dot barely there. For states that are deliberately inert — the task
@@ -101,23 +97,34 @@ export interface TaskDot {
  * State → dot. Three things only: blue wants a decision from you, the brand
  * yellow is working or unread, grey is quiet.
  *
- * Run mechanics are deliberately absent. A cloud run is magic from the outside —
- * queued, claiming a sandbox, retrying, and erroring out are our problems, not
- * the reader's, and a list that reports them turns every infrastructure hiccup
- * into a red mark on the reader's work. So a failed run is not a state here: what
- * the reader actually gets is output they haven't seen, which is `isUnread`, and
- * the run's real story lives in the task detail where there's room to tell it.
+ * Recoverable run mechanics stay behind one loading state. A failed run uses a
+ * red mark because the loading spinner must end with a clear result.
  *
- * A cloud run's queued is folded into working for the same reason. "Waiting on a
- * sandbox" and "a sandbox is writing code" are one fact to the reader, that it's
- * under way, so they share the spinner. A local run at `queued`, or any run at
- * `in_progress` with nothing streaming, is not a live signal by itself: those
- * persisted states can outlive the work, so neither earns an attention dot.
+ * A cloud run's queued state shows the same loading spinner as other startup
+ * states. A local run at `queued`, or any run at `in_progress` with nothing
+ * streaming, is not a live signal by itself because those states can outlive
+ * the work.
  *
  * A run that has already opened a PR follows the same rule. The PR badge carries
- * that story; only a visibly starting or streaming run lights the dot.
+ * that story; only a visibly loading or streaming run lights the dot.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
+  // Cloud `queued` is a sandbox being claimed, and the backend leaves that
+  // state by itself. A local run can remain `queued` after the agent finishes.
+  const isLoadingCloudRun =
+    props.taskRunStatus === "queued" &&
+    props.workspaceMode === "cloud" &&
+    !props.isGenerating;
+  const isLoading = props.isAgentSessionStarting || isLoadingCloudRun;
+  if (isLoading) {
+    return {
+      tone: "yellow",
+      style: "solid",
+      pulse: false,
+      spinner: true,
+      label: "Loading",
+    };
+  }
   if (props.needsPermission) {
     // Not flashing. Blue already reads as the one thing in the list that is
     // yours to answer, and a blink on top of that argues with every quiet row
@@ -133,21 +140,21 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: "Needs your input",
     };
   }
-  // Spinning means something is moving on its own: a prompt in flight, or a
-  // cloud run still coming up. Cloud `queued` is a sandbox being claimed, and
-  // the backend leaves that state by itself, so the motion is bounded. A local
-  // run at `queued` is not a launch: nothing advances a local run's persisted
-  // status, so it can sit there for hours after the agent is done with it.
-  const isStartingCloudRun =
-    props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
-  const isStarting = props.isAgentSessionStarting || isStartingCloudRun;
-  if (props.isGenerating || isStarting) {
+  if (props.taskRunStatus === "failed" && !props.isGenerating) {
+    return {
+      tone: "red",
+      style: "solid",
+      pulse: false,
+      label: "Failed",
+    };
+  }
+  if (props.isGenerating) {
     return {
       tone: "yellow",
       style: "solid",
       pulse: false,
       spinner: true,
-      label: props.isGenerating && !isStarting ? "Working" : "Starting",
+      label: "Working",
     };
   }
   if (props.isUnread) {
