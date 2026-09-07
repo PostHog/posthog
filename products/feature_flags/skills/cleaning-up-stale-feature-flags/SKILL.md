@@ -81,7 +81,13 @@ One shape is missing from that list: a flag with no release conditions that was 
 The server filter matches an empty `filters` only as null or `{}`, not as the `{"groups": []}` default.
 When the user names such a flag, look it up by key rather than reporting it as not stale.
 
-For each candidate, gather context before recommending action:
+Narrow the list before you assess it: each candidate below costs three requests,
+and the dependents read scans every active flag in the team.
+Drop what the list already rules out, such as a recent `updated_at` or a key that reads as a kill switch,
+then assess the most promising handful rather than a whole page.
+Assess those in full, because the exclusions below need both the definition and the dependents.
+
+For each candidate you assess, gather context before recommending action:
 
 - **`posthog:feature-flags-status-retrieve`** returns the status, a human-readable `reason` for it,
   and a `rollout` object summarizing the configuration
@@ -262,7 +268,7 @@ User: "Clean up our stale feature flags."
 
 Agent steps:
 - Call posthog:feature-flag-get-all with active: "STALE"
-- For each stale flag, call posthog:feature-flags-status-retrieve and
+- For the most promising candidates, call posthog:feature-flags-status-retrieve and
   posthog:feature-flag-get-definition; check dependents
 - Present findings:
 
