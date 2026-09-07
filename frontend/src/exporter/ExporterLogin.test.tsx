@@ -61,6 +61,27 @@ describe('loginLogic', () => {
         expect(document.documentElement.classList.contains('export-type-embed')).toBe(true)
     })
 
+    it('still unlocks when the server class value carries more than one class', async () => {
+        // The public `force_type` param feeds rootClassName unvalidated, so it can hold whitespace
+        mockUnlock({
+            ok: true,
+            json: async () => ({ type: ExportType.Embed, rootClassName: 'export-type-embed extra' }),
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setLoginValue('password', 'correct')
+            logic.actions.submitLogin()
+        }).toFinishAllListeners()
+
+        expectLogic(logic).toMatchValues({
+            unlockedData: { type: ExportType.Embed, rootClassName: 'export-type-embed extra', shareToken: 'jwt-token' },
+            isSuccess: true,
+        })
+
+        expect(document.documentElement.classList.contains('export-type-embed')).toBe(true)
+        expect(document.documentElement.classList.contains('extra')).toBe(true)
+    })
+
     it('reports an error when the share does not load after the password is accepted', async () => {
         mockUnlock({ ok: true, json: async () => ({ type: ExportType.Unlock }) })
 

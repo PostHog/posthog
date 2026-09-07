@@ -124,7 +124,9 @@ async function fetchUnlockedData(shareToken: string): Promise<ExportedData | nul
         return null
     }
     if (exportedData.rootClassName) {
-        document.documentElement.classList.add(exportedData.rootClassName)
+        // Appended the same way the server-rendered page does it (see index.html). The public
+        // `force_type` param feeds this value unvalidated, and `classList.add` throws on whitespace.
+        document.documentElement.className += ` ${exportedData.rootClassName}`
     }
     return { ...exportedData, shareToken }
 }
