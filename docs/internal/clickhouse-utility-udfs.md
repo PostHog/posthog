@@ -73,6 +73,8 @@ Documents exceeding the shared depth limit produce `{}` in the temporary output;
 Native events retain `temporary_properties` for 60 days after insertion, including historical events; TTL merges clear the column asynchronously.
 Fresh installations use the updated schema definitions. Existing tables require a manual schema rollout and feature-flag query compatibility before native reads are enabled.
 
+Native-event queries derive `$active_feature_flags` from the `$feature_flags` map, excluding empty and `false` values and restricted flags. Array order follows the stored map rather than the original SDK evaluation order. No separate active-flags column is required.
+
 ### Benchmarking the cleaner
 
 `BenchmarkProcessFixture` measures cleaning with a reused processor and output buffer.
