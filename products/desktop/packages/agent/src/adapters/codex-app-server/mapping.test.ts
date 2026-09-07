@@ -288,6 +288,7 @@ describe("mapAppServerNotification", () => {
         sessionUpdate: "tool_call_update",
         toolCallId: "spawn-1",
         status: "completed",
+        _meta: { posthog: { toolName: "spawn_agent" } },
       },
     });
   });
@@ -731,6 +732,13 @@ describe("mcpToolCall result rendering", () => {
         content: [
           { type: "content", content: { type: "text", text: "42 rows" } },
         ],
+        _meta: {
+          posthog: {
+            toolName: "mcp__posthog__query",
+            mcp: { server: "posthog", tool: "query" },
+          },
+        },
+        rawOutput: { content: [{ type: "text", text: "42 rows" }] },
       },
     });
   });
