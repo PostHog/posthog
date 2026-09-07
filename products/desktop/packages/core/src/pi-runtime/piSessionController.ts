@@ -139,7 +139,7 @@ export class PiOperationError extends Error {
 }
 
 const UNMAPPED_SESSION_ERROR_MESSAGE =
-  "Couldn't reach the agent for this task. Retry, or restart to open it in a new session.";
+  "Couldn't reach the agent for this task. Retry, or restart the session.";
 
 function normalizeSessionError(error: unknown): {
   title: string;

@@ -428,7 +428,7 @@ describe("PiSessionController", () => {
       scope: "connection",
       title: "Connection failed",
       message:
-        "Couldn't reach the agent for this task. Retry, or restart to open it in a new session.",
+        "Couldn't reach the agent for this task. Retry, or restart the session.",
     });
   });
 
