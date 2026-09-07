@@ -52,7 +52,13 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.api import is_suspension_enforced
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Node,
+)
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -887,6 +893,7 @@ def send_batch_export_run_failure(
 # resets — and the catch-up email lands — during waking hours for US and EU.
 # The catch-up cron in scheduled.py is anchored to this constant.
 EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
+SUSPENSION_DIGEST_WINDOW = datetime.timedelta(days=7)
 
 # Send-funnel counter: every call lands on exactly one outcome label, so the
 # delivered-vs-suppressed breakdown (and the "delivered" rate that feeds the
@@ -1028,7 +1035,7 @@ def send_matview_failure_digest() -> None:
     )
 
     failed_queries = (
-        DataWarehouseSavedQuery.objects.filter(deleted=False)
+        DataWarehouseSavedQuery.objects.exclude(deleted=True)
         .annotate(
             latest_job_status=Subquery(latest_job.values("status")[:1]),
             latest_job_run_at=Subquery(latest_job.values("last_run_at")[:1]),
@@ -1043,22 +1050,57 @@ def send_matview_failure_digest() -> None:
     for sq in failed_queries:
         failed_ids_by_team.setdefault(sq.team_id, []).append(str(sq.id))
 
-    if not failed_ids_by_team:
+    suspended_ids_by_team = _recently_suspended_saved_query_ids_by_team()
+
+    team_ids = set(failed_ids_by_team) | set(suspended_ids_by_team)
+    if not team_ids:
         logger.info("No matview failures found")
         return
 
-    logger.info("Found %d teams with matview failures", len(failed_ids_by_team))
+    logger.info("Found %d teams with matview failures", len(team_ids))
 
-    for team_id, failed_ids in failed_ids_by_team.items():
-        send_team_matview_failure_digest.delay(team_id, failed_ids, [])
-        logger.info("Dispatching matview failure digest for team %d with %d failed views.", team_id, len(failed_ids))
+    for team_id in team_ids:
+        suspended_ids = sorted(suspended_ids_by_team.get(team_id, set()))
+        failed_ids = [qid for qid in failed_ids_by_team.get(team_id, []) if qid not in suspended_ids]
+        send_team_matview_failure_digest.delay(team_id, failed_ids, suspended_ids)
+        logger.info(
+            "Dispatching matview failure digest for team %d with %d failed and %d suspended views.",
+            team_id,
+            len(failed_ids),
+            len(suspended_ids),
+        )
 
     logger.info("Completed materialized view failure digest fan-out")
 
 
+def _recently_suspended_saved_query_ids_by_team() -> dict[int, set[str]]:
+    """Saved queries whose node the circuit breaker stopped in the last week.
+
+    A suspension stays until someone resumes it, so the digest repeats it for a week rather
+    than once (easy to miss) or forever (a model the team gave up on would nag daily).
+    Only enforced teams are told: elsewhere the marker exists but the node keeps running.
+    """
+    cutoff = (timezone.now() - SUSPENSION_DIGEST_WINDOW).isoformat()
+    marked = (
+        Node.objects.filter(
+            saved_query__isnull=False,
+            properties__system__suspended__has_key=DataModelingJobEngine.CLICKHOUSE.value,
+        )
+        .exclude(saved_query__deleted=True)
+        .values_list("team_id", "saved_query_id", "properties")
+    )
+    by_team: dict[int, set[str]] = {}
+    for team_id, saved_query_id, properties in marked:
+        suspended_at = properties["system"]["suspended"][DataModelingJobEngine.CLICKHOUSE.value].get("at") or ""
+        if suspended_at < cutoff:
+            continue
+        by_team.setdefault(team_id, set()).add(str(saved_query_id))
+    return {team_id: ids for team_id, ids in by_team.items() if is_suspension_enforced(team_id)}
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
+def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], suspended_query_ids: list[str]) -> None:
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1076,7 +1118,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     if not memberships_to_email:
         return
 
-    all_ids = list(set(failed_query_ids + paused_query_ids))
+    all_ids = list(set(failed_query_ids + suspended_query_ids))
     queries = {str(sq.id): sq for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id)}
 
     latest_jobs: dict[str, DataModelingJob] = {}
@@ -1089,7 +1131,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         latest_jobs[str(latest_job.saved_query_id)] = latest_job
 
     views = []
-    for qid, paused in [(qid, False) for qid in failed_query_ids] + [(qid, True) for qid in paused_query_ids]:
+    for qid, suspended in [(qid, False) for qid in failed_query_ids] + [(qid, True) for qid in suspended_query_ids]:
         sq = queries.get(qid)
         if not sq:
             continue
@@ -1105,17 +1147,17 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "error": error,
                 "last_run_at": run_at.strftime("%b %d, %H:%M UTC") if run_at else "Unknown",
                 "last_run_at_ts": run_at.timestamp() if run_at else 0,
-                "paused": paused,
+                "suspended": suspended,
                 "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
             }
         )
 
     if not views:
-        logger.warning("No failed or paused views found")
+        logger.warning("No failed or suspended views found")
         return
 
-    # Paused views first, then most recent run first.
-    views.sort(key=lambda v: (not v["paused"], -cast(float, v["last_run_at_ts"])))
+    # Suspended views first, then most recent run first.
+    views.sort(key=lambda v: (not v["suspended"], -cast(float, v["last_run_at_ts"])))
     for v in views:
         v.pop("last_run_at_ts", None)
 
@@ -1137,12 +1179,12 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         message.add_user_recipient(membership.user)
     message.send()
 
-    paused_count = sum(1 for v in views if v["paused"])
+    suspended_count = sum(1 for v in views if v["suspended"])
     logger.info(
-        "Sent materialized view failure digest email for team %d: %d views (%d paused)",
+        "Sent materialized view failure digest email for team %d: %d views (%d suspended)",
         team_id,
         len(views),
-        paused_count,
+        suspended_count,
     )
 
 

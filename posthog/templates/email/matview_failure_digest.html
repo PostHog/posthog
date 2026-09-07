@@ -4,7 +4,7 @@
 {% block section %}
     <p style="color: #374151;">
         Here is your daily summary of materialized views that failed in project <strong>{{ team.name }}</strong>.
-        Views marked as paused have been disabled due to repeated failures and require manual intervention to resume.
+        Views marked as suspended stopped after repeated failures. Open the view and select Resume to schedule it again.
     </p>
     <div style="background-color: #ffffff;
                 border-radius: 8px;
@@ -51,7 +51,7 @@
                                text-transform: uppercase;
                                letter-spacing: 0.05em;
                                text-align: right;
-                               white-space: nowrap">Paused</th>
+                               white-space: nowrap">Suspended</th>
                 </tr>
             </thead>
             <tbody>
@@ -92,7 +92,7 @@
                                    text-align: right;
                                    font-size: 0.9em;
                                    white-space: nowrap">
-                            {% if view.paused %}<span style="color: #dc3545; font-weight: 600;">&#10003;</span>{% else %}<span style="color: #9ca3af;">&mdash;</span>{% endif %}
+                            {% if view.suspended %}<span style="color: #dc3545; font-weight: 600;">&#10003;</span>{% else %}<span style="color: #9ca3af;">&mdash;</span>{% endif %}
                         </td>
                     </tr>
                 {% endfor %}

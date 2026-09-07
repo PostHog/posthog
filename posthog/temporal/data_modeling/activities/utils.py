@@ -7,8 +7,6 @@ from django.db import transaction
 
 from structlog.contextvars import bind_contextvars
 
-from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_ERROR
@@ -16,6 +14,7 @@ from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_
 from products.data_modeling.backend.facade.api import (
     clear_node_suspension,
     is_node_suspended,
+    is_suspension_enforced,
     mark_node_suspended,
     query_fingerprint,
     suspension_reset_at,
@@ -54,8 +53,6 @@ LOGGER = get_logger(__name__)
 
 # Consecutive failed jobs (per engine) before a node is suspended from future DAG runs.
 CONSECUTIVE_FAILURES_TO_SUSPEND = 5
-
-SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
 
 # Shared with quality_block_materialization so the counter below can recognize its job rows.
 QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
@@ -107,22 +104,6 @@ EXTERNALLY_ABORTED_MARKERS = (
     # the query ran and produced rows; only the publish was refused
     QUALITY_BLOCKED_ERROR_PREFIX,
 )
-
-
-def is_suspension_enforced(team_id: int) -> bool:
-    try:
-        team = Team.objects.only("organization_id").get(id=team_id)
-        return feature_enabled_or_false(
-            SUSPENSION_ENFORCEMENT_FLAG,
-            str(team_id),
-            groups={"organization": str(team.organization_id), "project": str(team_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        LOGGER.warning("Failed to evaluate suspension enforcement flag; treating as disabled", team_id=team_id)
-        return False
 
 
 def is_externally_aborted(error: str) -> bool:

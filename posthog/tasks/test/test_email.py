@@ -57,7 +57,15 @@ from products.batch_exports.backend.models.batch_export import (
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.api import mark_node_suspended
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -2114,6 +2122,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             (
+                "deleted_flag_never_set",
+                {"sync_frequency_interval": dt.timedelta(hours=1), "deleted": None},
+                [("FAILED", dt.timedelta(hours=1), "Some error")],
+                True,
+            ),
+            (
                 "unscheduled_failing_view_is_included",
                 {
                     "sync_frequency_interval": None,
@@ -2207,6 +2221,67 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert name in mocked_email_messages[0].html_body
         else:
             assert len(mocked_email_messages) == 0
+
+    @parameterized.expand(
+        [
+            ("suspended_yesterday", dt.timedelta(days=1), True, [], True),
+            (
+                "suspended_and_failed_today",
+                dt.timedelta(days=1),
+                True,
+                [("FAILED", dt.timedelta(hours=1), "Some error")],
+                True,
+            ),
+            ("suspended_two_weeks_ago", dt.timedelta(days=14), True, [], False),
+            ("suspension_not_enforced_for_team", dt.timedelta(days=1), False, [], False),
+        ]
+    )
+    def test_send_matview_failure_digest_lists_suspended_views(
+        self,
+        MockEmailMessage: MagicMock,
+        name: str,
+        suspended_ago: dt.timedelta,
+        enforced: bool,
+        jobs: list[tuple[str, dt.timedelta, str | None]],
+        expect_email: bool,
+    ) -> None:
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"query": "SELECT 1"},
+            latest_error="Some error",
+        )
+        for status, age, error in jobs:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=getattr(DataModelingJob.Status, status),
+                error=error,
+                last_run_at=timezone.now() - age,
+            )
+        node = Node.objects.create(
+            team=self.team, saved_query=saved_query, dag=DAG.get_or_create_default(self.team), type=NodeType.MAT_VIEW
+        )
+        with freeze_time(timezone.now() - suspended_ago):
+            mark_node_suspended(node, engine="clickhouse", reason="boom", job_id="job-1")
+        node.save()
+
+        with patch("posthog.tasks.email.is_suspension_enforced", return_value=enforced):
+            send_matview_failure_digest()
+
+        if not expect_email:
+            assert mocked_email_messages == []
+            return
+        assert len(mocked_email_messages) == 1
+        html = mocked_email_messages[0].html_body
+        assert html.count(name) == 1
+        assert "&#10003;" in html
 
     def test_send_matview_failure_digest_ignores_duckgres_shadow(self, MockEmailMessage: MagicMock) -> None:
 
@@ -2362,7 +2437,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         html = mocked_email_messages[0].html_body
         for name, _ in failed_cases + unscheduled_cases:
             assert name in html
-        # The digest never flags views as paused, so every row renders the em-dash glyph.
+        # Nothing here is suspended, so every row renders the em-dash glyph.
         assert "&#10003;" not in html
         assert "&#8212;" in html
 
