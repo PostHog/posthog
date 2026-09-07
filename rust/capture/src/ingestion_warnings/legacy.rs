@@ -91,7 +91,7 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
 
         // Quota, rate, and ops-imposed drops are surfaced through billing and
         // ops channels, not the warnings UI.
-        CaptureError::BillingLimit
+        CaptureError::BillingLimit(_)
         | CaptureError::RateLimited
         | CaptureError::GlobalRateLimitExceeded() => None,
 
@@ -155,6 +155,7 @@ mod tests {
     use crate::ingestion_warnings::{raw_event, SdkAttribution, MAX_SDK_ATTRIBUTION_LEN};
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::UNKNOWN_ATTRIBUTION;
+    use limiters::redis::QuotaResource;
     use serde_json::json;
 
     fn legacy_context(attribution: SdkAttribution) -> ProcessingContext {
@@ -276,7 +277,7 @@ mod tests {
                 None,
             ),
             (CaptureError::NoTokenError, None),
-            (CaptureError::BillingLimit, None),
+            (CaptureError::BillingLimit(QuotaResource::Events), None),
             (CaptureError::RetryableSinkError, None),
             (CaptureError::NonRetryableSinkError, None),
             (CaptureError::InternalError("boom".to_string()), None),

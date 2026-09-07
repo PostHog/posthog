@@ -76,7 +76,7 @@ pub fn warning_for_otel_parse_error(err: &CaptureError) -> Option<WarningType> {
         | CaptureError::MissingSessionId
         | CaptureError::MissingWindowId
         | CaptureError::InvalidSessionId
-        | CaptureError::BillingLimit
+        | CaptureError::BillingLimit(_)
         | CaptureError::RateLimited
         | CaptureError::GlobalRateLimitExceeded()
         | CaptureError::RetryableSinkError
@@ -201,6 +201,7 @@ mod tests {
     use super::*;
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::UNKNOWN_ATTRIBUTION;
+    use limiters::redis::QuotaResource;
     use rstest::rstest;
 
     fn request() -> WarningRequestContext {
@@ -228,7 +229,7 @@ mod tests {
     // Ours to fix, or unreachable from parse_request; see the mapper's None arms.
     #[case::internal(CaptureError::InternalError("boom".to_string()), None)]
     #[case::sink(CaptureError::RetryableSinkError, None)]
-    #[case::billing(CaptureError::BillingLimit, None)]
+    #[case::billing(CaptureError::BillingLimit(QuotaResource::Events), None)]
     fn parse_errors_map_only_to_payload_problems(
         #[case] err: CaptureError,
         #[case] expected: Option<WarningType>,

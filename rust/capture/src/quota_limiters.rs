@@ -173,8 +173,7 @@ impl CaptureQuotaLimiter {
 
             // if this filtering pass resulted in an empty batch, throw sentinel error
             if filtered_indices.is_empty() {
-                // TODO(eli): tag these with QuotaResource type?
-                return Err(CaptureError::BillingLimit);
+                return Err(CaptureError::BillingLimit(limiter.resource().clone()));
             }
         }
 
@@ -191,7 +190,7 @@ impl CaptureQuotaLimiter {
             // events the scoped limiters didn't already drop, or the
             // sentinel error if there are no retained events
             if retained_indices.is_empty() {
-                return Err(CaptureError::BillingLimit);
+                return Err(CaptureError::BillingLimit(global_resource_tag));
             } else {
                 let retained_events: Vec<T> = retained_indices
                     .iter()
