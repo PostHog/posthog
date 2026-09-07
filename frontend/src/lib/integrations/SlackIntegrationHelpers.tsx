@@ -421,6 +421,7 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
         slackChannelsForPicker,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
+        attemptedSlackChannelIds,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
     } = useValues(logic)
@@ -515,11 +516,15 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
     useEffect(() => {
         for (const value of values) {
             const channelId = value.split('|')[0]
-            if (channelId) {
+            if (
+                channelId &&
+                !slackChannels.some((channel: SlackChannelType) => channel.id === channelId) &&
+                !attemptedSlackChannelIds[channelId]
+            ) {
                 loadSlackChannelById(channelId)
             }
         }
-    }, [loadSlackChannelById, values])
+    }, [attemptedSlackChannelIds, loadSlackChannelById, slackChannels, values])
 
     const options = withSavedChannelOptions(
         withoutInaccessiblePrivateChannels(rawSlackChannelOptions, isPrivateChannelWithoutAccess, [
