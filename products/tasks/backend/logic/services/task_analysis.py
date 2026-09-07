@@ -268,9 +268,6 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
                 pending_user_message=prompt,
                 extra_run_state=extra_run_state,
                 inactivity_timeout_seconds=TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS,
-                # The analysis runs fully in the background: the internal flag keeps it out of
-                # the default task list, search, and agent task tools while direct access by
-                # id still works.
                 internal=True,
             )
     except IntegrityError:
