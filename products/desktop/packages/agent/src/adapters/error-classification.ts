@@ -98,11 +98,11 @@ export function sanitizeAgentErrorCause(
   classification: AgentErrorClassification,
 ): string {
   const text = result.trim();
-  const codexStatus = text.match(/^unexpected status\s+(\d{3})\b/i);
+  const codexStatus = text.match(/\bunexpected status\s+(\d{3})\b/i);
   if (codexStatus) {
     return `unexpected status ${codexStatus[1]}`;
   }
-  const apiStatus = text.match(/^API Error:\s*(\d{3})\b/i);
+  const apiStatus = text.match(/\bAPI Error:\s*(\d{3})\b/i);
   if (apiStatus) {
     return `API Error: ${apiStatus[1]}`;
   }

@@ -709,6 +709,42 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it("does not echo hidden retry blocks into conversation history", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [
+        { type: "text", text: "visible" },
+        {
+          type: "text",
+          text: "hidden retry",
+          _meta: { ui: { hidden: true } },
+        },
+      ],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", { turn: { status: "completed" } });
+    await done;
+
+    const userMessages = (
+      sessionUpdates as Array<{
+        update?: { sessionUpdate?: string; content?: unknown };
+      }>
+    ).filter(
+      (update) => update.update?.sessionUpdate === "user_message_chunk",
+    );
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]?.update).toMatchObject({
+      content: { type: "text", text: "visible" },
+    });
+  });
+
   it("reports a steered goal command as accepted so the host does not redeliver it", async () => {
     const stub = makeStubRpc({
       "thread/start": { thread: { id: "thr_1" } },

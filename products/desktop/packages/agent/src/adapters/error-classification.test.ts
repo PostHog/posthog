@@ -103,6 +103,11 @@ describe("sanitizeAgentErrorCause", () => {
       "API Error: 529",
     ],
     [
+      "Internal error: API Error: 403 private provider body",
+      "agent_error",
+      "API Error: 403",
+    ],
+    [
       "provider request failed without a status",
       "upstream_provider_failure",
       "upstream_provider_failure",

@@ -2276,7 +2276,9 @@ export class AgentServer {
     let retries = 0;
     let continueInterruptedTurn = false;
     let retryUsage: NonNullable<PromptResponse["usage"]> | undefined;
-    this.cancelledStartupSessions.delete(originatingSession);
+    if (this.cancelledStartupSessions.has(originatingSession)) {
+      return { stopReason: "cancelled" };
+    }
     for (;;) {
       const session = this.session;
       if (session !== originatingSession) {
@@ -2305,6 +2307,11 @@ export class AgentServer {
           };
       try {
         const response = await session.clientConnection.prompt(attempt);
+        if (this.session !== originatingSession) {
+          throw new Error(
+            "Agent session changed before the turn result was handled",
+          );
+        }
         const usage = mergeUsage(retryUsage, response.usage ?? undefined);
         return { ...response, ...(usage ? { usage } : {}) };
       } catch (error) {
@@ -2315,7 +2322,12 @@ export class AgentServer {
           !isRetryableUpstreamErrorClassification(classification) ||
           retries >= MAX_UPSTREAM_TURN_RETRIES
         ) {
-          this.recordTurnUsage(accumulatedUsage);
+          if (this.session === originatingSession) {
+            await this.recordTurnUsage(
+              accumulatedUsage,
+              originatingSession.payload,
+            );
+          }
           throw error;
         }
         retryUsage = accumulatedUsage;
@@ -2336,6 +2348,11 @@ export class AgentServer {
         await new Promise((resolve) =>
           setTimeout(resolve, UPSTREAM_TURN_RETRY_DELAY_MS),
         );
+        if (this.session !== originatingSession) {
+          throw new Error(
+            "Agent session changed before the turn could be retried",
+          );
+        }
         if (this.cancelledStartupSessions.has(originatingSession)) {
           return {
             stopReason: "cancelled",
@@ -5560,11 +5577,12 @@ ${commonInstructions}
    * to the backend, merged into `TaskRun.state.token_usage`. Best-effort: a
    * reporting failure must never affect the turn outcome.
    */
-  private recordTurnUsage(usage: PromptResponse["usage"]): void {
-    if (!this.runUsage.add(usage)) return;
-    const payload = this.session?.payload;
-    if (!payload) return;
-    reportRunUsage(
+  private recordTurnUsage(
+    usage: PromptResponse["usage"],
+    payload = this.session?.payload,
+  ): Promise<void> {
+    if (!this.runUsage.add(usage) || !payload) return Promise.resolve();
+    return reportRunUsage(
       this.runUsage,
       this.posthogAPI,
       payload.task_id,

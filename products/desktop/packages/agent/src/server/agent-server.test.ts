@@ -1662,12 +1662,13 @@ describe("AgentServer HTTP Mode", () => {
       const testServer = createFailureTestServer();
       testServer.session = {
         acpSessionId: "acp-1",
-        payload: { run_id: "run-1" },
+        payload: { run_id: "run-1", task_id: "task-1" },
         logWriter: { appendRawLine: vi.fn(), flush: vi.fn(async () => {}) },
         clientConnection: { prompt, cancel: vi.fn(async () => {}) },
       };
       return testServer as unknown as {
         eventStreamSender: { enqueue: ReturnType<typeof vi.fn> };
+        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
         session: unknown;
         executeCommand(
           method: string,
@@ -1805,6 +1806,86 @@ describe("AgentServer HTTP Mode", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("does not dispatch a startup prompt after an earlier cancellation", async () => {
+      const prompt = vi.fn();
+      const testServer = createRetryTestServer(prompt);
+      await testServer.executeCommand("cancel", {});
+
+      await expect(
+        testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        }),
+      ).resolves.toEqual({ stopReason: "cancelled" });
+      expect(prompt).not.toHaveBeenCalled();
+    });
+
+    it("does not return an old cancellation after session replacement", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("API Error: Connection error."));
+        const testServer = createRetryTestServer(prompt);
+        const resultPromise = testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        });
+        const assertion = expect(resultPromise).rejects.toThrow(
+          "Agent session changed before the turn could be retried",
+        );
+        await Promise.resolve();
+        await testServer.executeCommand("cancel", {});
+        testServer.session = {
+          acpSessionId: "acp-2",
+          payload: { run_id: "run-2" },
+          clientConnection: { prompt: vi.fn() },
+        };
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        await assertion;
+        expect(prompt).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("waits for failed-attempt usage before rejecting the turn", async () => {
+      let releaseUsage!: () => void;
+      const usageStored = new Promise<void>((resolve) => {
+        releaseUsage = resolve;
+      });
+      const prompt = vi.fn().mockRejectedValueOnce(
+        new RequestError(-32603, "fatal failure", {
+          classification: "agent_error",
+          result: "agent failed",
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        }),
+      );
+      const testServer = createRetryTestServer(prompt);
+      testServer.posthogAPI.updateTaskRun = vi.fn(() => usageStored);
+      let settled = false;
+      const resultPromise = testServer
+        .promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        })
+        .finally(() => {
+          settled = true;
+        });
+
+      await vi.waitFor(() =>
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          expect.objectContaining({ state: expect.any(Object) }),
+        ),
+      );
+      expect(settled).toBe(false);
+      releaseUsage();
+      await expect(resultPromise).rejects.toThrow("fatal failure");
     });
 
     it("continues after tool progress and preserves usage across retries", async () => {
