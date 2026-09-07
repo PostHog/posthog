@@ -9366,7 +9366,7 @@
         }
     },
     "scout-config-delete": {
-        "description": "Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up an orphaned config whose skill was archived or deleted — it lingers in `scout-config-list` with an empty description and never runs, but can't otherwise be removed. Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via `scout-config-update` to make it inert) rather than deleting the config.",
+        "description": "Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up an orphaned config whose skill was archived or deleted — it lingers in `scout-config-list` with an empty description and never runs, but can't otherwise be removed. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it with `scout-config-create`, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` via `scout-config-update` to make it inert) rather than deleting the config.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Delete a scout config",

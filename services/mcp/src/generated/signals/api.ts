@@ -1116,7 +1116,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
- * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
+ * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
  * @summary Delete a scout config
  */
 export const SignalsScoutConfigDestroyParams = () => zod.object({
