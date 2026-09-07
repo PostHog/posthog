@@ -324,6 +324,9 @@ func (p *processor) recycle(v *value) {
 	}
 	v.s = ""
 	v.b = false
+	// Truncated entries can still hold borrowed keys that retain entire input rows.
+	clear(v.entries[:cap(v.entries)])
+	clear(v.values[:cap(v.values)])
 	v.entries = v.entries[:0]
 	v.values = v.values[:0]
 	p.free = append(p.free, v)

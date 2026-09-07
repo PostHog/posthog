@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"weak"
 )
 
 func TestProcessLineCleansEventProperties(t *testing.T) {
@@ -250,6 +252,29 @@ func TestRunChunked(t *testing.T) {
 	}
 	if output.String() != want {
 		t.Fatalf("runChunked() = %q, want %q", output.String(), want)
+	}
+}
+
+func TestProcessLineReleasesPreviousInput(t *testing.T) {
+	for _, kind := range []propertiesKind{eventProperties, personProperties, temporaryProperties} {
+		t.Run(fmt.Sprint(kind), func(t *testing.T) {
+			proc := processor{kind: kind}
+			var output bytes.Buffer
+			input := []byte(`{"$set":1,"discard":null}`)
+			previousInput := weak.Make(&input[0])
+			if err := proc.processLine(input, &output); err != nil {
+				t.Fatal(err)
+			}
+			input = nil
+			if err := proc.processLine([]byte(`{"$set":2}`), &output); err != nil {
+				t.Fatal(err)
+			}
+			runtime.GC()
+			if previousInput.Value() != nil {
+				t.Error("processor retains a previous input after garbage collection")
+			}
+			runtime.KeepAlive(&proc)
+		})
 	}
 }
 

@@ -7,6 +7,9 @@ Flag values and person-property ordering follow the existing cleanup rules.
 
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
 
+The event, person, and temporary cleaners reuse parser nodes across rows.
+Recycled nodes clear references across their backing arrays, including entries removed during cleanup, so borrowed property keys do not retain previously processed input rows.
+
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
 Accepts a JSON object and retains only the following top-level properties, including their dotted descendants. It uses the event cleaner's dotted-key expansion, null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.
