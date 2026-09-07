@@ -34,10 +34,8 @@ from posthog.llm.gateway_client import (
 from posthog.models import Team
 
 DEFAULT_ENRICHMENT_MODEL = "claude-haiku-4-5"
-# Messages requires max_tokens. The reply echoes every column name back as a JSON key before its
-# sentence, so what a table needs scales with its own name lengths rather than its column count: at
-# the 400-char annotation key limit, MAX_COLUMNS_PER_TABLE names alone outrun this ceiling. It is the
-# most we ask for; `bound_prompt_over_columns` drops tail columns until the projected reply fits.
+# Ceiling for one reply, not the value sent: the reply echoes each column name as a JSON key, so a
+# table's need scales with its name lengths. `bound_prompt_over_columns` sizes and bounds the ask.
 MAX_OUTPUT_TOKENS = 16384
 # Floor for the sized ceiling, so a narrow table still has room to answer.
 MIN_OUTPUT_TOKENS = 1024
@@ -50,16 +48,12 @@ _DESCRIPTION_BUDGET_CHARS = 240
 _CHARS_PER_OUTPUT_TOKEN = 3.0
 # Keep the prompt and response bounded — wide tables shouldn't blow up the context or the cost.
 MAX_COLUMNS_PER_TABLE = 200
-# How many LLM calls one enrichment run may spend finishing a table the output ceiling cannot hold in
-# a single reply. A caller that records completion for the whole object has to finish here, because a
-# column it never asked about would otherwise be latched as described. Four covers the widest table
-# the column cap allows; the surplus bounds a pathological name set rather than a real one.
+# Calls one run may spend finishing a table one reply cannot hold. A caller whose completion marker
+# covers the whole object has to finish here, or a column it never asked about is latched as done.
 MAX_ENRICHMENT_BATCHES = 4
-# Wall clock after which a run stops starting further batches. The first call always runs, so batching
-# can never push a caller past a deadline a single call would have met; this only bounds the extra
-# ones. Sized well inside the enrichment activity's own timeout, which has to cover the surrounding
-# database work too, and deliberately not derived from it: the two live in different packages and a
-# silent drift would show up as a timeout rather than a shortfall.
+# Wall clock after which a run starts no further batches; the first call always runs, so batching
+# cannot breach a deadline one call would have met. Sized inside the enrichment activity's timeout
+# but not derived from it: across packages a silent drift would surface as a timeout, not a shortfall.
 ENRICHMENT_BATCH_BUDGET_SECONDS = 300.0
 # The team's core memory is free-form and unbounded; a large dump alone can push the prompt past the
 # model's 200k-token context window. Cap it — a concise company summary is all the enrichment needs.
@@ -211,9 +205,8 @@ class _ChatClient:
     def complete(
         self, *, model: str, prompt: str, temperature: float, team_id: int, max_output_tokens: int = MAX_OUTPUT_TOKENS
     ) -> _Completion:
-        # No max_tokens: the Python gateway has always let the provider apply its own ceiling, and the
-        # bounded ask list already keeps the reply within one response. Accepted so both clients share
-        # one call signature.
+        # No max_tokens: this leg lets the provider apply its own ceiling, and the bounded ask list
+        # already keeps the reply to one response.
         response = self._client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -261,9 +254,8 @@ def build_enrichment_client(product: Product, team_id: int) -> _MessagesClient |
     than falling back onto a route the product has never exercised.
     """
     if resolve_ai_gateway_config():
-        # distinct_id, not just the Messages `metadata.user_id`: that goes upstream to the provider,
-        # while aig reads the capture identity from the X-PostHog-Distinct-Id header this sets. Without
-        # it these generations land under the shared credential rather than the team.
+        # The Messages `metadata.user_id` goes upstream to the provider; capture identity comes from
+        # the X-PostHog-Distinct-Id header this sets, so without it the team is not attributed.
         return _MessagesClient(
             build_anthropic_client(product, ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
         )
@@ -363,11 +355,9 @@ def bound_prompt_over_columns(
                 requested=list(needing),
                 deferred=[name for name in columns_needing_description if name not in asked],
             )
-        # Drop ~10% of the tail and re-measure, taking columns nobody asked about first: they cost
-        # prompt space without producing an answer, while dropping an asked column defers real work.
-        # This is also what lets a caller batch. The ask list is the only thing that changes between
-        # batches, so if the tail were dropped blind the same context would push the same names out
-        # again and the next batch would ask for nothing.
+        # Unasked columns go first: they cost prompt space without producing an answer, while dropping
+        # an asked one defers real work. This ordering is what lets a caller batch; a blind tail slice
+        # sheds the same names every pass, so the next batch asks for nothing.
         cut = max(1, len(shown_columns) // 10)
         asked = set(needing)
         tail = range(len(shown_columns) - 1, -1, -1)

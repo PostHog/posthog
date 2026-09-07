@@ -379,9 +379,8 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
     view_row = existing.get("")
     view_needs_description = not (view_row and view_row.is_user_edited)
 
-    # Columns past the per-pass cap are never asked about. Pre-existing and unchanged here: the cap is
-    # deterministic, so re-asking cannot reach them and withholding the hash would only re-run the same
-    # pass forever. Logged below so the shortfall is at least visible.
+    # Columns past the per-pass cap are never asked about. The cap is deterministic, so a retry cannot
+    # reach them and withholding the hash would repeat the same pass forever; logged instead.
     over_cap = [
         column["name"]
         for column in all_columns[MAX_COLUMNS_PER_TABLE:]
@@ -396,10 +395,9 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         # Only sample a materialized view — running the raw view query for an unmaterialized one is unbounded.
         row_sample = _get_row_sample(saved_query) if _has_sampleable_rows(saved_query) else []
 
-        # Ask in batches rather than dropping the tail. This surface records enrichment per view, so a
-        # dropped column would be latched as done by the hash below and never described. Re-asking
-        # cannot recover it either: only user-edited columns leave the ask list, so the next pass would
-        # rebuild the same list and drop the same tail. Finishing the remainder here is what converges.
+        # Batched rather than dropping the tail: enrichment is recorded per view, so a dropped column is
+        # latched as done by the hash below. A later pass cannot recover it either, because only
+        # user-edited columns leave the ask list, so the same tail would drop again.
         remaining = columns_needing_description
         wants_view_description = view_needs_description
         batch_deadline = time.monotonic() + ENRICHMENT_BATCH_BUDGET_SECONDS
@@ -424,9 +422,8 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
                 business_context=business_context,
             )
             if not bounded.requested and not wants_view_description:
-                # Nothing fit even after the bounding dropped context first, so the ask list cannot
-                # shrink further and another identical call would buy nothing. Backstop only: the
-                # loop condition covers the ordinary exit.
+                # Nothing fit even after context was dropped first, so another identical call buys
+                # nothing. Backstop only; the loop condition covers the ordinary exit.
                 break
             log.info(
                 "view_enrichment.llm_call_started",
@@ -462,9 +459,8 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
                 view_description = generated.get("view_description")
                 if isinstance(view_description, str) and view_description.strip():
                     _upsert(saved_query, team_id, "", view_description.strip())
-                # Cleared whether or not the model answered: the next batch carries the same view
-                # definition, so re-asking cannot produce a description this reply withheld, and
-                # leaving it set would spend the whole batch budget on an empty ask list.
+                # Cleared whether or not the model answered: the next batch carries the same definition,
+                # so re-asking cannot produce what this reply withheld, and would burn the budget.
                 wants_view_description = False
 
             remaining = bounded.deferred
@@ -482,9 +478,8 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         ).delete()
 
     # Store the hash via queryset update() — bypasses post_save so it never re-triggers the signal.
-    # Withheld only when the batch budget ran out with columns still unasked, because the hash
-    # short-circuits the next run and would latch those columns as described. `over_cap` is not a
-    # reason to withhold: the per-pass cap is deterministic, so a retry would repeat the same pass.
+    # Withheld only for columns still unasked when the budget ran out: the hash short-circuits the next
+    # run. `over_cap` is exempt, since a deterministic cap makes the retry repeat the same pass.
     if not unfinished:
         DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update(semantic_enrichment_hash=current_hash)
     log.info(

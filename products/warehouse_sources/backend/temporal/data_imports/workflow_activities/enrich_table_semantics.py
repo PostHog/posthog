@@ -245,9 +245,8 @@ def _generate_descriptions(
     # Resolved here so this module exposes a seam the activity tests can patch.
     client = build_enrichment_client("warehouse_semantic_enrichment", team_id)
     if bounded.deferred:
-        # Per-column annotation rows are the idempotency record here, so an undescribed column is
-        # simply still unannotated and the next sync asks for it. Logged because the count is
-        # otherwise invisible: the event below reports what we asked for, not what we skipped.
+        # Per-column annotation rows are the idempotency record here, so a deferred column is still
+        # unannotated and the next sync asks for it. Logged because the event reports only the ask.
         logger.info(
             "Deferred columns to a later enrichment pass to fit the request bounds",
             deferred_columns=len(bounded.deferred),
