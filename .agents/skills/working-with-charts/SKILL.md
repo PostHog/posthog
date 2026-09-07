@@ -1,77 +1,56 @@
 ---
 name: working-with-charts
 description: >
-  Helps engineers add or change charts that consume @posthog/quill-charts in the main app, product frontends, desktop, or MCP apps.
-  Use for chart selection, series, axes, themes, tooltips, legends, overlays, and chart interactions.
-  Routes to existing examples and package docs; insight-specific integration is optional.
-  For changes inside the chart library, use its CONTRIBUTING.md instead.
+  Guides consumers of @posthog/quill-charts through chart selection, data, themes, sizing, and composition.
+  Use when adding or changing a chart built with the package, including its axes, tooltips, legend, overlays, or interactions.
+  Links to package examples and API docs. Does not cover product integration or library internals.
 ---
 
-# Working with charts
+# Consuming quill-charts
 
-Use the package's components and defaults before adding chart code.
-Read only the example or reference needed for the task.
-For library changes, use [CONTRIBUTING.md](../../../packages/quill/packages/charts/src/docs/CONTRIBUTING.md) instead.
+Use the package's components and defaults before writing custom chart code.
+Read only the example or topic needed for the task.
+For changes inside the library, use [CONTRIBUTING.md](../../../packages/quill/packages/charts/src/docs/CONTRIBUTING.md) instead.
 
-## 1. Choose a chart and an example
+## Choose a component
 
-Use the package's [chart-selection table](../../../packages/quill/packages/charts/AGENTS.md#choosing-a-chart).
-Start with the nearest existing consumer or a small story:
+Use the [chart-selection table](../../../packages/quill/packages/charts/AGENTS.md#choosing-a-chart), then read a matching [package story](../../../packages/quill/packages/charts/src/charts/).
+For a date axis, start with `DateAxis` in [TimeSeriesLineChart stories](../../../packages/quill/packages/charts/src/charts/TimeSeriesLineChart/TimeSeriesLineChart.stories.tsx).
+Import components and types from `@posthog/quill-charts`, not internal source paths.
 
-- [LineChart stories](../../../packages/quill/packages/charts/src/charts/LineChart/LineChart.stories.tsx) for categorical labels.
-- The `DateAxis` example in [TimeSeriesLineChart stories](../../../packages/quill/packages/charts/src/charts/TimeSeriesLineChart/TimeSeriesLineChart.stories.tsx) for date labels.
-- [Other chart stories](../../../packages/quill/packages/charts/src/charts/) for bars, distributions, funnels, and other shapes.
+## Supply data, theme, and dimensions
 
-Do not copy a full insight renderer for a small product chart.
-If the chart consumes insight results, use [insight integration](./references/insights.md).
-
-## 2. Use the host's theme
-
-- Main app and product frontends: use `useChartTheme` from [lib/charts/hooks](../../../frontend/src/lib/charts/hooks.ts).
-  It uses the app's palette and tooltip styling.
-  Prefer its `useChartConfig` helper for memoized config.
-- Quill-native surfaces, including desktop and MCP apps: use `useChartTheme` from `@posthog/quill-charts`.
-  Follow the package's [setup and theme guidance](../../../packages/quill/packages/charts/src/README.md#setup).
-
-Both theme hooks track theme changes.
-Keep product state and data fetching outside the library.
-Do not add a transform module unless the data conversion needs one.
-
-## 3. Prepare data and dimensions
-
-- Use stable series keys and typed `meta` for tooltip or click data; do not identify results by array position.
+- Use stable series keys and typed `meta` for tooltip or click data.
 - For label-based charts, keep labels unique and align each series' data with them.
 - Use ISO date labels with `TimeSeries*` charts; format ticks through the axis config.
-- Represent missing numeric values with `NaN`, not zero.
+- Use `NaN` for missing numeric series values, not zero.
 - Keep series, config, and callbacks stable across unrelated renders.
-- Give the chart container real dimensions, including a nonzero height.
+- Give charts that fill their container a parent with real dimensions, including a nonzero height.
 
-Read the selected chart's props and [Series type](../../../packages/quill/packages/charts/src/core/types.ts) for details.
-Omit series colors to use the theme palette unless the product assigns a specific meaning to each color.
+Reuse an existing `ChartTheme` or use the package's `useChartTheme` hook.
+Follow the [setup and theme docs](../../../packages/quill/packages/charts/src/README.md#setup) for tokens and CSS.
+Omit series colors to use the theme palette; resolve CSS variables before passing explicit canvas colors.
+Read the selected chart's props and the [Series type](../../../packages/quill/packages/charts/src/core/types.ts) for its data contract.
 
-## 4. Use built-in behavior first
+## Configure before customizing
 
-Keep the chart's built-in tooltip and legend unless the requirement needs more.
-Prefer config options and exported overlays before custom renderers.
-Read only the relevant reference:
+Prefer the selected chart's built-in tooltip and legend.
+Use config options and exported overlays before custom renderers.
+Load only the relevant topic:
 
-| Task                                          | Reference                                                                        |
-| --------------------------------------------- | -------------------------------------------------------------------------------- |
-| Axis formatting, ranges, or multiple axes     | [Axes](../../../packages/quill/packages/charts/src/docs/axes.md)                 |
-| Bar layouts or per-bar styling                | [Bars](../../../packages/quill/packages/charts/src/docs/bars.md)                 |
-| Tooltip content or drill-down                 | [Tooltips](./references/tooltips.md)                                             |
-| Legend visibility or interaction              | [Legend](../../../packages/quill/packages/charts/src/docs/legend.md)             |
-| Annotations, goals, alerts, or custom markers | [Overlays](./references/overlays.md)                                             |
-| Clicks, zoom, or selection                    | [Interactions](../../../packages/quill/packages/charts/src/docs/interactions.md) |
+| Task                                        | Package docs                                                                     |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| Axis formatting, ranges, or multiple axes   | [Axes](../../../packages/quill/packages/charts/src/docs/axes.md)                 |
+| Bar layouts or per-bar styling              | [Bars](../../../packages/quill/packages/charts/src/docs/bars.md)                 |
+| Tooltip formatting or content               | [Tooltips](../../../packages/quill/packages/charts/src/docs/tooltips.md)         |
+| Legend visibility or interaction            | [Legend](../../../packages/quill/packages/charts/src/docs/legend.md)             |
+| Reference lines, labels, or custom overlays | [Overlays](../../../packages/quill/packages/charts/src/docs/overlays.md)         |
+| Clicks, zoom, or selection                  | [Interactions](../../../packages/quill/packages/charts/src/docs/interactions.md) |
 
-In the main app, use [useDateRangeZoom](../../../frontend/src/lib/charts/hooks.ts) for date-range zoom so it follows the shared rollout gate.
+## Verify
 
-## 5. Verify the changed behavior
+Render at the intended container sizes and in light and dark themes.
+Check missing values, long labels, and any interactions you changed.
+Extend relevant tests and stories; use the [consumer testing guide](../../../packages/quill/packages/charts/src/docs/TESTING.md#testing-code-that-uses-hog-charts) for chart accessors.
 
-Keep loading, empty, and error states distinct; reuse the host's existing handling.
-Check the rendered chart in light and dark themes, at wide and narrow scene widths (about 520px).
-Check the interactions you changed, including their behavior in shared or read-only views where applicable.
-Extend relevant tests and stories rather than adding a fixed set of files for every chart.
-Use [testing and stories](./references/testing-and-stories.md) when changing coverage.
-
-Keep library behavior in the package docs and app-specific decisions in this skill's references.
+Keep detailed API behavior in the package docs rather than copying it into this skill.
