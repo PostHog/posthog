@@ -241,6 +241,7 @@ export interface RunArtifacts {
  */
 export interface PermissionRequestRecord {
     requestId: string
+    sourceRunId?: string
     toolCallId: string
     /** Canonical ACP tool name (`mcp__posthog__exec`, or a built-in like `Bash`) — drives the default permission policy. */
     toolName: string

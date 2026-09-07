@@ -40,6 +40,7 @@ BLOCKED_IP_RANGES = [
 ]
 
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
+PERMISSION_COMMAND_TIMEOUT_SECONDS = 5
 # The provider rejects a turn whose transcript content blocks do not line up
 # ("Content block not found", "Content block is not a thinking block"). The
 # wording changes with the provider, so match the family, not each string.
@@ -50,6 +51,17 @@ TURN_ENDED_WITHOUT_RESPONSE_ERROR = "[ede_diagnostic] result_type=user"
 
 def is_retryable_agent_rpc_error(error: str) -> bool:
     return bool(CONTENT_BLOCK_ERROR.search(error)) or TURN_ENDED_WITHOUT_RESPONSE_ERROR in error
+
+
+def is_agent_session_not_ready(status_code: int, data: object) -> bool:
+    return status_code == 400 and isinstance(data, dict) and data.get("error") == NO_ACTIVE_SESSION_ERROR
+
+
+def permission_response_succeeded(data: object) -> bool:
+    if not isinstance(data, dict) or data.get("jsonrpc") != "2.0" or "error" in data:
+        return False
+    result = data.get("result")
+    return isinstance(result, dict) and result.get("resolved") is True
 
 
 def user_facing_agent_error(error: str | None) -> str:

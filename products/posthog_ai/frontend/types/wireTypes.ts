@@ -28,6 +28,7 @@ export interface AcpNotification {
  */
 export interface StoredLogEntry {
     type: 'notification'
+    source_run_id?: string
     timestamp?: string
     notification: AcpNotification
 }
