@@ -39,7 +39,6 @@ import {
   type RpcExtensionUIResponse,
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
-import { buildPriorTaskSummaryContext } from "../task-summary";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
@@ -158,7 +157,6 @@ export class PiAgentServer {
   private rtkSavingsAttempted = false;
   private runUsage = new RunUsageAccumulator();
   private modelContextWindow: number | null = null;
-  private priorRunSummary: string | null = null;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -568,7 +566,25 @@ export class PiAgentServer {
     this.lastSyncedSessionContent = persistedSessionContent;
     this.sessionContentSha256 = sessionStorage.content_sha256;
 
-    const [task, taskRun, mcpConfiguration] = await Promise.all([
+    const localTools = buildLocalToolsServer(
+      { cwd },
+      {
+        environment: "cloud",
+        taskId: this.config.taskId,
+        taskRunId: this.config.runId,
+        baseBranch: this.config.baseBranch,
+        peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
+      },
+    );
+    const mcpConfiguration = await this.posthogAPI.getMcpRuntimeConfiguration(
+      this.config.mcpServers ?? [],
+    );
+    const runtimeMcpServers = {
+      ...createRuntimeMcpServers(mcpConfiguration.servers),
+      ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
+    };
+
+    const [task, taskRun] = await Promise.all([
       this.posthogAPI.getTask(payload.task_id).catch((error) => {
         this.logger.debug("Failed to fetch task attribution", error);
         return null;
@@ -579,27 +595,7 @@ export class PiAgentServer {
           this.logger.debug("Failed to fetch task run attribution", error);
           return null;
         }),
-      this.posthogAPI.getMcpRuntimeConfiguration(this.config.mcpServers ?? []),
     ]);
-    const taskSummarySupported = taskRun
-      ? Object.hasOwn(taskRun, "task_summary")
-      : false;
-    this.priorRunSummary = taskRun?.task_summary ?? null;
-    const localTools = buildLocalToolsServer(
-      { cwd },
-      {
-        environment: "cloud",
-        taskId: this.config.taskId,
-        taskRunId: this.config.runId,
-        baseBranch: this.config.baseBranch,
-        peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
-        taskSummarySupported,
-      },
-    );
-    const runtimeMcpServers = {
-      ...createRuntimeMcpServers(mcpConfiguration.servers),
-      ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
-    };
     const runState = taskRun?.state;
     seedRunUsage(this.runUsage, runState?.token_usage);
     // Before the prompt: its skills-store section counts the stubs on disk.
@@ -634,7 +630,6 @@ export class PiAgentServer {
       environment: "cloud",
       channelMode,
       additionalInstructions,
-      taskSummarySupported,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
       task_id: payload.task_id,
@@ -912,17 +907,13 @@ export class PiAgentServer {
       typeof params.content === "string" ? params.content : "",
       artifacts,
     );
-    const content = this.priorRunSummary
-      ? `${buildPriorTaskSummaryContext(this.priorRunSummary)}\n\n${message.content}`
-      : message.content;
     const result = await this.dispatchUserMessage(
       runtime,
-      content,
+      message.content,
       message.images,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
-    this.priorRunSummary = null;
     return result;
   }
 

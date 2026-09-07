@@ -54,7 +54,6 @@ export interface LocalToolGateMeta {
    */
   peerMessaging?: boolean;
   taskOriginProduct?: string;
-  taskSummarySupported?: boolean;
   /**
    * Workflow-action opt-in (run state `end_run_when_done`): exposes the `finish`
    * tool to a workflow-origin run, ending it the moment the agent is done.

@@ -1,4 +1,3 @@
-import { mergeProps } from "@base-ui/react/merge-props";
 import { Button, cn } from "@posthog/quill";
 import type { SidebarItemAction } from "@posthog/ui/features/sidebar/types";
 import {
@@ -70,11 +69,10 @@ export function SidebarItem({
   ...buttonProps
 }: SidebarItemProps) {
   const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
-  const interactionProps = mergeProps(buttonProps, hoverProps, focusProps);
 
   return (
     <Button
-      {...interactionProps}
+      {...buttonProps}
       ref={ref}
       type="button"
       className={cn(
@@ -109,6 +107,8 @@ export function SidebarItem({
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
+      {...hoverProps}
+      {...focusProps}
       disabled={disabled}
     >
       {icon ? (

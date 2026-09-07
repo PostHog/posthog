@@ -19,7 +19,6 @@ export interface FullTask {
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
     output?: { pr_url?: unknown } | null;
-    task_summary?: string | null;
     state?: Record<string, unknown> | null;
   } | null;
 }
@@ -39,7 +38,6 @@ export interface SidebarTask {
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
     output?: { pr_url?: unknown } | null;
-    task_summary?: string | null;
     /** "interactive" or "background"; see `readRunMode`. */
     mode?: RunMode | null;
   } | null;
@@ -85,7 +83,6 @@ export function narrowFullTask(task: FullTask | Task): SidebarTask {
           status: task.latest_run.status,
           environment: task.latest_run.environment ?? null,
           output: task.latest_run.output ?? null,
-          task_summary: task.latest_run.task_summary ?? null,
           mode: readRunMode(task.latest_run.state),
         }
       : null,
@@ -122,7 +119,6 @@ export interface TaskSession {
   pendingPermissions?: { size: number };
   cloudStatus?: TaskRunStatus;
   cloudOutput?: { pr_url?: unknown } | null;
-  cloudTaskSummary?: string | null;
 }
 
 /**
@@ -141,10 +137,9 @@ export function computeSidebarSessionSignature(
       typeof session.cloudOutput?.pr_url === "string"
         ? session.cloudOutput.pr_url
         : "";
-    const taskSummary = session.cloudTaskSummary ?? "";
     signature += `${session.taskId}:${session.isPromptPending ? 1 : 0}:${
       session.pendingPermissions?.size ?? 0
-    }:${session.cloudStatus ?? ""}:${prUrl}:${taskSummary};`;
+    }:${session.cloudStatus ?? ""}:${prUrl};`;
   }
   return signature;
 }
@@ -225,10 +220,6 @@ export function deriveTaskRunState(
   };
 }
 
-export function readTaskSummary(summary: unknown): string | null {
-  return typeof summary === "string" && summary.trim() ? summary.trim() : null;
-}
-
 export function deriveTaskData(
   task: SidebarTask,
   ctx: DeriveTaskDataContext,
@@ -273,9 +264,6 @@ export function deriveTaskData(
     slackThreadUrl,
     folderPath: workspace?.folderPath ?? null,
     cloudPrUrl,
-    summary: readTaskSummary(
-      session?.cloudTaskSummary ?? task.latest_run?.task_summary,
-    ),
     branchName: workspace?.branchName ?? null,
     linkedBranch: workspace?.linkedBranch ?? null,
   };
