@@ -496,14 +496,16 @@ export function VisualImageDiffViewer({
         return pixelated
     }
 
-    // The diff raster and the overlays are recorded in current-image coords, so
-    // on the shared canvas they cover the current image's fraction of it, the
-    // same way the current image layer does. Without that a current-sized diff
-    // stretches down over the empty area a taller baseline leaves behind.
-    const currentLayerIsFractional = Boolean(
-        stageAspectRatio && canvasWidth && canvasHeight && currentNaturalWidth && currentNaturalHeight
+    // The diff raster and the overlays live in the diff image's coord space, so
+    // on the shared canvas they cover that space's fraction of it, the way an
+    // image layer does. The diff is current-sized when the pair aligned, and it
+    // then has to land on the current image instead of stretching over the empty
+    // area a taller baseline leaves behind. Without alignment the diff is the
+    // padded union size, and this leaves it filling the whole canvas.
+    const diffLayerIsFractional = Boolean(
+        stageAspectRatio && canvasWidth && canvasHeight && overlayCoordWidth && overlayCoordHeight
     )
-    const currentLayerClass = currentLayerIsFractional ? 'absolute top-0 left-0' : 'absolute top-0 left-0 w-full h-full'
+    const diffLayerClass = diffLayerIsFractional ? 'absolute top-0 left-0' : 'absolute top-0 left-0 w-full h-full'
 
     const [internalMode, setInternalMode] = useState<ComparisonMode>('sideBySide')
     const requestedMode = controlledMode ?? internalMode
@@ -744,10 +746,10 @@ export function VisualImageDiffViewer({
                             <img
                                 src={diffUrl as string}
                                 alt="Diff overlay"
-                                className={cn(currentLayerClass, 'mix-blend-screen pointer-events-none')}
+                                className={cn(diffLayerClass, 'mix-blend-screen pointer-events-none')}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    ...layerStyle(currentNaturalWidth, currentNaturalHeight),
+                                    ...layerStyle(overlayCoordWidth, overlayCoordHeight),
                                     opacity: diffOverlayOpacity / 100,
                                 }}
                             />
@@ -766,9 +768,9 @@ export function VisualImageDiffViewer({
                             !!overlayCoordHeight &&
                             overlayCoordsMatch && (
                                 <div
-                                    className={cn(currentLayerClass, 'pointer-events-none')}
+                                    className={cn(diffLayerClass, 'pointer-events-none')}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={layerStyle(currentNaturalWidth, currentNaturalHeight)}
+                                    style={layerStyle(overlayCoordWidth, overlayCoordHeight)}
                                 >
                                     <BboxOverlay
                                         boxes={overlayBoxesIfShown ?? []}
@@ -836,9 +838,9 @@ export function VisualImageDiffViewer({
                                     !!overlayCoordHeight &&
                                     overlayCoordsMatch && (
                                         <div
-                                            className={cn(currentLayerClass, 'pointer-events-none')}
+                                            className={cn(diffLayerClass, 'pointer-events-none')}
                                             // eslint-disable-next-line react/forbid-dom-props
-                                            style={layerStyle(currentNaturalWidth, currentNaturalHeight)}
+                                            style={layerStyle(overlayCoordWidth, overlayCoordHeight)}
                                         >
                                             <BboxOverlay
                                                 boxes={overlayBoxesIfShown ?? []}

@@ -56,7 +56,13 @@ describe('VisualImageDiffViewer', () => {
         expect(bandRect).toHaveAttribute('height', expectedHeight)
     })
 
-    it('draws the diff and its overlays over a shorter current image, not the whole canvas', async () => {
+    // With a 100x200 baseline and a 100x100 current the shared canvas is 100x200.
+    // An aligned diff is recorded at the current size and must cover half of it;
+    // an unaligned diff is recorded at the padded canvas size and must fill it.
+    it.each<[string, number, string, string | null]>([
+        ['maps a current-sized diff onto the shorter current image', 100, '50%', '50%'],
+        ['leaves a union-sized diff filling the shared canvas', 200, '100%', null],
+    ])('%s', async (_case, diffHeight, expectedDiffHeight, expectedOverlayHeight) => {
         const user = userEvent.setup()
 
         render(
@@ -73,14 +79,18 @@ describe('VisualImageDiffViewer', () => {
                 baselineHeight={200}
                 currentWidth={100}
                 currentHeight={100}
+                diffOverlayWidth={100}
+                diffOverlayHeight={diffHeight}
                 diffOverlayBands={[{ y: 40, rows: 5, kind: 'inserted' }]}
             />
         )
 
-        const overlayLayer = document.querySelector('svg[viewBox="0 0 100 100"]')?.parentElement
-        expect(overlayLayer).toHaveStyle({ height: '50%' })
-
         await user.click(screen.getByLabelText('Diff overlay'))
-        expect(screen.getByAltText('Diff overlay')).toHaveStyle({ height: '50%' })
+        expect(screen.getByAltText('Diff overlay').style.height).toBe(expectedDiffHeight)
+
+        // A union-sized diff puts the bands in coords that match neither image,
+        // so the viewer skips the overlay instead of placing it wrongly.
+        const overlayLayer = document.querySelector(`svg[viewBox="0 0 100 ${diffHeight}"]`)?.parentElement
+        expect(overlayLayer?.style.height ?? null).toBe(expectedOverlayHeight)
     })
 })
