@@ -235,6 +235,7 @@ impl PersonHogReplica for TestReplicaService {
     ) -> Result<Response<DeleteHashKeyOverridesByTeamsResponse>, Status> {
         Ok(Response::new(DeleteHashKeyOverridesByTeamsResponse {
             deleted_count: 0,
+            cursor: None,
         }))
     }
 

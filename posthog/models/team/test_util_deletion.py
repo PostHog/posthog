@@ -7,6 +7,7 @@ from posthog.models.team.util import (
     _delete_groups_for_teams,
     _delete_hash_key_overrides_for_teams,
 )
+from posthog.personhog_client.proto import DeleteHashKeyOverridesByTeamsResponse, HashKeyOverrideCursor
 
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
 
@@ -102,20 +103,24 @@ class TestDeleteHashKeyOverridesForTeams(SimpleTestCase):
         assert req.batch_size == 2000
 
     @patch(_CLIENT_PATCH)
-    def test_loops_until_zero_deleted(self, mock_get_client):
+    def test_loops_until_zero_deleted_and_carries_the_cursor(self, mock_get_client):
         mock_client = MagicMock()
-        resp1 = MagicMock()
-        resp1.deleted_count = 10000
-        resp2 = MagicMock()
-        resp2.deleted_count = 3
-        resp3 = MagicMock()
-        resp3.deleted_count = 0
-        mock_client.delete_hash_key_overrides_by_teams.side_effect = [resp1, resp2, resp3]
+        first_cursor = HashKeyOverrideCursor(team_id=42, person_id=7, feature_flag_key="flag-a")
+        second_cursor = HashKeyOverrideCursor(team_id=42, person_id=9, feature_flag_key="flag-b")
+        mock_client.delete_hash_key_overrides_by_teams.side_effect = [
+            DeleteHashKeyOverridesByTeamsResponse(deleted_count=2000, cursor=first_cursor),
+            DeleteHashKeyOverridesByTeamsResponse(deleted_count=3, cursor=second_cursor),
+            DeleteHashKeyOverridesByTeamsResponse(deleted_count=0),
+        ]
         mock_get_client.return_value = mock_client
 
         _delete_hash_key_overrides_for_teams([42])
 
-        assert mock_client.delete_hash_key_overrides_by_teams.call_count == 3
+        requests = [call[0][0] for call in mock_client.delete_hash_key_overrides_by_teams.call_args_list]
+        assert len(requests) == 3
+        assert not requests[0].HasField("cursor")
+        assert requests[1].cursor == first_cursor
+        assert requests[2].cursor == second_cursor
 
     @patch(_CLIENT_PATCH)
     def test_empty_list_does_nothing(self, mock_get_client):

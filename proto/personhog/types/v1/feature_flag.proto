@@ -51,15 +51,29 @@ message UpsertHashKeyOverridesResponse {
   int64 inserted_count = 1;
 }
 
+// HashKeyOverrideCursor marks the last override row a delete batch reached. It
+// follows the (team_id, person_id, feature_flag_key) unique index, so the next
+// batch resumes at that point instead of walking the rows it already deleted.
+message HashKeyOverrideCursor {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  string feature_flag_key = 3;
+}
+
 // DeleteHashKeyOverridesByTeamsRequest deletes up to batch_size hash key overrides
-// across the specified teams. Callers should loop until deleted_count is 0.
+// across the specified teams. Callers should loop until deleted_count is 0, and
+// pass back the cursor from the previous response on each call.
 message DeleteHashKeyOverridesByTeamsRequest {
   repeated int64 team_ids = 1;
   // Max rows to delete per call. Must be > 0 and <= 50000.
   int64 batch_size = 2;
+  // Where to resume. Omit on the first call.
+  optional HashKeyOverrideCursor cursor = 3;
 }
 
 message DeleteHashKeyOverridesByTeamsResponse {
   // Number of rows deleted. 0 means no more rows to delete.
   int64 deleted_count = 1;
+  // Where the next call must resume. Absent when deleted_count is 0.
+  optional HashKeyOverrideCursor cursor = 2;
 }

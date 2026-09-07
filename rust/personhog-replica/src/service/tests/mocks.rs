@@ -180,7 +180,8 @@ impl storage::FeatureFlagStorage for FailingStorage {
         &self,
         _team_ids: &[i64],
         _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
+        _cursor: Option<&storage::HashKeyOverrideCursor>,
+    ) -> storage::StorageResult<storage::HashKeyOverrideDeleteBatch> {
         Err(self.error.clone())
     }
 }
@@ -554,8 +555,12 @@ impl storage::FeatureFlagStorage for SuccessStorage {
         &self,
         _team_ids: &[i64],
         _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
+        _cursor: Option<&storage::HashKeyOverrideCursor>,
+    ) -> storage::StorageResult<storage::HashKeyOverrideDeleteBatch> {
+        Ok(storage::HashKeyOverrideDeleteBatch {
+            deleted_count: 0,
+            cursor: None,
+        })
     }
 }
 
@@ -987,8 +992,12 @@ impl storage::FeatureFlagStorage for PopulatedStorage {
         &self,
         _team_ids: &[i64],
         _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
+        _cursor: Option<&storage::HashKeyOverrideCursor>,
+    ) -> storage::StorageResult<storage::HashKeyOverrideDeleteBatch> {
+        Ok(storage::HashKeyOverrideDeleteBatch {
+            deleted_count: 0,
+            cursor: None,
+        })
     }
 }
 
@@ -1399,8 +1408,12 @@ impl storage::FeatureFlagStorage for ConsistencyTrackingStorage {
         &self,
         _team_ids: &[i64],
         _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
+        _cursor: Option<&storage::HashKeyOverrideCursor>,
+    ) -> storage::StorageResult<storage::HashKeyOverrideDeleteBatch> {
+        Ok(storage::HashKeyOverrideDeleteBatch {
+            deleted_count: 0,
+            cursor: None,
+        })
     }
 }
 

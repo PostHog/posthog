@@ -13,7 +13,7 @@ import { file_personhog_types_v1_common } from './common_pb'
 export const file_personhog_types_v1_feature_flag: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiVwZXJzb25ob2cvdHlwZXMvdjEvZmVhdHVyZV9mbGFnLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiPQoPSGFzaEtleU92ZXJyaWRlEhgKEGZlYXR1cmVfZmxhZ19rZXkYASABKAkSEAoIaGFzaF9rZXkYAiABKAkinAEKFkhhc2hLZXlPdmVycmlkZUNvbnRleHQSEQoJcGVyc29uX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEjYKCW92ZXJyaWRlcxgDIAMoCzIjLnBlcnNvbmhvZy50eXBlcy52MS5IYXNoS2V5T3ZlcnJpZGUSIgoaZXhpc3RpbmdfZmVhdHVyZV9mbGFnX2tleXMYBCADKAkinQEKIEdldEhhc2hLZXlPdmVycmlkZUNvbnRleHRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMZGlzdGluY3RfaWRzGAIgAygJEhsKE2NoZWNrX3BlcnNvbl9leGlzdHMYAyABKAgSNQoMcmVhZF9vcHRpb25zGAQgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zImAKIUdldEhhc2hLZXlPdmVycmlkZUNvbnRleHRSZXNwb25zZRI7CgdyZXN1bHRzGAEgAygLMioucGVyc29uaG9nLnR5cGVzLnYxLkhhc2hLZXlPdmVycmlkZUNvbnRleHQicwodVXBzZXJ0SGFzaEtleU92ZXJyaWRlc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIUCgxkaXN0aW5jdF9pZHMYAiADKAkSEAoIaGFzaF9rZXkYAyABKAkSGQoRZmVhdHVyZV9mbGFnX2tleXMYBCADKAkiOAoeVXBzZXJ0SGFzaEtleU92ZXJyaWRlc1Jlc3BvbnNlEhYKDmluc2VydGVkX2NvdW50GAEgASgDIkwKJERlbGV0ZUhhc2hLZXlPdmVycmlkZXNCeVRlYW1zUmVxdWVzdBIQCgh0ZWFtX2lkcxgBIAMoAxISCgpiYXRjaF9zaXplGAIgASgDIj4KJURlbGV0ZUhhc2hLZXlPdmVycmlkZXNCeVRlYW1zUmVzcG9uc2USFQoNZGVsZXRlZF9jb3VudBgBIAEoA2IGcHJvdG8z',
+        'CiVwZXJzb25ob2cvdHlwZXMvdjEvZmVhdHVyZV9mbGFnLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiPQoPSGFzaEtleU92ZXJyaWRlEhgKEGZlYXR1cmVfZmxhZ19rZXkYASABKAkSEAoIaGFzaF9rZXkYAiABKAkinAEKFkhhc2hLZXlPdmVycmlkZUNvbnRleHQSEQoJcGVyc29uX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEjYKCW92ZXJyaWRlcxgDIAMoCzIjLnBlcnNvbmhvZy50eXBlcy52MS5IYXNoS2V5T3ZlcnJpZGUSIgoaZXhpc3RpbmdfZmVhdHVyZV9mbGFnX2tleXMYBCADKAkinQEKIEdldEhhc2hLZXlPdmVycmlkZUNvbnRleHRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMZGlzdGluY3RfaWRzGAIgAygJEhsKE2NoZWNrX3BlcnNvbl9leGlzdHMYAyABKAgSNQoMcmVhZF9vcHRpb25zGAQgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zImAKIUdldEhhc2hLZXlPdmVycmlkZUNvbnRleHRSZXNwb25zZRI7CgdyZXN1bHRzGAEgAygLMioucGVyc29uaG9nLnR5cGVzLnYxLkhhc2hLZXlPdmVycmlkZUNvbnRleHQicwodVXBzZXJ0SGFzaEtleU92ZXJyaWRlc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIUCgxkaXN0aW5jdF9pZHMYAiADKAkSEAoIaGFzaF9rZXkYAyABKAkSGQoRZmVhdHVyZV9mbGFnX2tleXMYBCADKAkiOAoeVXBzZXJ0SGFzaEtleU92ZXJyaWRlc1Jlc3BvbnNlEhYKDmluc2VydGVkX2NvdW50GAEgASgDIlUKFUhhc2hLZXlPdmVycmlkZUN1cnNvchIPCgd0ZWFtX2lkGAEgASgDEhEKCXBlcnNvbl9pZBgCIAEoAxIYChBmZWF0dXJlX2ZsYWdfa2V5GAMgASgJIpcBCiREZWxldGVIYXNoS2V5T3ZlcnJpZGVzQnlUZWFtc1JlcXVlc3QSEAoIdGVhbV9pZHMYASADKAMSEgoKYmF0Y2hfc2l6ZRgCIAEoAxI+CgZjdXJzb3IYAyABKAsyKS5wZXJzb25ob2cudHlwZXMudjEuSGFzaEtleU92ZXJyaWRlQ3Vyc29ySACIAQFCCQoHX2N1cnNvciKJAQolRGVsZXRlSGFzaEtleU92ZXJyaWRlc0J5VGVhbXNSZXNwb25zZRIVCg1kZWxldGVkX2NvdW50GAEgASgDEj4KBmN1cnNvchgCIAEoCzIpLnBlcnNvbmhvZy50eXBlcy52MS5IYXNoS2V5T3ZlcnJpZGVDdXJzb3JIAIgBAUIJCgdfY3Vyc29yYgZwcm90bzM',
         [file_personhog_types_v1_common]
     )
 
@@ -197,8 +197,41 @@ export const UpsertHashKeyOverridesResponseSchema: GenMessage<UpsertHashKeyOverr
     messageDesc(file_personhog_types_v1_feature_flag, 5)
 
 /**
+ * HashKeyOverrideCursor marks the last override row a delete batch reached. It
+ * follows the (team_id, person_id, feature_flag_key) unique index, so the next
+ * batch resumes at that point instead of walking the rows it already deleted.
+ *
+ * @generated from message personhog.types.v1.HashKeyOverrideCursor
+ */
+export type HashKeyOverrideCursor = Message<'personhog.types.v1.HashKeyOverrideCursor'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * @generated from field: int64 person_id = 2;
+     */
+    personId: bigint
+
+    /**
+     * @generated from field: string feature_flag_key = 3;
+     */
+    featureFlagKey: string
+}
+
+/**
+ * Describes the message personhog.types.v1.HashKeyOverrideCursor.
+ * Use `create(HashKeyOverrideCursorSchema)` to create a new message.
+ */
+export const HashKeyOverrideCursorSchema: GenMessage<HashKeyOverrideCursor> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_feature_flag, 6)
+
+/**
  * DeleteHashKeyOverridesByTeamsRequest deletes up to batch_size hash key overrides
- * across the specified teams. Callers should loop until deleted_count is 0.
+ * across the specified teams. Callers should loop until deleted_count is 0, and
+ * pass back the cursor from the previous response on each call.
  *
  * @generated from message personhog.types.v1.DeleteHashKeyOverridesByTeamsRequest
  */
@@ -215,6 +248,13 @@ export type DeleteHashKeyOverridesByTeamsRequest =
          * @generated from field: int64 batch_size = 2;
          */
         batchSize: bigint
+
+        /**
+         * Where to resume. Omit on the first call.
+         *
+         * @generated from field: optional personhog.types.v1.HashKeyOverrideCursor cursor = 3;
+         */
+        cursor?: HashKeyOverrideCursor
     }
 
 /**
@@ -223,7 +263,7 @@ export type DeleteHashKeyOverridesByTeamsRequest =
  */
 export const DeleteHashKeyOverridesByTeamsRequestSchema: GenMessage<DeleteHashKeyOverridesByTeamsRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_feature_flag, 6)
+    messageDesc(file_personhog_types_v1_feature_flag, 7)
 
 /**
  * @generated from message personhog.types.v1.DeleteHashKeyOverridesByTeamsResponse
@@ -236,6 +276,13 @@ export type DeleteHashKeyOverridesByTeamsResponse =
          * @generated from field: int64 deleted_count = 1;
          */
         deletedCount: bigint
+
+        /**
+         * Where the next call must resume. Absent when deleted_count is 0.
+         *
+         * @generated from field: optional personhog.types.v1.HashKeyOverrideCursor cursor = 2;
+         */
+        cursor?: HashKeyOverrideCursor
     }
 
 /**
@@ -244,4 +291,4 @@ export type DeleteHashKeyOverridesByTeamsResponse =
  */
 export const DeleteHashKeyOverridesByTeamsResponseSchema: GenMessage<DeleteHashKeyOverridesByTeamsResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_feature_flag, 7)
+    messageDesc(file_personhog_types_v1_feature_flag, 8)

@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH doomed AS MATERIALIZED (\n                SELECT ctid, team_id, person_id, feature_flag_key\n                FROM posthog_featureflaghashkeyoverride\n                WHERE team_id = ANY($1)\n                  AND (team_id, person_id, feature_flag_key) > ($3::int4, $4::int8, $5::varchar)\n                ORDER BY team_id, person_id, feature_flag_key\n                LIMIT $2\n            ),\n            last_row AS (\n                SELECT team_id, person_id, feature_flag_key\n                FROM doomed\n                ORDER BY team_id DESC, person_id DESC, feature_flag_key DESC\n                LIMIT 1\n            ),\n            deleted AS (\n                DELETE FROM posthog_featureflaghashkeyoverride\n                WHERE ctid IN (SELECT ctid FROM doomed)\n                RETURNING 1\n            )\n            SELECT\n                (SELECT count(*) FROM deleted) AS \"deleted_count!\",\n                (SELECT team_id FROM last_row) AS \"next_team_id?\",\n                (SELECT person_id FROM last_row) AS \"next_person_id?\",\n                (SELECT feature_flag_key FROM last_row) AS \"next_feature_flag_key?\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "deleted_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "next_team_id?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "next_person_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "next_feature_flag_key?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "41dec3a2c43959a31778e0e6aedf99e5b9baa4cbb003155da0f7f3ef9f1d0079"
+}
