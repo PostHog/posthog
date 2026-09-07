@@ -1,4 +1,5 @@
 import {
+  cp,
   lstat,
   mkdir,
   mkdtemp,
@@ -10,7 +11,16 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { createGitClient } from "./client";
 import { armProcessTimeout, KILL_GRACE_MS, WorktreeManager } from "./worktree";
 
@@ -20,6 +30,69 @@ async function initBareRemote(): Promise<string> {
   await git.init(["--bare", "--initial-branch", "main"]);
   return dir;
 }
+
+async function copyBareRemote(template: string): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), "posthog-code-remote-"));
+  await cp(template, dir, {
+    recursive: true,
+    filter: (source) => !source.endsWith("fsmonitor--daemon.ipc"),
+  });
+  return dir;
+}
+
+async function createInitialRemoteTemplate(): Promise<string> {
+  const remoteDir = await initBareRemote();
+  const seedDir = await mkdtemp(path.join(tmpdir(), "posthog-code-seed-"));
+  const seedGit = createGitClient(seedDir);
+  await seedGit.init(["--initial-branch", "main"]);
+  await seedGit.addConfig("user.name", "Test");
+  await seedGit.addConfig("user.email", "test@example.com");
+  await seedGit.addConfig("commit.gpgsign", "false");
+  await commit(seedDir, "initial.txt", "initial\n");
+  await seedGit.addRemote("origin", remoteDir);
+  await seedGit.push(["origin", "main"]);
+  await rm(seedDir, { recursive: true, force: true });
+  return remoteDir;
+}
+
+async function createLinkRemoteTemplate(): Promise<string> {
+  const remoteDir = await initBareRemote();
+  const seedDir = await mkdtemp(path.join(tmpdir(), "posthog-code-seed-"));
+  const seedGit = createGitClient(seedDir);
+  await seedGit.init(["--initial-branch", "main"]);
+  await seedGit.addConfig("user.name", "Test");
+  await seedGit.addConfig("user.email", "test@example.com");
+  await seedGit.addConfig("commit.gpgsign", "false");
+  await writeFile(
+    path.join(seedDir, ".gitignore"),
+    ".claude/\n.env\n.envrc\nCLAUDE.local.md\nnode_modules/\n",
+  );
+  await writeFile(path.join(seedDir, ".worktreelink"), "# secrets\n.envrc\n");
+  await writeFile(path.join(seedDir, ".worktreeinclude"), ".env\n");
+  await seedGit.add([".gitignore", ".worktreelink", ".worktreeinclude"]);
+  await seedGit.commit("add worktree config");
+  await seedGit.addRemote("origin", remoteDir);
+  await seedGit.push(["origin", "main"]);
+  await rm(seedDir, { recursive: true, force: true });
+  return remoteDir;
+}
+
+let initialRemoteTemplate: string;
+let linkRemoteTemplate: string;
+
+beforeAll(async () => {
+  [initialRemoteTemplate, linkRemoteTemplate] = await Promise.all([
+    createInitialRemoteTemplate(),
+    createLinkRemoteTemplate(),
+  ]);
+});
+
+afterAll(async () => {
+  await Promise.all([
+    rm(initialRemoteTemplate, { recursive: true, force: true }),
+    rm(linkRemoteTemplate, { recursive: true, force: true }),
+  ]);
+});
 
 async function initLocalClone(remoteDir: string): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), "posthog-code-local-"));
@@ -49,21 +122,7 @@ describe("WorktreeManager.createWorktree fetchBeforeCreate", () => {
   let worktreeBaseDir: string;
 
   beforeEach(async () => {
-    remoteDir = await initBareRemote();
-
-    // Seed the remote with an initial commit on `main` so other clones can
-    // fetch a real tip.
-    const seedDir = await mkdtemp(path.join(tmpdir(), "posthog-code-seed-"));
-    const seedGit = createGitClient(seedDir);
-    await seedGit.init(["--initial-branch", "main"]);
-    await seedGit.addConfig("user.name", "Test");
-    await seedGit.addConfig("user.email", "test@example.com");
-    await seedGit.addConfig("commit.gpgsign", "false");
-    await commit(seedDir, "initial.txt", "initial\n");
-    await seedGit.addRemote("origin", remoteDir);
-    await seedGit.push(["origin", "main"]);
-    await rm(seedDir, { recursive: true, force: true });
-
+    remoteDir = await copyBareRemote(initialRemoteTemplate);
     localDir = await initLocalClone(remoteDir);
     worktreeBaseDir = await mkdtemp(path.join(tmpdir(), "posthog-code-wts-"));
   });
@@ -159,18 +218,7 @@ describe("WorktreeManager lifecycle (add / exists / list / remove / prune)", () 
   let worktreeBaseDir: string;
 
   beforeEach(async () => {
-    remoteDir = await initBareRemote();
-
-    const seedDir = await mkdtemp(path.join(tmpdir(), "posthog-code-seed-"));
-    const seedGit = createGitClient(seedDir);
-    await seedGit.init(["--initial-branch", "main"]);
-    await seedGit.addConfig("user.name", "Test");
-    await seedGit.addConfig("user.email", "test@example.com");
-    await seedGit.addConfig("commit.gpgsign", "false");
-    await commit(seedDir, "initial.txt", "initial\n");
-    await seedGit.addRemote("origin", remoteDir);
-    await seedGit.push(["origin", "main"]);
-    await rm(seedDir, { recursive: true, force: true });
+    remoteDir = await copyBareRemote(initialRemoteTemplate);
 
     // realpath so the paths match what `git worktree list` reports (on macOS
     // /tmp is a symlink to /private/tmp); listWorktrees filters by path prefix.
@@ -237,26 +285,7 @@ describe("WorktreeManager worktree link/include processing", () => {
   let worktreeBaseDir: string;
 
   beforeEach(async () => {
-    remoteDir = await initBareRemote();
-
-    const seedDir = await mkdtemp(path.join(tmpdir(), "posthog-code-seed-"));
-    const seedGit = createGitClient(seedDir);
-    await seedGit.init(["--initial-branch", "main"]);
-    await seedGit.addConfig("user.name", "Test");
-    await seedGit.addConfig("user.email", "test@example.com");
-    await seedGit.addConfig("commit.gpgsign", "false");
-    await writeFile(
-      path.join(seedDir, ".gitignore"),
-      ".claude/\n.env\n.envrc\nCLAUDE.local.md\nnode_modules/\n",
-    );
-    await writeFile(path.join(seedDir, ".worktreelink"), "# secrets\n.envrc\n");
-    await writeFile(path.join(seedDir, ".worktreeinclude"), ".env\n");
-    await seedGit.add([".gitignore", ".worktreelink", ".worktreeinclude"]);
-    await seedGit.commit("add worktree config");
-    await seedGit.addRemote("origin", remoteDir);
-    await seedGit.push(["origin", "main"]);
-    await rm(seedDir, { recursive: true, force: true });
-
+    remoteDir = await copyBareRemote(linkRemoteTemplate);
     localDir = await realpath(await initLocalClone(remoteDir));
     worktreeBaseDir = await realpath(
       await mkdtemp(path.join(tmpdir(), "posthog-code-wts-")),
