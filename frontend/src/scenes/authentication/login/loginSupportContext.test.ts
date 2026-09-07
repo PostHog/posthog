@@ -7,6 +7,7 @@ describe('buildLoginSupportContext', () => {
         errorCode: 'invalid_credentials',
         region: Region.US,
         confirmedLoginMethods: [],
+        passwordLoginUnavailable: false,
         precheckTrusted: true,
         codeVerificationPending: false,
     }
@@ -22,6 +23,11 @@ describe('buildLoginSupportContext', () => {
             'nothing is confirmed',
             { confirmedLoginMethods: [] },
             'Login methods: none confirmed. The account check cannot tell a password-only account from an email with no account.',
+        ],
+        [
+            'the account is known to have no usable password and nothing else',
+            { confirmedLoginMethods: [], passwordLoginUnavailable: true },
+            'Login methods: none. The account has no usable password, and the check found no other method.',
         ],
         [
             'the account has a passkey and a linked provider',

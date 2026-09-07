@@ -17,6 +17,7 @@ export function buildLoginSupportContext({
     region,
     ssoEnforcement,
     confirmedLoginMethods,
+    passwordLoginUnavailable,
     precheckTrusted,
     codeVerificationPending,
 }: {
@@ -24,6 +25,7 @@ export function buildLoginSupportContext({
     region?: Region | null
     ssoEnforcement?: SSOProvider | null
     confirmedLoginMethods: LoginMethod[]
+    passwordLoginUnavailable: boolean
     precheckTrusted: boolean
     codeVerificationPending: boolean
 }): string {
@@ -42,11 +44,17 @@ export function buildLoginSupportContext({
         lines.push('Login methods: unknown, the account check did not complete')
     } else {
         const labels = confirmedLoginMethods.map(loginMethodLabel).filter(Boolean)
-        lines.push(
-            labels.length
-                ? `Login methods confirmed: ${labels.join(', ')}`
-                : 'Login methods: none confirmed. The account check cannot tell a password-only account from an email with no account.'
-        )
+        if (labels.length) {
+            lines.push(`Login methods confirmed: ${labels.join(', ')}`)
+        } else if (passwordLoginUnavailable) {
+            // The precheck reports the password as unusable only for an account it found, so this
+            // dead end is proven and must not get the ambiguous wording below.
+            lines.push('Login methods: none. The account has no usable password, and the check found no other method.')
+        } else {
+            lines.push(
+                'Login methods: none confirmed. The account check cannot tell a password-only account from an email with no account.'
+            )
+        }
     }
     if (codeVerificationPending) {
         lines.push('Waiting on an emailed verification code.')

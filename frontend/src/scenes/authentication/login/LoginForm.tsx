@@ -169,6 +169,7 @@ export function LoginForm(): JSX.Element {
                                                 region: preflight?.region,
                                                 ssoEnforcement: precheckResponse.sso_enforcement,
                                                 confirmedLoginMethods,
+                                                passwordLoginUnavailable: isPasswordLoginUnavailable,
                                                 precheckTrusted,
                                                 codeVerificationPending: codeVerificationRequired,
                                             }),
