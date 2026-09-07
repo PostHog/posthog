@@ -24,6 +24,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pyarrow as pa
+import requests
 import structlog
 from google.api_core.exceptions import (
     BadRequest,
@@ -35,7 +36,10 @@ from google.api_core.exceptions import (
 )
 from google.api_core.retry import Retry, if_exception_type
 from google.auth.exceptions import RefreshError
-from google.auth.transport.requests import AuthorizedSession
+from google.auth.transport.requests import (
+    AuthorizedSession,
+    Request as GoogleAuthRequest,
+)
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
 from google.cloud.bigquery.retry import DEFAULT_JOB_RETRY, _job_should_retry
@@ -61,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
@@ -290,6 +295,23 @@ BIGQUERY_CREATE_READ_SESSION_RETRY = Retry(
 )
 
 
+# `AuthorizedSession` builds its own internal session for refreshing the service-account OAuth
+# access token, and its default adapter only retries connection errors, not HTTP error responses.
+# Google's OAuth token endpoint can fail the refresh POST with a transient 502/503/504 (a Google-side
+# infrastructure blip on accounts.google.com / oauth2.googleapis.com — the same condition already
+# tolerated as a non-fatal cleanup hiccup in `build_pipeline`'s `finally` block), which otherwise
+# escapes every call site as an opaque `RefreshError` and crashes the whole import activity. POST is
+# normally excluded from urllib3's retryable methods since it's often non-idempotent, but a failed
+# token request mints no token, so retrying it here duplicates no side effect.
+BIGQUERY_TOKEN_REFRESH_RETRY = BoundedRetry(
+    total=3,
+    backoff_factor=0.5,
+    status_forcelist=(502, 503, 504),
+    allowed_methods=frozenset(["POST"]),
+    raise_on_status=False,
+)
+
+
 class BigQueryDatasetNotFoundError(Exception):
     """Raised when schema discovery queries a dataset/table that doesn't exist in the queried region.
 
@@ -413,10 +435,16 @@ def bigquery_client(
         },
         scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
+    # See `BIGQUERY_TOKEN_REFRESH_RETRY`: hand `AuthorizedSession` our own retrying session for
+    # credential refresh, instead of the default one whose adapter never retries a 502/503/504.
+    # `capture=False` keeps the OAuth response (it carries the minted bearer token) out of HTTP
+    # sample capture.
+    auth_request_session = requests.Session()
+    auth_request_session.mount("https://", TrackedHTTPAdapter(max_retries=BIGQUERY_TOKEN_REFRESH_RETRY, capture=False))
     # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
     # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
     # call is logged and metered alongside the other warehouse sources.
-    authed_session = AuthorizedSession(credentials)
+    authed_session = AuthorizedSession(credentials, auth_request=GoogleAuthRequest(auth_request_session))
     tracked_adapter = TrackedHTTPAdapter(max_retries=DEFAULT_RETRY)
     authed_session.mount("https://", tracked_adapter)
     authed_session.mount("http://", tracked_adapter)
