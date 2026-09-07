@@ -37,6 +37,13 @@ let
   # Node is handed to languages.javascript below rather than installed directly,
   # so it must not also land in `packages`.
   pinnedPackages = builtins.attrValues (builtins.removeAttrs pins [ "nodejs_24" ]);
+
+  # Every task runs one subcommand of bin/devenv-tasks.sh before the shell opens,
+  # so a task declaration only has to say which subcommand and what differs.
+  mkTask = name: extra: {
+    exec = "$DEVENV_ROOT/bin/devenv-tasks.sh ${name}";
+    before = [ "devenv:enterShell" ];
+  } // extra;
 in
 {
   # ---- packages ---------------------------------------------------------
@@ -97,7 +104,7 @@ in
     enable = true;
     channel = "stable";
     version = "1.91.1";
-    components = [ "rustc" "cargo" "clippy" "rustfmt" "rust-src" ];
+    components = [ "rustc" "cargo" "clippy" "rustfmt" "rust-src" "rust-analyzer" ];
   };
 
   # ---- Node -------------------------------------------------------------
@@ -152,52 +159,27 @@ in
   # `status` and `execIfModified` are mutually exclusive in devenv, so each task
   # picks one.
   tasks = {
-    "posthog:uv-sync" = {
+    "posthog:uv-sync" = mkTask "uv-sync" {
       description = "Install Python packages and expose hogli";
-      exec = "$DEVENV_ROOT/bin/devenv-tasks.sh uv-sync";
       execIfModified = [ "uv.lock" "pyproject.toml" ];
-      cwd = config.devenv.root;
-      before = [ "devenv:enterShell" ];
     };
 
-    "posthog:pnpm-install" = {
+    "posthog:pnpm-install" = mkTask "pnpm-install" {
       description = "Install Node packages";
-      exec = "$DEVENV_ROOT/bin/devenv-tasks.sh pnpm-install";
       execIfModified = [ "pnpm-lock.yaml" "package.json" ];
-      cwd = config.devenv.root;
-      before = [ "devenv:enterShell" ];
     };
 
-    "posthog:phrocs-build" = {
+    "posthog:phrocs-build" = mkTask "phrocs-build" {
       description = "Build phrocs";
-      # No execIfModified: the phrocs Makefile already tracks every .go file
-      # plus go.mod and go.sum, so an unchanged tree is a no-op.
-      exec = "$DEVENV_ROOT/bin/devenv-tasks.sh phrocs-build";
-      cwd = config.devenv.root;
-      before = [ "devenv:enterShell" ];
-      after = [ "posthog:uv-sync" ];
+      execIfModified = [ "tools/phrocs" ];
     };
 
-    "posthog:git-config" = {
-      description = "Seed repo-local git settings";
-      exec = "$DEVENV_ROOT/bin/devenv-tasks.sh git-config";
-      cwd = config.devenv.root;
+    # git-config has to land before pnpm install, because husky's `prepare` runs
+    # there and its own core.hooksPath write is denied by the dev sandbox.
+    "posthog:bootstrap" = mkTask "bootstrap" {
+      description = "Seed git settings, create .env, check /etc/hosts";
       before = [ "devenv:enterShell" "posthog:pnpm-install" ];
-    };
-
-    "posthog:hosts-check" = {
-      description = "Check /etc/hosts for the dev stack hostnames";
-      exec = "$DEVENV_ROOT/bin/devenv-tasks.sh hosts-check";
-      cwd = config.devenv.root;
-      before = [ "devenv:enterShell" ];
       showOutput = true;
-    };
-
-    "posthog:dotenv" = {
-      description = "Create .env from .env.example";
-      exec = "$DEVENV_ROOT/bin/devenv-tasks.sh dotenv";
-      cwd = config.devenv.root;
-      before = [ "devenv:enterShell" ];
     };
   };
 
@@ -214,14 +196,23 @@ in
     # Share a single Cargo target dir so worktrees skip redundant linking.
     export CARGO_TARGET_DIR="$HOME/.cargo/target"
 
-    # posthog:uv-sync only fires when the lockfiles change, so a venv that was
-    # deleted by hand is rebuilt here instead.
+    # The install tasks only fire when their lockfiles change, so anything that
+    # was deleted by hand (`hogli nuke`) is rebuilt here instead.
     if [ ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate" ]; then
       "$DEVENV_ROOT/bin/devenv-tasks.sh" uv-sync
+    fi
+    if [ ! -d "$DEVENV_ROOT/node_modules/.pnpm" ]; then
+      "$DEVENV_ROOT/bin/devenv-tasks.sh" pnpm-install
     fi
     if [ -f "$UV_PROJECT_ENVIRONMENT/bin/activate" ]; then
       . "$UV_PROJECT_ENVIRONMENT/bin/activate"
       export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+    fi
+
+    # posthog:phrocs-build can finish before the venv exists, so link the built
+    # binary here rather than ordering the two tasks against each other.
+    if [ -f "$DEVENV_ROOT/tools/phrocs/dist/phrocs" ] && [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
+      ln -sf "$DEVENV_ROOT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
     fi
 
     if [ -f "$DEVENV_ROOT/$DOTENV_FILE" ] && [ "''${POSTHOG_SKIP_DOTENV:-}" != "1" ]; then

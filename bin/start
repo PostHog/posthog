@@ -262,14 +262,14 @@ if [[ "$PROCESS_MANAGER" == "phrocs" ]]; then
     # version your branch built. Setups with neither dev environment have no
     # dist binary and fall back to PATH.
     DIST_PHROCS="$REPOSITORY_ROOT/tools/phrocs/dist/phrocs"
+    source "$REPOSITORY_ROOT/bin/helpers/dev-env.sh"
     if [[ -x "$DIST_PHROCS" ]]; then
         PROCESS_MANAGER_BIN="$DIST_PHROCS"
-    elif [[ -n "${FLOX_ENV_PROJECT:-}" || -n "${DEVENV_ROOT:-}" ]]; then
+    elif [[ -n "$(posthog_dev_env_root)" ]]; then
         # Inside a dev environment the source build is the only accepted binary
         # — do NOT fall back to PATH, or a stray brew/curl phrocs would shadow
         # the checkout build in exactly the failure mode this resolution is
         # meant to prevent.
-        source "$REPOSITORY_ROOT/bin/helpers/dev-env.sh"
         echo "👉 phrocs isn't built yet. Re-activate your dev environment to build it"
         echo "   (leave and re-enter the repo directory, or run: $(posthog_dev_env_activate_hint)),"
         echo "   or build it directly: hogli phrocs:build"

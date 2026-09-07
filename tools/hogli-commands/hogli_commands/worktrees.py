@@ -74,7 +74,6 @@ DEPS_WALK_SKIP = frozenset({".git", ".flox", ".devenv", ".venv", "venv"})
 # Explicit relative paths (globs allowed) removed in --mode deps. These are not
 # matched recursively, so they must name their location from the worktree root.
 DEPS_EXPLICIT_PATHS = (
-    ".venv",
     "venv",
     *VENV_PATHS,
     "frontend/dist",

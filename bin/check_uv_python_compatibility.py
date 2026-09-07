@@ -328,10 +328,10 @@ def check_dev_env_alignment(workflow_pin: str | None) -> bool:
     if not any(env_pins.values()):
         print("⚠ Skipped: No dev environment uv version found")
         return True
-    if not workflow_pin:
-        print("⚠ Skipped: No workflow pin to compare against")
-        return True
 
+    # compare_env_pins holds the "no workflow pin, nothing to compare" rule, so
+    # a missing pin reaches here as an empty problem list. Check 1 has already
+    # failed loudly in that case.
     problems = compare_env_pins(env_pins, workflow_pin)
     if not problems:
         for source, version in env_pins.items():

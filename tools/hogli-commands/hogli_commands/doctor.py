@@ -27,7 +27,7 @@ import click
 from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
-from .dev_env import DEVENV, dev_env_kind, is_devenv_active
+from .dev_env import is_devenv_active
 
 MAX_SAMPLE_PATHS = 8
 
@@ -2984,14 +2984,14 @@ def _toolchain_info(repo_root: Path) -> list[tuple[str, str]]:
 
     # Only probe for devenv when the developer opted in, so a flox-only machine
     # does not pay for a subprocess that reports nothing useful.
-    if dev_env_kind() == DEVENV:
+    if is_devenv_active() or shutil.which("devenv"):
         devenv_ver = _run_output(["devenv", "version"])
         if is_devenv_active():
-            pairs.append((DEVENV, f"active — {devenv_ver}" if devenv_ver else "active"))
+            pairs.append(("devenv", f"active — {devenv_ver}" if devenv_ver else "active"))
         elif devenv_ver:
-            pairs.append((DEVENV, f"not active ({devenv_ver} on PATH)"))
+            pairs.append(("devenv", f"not active ({devenv_ver} on PATH)"))
         else:
-            pairs.append((DEVENV, "not on PATH"))
+            pairs.append(("devenv", "not on PATH"))
 
     flox_ver = _run_output(["flox", "--version"])
     if os.environ.get("FLOX_ENV_DESCRIPTION") or os.environ.get("FLOX_ENV"):

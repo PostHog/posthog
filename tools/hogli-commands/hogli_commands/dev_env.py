@@ -7,31 +7,12 @@ dev stack starts.
 """
 
 import os
-import shutil
 
-DEVENV = "devenv"
-FLOX = "flox"
-
-# Venv locations relative to a repo root, one per environment. Tools that act on
-# a repo they did not activate themselves (worktree cleanup, for one) must handle
-# both, because the repo can belong to another developer's setup.
-VENV_PATHS = (".flox/cache/venv", ".devenv/state/venv")
-
-
-def dev_env_kind() -> str:
-    """Return ``devenv`` or ``flox``.
-
-    ``POSTHOG_DEV_ENV`` wins in both directions, so a developer can force
-    either environment. Without it, an installed devenv binary is the opt-in:
-    an activated devenv shell exports ``DEVENV_ROOT``, and a shell outside one
-    still has the binary on PATH. ``.envrc`` applies the same rule.
-    """
-    forced = os.environ.get("POSTHOG_DEV_ENV")
-    if forced in (DEVENV, FLOX):
-        return forced
-    if is_devenv_active() or shutil.which(DEVENV) is not None:
-        return DEVENV
-    return FLOX
+# Venv locations relative to a repo root, in the order the shell resolver tries
+# them. Tools that act on a repo they did not activate themselves (worktree
+# cleanup, for one) must handle all of them, because the repo can belong to
+# another developer's setup.
+VENV_PATHS = (".devenv/state/venv", ".flox/cache/venv", ".venv", "env")
 
 
 def is_devenv_active() -> bool:

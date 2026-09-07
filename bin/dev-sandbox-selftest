@@ -223,8 +223,20 @@ fi
 # .husky/_/husky.sh is deliberately absent from this list — husky's installer
 # rewrites it on every sandboxed install, so the profile re-allows it. See the note
 # in bin/dev-sandbox.sb.
-for unsandboxed_path in .husky/pre-commit .husky/pre-push .husky/post-checkout \
-    .flox/env/on-activate.sh devenv.nix devenv.yaml devenv.lock bin/devenv-tasks.sh; do
+# dev-env.sh names the definition files per environment. Ask it for both, because
+# the profile denies both sets whatever this machine happens to select.
+source bin/helpers/dev-env.sh
+unsandboxed_paths=(.husky/pre-commit .husky/pre-push .husky/post-checkout)
+while IFS= read -r config_file; do
+    unsandboxed_paths+=("$config_file")
+done < <(
+    {
+        # Subshells, because an assignment in front of a function call outlives it.
+        (POSTHOG_DEV_ENV=flox posthog_dev_env_config_files)
+        (POSTHOG_DEV_ENV=devenv posthog_dev_env_config_files)
+    } | awk '!seen[$0]++' # the shared step file is listed by both
+)
+for unsandboxed_path in "${unsandboxed_paths[@]}"; do
     if [[ ! -f "$repo/$unsandboxed_path" ]]; then
         echo "  --   $unsandboxed_path absent, skipping"
         continue

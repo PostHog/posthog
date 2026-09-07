@@ -1111,7 +1111,7 @@ utilities:
             - name: rust builds
               cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
             - name: dev environment activation
-              cmd: '. bin/helpers/dev-env.sh; if [ "$(posthog_dev_env_kind)" = devenv ]; then bin/devenv-tasks.sh all; else ./.flox/env/on-activate.sh; fi'
+              cmd: bash -c '. bin/helpers/dev-env.sh; posthog_dev_env_run true'
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true

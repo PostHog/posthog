@@ -8,6 +8,7 @@ on:
             - 'devenv.yaml'
             - 'devenv.lock'
             - 'bin/devenv-tasks.sh'
+            - 'bin/helpers/dev-setup-steps.sh'
             - '.github/workflows/ci-dev-setup.yml'
             - 'bin/start'
             - 'pyproject.toml'
@@ -113,11 +114,13 @@ jobs:
                   # requests per runner IP.
                   github_access_token: ${{ github.token }}
 
-            # devenv comes from the flake registry's nixpkgs, which cache.nixos.org
-            # already has built, so no extra substituter has to be trusted.
+            # devenv comes from nixpkgs, which cache.nixos.org already has built, so
+            # no extra substituter has to be trusted. The revision is pinned rather
+            # than taken from the flake registry, so the job does not silently move
+            # to a new devenv. Bump it by hand when devenv releases.
             - name: Build devenv
               if: steps.has-devenv.outputs.present == 'true'
-              run: nix build nixpkgs#devenv --out-link "$RUNNER_TEMP/devenv"
+              run: nix build github:NixOS/nixpkgs/0af3d1402dec3fc7e93635e511d1f7428c89cebf#devenv --out-link "$RUNNER_TEMP/devenv"
 
             - name: Enter devenv and verify dev setup
               if: steps.has-devenv.outputs.present == 'true'

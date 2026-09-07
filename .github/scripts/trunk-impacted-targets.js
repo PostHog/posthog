@@ -739,6 +739,10 @@ const TRIPWIRE_RULES = [
     ['bin/temporal-*', DEV_ENV],
     ['bin/verify-*', DEV_ENV],
     ['bin/upgrade-*', DEV_ENV],
+    // Not on the dev-env lane with the other helpers: it holds the install
+    // steps both dev environments run, so it decides which toolchain every
+    // suite runs inside. Same radius as bin/devenv-tasks.sh below.
+    ['bin/helpers/dev-setup-steps.sh', UNIVERSAL],
     ['bin/helpers/**', DEV_ENV],
     ['bin/wait-for-postgres-tables', DEV_ENV],
     ['bin/ensure-local-setup', DEV_ENV],

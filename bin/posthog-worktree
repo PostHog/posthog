@@ -244,18 +244,12 @@ setup_worktree_environment() {
     # developer's .env files in. For `phw pr` the branch is someone else's, so
     # taking its hook would execute an untrusted contributor's shell with those
     # secrets present. Copy the trusted versions over it.
-    if [[ "$(posthog_dev_env_kind)" == "devenv" ]]; then
-        copy_config_file "${main_repo}/devenv.nix" "${worktree_path}/"
-        copy_config_file "${main_repo}/devenv.yaml" "${worktree_path}/"
-        [[ -f "${main_repo}/devenv.lock" ]] && \
-            copy_config_file "${main_repo}/devenv.lock" "${worktree_path}/"
-        copy_config_file "${main_repo}/bin/devenv-tasks.sh" "${worktree_path}/bin/"
-    else
-        mkdir -p "${worktree_path}/.flox/env"
-        copy_config_file "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
-        [[ -f "${main_repo}/.flox/env/on-activate.sh" ]] && \
-            copy_config_file "${main_repo}/.flox/env/on-activate.sh" "${worktree_path}/.flox/env/"
-    fi
+    local config_file
+    while IFS= read -r config_file; do
+        [[ -f "${main_repo}/${config_file}" ]] || continue
+        mkdir -p "${worktree_path}/$(dirname "${config_file}")"
+        copy_config_file "${main_repo}/${config_file}" "${worktree_path}/${config_file}"
+    done < <(posthog_dev_env_config_files)
 
     # Copy .vscode/settings.json if it exists
     if [[ -f "${main_repo}/.vscode/settings.json" ]]; then
@@ -300,11 +294,7 @@ setup_worktree_environment() {
     print_color blue "Installing dependencies via $(posthog_dev_env_activate_hint) (this may take a minute)…"
     # Clean up any stale environment variables that might conflict
     unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
-    if [[ "$(posthog_dev_env_kind)" == "devenv" ]]; then
-        devenv shell -- true
-    else
-        flox activate --trust -- true
-    fi
+    posthog_dev_env_run true
     
     success "✅ Worktree setup complete!"
     echo ""
