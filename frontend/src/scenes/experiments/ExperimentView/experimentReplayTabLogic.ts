@@ -157,6 +157,27 @@ export type ExperimentReplayRecording = Pick<SessionRecordingType, 'id' | 'recor
 /** The link an empty "what to watch" state offers, as reported to telemetry. */
 export type ExperimentWatchEmptyAction = 'exposure_docs' | 'replay_settings'
 
+/** The action an empty recordings list offers for its reason, as reported to telemetry. */
+export type ExperimentRecordingsEmptyAction =
+    | 'replay_settings'
+    | 'retention_docs'
+    | 'ad_blocker_docs'
+    | 'retry_metric_filter'
+    | 'show_hidden'
+
+/**
+ * The dates and settings the empty-state copy names. The component reads them from here so that it
+ * does not measure the run window a second time against a clock this logic has already read.
+ */
+export interface ExperimentRecordingsListEmptyContext {
+    /** Days since the experiment launched, null when it has not launched. */
+    daysSinceStart: number | null
+    /** When the experiment stopped, null while it runs. */
+    endDate: string | null
+    /** The project's replay retention window, which `ended_past_retention` is decided against. */
+    retentionWindowDays: number
+}
+
 /**
  * Why the recordings list came back with nothing, from what the client already holds. Reported, not
  * shown: the tab has no way today to tell a project with replay switched off from an experiment
@@ -268,6 +289,7 @@ export interface experimentReplayTabLogicValues {
     inSessionExposureLoading: boolean
     linkedScanners: LinkedScanner[]
     linkedScannersLoading: boolean
+    listEmptyContext: ExperimentRecordingsListEmptyContext
     listEmptyReason: ExperimentReplayListEmptyReason
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
@@ -334,6 +356,13 @@ export interface experimentReplayTabLogicActions {
         context: ExperimentRecordingsBucketLoadedContext
         experimentId: ExperimentIdType
     } // eventUsageLogic
+    reportExperimentRecordingsEmptyActionClicked: (
+        experimentId: ExperimentIdType,
+        context: import('lib/utils/eventUsageLogic').ExperimentRecordingsEmptyActionContext
+    ) => {
+        context: import('lib/utils/eventUsageLogic').ExperimentRecordingsEmptyActionContext
+        experimentId: ExperimentIdType
+    }
     reportExperimentRecordingsListRendered: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsListRenderedContext
@@ -386,6 +415,9 @@ export interface experimentReplayTabLogicActions {
         payload?: any
         seenTogetherMap: Record<string, boolean>
     } // viewRecordingsLinkabilityLogic
+    listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => {
+        action: ExperimentRecordingsEmptyAction
+    }
     loadInSessionExposure: (_?: unknown) => unknown
     loadInSessionExposureFailure: (
         error: string,
@@ -560,6 +592,10 @@ export interface experimentReplayTabLogicMeta {
             sessionBucketError: string | null,
             arg: any
         ) => ExperimentReplayListEmptyReason
+        listEmptyContext: (
+            currentTeam: TeamPublicType | TeamType | null,
+            arg: any
+        ) => ExperimentRecordingsListEmptyContext
         filterContext: (
             effectiveVariantKey: string | null,
             effectiveExposureScope: ExperimentReplayExposureScope,
@@ -657,6 +693,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 'reportExperimentWatchCardSelected',
                 'reportExperimentWatchHighlightOpened',
                 'reportExperimentWatchEmptyActionClicked',
+                'reportExperimentRecordingsEmptyActionClicked',
             ],
         ],
     })),
@@ -675,6 +712,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         selectWatchCard: (card: ExperimentWatchCardApi | null) => ({ card }),
         watchHighlightOpened: (card: ExperimentWatchCardApi, position: number) => ({ card, position }),
         watchEmptyActionClicked: (action: ExperimentWatchEmptyAction) => ({ action }),
+        listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => ({ action }),
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
         reportTabViewed: true,
         scannerCrossSellClicked: true,
@@ -1111,6 +1149,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 return ExperimentReplayListEmptyReason.UnknownInWindow
             },
         ],
+        listEmptyContext: [
+            (s) => [s.currentTeam, (_, props) => props.experiment],
+            (
+                currentTeam: TeamPublicType | TeamType | null,
+                experiment: Experiment
+            ): ExperimentRecordingsListEmptyContext => ({
+                daysSinceStart: daysSince(experiment.start_date),
+                endDate: experiment.end_date ?? null,
+                retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
+            }),
+        ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so
         // an empty list and an opened recording are comparable facet for facet.
         filterContext: [
@@ -1489,6 +1538,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         watchEmptyActionClicked: ({ action }) => {
             actions.reportExperimentWatchEmptyActionClicked(props.experiment.id, {
                 empty_reason: values.sessionEventDeltas?.empty_reason ?? null,
+                action,
+            })
+        },
+        listEmptyActionClicked: ({ action }) => {
+            actions.reportExperimentRecordingsEmptyActionClicked(props.experiment.id, {
+                empty_reason: values.listEmptyReason,
                 action,
             })
         },

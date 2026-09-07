@@ -32,6 +32,7 @@ import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanner
 
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
+import { ExperimentRecordingsListEmptyState } from './ExperimentRecordingsListEmptyState'
 import {
     ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
@@ -515,6 +516,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         onFiltersChange={(filters) => playlistFiltersChanged(filters)}
                         onRecordingsLoaded={(recordings, isFirstPage) => recordingsLoaded(recordings, isFirstPage)}
                         onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
+                        listEmptyState={<ExperimentRecordingsListEmptyState experiment={experiment} />}
                     />
                 )}
             </div>
