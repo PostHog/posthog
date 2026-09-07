@@ -34,3 +34,6 @@ After research completes, actionable reports can include a `Steps to verify fix`
 This final request is optional: if generation or note conversion fails, research still completes without the note.
 The findings, actionability, priority, title, and summary remain available.
 Core research failures and cancellation still fail the run and trigger session cleanup.
+
+Autostart tasks instruct implementation agents to load the report's work log and run the newest verification note against current data before changing code.
+If the issue no longer occurs, the agent records that result and stops; if no note exists, it verifies the issue from the report's evidence.
