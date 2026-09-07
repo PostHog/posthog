@@ -27,16 +27,11 @@ Measure projects on both sides of the threshold.
 
 ## Frontend result reveal
 
-Results must wait only for requests that contribute to those results.
-The unscoped expansion count only controls an option below the results.
-It must not delay the current results.
-A failed or old count must leave the current results usable.
+`docs/internal/taxonomic-filter-search.md` is the source of truth for result reveal behavior.
+Do not restate its loading rules here.
 
-Recent and Pinned use local data.
-They must not wait for a network request.
-
-Keep the legacy implementation in `infiniteListLogic.ts` and the rebuild in `hooks/useGroupList.ts` consistent.
-`docs/internal/taxonomic-filter-search.md` defines the expected behavior.
+For performance work, measure the time until the first usable result.
+Check both `infiniteListLogic.ts` and `hooks/useGroupList.ts` because the legacy and rebuild paths implement loading separately.
 
 ## Verification
 

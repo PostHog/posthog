@@ -242,18 +242,24 @@ Compare candidate plans with the same parameters and verify equal results.
 
 ### Measure tenant size
 
-If a plan choice depends on tenant size, inspect the full distribution before you select a threshold.
-Measure the largest tenants and the range near the proposed boundary.
-Use the correct tenant key for the table.
+If a plan choice depends on tenant size, inspect the distribution before you select a threshold.
+Prefer an existing aggregate, pganalyze data, or another database-owner approved source.
+A grouped count can scan the full table even when it has a small result limit.
+Run `EXPLAIN` and get database-owner approval before you execute such a query on the shared replica.
+
+For a known tenant, use a bounded count to check one side of a proposed threshold:
 
 ```sql
-SELECT <tenant_key>, count(*) AS row_count
-FROM <table>
-GROUP BY <tenant_key>
-ORDER BY row_count DESC
-LIMIT 100
+SELECT count(*)
+FROM (
+    SELECT 1
+    FROM <table>
+    WHERE <tenant_key> = <tenant_id>
+    LIMIT <threshold_plus_one>
+) AS bounded_rows
 ```
 
+Measure known tenants on both sides of the proposed boundary.
 Use [`profiling-slow-api-endpoints`](../profiling-slow-api-endpoints/SKILL.md)
 to turn the measurements into an implementation and rollout plan.
 
