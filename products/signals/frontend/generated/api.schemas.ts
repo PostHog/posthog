@@ -4337,7 +4337,10 @@ export interface SignalSourceConfigApi {
     config?: SignalSourceConfigApiConfig
     readonly created_at: string
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read.
+     * @nullable
+     */
     readonly status: string | null
 }
 
@@ -4364,7 +4367,10 @@ export interface PatchedSignalSourceConfigApi {
     config?: PatchedSignalSourceConfigApiConfig
     readonly created_at?: string
     readonly updated_at?: string
-    /** @nullable */
+    /**
+     * Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read.
+     * @nullable
+     */
     readonly status?: string | null
 }
 

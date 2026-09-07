@@ -3,18 +3,20 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import cast
 
-from django.db.models import Q, TextChoices
+from django.db.models import TextChoices
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
@@ -45,6 +47,32 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
     (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): ("PgAnalyze", "issues"),
 }
 
+_DATA_IMPORT_EXTERNAL_SOURCE_TYPES = sorted({source_type for source_type, _ in _DATA_IMPORT_SOURCE_MAP.values()})
+
+
+def _read_data_import_statuses(team_id: int) -> dict[tuple[str, str], set[str]]:
+    """Every data-import schema on a team in one query, bucketed by `_DATA_IMPORT_SOURCE_MAP` value."""
+    rows = (
+        ExternalDataSchema.objects.filter(
+            team_id=team_id,
+            source__source_type__in=_DATA_IMPORT_EXTERNAL_SOURCE_TYPES,
+        )
+        .exclude(source__deleted=True)
+        .values_list("source__source_type", "name", "status")
+    )
+    statuses: dict[tuple[str, str], set[str]] = {}
+    for row_source_type, row_name, row_status in rows:
+        # `status` is nullable. A row without one matches none of the ranked states below.
+        if row_status is None:
+            continue
+        for key in _DATA_IMPORT_SOURCE_MAP.values():
+            source_type, schema_name = key
+            # A repo-qualified schema reads as `<owner>/<repo>.<endpoint>`, a legacy one as the
+            # bare endpoint name.
+            if row_source_type == source_type and (row_name == schema_name or row_name.endswith(f".{schema_name}")):
+                statuses.setdefault(key, set()).add(row_status)
+    return statuses
+
 
 _SOURCE_CONFIG_HELP_TEXT = (
     "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources "
@@ -74,7 +102,13 @@ class _SourceConfigField(serializers.JSONField):
 
 
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
-    status = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Sync state of the warehouse import behind this source: `running`, `failed`, or "
+            "`completed`. Null for a source that imports nothing from the warehouse, for an "
+            "import that has never synced, and when the sync state could not be read."
+        ),
+    )
     config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
 
     class Meta:
@@ -91,25 +125,19 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at", "status"]
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Absent key means "not read yet", a `None` value means the read failed.
+        self._data_import_statuses_by_team: dict[int, dict[tuple[str, str], set[str]] | None] = {}
+
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if mapping is None:
             return None
-        ext_source_type, schema_name = mapping
-        return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
-
-    def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-
-        statuses = set(
-            ExternalDataSchema.objects.filter(
-                Q(name=schema_name) | Q(name__endswith=f".{schema_name}"),
-                team_id=team_id,
-                source__source_type=ext_source_type,
-            )
-            .exclude(source__deleted=True)
-            .values_list("status", flat=True)
-        )
+        statuses_by_source = self._data_import_statuses(obj.team_id)
+        if statuses_by_source is None:
+            return None
+        statuses = statuses_by_source.get(mapping, set())
         if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
@@ -122,6 +150,24 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
+
+    def _data_import_statuses(self, team_id: int) -> dict[tuple[str, str], set[str]] | None:
+        """Sync statuses of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.
+
+        The inbox reads this list on load, and DRF reuses one child serializer across a list,
+        so the first row that needs a status resolves every row's in one query. A `None` return
+        means the warehouse read raised. Those rows then report no status, which keeps the
+        response a 200 so a person can still configure their sources.
+        """
+        if team_id in self._data_import_statuses_by_team:
+            return self._data_import_statuses_by_team[team_id]
+        try:
+            statuses = _read_data_import_statuses(team_id)
+        except Exception as exc:
+            capture_exception(exc)
+            statuses = None
+        self._data_import_statuses_by_team[team_id] = statuses
+        return statuses
 
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
