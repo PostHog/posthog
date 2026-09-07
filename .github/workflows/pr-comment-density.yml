@@ -1,0 +1,72 @@
+name: PR comment density
+
+# Reusable workflow, called by pr-housekeeping.yml on PR open and push.
+# Push-cancels-previous-push comes from the caller's concurrency group.
+#
+# Warn-only: when a large share of the added code lines are comments, it
+# leaves one sticky comment on the PR and removes it once the share drops.
+
+on:
+    workflow_call:
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    comment-density:
+        name: Warn on comment-heavy diffs
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # The fork token cannot write comments, and the queue's batch PR is the
+        # union of PRs that were each already checked.
+        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/check_comment_density.py
+                  sparse-checkout-cone-mode: false
+
+            # The API diff is the PR compared with its merge base, so no history
+            # fetch is needed. It refuses very large diffs; those are skipped.
+            - name: Fetch PR diff
+              id: diff
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" -H "Accept: application/vnd.github.diff" > pr.diff; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::notice::Could not fetch the PR diff (too large or unavailable); skipping the comment density check."
+                      echo "available=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Measure comment share
+              id: measure
+              if: steps.diff.outputs.available == 'true'
+              run: python3 .github/scripts/check_comment_density.py < pr.diff
+
+            - name: Update the sticky comment
+              if: steps.diff.outputs.available == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  WARN: ${{ steps.measure.outputs.warn }}
+                  BODY: ${{ steps.measure.outputs.body }}
+              run: |
+                  set -euo pipefail
+                  marker='<!-- pr-comment-density -->'
+                  existing_id=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+                      --jq "map(select(.body | startswith(\"$marker\"))) | .[0].id // empty" | head -n1)
+
+                  if [ "$WARN" = "true" ]; then
+                      if [ -n "$existing_id" ]; then
+                          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing_id}" -f body="$BODY" > /dev/null
+                      else
+                          gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY" > /dev/null
+                      fi
+                  elif [ -n "$existing_id" ]; then
+                      gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${existing_id}"
+                  fi
