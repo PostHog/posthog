@@ -135,27 +135,17 @@ await buildInParallel(
 
 /**
  * The chunk map sceneLogic reads must be keyed by scene id, not by the entry's export name that
- * getChunks falls back to. Resolve every lazy scene import through the metafile; an unresolved scene
- * only loses the parallel prefetch, but none resolving means the map is silently useless, so fail.
+ * getChunks falls back to. The manifest also generates the lazy imports, so every entry must resolve
+ * through the metafile. Fail the build instead of silently disabling prefetch for a scene.
  */
 function sceneChunkMap(buildResponse) {
-    const src = (file) => fs.readFileSync(path.resolve(__dirname, 'src', file), 'utf-8')
-    const { chunks, resolved, unresolved } = keyChunksBySceneId({
+    const sceneModules = JSON.parse(fs.readFileSync(path.join(__dirname, 'src/sceneModules.json'), 'utf8'))
+    const chunks = keyChunksBySceneId({
         inputs: buildResponse.inputs,
         outputs: buildResponse.outputs,
-        sceneTypesSource: src('scenes/sceneTypes.ts'),
-        appScenesSource: src('scenes/appScenes.ts'),
-        productScenesSource: src('productScenes.tsx'),
+        sceneModules,
     })
-    if (resolved === 0) {
-        throw new Error(
-            'Chunk map: no scene import could be resolved through the metafile; see frontend/bin/scene-chunk-map.mjs'
-        )
-    }
-    console.info(`Chunk map: ${resolved} scenes keyed by id, ${unresolved.length} unresolved`)
-    if (unresolved.length > 0) {
-        console.warn(`Chunk map: no chunk list for ${unresolved.join(', ')}`)
-    }
+    console.info(`Chunk map: all ${Object.keys(sceneModules).length} scenes keyed by id`)
     return chunks
 }
 

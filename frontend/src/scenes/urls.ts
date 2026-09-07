@@ -27,7 +27,7 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
  * - add a scene to the enum in sceneTypes.ts
  * - add a scene configuration in scenes.ts
  * - add a route to scene mapping in scenes.ts
- * - and add a scene import in appScenes.ts
+ * - and add the scene's module path in appSceneModules.mts, then run pnpm build:products
  *
  * Sync the paths with AutoProjectMiddleware!
  */

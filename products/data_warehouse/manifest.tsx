@@ -14,7 +14,7 @@ export const manifest: ProductManifest = {
     scenes: {
         DataOps: {
             name: 'Data ops',
-            import: () => import('./DataWarehouseScene'),
+            import: () => import('../../frontend/src/scenes/data-warehouse/DataWarehouseScene'),
             projectBased: true,
             activityScope: 'DataWarehouse',
             description: "Manage your organization's shared data warehouse.",

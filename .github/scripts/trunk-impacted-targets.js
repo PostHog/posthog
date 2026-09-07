@@ -624,7 +624,7 @@ const TRIPWIRE_RULES = [
     // Outside those two the only reader is services/mcp, which the lane function
     // names. Nothing under rust/ or nodejs/ reads products.json or globs the
     // manifests, so `universal` was asserting a radius these files do not have.
-    // The generated products.tsx and productScenes.tsx are deliberately absent:
+    // The generated products.tsx, lazySceneImports.ts, and sceneModules.json are deliberately absent:
     // they have no Python reader, and the frontend rule below already gives them
     // the frontend lanes.
     ['frontend/src/products.json', PRODUCT_SURFACE],
