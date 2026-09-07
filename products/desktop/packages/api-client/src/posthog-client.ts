@@ -568,8 +568,58 @@ export interface ScoutConfig {
   created_at: string;
 }
 
+export interface ScoutSuggestionProposedConfig {
+  /** Five-field cron in the project timezone, or null for a rolling interval. */
+  run_cron_schedule: string | null;
+  /** Minutes between runs when no cron is given; null means the daily default. */
+  run_interval_minutes: number | null;
+  /** False means the suggested scout would run dry and file nothing. */
+  emit: boolean;
+}
+
+export interface ScoutSuggestionItem {
+  id: string;
+  /** `canonical` turns on a PostHog scout that is off; `custom` creates a drafted one. */
+  kind: "canonical" | "custom";
+  skill_name: string;
+  title: string;
+  /** Project-specific evidence for this suggestion, in prose. */
+  why_here: string;
+  /** Custom only: the one-line description the scout would be created with. */
+  description: string;
+  /** Custom only: the complete skill body the scout would be created with. */
+  draft_body: string;
+  proposed_config: ScoutSuggestionProposedConfig;
+  /** Nothing in the current fleet covers this. */
+  gap: boolean;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface ScoutSuggestionSet {
+  /** `fresh`, `stale` (the fleet moved on), `failed` (prior batch, if any), `empty`. */
+  status: "fresh" | "stale" | "failed" | "empty";
+  generated_at: string | null;
+  model: string;
+  /** Skill names that were enabled when the batch was generated. */
+  fleet_snapshot: string[];
+  /** Suggestions not yet dismissed or acted on, best first. Up to 5. */
+  items: ScoutSuggestionItem[];
+}
+
+export interface ScoutOutputSummary {
+  count: number;
+  scout_count: number;
+  authored_report_count: number;
+  edited_report_count: number;
+  run_count: number;
+  latest_at: string | null;
+}
+
 export interface ScoutRun {
   run_id: string;
+  created_at?: string;
+  emitted_report_ids?: string[];
+  edited_report_ids?: string[];
   skill_name: string;
   skill_version: number;
   /** TaskRun-derived status, e.g. "completed" | "failed" | "in_progress" | "queued". */
@@ -626,6 +676,7 @@ export interface ScoutScratchpadEntry {
 }
 
 export interface ScoutRunsQueryParams {
+  skill_name?: string;
   date_from?: string;
   date_to?: string;
   text?: string;
@@ -2348,14 +2399,21 @@ export class PostHogAPIClient {
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(body),
-      },
-    });
+    const response = await this.api.fetcher
+      .fetch({
+        method: "post",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(body),
+        },
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiRequestError) {
+          throw new ScoutRequestError(error.status, subPath, readDetail(error));
+        }
+        throw error;
+      });
     if (!response.ok) {
       throw new ScoutRequestError(
         response.status,
@@ -2384,6 +2442,26 @@ export class PostHogAPIClient {
       { results: ScoutConfig[] } | ScoutConfig[]
     >(projectId, "configs/sync/", {}, { surface: "desktop" });
     return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * The pre-computed "Suggested for this project" batch: PostHog scouts worth
+   * turning on, and drafts worth creating, each with the evidence behind it.
+   * A coordinator refreshes it on a schedule, so this read never waits on one.
+   */
+  async listScoutSuggestions(projectId: number): Promise<ScoutSuggestionSet> {
+    return this.scoutGet<ScoutSuggestionSet>(projectId, "suggestions/");
+  }
+
+  async dismissScoutSuggestion(
+    projectId: number,
+    suggestionId: string,
+  ): Promise<void> {
+    await this.scoutPost<unknown>(
+      projectId,
+      `suggestions/${suggestionId}/dismiss/`,
+      {},
+    );
   }
 
   async updateScoutConfig(
@@ -2425,6 +2503,17 @@ export class PostHogAPIClient {
     return (await response.json()) as ScoutConfig;
   }
 
+  /**
+   * Queue one run of a scout outside its schedule. 409 when a run is already in
+   * flight, 429 when the project's daily run budget is spent.
+   */
+  async runScoutNow(
+    projectId: number,
+    configId: string,
+  ): Promise<{ skill_name: string; workflow_id: string; started: boolean }> {
+    return await this.scoutPost(projectId, `configs/${configId}/run/`, {});
+  }
+
   async listScoutRuns(
     projectId: number,
     params?: ScoutRunsQueryParams,
@@ -2433,6 +2522,7 @@ export class PostHogAPIClient {
       projectId,
       "runs/",
       {
+        skill_name: params?.skill_name,
         date_from: params?.date_from,
         date_to: params?.date_to,
         text: params?.text,
@@ -2441,6 +2531,22 @@ export class PostHogAPIClient {
       },
     );
     return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  async listRecentScoutRuns(projectId: number): Promise<ScoutRun[]> {
+    return await this.scoutGet<ScoutRun[]>(
+      projectId,
+      "runs/recent-per-scout/",
+      { per_scout_limit: 18 },
+    );
+  }
+
+  async getScoutOutputSummary(projectId: number): Promise<ScoutOutputSummary> {
+    return await this.scoutGet<ScoutOutputSummary>(
+      projectId,
+      "runs/findings/summary/",
+      { window_hours: 72 },
+    );
   }
 
   async getScoutRun(projectId: number, runId: string): Promise<ScoutRun> {
