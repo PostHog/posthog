@@ -27,7 +27,8 @@ Import components and types from `@posthog/quill-charts`, not internal source pa
 - Keep series, config, and callbacks stable across unrelated renders.
 - Give charts that fill their container a parent with real dimensions, including a nonzero height.
 
-Reuse an existing `ChartTheme` or use the package's `useChartTheme` hook.
+Reuse the host's existing chart theme setup.
+For a new host without chart theming, use the package's `useChartTheme` hook.
 Follow the [setup and theme docs](../../../packages/quill/packages/charts/src/README.md#setup) for tokens and CSS.
 Omit series colors to use the theme palette; resolve CSS variables before passing explicit canvas colors.
 Read the selected chart's props and the [Series type](../../../packages/quill/packages/charts/src/core/types.ts) for its data contract.

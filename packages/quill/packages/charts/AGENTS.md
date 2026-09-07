@@ -120,4 +120,3 @@ When adding or changing a chart, overlay, or config option: write the JSDoc on t
 
 Keep detailed library behavior here or in `src/docs/`.
 The [consumer skill](../../../../.agents/skills/working-with-charts/SKILL.md) links to the relevant package docs and examples.
-Neither guide covers product-specific integration.
