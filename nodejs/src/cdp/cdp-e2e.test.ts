@@ -72,6 +72,7 @@ describe('CDP Consumer loop', () => {
 
             hub.CDP_FETCH_RETRIES = 2
             hub.CDP_FETCH_BACKOFF_BASE_MS = 100 // fast backoff
+            hub.CDP_WATCHER_COST_ERROR = 1
             hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA = true
 
             // Include integration parsing as part of the e2e check
@@ -528,6 +529,28 @@ describe('CDP Consumer loop', () => {
             // signature window.
             expect(sigv4AmzDates[0]).not.toEqual(sigv4AmzDates[1])
             expect(sigv4Authorizations[0]).not.toEqual(sigv4Authorizations[1])
+        })
+
+        it('charges the hog watcher when a destination exhausts its retries', async () => {
+            // The unit tests build an errored result by hand. This case proves the executor sets
+            // `error` once retries run out, that the worker forwards the result to the watcher, and
+            // that the charge reaches Redis.
+            mockFetch.mockImplementation(() => {
+                return Promise.resolve({
+                    status: 500,
+                    headers: {},
+                    json: () => Promise.resolve({ error: 'Server error' }),
+                    text: () => Promise.resolve(JSON.stringify({ error: 'Server error' })),
+                    dump: () => Promise.resolve(),
+                })
+            })
+
+            await eventsConsumer.processBatch([globals])
+
+            await waitForExpect(async () => {
+                const state = await cyclotronWorker.hogWatcher.getPersistedState(fnFetchNoFilters.id)
+                expect(hub.CDP_WATCHER_BUCKET_SIZE - state.tokens).toBeGreaterThanOrEqual(hub.CDP_WATCHER_COST_ERROR)
+            }, 10000)
         })
 
         it('should handle fetch failures with retries', async () => {
