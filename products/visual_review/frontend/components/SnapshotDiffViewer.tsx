@@ -14,6 +14,7 @@ import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesL
 import { QuarantineAction } from './QuarantineAction'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
+import { SnapshotShiftSummary } from './SnapshotShiftSummary'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 // A toleration the diff pipeline minted for sub-threshold jitter reads very
@@ -128,6 +129,19 @@ export function SnapshotDiffViewer({
                 height: c.height,
             })),
         [visibleClusterSummary]
+    )
+    const rowShift = snapshot.row_shift ?? null
+    // A band spans the full width of the image, so it reads as a rule across
+    // the diff rather than as a region of it.
+    const overlayBands = useMemo(
+        () =>
+            rowShift?.bands.map((band) => ({
+                x: 0,
+                y: band.y,
+                width: snapshot.diff_artifact?.width ?? width ?? 0,
+                height: Math.max(band.rows, 1),
+            })),
+        [rowShift, snapshot.diff_artifact?.width, width]
     )
     const diffPixelTotal =
         snapshot.diff_artifact?.width && snapshot.diff_artifact?.height
@@ -249,6 +263,7 @@ export function SnapshotDiffViewer({
                         onModeChange={setComparisonMode}
                         className="min-h-[200px]"
                         diffOverlayBoxes={overlayBoxes}
+                        diffOverlayBands={overlayBands}
                         diffOverlayWidth={snapshot.diff_artifact?.width ?? undefined}
                         diffOverlayHeight={snapshot.diff_artifact?.height ?? undefined}
                         highlightedOverlayIndex={highlightedClusterIndex}
@@ -265,6 +280,9 @@ export function SnapshotDiffViewer({
                             onClick={() => setComparisonMode('diff')}
                         />
                     )}
+
+                    {/* === Row shift === */}
+                    {rowShift && <SnapshotShiftSummary rowShift={rowShift} />}
 
                     {/* === Change clusters === */}
                     {visibleClusterSummary && visibleClusterSummary.items.length > 0 && (

@@ -48,6 +48,13 @@ export interface VisualImageDiffViewerProps {
      */
     diffOverlayBoxes?: DiffOverlayBox[]
     /**
+     * Rows the current image gained or lost, in the same coord space as
+     * `diffOverlayBoxes`. Drawn in their own color because a shift band is
+     * where content moved, not where it changed, and unlike clusters they
+     * stay visible when the cluster toggle is off.
+     */
+    diffOverlayBands?: DiffOverlayBox[]
+    /**
      * Natural-pixel dimensions of the bbox coord space — the diff
      * image's dimensions, which equal current/baseline when sizes
      * match and the padded size when they don't. Defaults to
@@ -97,6 +104,8 @@ interface ImagePanelProps {
     imgStyle?: React.CSSProperties
     /** When set, draw bbox outlines over the image at these natural-coord positions. */
     overlayBoxes?: DiffOverlayBox[]
+    /** Shift bands, drawn in the same coord space as `overlayBoxes`. */
+    overlayBands?: DiffOverlayBox[]
     overlayWidth?: number
     overlayHeight?: number
     /** Highlighted cluster index — that one box renders emphasized. */
@@ -113,13 +122,15 @@ function ImagePanel({
     imgClassName,
     imgStyle,
     overlayBoxes,
+    overlayBands,
     overlayWidth,
     overlayHeight,
     highlightedOverlayIndex,
     onOverlayHover,
     onClick,
 }: ImagePanelProps): JSX.Element {
-    const hasOverlay = !!url && !!overlayBoxes && overlayBoxes.length > 0 && !!overlayWidth && !!overlayHeight
+    const boxCount = (overlayBoxes?.length ?? 0) + (overlayBands?.length ?? 0)
+    const hasOverlay = !!url && boxCount > 0 && !!overlayWidth && !!overlayHeight
     const image = url ? (
         // `block` on the inline-block wrapper kills the implicit
         // baseline-descender gap that nudges the SVG overlay a few
@@ -136,7 +147,8 @@ function ImagePanel({
             />
             {hasOverlay && (
                 <BboxOverlay
-                    boxes={overlayBoxes!}
+                    boxes={overlayBoxes ?? []}
+                    bands={overlayBands}
                     width={overlayWidth!}
                     height={overlayHeight!}
                     highlightedIndex={highlightedOverlayIndex ?? null}
@@ -174,6 +186,8 @@ function ImagePanel({
 
 interface BboxOverlayProps {
     boxes: DiffOverlayBox[]
+    /** Rows the current image gained or lost. Not numbered and not hoverable. */
+    bands?: DiffOverlayBox[]
     /** Natural pixel coord space the bboxes live in. */
     width: number
     height: number
@@ -185,11 +199,21 @@ interface BboxOverlayProps {
 
 // Warm orange palette to match the mockup — distinct from the
 // blue-tinted "Before/After" labels and the green/red of result tags.
+// These are literal colors rather than tokens because they are drawn over a
+// screenshot, so they have to read the same whatever theme the page is in.
 const OVERLAY_STROKE = 'rgb(245, 134, 52)'
 const OVERLAY_FILL_DEFAULT = 'rgba(245, 134, 52, 0.10)'
 const OVERLAY_FILL_HIGHLIGHT = 'rgba(245, 134, 52, 0.28)'
 
-function BboxOverlay({ boxes, width, height, highlightedIndex, onHover }: BboxOverlayProps): JSX.Element {
+// Violet for shift bands, so a band is never read as a change region.
+const BAND_STROKE = 'rgb(124, 92, 214)'
+const BAND_FILL = 'rgba(124, 92, 214, 0.22)'
+
+// A one-row band is a zero-area rect once the SVG scales it down. The stroke
+// is non-scaling so it still draws, but the fill needs a floor to be visible.
+const MIN_OVERLAY_SIDE_PX = 3
+
+function BboxOverlay({ boxes, bands, width, height, highlightedIndex, onHover }: BboxOverlayProps): JSX.Element {
     return (
         <>
             <svg
@@ -204,6 +228,19 @@ function BboxOverlay({ boxes, width, height, highlightedIndex, onHover }: BboxOv
                 viewBox={`0 0 ${width} ${height}`}
                 preserveAspectRatio="none"
             >
+                {(bands ?? []).map((b, i) => (
+                    <rect
+                        key={`band-${i}`}
+                        x={b.x}
+                        y={b.y}
+                        width={Math.max(b.width, MIN_OVERLAY_SIDE_PX)}
+                        height={Math.max(b.height, MIN_OVERLAY_SIDE_PX)}
+                        fill={BAND_FILL}
+                        stroke={BAND_STROKE}
+                        strokeWidth={2}
+                        vectorEffect="non-scaling-stroke"
+                    />
+                ))}
                 {boxes.map((b, i) => {
                     const isHighlighted = highlightedIndex === i
                     const isDimmed = highlightedIndex !== null && !isHighlighted
@@ -212,8 +249,8 @@ function BboxOverlay({ boxes, width, height, highlightedIndex, onHover }: BboxOv
                             key={i}
                             x={b.x}
                             y={b.y}
-                            width={b.width}
-                            height={b.height}
+                            width={Math.max(b.width, MIN_OVERLAY_SIDE_PX)}
+                            height={Math.max(b.height, MIN_OVERLAY_SIDE_PX)}
                             fill={isHighlighted ? OVERLAY_FILL_HIGHLIGHT : OVERLAY_FILL_DEFAULT}
                             stroke={OVERLAY_STROKE}
                             strokeWidth={isHighlighted ? 3 : 2}
@@ -301,6 +338,7 @@ export function VisualImageDiffViewer({
     currentWidth,
     currentHeight,
     diffOverlayBoxes,
+    diffOverlayBands,
     diffOverlayWidth,
     diffOverlayHeight,
     highlightedOverlayIndex,
@@ -316,6 +354,9 @@ export function VisualImageDiffViewer({
     const hasOverlayBoxes = !!diffOverlayBoxes && diffOverlayBoxes.length > 0
     const [showClusters, setShowClusters] = useState(true)
     const overlayBoxesIfShown = showClusters ? diffOverlayBoxes : undefined
+    // Bands stay on with the cluster toggle off. A shift band is what the
+    // toggle is meant to leave behind: where the page moved, not what changed.
+    const hasOverlayContent = hasOverlayBoxes || (!!diffOverlayBands && diffOverlayBands.length > 0)
     const supportsComparison = isComparisonResult(result)
     const hasBothImages = Boolean(baselineUrl && currentUrl)
     const hasDiffImage = Boolean(diffUrl)
@@ -473,6 +514,7 @@ export function VisualImageDiffViewer({
                         label="Diff"
                         emptyTitle="No diff image available"
                         overlayBoxes={overlayBoxesIfShown}
+                        overlayBands={diffOverlayBands}
                         overlayWidth={overlayCoordWidth}
                         overlayHeight={overlayCoordHeight}
                         highlightedOverlayIndex={highlightedOverlayIndex}
@@ -487,8 +529,7 @@ export function VisualImageDiffViewer({
             // judge against, and bboxes were computed against current.
             // Skip when the bbox coord space doesn't match the rendered
             // image (size-mismatch case).
-            const overlaySafeOnAfter =
-                !!overlayBoxesIfShown && overlayCoordWidth === imageWidth && overlayCoordHeight === imageHeight
+            const overlaySafeOnAfter = overlayCoordWidth === imageWidth && overlayCoordHeight === imageHeight
             return (
                 <div className="flex flex-col gap-3 p-3 lg:flex-row lg:justify-center lg:items-start">
                     <ImagePanel
@@ -513,6 +554,7 @@ export function VisualImageDiffViewer({
                             currentUrl ? () => setZoomedImage({ url: currentUrl, label: 'After snapshot' }) : undefined
                         }
                         overlayBoxes={overlaySafeOnAfter ? overlayBoxesIfShown : undefined}
+                        overlayBands={overlaySafeOnAfter ? diffOverlayBands : undefined}
                         overlayWidth={overlayCoordWidth}
                         overlayHeight={overlayCoordHeight}
                         highlightedOverlayIndex={highlightedOverlayIndex}
@@ -625,14 +667,14 @@ export function VisualImageDiffViewer({
                          * in padded coords that don't align with either
                          * baseline or current). */}
                         {(mode === 'blend' || mode === 'split') &&
-                            !!overlayBoxesIfShown &&
-                            overlayBoxesIfShown.length > 0 &&
+                            hasOverlayContent &&
                             !!overlayCoordWidth &&
                             !!overlayCoordHeight &&
                             overlayCoordWidth === imageWidth &&
                             overlayCoordHeight === imageHeight && (
                                 <BboxOverlay
-                                    boxes={overlayBoxesIfShown}
+                                    boxes={overlayBoxesIfShown ?? []}
+                                    bands={diffOverlayBands}
                                     width={overlayCoordWidth}
                                     height={overlayCoordHeight}
                                     highlightedIndex={highlightedOverlayIndex ?? null}
