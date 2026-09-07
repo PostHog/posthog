@@ -72,7 +72,6 @@ import {
     isSessionUpdateUserMessage,
     isTaskRunStateFrame,
 } from '../types/wireTypes'
-import { extractPeerAgentMessage } from '../utils/peerAgentMessage'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
@@ -1042,12 +1041,10 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let contextSeq = 0
 
     const pushHuman = (text: string): void => {
-        const peerAgentMessage = extractPeerAgentMessage(text)
         items = insertHumanMessageAtTurnStart(items, {
             id: `human-${humanCount++}`,
             type: 'human_message',
             text,
-            ...(peerAgentMessage ? { peerAgentMessage } : {}),
             complete: true,
         })
     }

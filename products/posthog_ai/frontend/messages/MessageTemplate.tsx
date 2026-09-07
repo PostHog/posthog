@@ -25,13 +25,13 @@ export const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateP
             ref={ref}
             data-message-type={type}
         >
-            <div className={twMerge('min-w-0 max-w-full', type === 'human' && 'max-w-4/5', wrapperClassName)}>
+            <div className={twMerge(type === 'human' ? 'max-w-4/5' : 'max-w-full', wrapperClassName)}>
                 {header}
                 {children && (
                     <div
                         className={twMerge(
-                            'border py-2 px-3 rounded-lg',
-                            type === 'human' ? 'border-transparent bg-surface-secondary' : 'bg-surface-primary',
+                            'border py-2 px-3 rounded-lg bg-surface-primary',
+                            type === 'human' && 'font-medium',
                             boxClassName
                         )}
                     >

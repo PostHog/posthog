@@ -7,7 +7,6 @@
  */
 
 import type { AgentQuestion } from '../policy/questionUtils'
-import type { PeerAgentMessage } from '../utils/peerAgentMessage'
 import type { PermissionOption } from './wireTypes'
 
 export type ToolInvocationStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
@@ -138,7 +137,6 @@ export interface ThreadItem {
     type: ThreadItemType
     /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
-    peerAgentMessage?: PeerAgentMessage
     /** Whether the assistant message buffer is finalized. */
     complete?: boolean
     /** For `tool_invocation` items — the keyed tool call id (look up in `toolInvocations`). */

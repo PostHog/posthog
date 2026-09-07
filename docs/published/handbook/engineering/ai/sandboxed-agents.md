@@ -53,14 +53,8 @@ The agent inside the sandbox gets:
 
 ## Message presentation
 
-The shared message template in `products/posthog_ai/frontend` displays human prompts in right-aligned bubbles with a neutral fill and no visible border or sender label.
-Human bubbles occupy at most 80% of the available width so long prompts remain visibly offset from assistant replies.
-Assistant prose appears on the left in neutral filled, bordered bubbles. Thoughts and tool calls keep their own activity renderers.
-
-Messages relayed from another agent arrive as user input. The thread recognizes the peer-message envelope and displays the body in an outlined, left-aligned bubble with a `From agent: …` label.
-This label is a display hint derived from message text, not authenticated authorship. The original text and input role remain intact for replay and duplicate detection.
-
-Approval, failure, and artifact cards retain their borders.
+Human messages in the shared message template in `products/posthog_ai/frontend` stay right-aligned and occupy at most 80% of the available width.
+Long prompts wrap within this limit so they remain visibly offset from assistant replies.
 
 ## Creating a sandboxed agent
 
