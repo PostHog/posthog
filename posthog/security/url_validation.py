@@ -530,9 +530,9 @@ class ShapeError(ValueError):
     """
 
 
-# Both destination forms show these, so they live here rather than in either one. A shape
-# error is safe to describe; every other reason shares one message, so an error cannot be used
-# to find which addresses exist inside our network. Neither echoes the value it rejected.
+# A shape error is safe to describe. Every other reason shares one message, so an error cannot
+# be used to find which addresses exist inside our network. Neither echoes the value it
+# rejected.
 INVALID_HOST_MESSAGE = "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
 UNREACHABLE_HOST_MESSAGE = (
     "Could not reach this host. Check that the hostname is correct and reachable from the internet."
