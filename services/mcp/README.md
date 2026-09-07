@@ -393,6 +393,12 @@ To develop with warm loading for MCP resources (workflows, prompts, examples):
 
 Changes in the examples repo will be reflected on the next request.
 
+The test suites use the same override. Both hono harnesses serve a pinned
+fixture archive from `tests/fixtures/context-mill-archive.ts`, so no test
+downloads the context-mill GitHub release. `tests/canary/context-mill-release.test.ts`
+is the one check that reads the live release; it needs `CONTEXT_MILL_LIVE_TEST=1`
+and runs from `.github/workflows/ci-context-mill-canary.yml`.
+
 ## Project Structure
 
 - `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)

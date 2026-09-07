@@ -9,6 +9,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { CONTEXT_MILL_FIXTURE_ORPHANED_URI, CONTEXT_MILL_FIXTURE_SERVED_URI } from '../fixtures/context-mill-archive'
+
 export type ProtocolTestHarness = {
     /** Origin used to construct the MCP endpoint URL (e.g. `https://test.local`). */
     baseUrl: URL
@@ -1555,6 +1557,17 @@ export function defineResourceCatalogTests(
             const cmRead = await client.readResource({ uri: cm.uri })
             expect(uiRead.contents[0]?.uri).toBe(ui.uri)
             expect(cmRead.contents[0]?.uri).toBe(cm.uri)
+        })
+
+        // Both hono harnesses serve the pinned fixture archive, which carries
+        // one entry whose backing file it deliberately omits. `filterValidEntries`
+        // must drop that entry, so the server never advertises a resource whose
+        // body it cannot read.
+        it('does not serve a manifest entry whose file is missing from the archive', async () => {
+            const { resources } = await client.listResources()
+            const uris = resources.map((r) => r.uri)
+            expect(uris).toContain(CONTEXT_MILL_FIXTURE_SERVED_URI)
+            expect(uris).not.toContain(CONTEXT_MILL_FIXTURE_ORPHANED_URI)
         })
 
         // The prompts list may be empty on some manifest revisions (the

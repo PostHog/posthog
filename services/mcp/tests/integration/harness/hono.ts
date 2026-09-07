@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 
 import { createApp } from '@/hono/app'
 
+import { startContextMillArchiveServer } from './context-mill-archive-server'
 import type { IntegrationEnv, IntegrationHarness } from './types'
 
 // Pinned test DB so we don't collide with the dev Redis (DB 0). Must be in
@@ -48,6 +49,12 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
     const baseUrl = new URL(`http://127.0.0.1:${probePort}`)
     process.env.MCP_APPS_BASE_URL = baseUrl.toString().replace(/\/$/, '')
 
+    // Set before `createApp`, which snapshots env when it builds the resource
+    // catalog. Keeps the context-mill resources deterministic and off the
+    // network — see `startContextMillArchiveServer`.
+    const archiveServer = await startContextMillArchiveServer()
+    process.env.POSTHOG_MCP_LOCAL_SKILLS_URL = archiveServer.url
+
     const redis = await startTestRedis()
     const { app, warmup } = createApp(redis as unknown as Parameters<typeof createApp>[0])
     await warmup()
@@ -59,6 +66,8 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
         stop: async () => {
             await new Promise<void>((resolve) => server.close(() => resolve()))
             await redis.quit().catch(() => undefined)
+            await archiveServer.stop()
+            delete process.env.POSTHOG_MCP_LOCAL_SKILLS_URL
         },
     }
 }

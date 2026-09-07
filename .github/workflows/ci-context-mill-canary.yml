@@ -1,0 +1,89 @@
+# Canary against the live context-mill GitHub release.
+#
+# The MCP server downloads `skills-mcp-resources.zip` from the context-mill
+# release and serves its entries as MCP resources. The MCP test suites serve a
+# pinned fixture archive instead (services/mcp/tests/fixtures/context-mill-archive.ts),
+# so they are deterministic but blind to an upstream release the server can no
+# longer read. This workflow is the safety net: it downloads the current asset
+# and checks that the server still unzips it, validates its manifest, and gets
+# servable entries out of it.
+#
+# Runs on master pushes that touch the resource-loading code and on a schedule,
+# so a broken release is caught even when nothing is being merged.
+
+name: Context-mill release canary
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - '.github/workflows/ci-context-mill-canary.yml'
+            - 'services/mcp/src/resources/**'
+            - 'services/mcp/tests/canary/**'
+    schedule:
+        - cron: '41 */6 * * *' # every 6 hours
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+    SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
+
+permissions:
+    contents: read
+
+jobs:
+    canary:
+        name: Live context-mill release sanity
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... install --frozen-lockfile
+
+            - name: Run canary against live release
+              id: canary
+              env:
+                  CONTEXT_MILL_LIVE_TEST: '1'
+              run: cd services/mcp && pnpm exec vitest run --project unit tests/canary/context-mill-release.test.ts
+
+            # Only the canary test itself failing means the published release is no
+            # longer readable by the code that serves it in production. Infra failures
+            # upstream (checkout, pnpm install) are CI noise, not a broken release, so
+            # don't page Slack for them. On the schedule nobody is watching the run, so
+            # alert explicitly when the test genuinely fails.
+            - name: Notify Slack on canary failure
+              if: failure() && steps.canary.outcome == 'failure'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: Context-mill release canary failed — the MCP server may not be able to serve its resources"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Context-mill release canary failed* — the MCP server can no longer unzip, validate, or serve entries from the published `skills-mcp-resources.zip`, so MCP resources may be missing in production."
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Trigger*\n${{ github.event_name }}"
+                            - type: "mrkdwn"
+                              text: "*Next step*\nCheck the run for the failing assertion"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View run"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

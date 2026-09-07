@@ -142,6 +142,20 @@ describe('ResourceCatalog', () => {
             expect(mockManifestEntriesSet).toHaveBeenCalledWith(2)
         })
 
+        // The env override is how local skill authoring and the integration
+        // harness point the catalog at a locally served archive. It reaches the
+        // loader only if `getEnv()` carries it, so assert the URL arrives.
+        it('loads the archive from POSTHOG_MCP_LOCAL_SKILLS_URL when set', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('local')])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const localUrl = 'http://127.0.0.1:9999/skills-mcp-resources.zip'
+            const catalog = new ResourceCatalog({ ...mockEnv, POSTHOG_MCP_LOCAL_SKILLS_URL: localUrl }, redis)
+            await catalog.warmup()
+
+            expect(fetchAndExtractEntries).toHaveBeenCalledWith(localUrl)
+        })
+
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {
             vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('a')])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])

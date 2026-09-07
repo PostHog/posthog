@@ -90,6 +90,13 @@ export type Env = {
      * Falls back to the production US host if not set.
      */
     POSTHOG_ANALYTICS_HOST: string | undefined
+    /**
+     * Overrides the context-mill resource archive URL. Points the resource
+     * catalog at a locally served `skills-mcp-resources.zip` instead of the
+     * GitHub release. Used for local skill authoring and by the integration
+     * test harness.
+     */
+    POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
 export type Context = {
