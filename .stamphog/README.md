@@ -35,7 +35,24 @@ Lines follow the same rule: a scope's substantive lines are counted against that
 The two ceilings are budgeted separately, so a folder that raises only the line ceiling still counts its files against the one global file budget.
 That keeps a one-key grant from opening a second budget for the key it never asked for.
 
+### The roof bounds the whole PR
+
+Per-scope budgets alone would let a PR's total grow with the number of scopes it touches.
+A folder granting 1000 lines next to the 800-line global pool would allow 1800, and every further granting folder would add its own budget on top.
+So each ceiling also carries a roof over the whole PR: the most generous ceiling in play for that key.
+A PR touching `products/desktop/` gets a 1000-line roof, whatever else it touches.
+
+The roof needs no separate number in `policy.yml`.
+Every grant is validated at or under the contract ceiling, and the global pool is always a scope, so the roof stays between the global default and the contract ceiling.
+With no grant in play it equals the global default, which is the single global total the gate applied before the ceilings became delegable.
+
+The roof takes no headroom away from a scope.
+The per-scope budgets still hold, so the extra lines a folder's grant unlocks are only spendable inside that folder.
+
 ## Delegation contract
 
 The set of keys a folder file may override lives under `overrides` in `policy.yml` (currently `size_gate.max_files`, ceiling 50, and `size_gate.max_lines`, ceiling 1000).
+A ceiling therefore bounds two things: the largest value a folder may grant, and the highest a PR's roof can ever go for that key.
+It is not the limit every PR gets. A PR whose files reach no grant keeps the lower global roof.
+The loader rejects a ceiling under its own global default, which would otherwise bound nothing.
 deny, allow, dismiss, and tiers are non-delegable by construction - they are absent from the contract and cannot be granted from a folder file.

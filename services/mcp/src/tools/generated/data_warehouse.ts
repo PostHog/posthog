@@ -2,34 +2,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams,
-    InsightVariablesCreateBody,
-    InsightVariablesDestroyParams,
-    InsightVariablesPartialUpdateBody,
-    InsightVariablesPartialUpdateParams,
-    SavedQueryColumnAnnotationsCreateBody,
-    SavedQueryColumnAnnotationsListQueryParams,
-    WarehouseColumnAnnotationsCreateBody,
-    WarehouseColumnAnnotationsListQueryParams,
-    WarehouseColumnAnnotationsPartialUpdateBody,
-    WarehouseColumnAnnotationsPartialUpdateParams,
-    WarehouseSavedQueriesCreateBody,
-    WarehouseSavedQueriesDestroyParams,
-    WarehouseSavedQueriesListQueryParams,
-    WarehouseSavedQueriesMaterializeCreateBody,
-    WarehouseSavedQueriesMaterializeCreateParams,
-    WarehouseSavedQueriesPartialUpdateBody,
-    WarehouseSavedQueriesPartialUpdateParams,
-    WarehouseSavedQueriesRetrieveParams,
-    WarehouseSavedQueriesRevertMaterializationCreateBody,
-    WarehouseSavedQueriesRevertMaterializationCreateParams,
-    WarehouseSavedQueriesRunCreateBody,
-    WarehouseSavedQueriesRunCreateParams,
-    WarehouseSavedQueriesRunHistoryRetrieveParams,
-    WarehouseTablesCreateBody,
-    WarehouseTablesRefreshSchemaCreateParams,
-} from '@/generated/data_warehouse/api'
+import * as orvalSchemas from '@/generated/data_warehouse/api'
 import {
     withPostHogUrl,
     pickResponseFields,
@@ -39,15 +12,19 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ManagedWarehouseMetricHistoryGetSchema = DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams
+const ManagedWarehouseMetricHistoryGetSchema = () => {
+    const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams =
+        orvalSchemas.DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams()
+    return DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams
+}
 
 const managedWarehouseMetricHistoryGet = (): ToolBase<
-    typeof ManagedWarehouseMetricHistoryGetSchema,
+    ReturnType<typeof ManagedWarehouseMetricHistoryGetSchema>,
     Schemas.ManagedWarehouseMonitoringSeriesResponse
 > => ({
     name: 'managed-warehouse-metric-history-get',
-    schema: ManagedWarehouseMetricHistoryGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ManagedWarehouseMetricHistoryGetSchema>) => {
+    schema: ManagedWarehouseMetricHistoryGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ManagedWarehouseMetricHistoryGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ManagedWarehouseMonitoringSeriesResponse>({
             method: 'GET',
@@ -61,16 +38,15 @@ const managedWarehouseMetricHistoryGet = (): ToolBase<
     },
 })
 
-const ManagedWarehouseMonitoringGetSchema = z.object({})
+const ManagedWarehouseMonitoringGetSchema = () => z.object({})
 
 const managedWarehouseMonitoringGet = (): ToolBase<
-    typeof ManagedWarehouseMonitoringGetSchema,
+    ReturnType<typeof ManagedWarehouseMonitoringGetSchema>,
     Schemas.ManagedWarehouseMonitoringSnapshotResponse
 > => ({
     name: 'managed-warehouse-monitoring-get',
-    schema: ManagedWarehouseMonitoringGetSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ManagedWarehouseMonitoringGetSchema>) => {
+    schema: ManagedWarehouseMonitoringGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ManagedWarehouseMonitoringGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ManagedWarehouseMonitoringSnapshotResponse>({
             method: 'GET',
@@ -80,19 +56,22 @@ const managedWarehouseMonitoringGet = (): ToolBase<
     },
 })
 
-const SavedQueryColumnAnnotationsCreateSchema = SavedQueryColumnAnnotationsCreateBody.extend({
-    column_name: SavedQueryColumnAnnotationsCreateBody.shape['column_name'].describe(
-        'Column to describe. Use an empty string to describe the view itself.'
-    ),
-})
+const SavedQueryColumnAnnotationsCreateSchema = () => {
+    const SavedQueryColumnAnnotationsCreateBody = orvalSchemas.SavedQueryColumnAnnotationsCreateBody()
+    return SavedQueryColumnAnnotationsCreateBody.extend({
+        column_name: SavedQueryColumnAnnotationsCreateBody.shape['column_name'].describe(
+            'Column to describe. Use an empty string to describe the view itself.'
+        ),
+    })
+}
 
 const savedQueryColumnAnnotationsCreate = (): ToolBase<
-    typeof SavedQueryColumnAnnotationsCreateSchema,
+    ReturnType<typeof SavedQueryColumnAnnotationsCreateSchema>,
     Schemas.DataWarehouseSavedQueryColumnAnnotation
 > => ({
     name: 'saved-query-column-annotations-create',
-    schema: SavedQueryColumnAnnotationsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SavedQueryColumnAnnotationsCreateSchema>) => {
+    schema: SavedQueryColumnAnnotationsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SavedQueryColumnAnnotationsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.saved_query !== undefined) {
@@ -113,15 +92,18 @@ const savedQueryColumnAnnotationsCreate = (): ToolBase<
     },
 })
 
-const SavedQueryColumnAnnotationsListSchema = SavedQueryColumnAnnotationsListQueryParams
+const SavedQueryColumnAnnotationsListSchema = () => {
+    const SavedQueryColumnAnnotationsListQueryParams = orvalSchemas.SavedQueryColumnAnnotationsListQueryParams()
+    return SavedQueryColumnAnnotationsListQueryParams
+}
 
 const savedQueryColumnAnnotationsList = (): ToolBase<
-    typeof SavedQueryColumnAnnotationsListSchema,
+    ReturnType<typeof SavedQueryColumnAnnotationsListSchema>,
     WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryColumnAnnotationList>
 > => ({
     name: 'saved-query-column-annotations-list',
-    schema: SavedQueryColumnAnnotationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SavedQueryColumnAnnotationsListSchema>) => {
+    schema: SavedQueryColumnAnnotationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SavedQueryColumnAnnotationsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedDataWarehouseSavedQueryColumnAnnotationList>({
             method: 'GET',
@@ -136,12 +118,15 @@ const savedQueryColumnAnnotationsList = (): ToolBase<
     },
 })
 
-const SqlVariablesCreateSchema = InsightVariablesCreateBody
+const SqlVariablesCreateSchema = () => {
+    const InsightVariablesCreateBody = orvalSchemas.InsightVariablesCreateBody()
+    return InsightVariablesCreateBody
+}
 
-const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas.InsightVariable> => ({
+const sqlVariablesCreate = (): ToolBase<ReturnType<typeof SqlVariablesCreateSchema>, Schemas.InsightVariable> => ({
     name: 'sql-variables-create',
-    schema: SqlVariablesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SqlVariablesCreateSchema>) => {
+    schema: SqlVariablesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SqlVariablesCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -174,12 +159,15 @@ const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas
     },
 })
 
-const SqlVariablesDeleteSchema = InsightVariablesDestroyParams.omit({ project_id: true })
+const SqlVariablesDeleteSchema = () => {
+    const InsightVariablesDestroyParams = orvalSchemas.InsightVariablesDestroyParams()
+    return InsightVariablesDestroyParams.omit({ project_id: true })
+}
 
-const sqlVariablesDelete = (): ToolBase<typeof SqlVariablesDeleteSchema, unknown> => ({
+const sqlVariablesDelete = (): ToolBase<ReturnType<typeof SqlVariablesDeleteSchema>, unknown> => ({
     name: 'sql-variables-delete',
-    schema: SqlVariablesDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof SqlVariablesDeleteSchema>) => {
+    schema: SqlVariablesDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SqlVariablesDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -189,14 +177,18 @@ const sqlVariablesDelete = (): ToolBase<typeof SqlVariablesDeleteSchema, unknown
     },
 })
 
-const SqlVariablesUpdateSchema = InsightVariablesPartialUpdateParams.omit({ project_id: true }).extend(
-    InsightVariablesPartialUpdateBody.shape
-)
+const SqlVariablesUpdateSchema = () => {
+    const InsightVariablesPartialUpdateBody = orvalSchemas.InsightVariablesPartialUpdateBody()
+    const InsightVariablesPartialUpdateParams = orvalSchemas.InsightVariablesPartialUpdateParams()
+    return InsightVariablesPartialUpdateParams.omit({ project_id: true }).extend(
+        InsightVariablesPartialUpdateBody.shape
+    )
+}
 
-const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas.InsightVariable> => ({
+const sqlVariablesUpdate = (): ToolBase<ReturnType<typeof SqlVariablesUpdateSchema>, Schemas.InsightVariable> => ({
     name: 'sql-variables-update',
-    schema: SqlVariablesUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof SqlVariablesUpdateSchema>) => {
+    schema: SqlVariablesUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SqlVariablesUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -229,16 +221,22 @@ const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas
     },
 })
 
-const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
-    name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
-        'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
-    ),
-})
+const ViewCreateSchema = () => {
+    const WarehouseSavedQueriesCreateBody = orvalSchemas.WarehouseSavedQueriesCreateBody()
+    return WarehouseSavedQueriesCreateBody.extend({
+        name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
+            'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
+        ),
+    })
+}
 
-const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
+const viewCreate = (): ToolBase<
+    ReturnType<typeof ViewCreateSchema>,
+    WithPostHogUrl<Schemas.DataWarehouseSavedQuery>
+> => ({
     name: 'view-create',
-    schema: ViewCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ViewCreateSchema>) => {
+    schema: ViewCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -274,12 +272,15 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
     },
 })
 
-const ViewDeleteSchema = WarehouseSavedQueriesDestroyParams.omit({ project_id: true })
+const ViewDeleteSchema = () => {
+    const WarehouseSavedQueriesDestroyParams = orvalSchemas.WarehouseSavedQueriesDestroyParams()
+    return WarehouseSavedQueriesDestroyParams.omit({ project_id: true })
+}
 
-const viewDelete = (): ToolBase<typeof ViewDeleteSchema, Schemas.DataWarehouseSavedQuery> => ({
+const viewDelete = (): ToolBase<ReturnType<typeof ViewDeleteSchema>, Schemas.DataWarehouseSavedQuery> => ({
     name: 'view-delete',
-    schema: ViewDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ViewDeleteSchema>) => {
+    schema: ViewDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'PATCH',
@@ -290,12 +291,15 @@ const viewDelete = (): ToolBase<typeof ViewDeleteSchema, Schemas.DataWarehouseSa
     },
 })
 
-const ViewGetSchema = WarehouseSavedQueriesRetrieveParams.omit({ project_id: true })
+const ViewGetSchema = () => {
+    const WarehouseSavedQueriesRetrieveParams = orvalSchemas.WarehouseSavedQueriesRetrieveParams()
+    return WarehouseSavedQueriesRetrieveParams.omit({ project_id: true })
+}
 
-const viewGet = (): ToolBase<typeof ViewGetSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
+const viewGet = (): ToolBase<ReturnType<typeof ViewGetSchema>, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-get',
-    schema: ViewGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ViewGetSchema>) => {
+    schema: ViewGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'GET',
@@ -305,15 +309,18 @@ const viewGet = (): ToolBase<typeof ViewGetSchema, WithPostHogUrl<Schemas.DataWa
     },
 })
 
-const ViewListSchema = WarehouseSavedQueriesListQueryParams
+const ViewListSchema = () => {
+    const WarehouseSavedQueriesListQueryParams = orvalSchemas.WarehouseSavedQueriesListQueryParams()
+    return WarehouseSavedQueriesListQueryParams
+}
 
 const viewList = (): ToolBase<
-    typeof ViewListSchema,
+    ReturnType<typeof ViewListSchema>,
     WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>
 > => ({
     name: 'view-list',
-    schema: ViewListSchema,
-    handler: async (context: Context, params: z.infer<typeof ViewListSchema>) => {
+    schema: ViewListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>({
             method: 'GET',
@@ -336,14 +343,18 @@ const viewList = (): ToolBase<
     },
 })
 
-const ViewMaterializeSchema = WarehouseSavedQueriesMaterializeCreateParams.omit({ project_id: true }).extend(
-    WarehouseSavedQueriesMaterializeCreateBody.shape
-)
+const ViewMaterializeSchema = () => {
+    const WarehouseSavedQueriesMaterializeCreateBody = orvalSchemas.WarehouseSavedQueriesMaterializeCreateBody()
+    const WarehouseSavedQueriesMaterializeCreateParams = orvalSchemas.WarehouseSavedQueriesMaterializeCreateParams()
+    return WarehouseSavedQueriesMaterializeCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesMaterializeCreateBody.shape
+    )
+}
 
-const viewMaterialize = (): ToolBase<typeof ViewMaterializeSchema, unknown> => ({
+const viewMaterialize = (): ToolBase<ReturnType<typeof ViewMaterializeSchema>, unknown> => ({
     name: 'view-materialize',
-    schema: ViewMaterializeSchema,
-    handler: async (context: Context, params: z.infer<typeof ViewMaterializeSchema>) => {
+    schema: ViewMaterializeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewMaterializeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.sync_frequency !== undefined) {
@@ -358,14 +369,18 @@ const viewMaterialize = (): ToolBase<typeof ViewMaterializeSchema, unknown> => (
     },
 })
 
-const ViewRunSchema = WarehouseSavedQueriesRunCreateParams.omit({ project_id: true }).extend(
-    WarehouseSavedQueriesRunCreateBody.shape
-)
+const ViewRunSchema = () => {
+    const WarehouseSavedQueriesRunCreateBody = orvalSchemas.WarehouseSavedQueriesRunCreateBody()
+    const WarehouseSavedQueriesRunCreateParams = orvalSchemas.WarehouseSavedQueriesRunCreateParams()
+    return WarehouseSavedQueriesRunCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesRunCreateBody.shape
+    )
+}
 
-const viewRun = (): ToolBase<typeof ViewRunSchema, unknown> => ({
+const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, unknown> => ({
     name: 'view-run',
-    schema: ViewRunSchema,
-    handler: async (context: Context, params: z.infer<typeof ViewRunSchema>) => {
+    schema: ViewRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewRunSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.full_refresh !== undefined) {
@@ -380,12 +395,18 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, unknown> => ({
     },
 })
 
-const ViewRunHistorySchema = WarehouseSavedQueriesRunHistoryRetrieveParams.omit({ project_id: true })
+const ViewRunHistorySchema = () => {
+    const WarehouseSavedQueriesRunHistoryRetrieveParams = orvalSchemas.WarehouseSavedQueriesRunHistoryRetrieveParams()
+    return WarehouseSavedQueriesRunHistoryRetrieveParams.omit({ project_id: true })
+}
 
-const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
+const viewRunHistory = (): ToolBase<
+    ReturnType<typeof ViewRunHistorySchema>,
+    WithPostHogUrl<Schemas.DataWarehouseSavedQuery>
+> => ({
     name: 'view-run-history',
-    schema: ViewRunHistorySchema,
-    handler: async (context: Context, params: z.infer<typeof ViewRunHistorySchema>) => {
+    schema: ViewRunHistorySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewRunHistorySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'GET',
@@ -395,17 +416,23 @@ const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<
     },
 })
 
-const ViewUnmaterializeSchema = WarehouseSavedQueriesRevertMaterializationCreateParams.omit({
-    project_id: true,
-}).extend(WarehouseSavedQueriesRevertMaterializationCreateBody.shape)
+const ViewUnmaterializeSchema = () => {
+    const WarehouseSavedQueriesRevertMaterializationCreateBody =
+        orvalSchemas.WarehouseSavedQueriesRevertMaterializationCreateBody()
+    const WarehouseSavedQueriesRevertMaterializationCreateParams =
+        orvalSchemas.WarehouseSavedQueriesRevertMaterializationCreateParams()
+    return WarehouseSavedQueriesRevertMaterializationCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesRevertMaterializationCreateBody.shape
+    )
+}
 
 const viewUnmaterialize = (): ToolBase<
-    typeof ViewUnmaterializeSchema,
+    ReturnType<typeof ViewUnmaterializeSchema>,
     WithPostHogUrl<Schemas.DataWarehouseSavedQuery>
 > => ({
     name: 'view-unmaterialize',
-    schema: ViewUnmaterializeSchema,
-    handler: async (context: Context, params: z.infer<typeof ViewUnmaterializeSchema>) => {
+    schema: ViewUnmaterializeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewUnmaterializeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.deleted !== undefined) {
@@ -450,21 +477,28 @@ const viewUnmaterialize = (): ToolBase<
     },
 })
 
-const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true })
-    .extend(WarehouseSavedQueriesPartialUpdateBody.shape)
-    .extend({
-        name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
-            'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
-        ),
-        edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
-            'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'
-        ),
-    })
+const ViewUpdateSchema = () => {
+    const WarehouseSavedQueriesPartialUpdateBody = orvalSchemas.WarehouseSavedQueriesPartialUpdateBody()
+    const WarehouseSavedQueriesPartialUpdateParams = orvalSchemas.WarehouseSavedQueriesPartialUpdateParams()
+    return WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true })
+        .extend(WarehouseSavedQueriesPartialUpdateBody.shape)
+        .extend({
+            name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
+                'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
+            ),
+            edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
+                'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'
+            ),
+        })
+}
 
-const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
+const viewUpdate = (): ToolBase<
+    ReturnType<typeof ViewUpdateSchema>,
+    WithPostHogUrl<Schemas.DataWarehouseSavedQuery>
+> => ({
     name: 'view-update',
-    schema: ViewUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ViewUpdateSchema>) => {
+    schema: ViewUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -503,19 +537,22 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
     },
 })
 
-const WarehouseColumnAnnotationsCreateSchema = WarehouseColumnAnnotationsCreateBody.extend({
-    column_name: WarehouseColumnAnnotationsCreateBody.shape['column_name'].describe(
-        'Column to describe. Use an empty string to describe the table itself.'
-    ),
-})
+const WarehouseColumnAnnotationsCreateSchema = () => {
+    const WarehouseColumnAnnotationsCreateBody = orvalSchemas.WarehouseColumnAnnotationsCreateBody()
+    return WarehouseColumnAnnotationsCreateBody.extend({
+        column_name: WarehouseColumnAnnotationsCreateBody.shape['column_name'].describe(
+            'Column to describe. Use an empty string to describe the table itself.'
+        ),
+    })
+}
 
 const warehouseColumnAnnotationsCreate = (): ToolBase<
-    typeof WarehouseColumnAnnotationsCreateSchema,
+    ReturnType<typeof WarehouseColumnAnnotationsCreateSchema>,
     Schemas.WarehouseColumnAnnotation
 > => ({
     name: 'warehouse-column-annotations-create',
-    schema: WarehouseColumnAnnotationsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseColumnAnnotationsCreateSchema>) => {
+    schema: WarehouseColumnAnnotationsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseColumnAnnotationsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.table !== undefined) {
@@ -536,15 +573,18 @@ const warehouseColumnAnnotationsCreate = (): ToolBase<
     },
 })
 
-const WarehouseColumnAnnotationsListSchema = WarehouseColumnAnnotationsListQueryParams
+const WarehouseColumnAnnotationsListSchema = () => {
+    const WarehouseColumnAnnotationsListQueryParams = orvalSchemas.WarehouseColumnAnnotationsListQueryParams()
+    return WarehouseColumnAnnotationsListQueryParams
+}
 
 const warehouseColumnAnnotationsList = (): ToolBase<
-    typeof WarehouseColumnAnnotationsListSchema,
+    ReturnType<typeof WarehouseColumnAnnotationsListSchema>,
     WithPostHogUrl<Schemas.PaginatedWarehouseColumnAnnotationList>
 > => ({
     name: 'warehouse-column-annotations-list',
-    schema: WarehouseColumnAnnotationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseColumnAnnotationsListSchema>) => {
+    schema: WarehouseColumnAnnotationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseColumnAnnotationsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedWarehouseColumnAnnotationList>({
             method: 'GET',
@@ -559,17 +599,24 @@ const warehouseColumnAnnotationsList = (): ToolBase<
     },
 })
 
-const WarehouseColumnAnnotationsPartialUpdateSchema = WarehouseColumnAnnotationsPartialUpdateParams.omit({
-    project_id: true,
-}).extend(WarehouseColumnAnnotationsPartialUpdateBody.shape)
+const WarehouseColumnAnnotationsPartialUpdateSchema = () => {
+    const WarehouseColumnAnnotationsPartialUpdateBody = orvalSchemas.WarehouseColumnAnnotationsPartialUpdateBody()
+    const WarehouseColumnAnnotationsPartialUpdateParams = orvalSchemas.WarehouseColumnAnnotationsPartialUpdateParams()
+    return WarehouseColumnAnnotationsPartialUpdateParams.omit({ project_id: true }).extend(
+        WarehouseColumnAnnotationsPartialUpdateBody.shape
+    )
+}
 
 const warehouseColumnAnnotationsPartialUpdate = (): ToolBase<
-    typeof WarehouseColumnAnnotationsPartialUpdateSchema,
+    ReturnType<typeof WarehouseColumnAnnotationsPartialUpdateSchema>,
     Schemas.WarehouseColumnAnnotation
 > => ({
     name: 'warehouse-column-annotations-partial-update',
-    schema: WarehouseColumnAnnotationsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseColumnAnnotationsPartialUpdateSchema>) => {
+    schema: WarehouseColumnAnnotationsPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof WarehouseColumnAnnotationsPartialUpdateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.table !== undefined) {
@@ -590,25 +637,28 @@ const warehouseColumnAnnotationsPartialUpdate = (): ToolBase<
     },
 })
 
-const WarehouseTablesCreateSchema = WarehouseTablesCreateBody.extend({
-    name: WarehouseTablesCreateBody.shape['name'].describe(
-        "Name the agent and the user will query this table by in HogQL. Pick a short snake_case name that describes the data (e.g. `orders`, `stripe_payouts`). It must be unique across the project's tables and views."
-    ),
-    format: WarehouseTablesCreateBody.shape['format'].describe(
-        'File format of the objects the pattern matches, one of CSV, CSVWithNames (a CSV whose first row is a header), Parquet, JSONEachRow (newline-delimited JSON), or Delta. Do not pass DeltaS3Wrapper, which PostHog uses for its own materialized views.'
-    ),
-    credential: WarehouseTablesCreateBody.shape['credential'].describe(
-        'Send only `access_key` and `access_secret`, the credentials for the bucket in `url_pattern`. The other fields are set by PostHog and are ignored on create.'
-    ),
-})
+const WarehouseTablesCreateSchema = () => {
+    const WarehouseTablesCreateBody = orvalSchemas.WarehouseTablesCreateBody()
+    return WarehouseTablesCreateBody.extend({
+        name: WarehouseTablesCreateBody.shape['name'].describe(
+            "Name the agent and the user will query this table by in HogQL. Pick a short snake_case name that describes the data (e.g. `orders`, `stripe_payouts`). It must be unique across the project's tables and views."
+        ),
+        format: WarehouseTablesCreateBody.shape['format'].describe(
+            'File format of the objects the pattern matches, one of CSV, CSVWithNames (a CSV whose first row is a header), Parquet, JSONEachRow (newline-delimited JSON), or Delta. Do not pass DeltaS3Wrapper, which PostHog uses for its own materialized views.'
+        ),
+        credential: WarehouseTablesCreateBody.shape['credential'].describe(
+            'Send only `access_key` and `access_secret`, the credentials for the bucket in `url_pattern`. The other fields are set by PostHog and are ignored on create.'
+        ),
+    })
+}
 
 const warehouseTablesCreate = (): ToolBase<
-    typeof WarehouseTablesCreateSchema,
+    ReturnType<typeof WarehouseTablesCreateSchema>,
     WithInformationalResponse<Schemas.Table>
 > => ({
     name: 'warehouse-tables-create',
-    schema: WarehouseTablesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseTablesCreateSchema>) => {
+    schema: WarehouseTablesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseTablesCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.deleted !== undefined) {
@@ -651,12 +701,18 @@ const warehouseTablesCreate = (): ToolBase<
     },
 })
 
-const WarehouseTablesRefreshSchemaCreateSchema = WarehouseTablesRefreshSchemaCreateParams.omit({ project_id: true })
+const WarehouseTablesRefreshSchemaCreateSchema = () => {
+    const WarehouseTablesRefreshSchemaCreateParams = orvalSchemas.WarehouseTablesRefreshSchemaCreateParams()
+    return WarehouseTablesRefreshSchemaCreateParams.omit({ project_id: true })
+}
 
-const warehouseTablesRefreshSchemaCreate = (): ToolBase<typeof WarehouseTablesRefreshSchemaCreateSchema, unknown> => ({
+const warehouseTablesRefreshSchemaCreate = (): ToolBase<
+    ReturnType<typeof WarehouseTablesRefreshSchemaCreateSchema>,
+    unknown
+> => ({
     name: 'warehouse-tables-refresh-schema-create',
-    schema: WarehouseTablesRefreshSchemaCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseTablesRefreshSchemaCreateSchema>) => {
+    schema: WarehouseTablesRefreshSchemaCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseTablesRefreshSchemaCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',

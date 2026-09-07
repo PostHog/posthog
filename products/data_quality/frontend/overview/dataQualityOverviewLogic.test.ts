@@ -20,6 +20,7 @@ import type {
 } from 'products/data_quality/frontend/generated/api.schemas'
 
 import {
+    NEW_CHECK_ACTION_ID,
     dataQualityOverviewLogic,
     focusCandidatesAfterDelete,
     rowActionsId,
@@ -531,7 +532,7 @@ describe('dataQualityOverviewLogic', () => {
 
         const candidates = focusCandidatesAfterDelete(logic.values.subjectGroups, 'view:uuid-customers', 'check-3')
 
-        expect(candidates).toEqual([subjectDisclosureId('view:uuid-orders'), 'data-quality-browse-subjects'])
+        expect(candidates).toEqual([subjectDisclosureId('view:uuid-orders'), NEW_CHECK_ACTION_ID])
     })
 
     async function drainListeners(): Promise<void> {

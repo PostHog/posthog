@@ -29,6 +29,11 @@
 //! depths, a jump into the middle of an instruction, a local slot outside the frame, or a `RETURN`
 //! that leaves the stack unbalanced all stop the analysis and widen the condition to every column.
 //! Reads accumulate globally rather than per instruction, so a join can never retract one.
+//!
+//! One case answers rather than widens. A `GET_GLOBAL` root that no globals dict carries reads
+//! nothing under any projection, so it claims no path and the walk continues. A bare
+//! representation-sensitive native is the exception, because such a root is a closure the program
+//! can still call — see [`Interpreter::get_global`].
 
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -42,6 +47,27 @@ use super::{FullColumnsReason, GlobalRoot, Projection, ReadPath, UnanalyzableRea
 /// `elements_chain` falls back to this property when the event's own column is empty, so a caller
 /// that projects an `elements_chain` read must carry it too.
 const ELEMENTS_CHAIN_PROPERTY: &str = "$elements_chain";
+
+/// Natives whose result depends on how a JSON number was spelled, rather than on its value.
+///
+/// A caller acting on [`Projection::Reads`] supplies the claimed paths through its own storage, and
+/// the seeder supplies them by having ClickHouse rebuild the blob from the kept keys. That rebuild
+/// re-prints every number it copies, so a whole-number float token arrives as an integer one:
+/// `{"n": 100.0}` becomes `{"n": 100}`, which the VM loads as `Num::Integer(100)` where live
+/// evaluation loads `Num::Float(100.0)`.
+///
+/// Most of the VM cannot see that. Equality unifies the two variants, arithmetic and ordering widen
+/// a mixed pair to `f64`, and the printer renders `Float(100.0)` and `Integer(100)` as the same
+/// text. The exceptions are the natives below, each of which branches on `Num::is_float` in a way
+/// that reaches its result: `typeof` answers `"float"` or `"integer"`, and `jsonStringify` keeps the
+/// decimal point only for the float variant. A condition calling either would seed a membership its
+/// live evaluation disagrees with, so the whole condition takes every column instead.
+///
+/// One residual is accepted rather than covered. `print_hog_value` renders an object carrying an
+/// `__hx_ast` key back to SQL, and that printer does distinguish the variants, so `toString` of a
+/// property whose value is shaped like a HogQL AST node is sensitive too. That needs a customer
+/// blob built to look like compiler output, which no filter the product writes can produce.
+const REPRESENTATION_SENSITIVE_NATIVES: [&str; 2] = ["typeof", "jsonStringify"];
 
 /// A ceiling on transfer steps one program may take, so a program the lattice argument does not
 /// cover cannot hang the caller. The fixpoint is reached far sooner: a merge point's stack can only
@@ -196,7 +222,7 @@ pub(super) fn project(bytecode: &[Value], budget: &mut AnalysisBudget) -> Projec
     match outcome {
         Ok(reads) => Projection::Reads(reads),
         Err(Stop::Unanalyzable(reason)) => full_columns(reason),
-        Err(Stop::BareRoot(reason)) => Projection::FullColumns(reason),
+        Err(Stop::Unnarrowable(reason)) => Projection::FullColumns(reason),
     }
 }
 
@@ -204,11 +230,11 @@ fn full_columns(reason: UnanalyzableReason) -> Projection {
     Projection::FullColumns(FullColumnsReason::Unanalyzable(reason))
 }
 
-/// Why the interpreter stopped early. A bare root is an ordinary program the analysis understood
-/// and cannot narrow; everything else is the fail-closed arm.
+/// Why the interpreter stopped early. [`Stop::Unnarrowable`] is an ordinary program the analysis
+/// understood and cannot narrow; everything else is the fail-closed arm.
 enum Stop {
     Unanalyzable(UnanalyzableReason),
-    BareRoot(FullColumnsReason),
+    Unnarrowable(FullColumnsReason),
 }
 
 /// What an instruction does to control flow, after its own stack effect has been applied. Both
@@ -433,9 +459,18 @@ impl<'a> Interpreter<'a> {
             }
             InstrKind::Number(_) => push_opaque(stack),
             InstrKind::Counted(op, count) => self.counted(*op, *count, stack),
-            // Any callee name is projection-safe. A native consumes stack values and cannot reach
-            // the globals dict, which is what keeps `toDateTime(timestamp) > x` projectable.
-            InstrKind::CallGlobal { argc, .. } => reduce(stack, *argc),
+            // A native consumes stack values and cannot reach the globals dict, so it never widens
+            // the read set — which is what keeps `toDateTime(timestamp) > x` projectable. The
+            // exception is a native that reads a value's *spelling* rather than its value; see
+            // [`REPRESENTATION_SENSITIVE_NATIVES`].
+            InstrKind::CallGlobal { name, argc } => {
+                if REPRESENTATION_SENSITIVE_NATIVES.contains(&name.as_str()) {
+                    return Err(Stop::Unnarrowable(
+                        FullColumnsReason::RepresentationSensitiveCall,
+                    ));
+                }
+                reduce(stack, *argc)
+            }
             InstrKind::Bare(op) => self.bare(*op, stack),
             InstrKind::Branch { op, target } => branch(*op, *target, stack),
             // A callable or closure introduces a frame the model has no notion of, and `TRY`
@@ -573,9 +608,25 @@ impl<'a> Interpreter<'a> {
         }
         let (root_name, segments) = chain.split_first().expect("count is non-zero");
         let Some(root) = GlobalRoot::parse(root_name) else {
-            return Err(Stop::Unanalyzable(UnanalyzableReason::UnknownGlobalRoot(
-                root_name.to_string(),
-            )));
+            // A one-element chain also resolves to a first-class closure over a native, and
+            // `arrayMap` invokes that closure through `CALL_LOCAL`, so the `CallGlobal` arm never
+            // sees the name. Reading a number's spelling is unsafe however the native is reached,
+            // so [`REPRESENTATION_SENSITIVE_NATIVES`] has to be checked on both paths.
+            if segments.is_empty() && REPRESENTATION_SENSITIVE_NATIVES.contains(&root_name.as_ref())
+            {
+                return Err(Stop::Unnarrowable(
+                    FullColumnsReason::RepresentationSensitiveCall,
+                ));
+            }
+            // Every other such name reads no event data, so it constrains no column. A projection
+            // narrows the values *under* the roots a globals builder writes and never removes a
+            // root, so a name absent from the dict is absent under every projection: its
+            // `GET_GLOBAL` raises `UnknownGlobal` on the projected event and on the full one alike.
+            // [`GlobalRoot`] is what makes "not a root" mean "in no dict this crate builds".
+            //
+            // Opaque rather than terminate: the closure case keeps executing, so ending the path
+            // here could prune a genuine later read. Over-approximating is the safe direction.
+            return push_opaque(stack);
         };
         // A bare `properties`, `person`, or `pdi` hands a whole object to whatever consumes it, so
         // which keys are read is decided at runtime and cannot be narrowed here. `pdi` counts
@@ -583,10 +634,10 @@ impl<'a> Interpreter<'a> {
         if segments.is_empty() {
             match root {
                 GlobalRoot::Properties => {
-                    return Err(Stop::BareRoot(FullColumnsReason::BarePropertiesRoot))
+                    return Err(Stop::Unnarrowable(FullColumnsReason::BarePropertiesRoot))
                 }
                 GlobalRoot::Person | GlobalRoot::Pdi => {
-                    return Err(Stop::BareRoot(FullColumnsReason::BarePersonRoot))
+                    return Err(Stop::Unnarrowable(FullColumnsReason::BarePersonRoot))
                 }
                 _ => {}
             }
@@ -761,6 +812,107 @@ mod tests {
         );
     }
 
+    /// The shape a group-type-name filter compiles to. `organization` is a per-team group type: the
+    /// SQL printer aliases it onto `group_0`, but the bytecode compiler emits the written chain
+    /// verbatim, so the root reaches the VM and no globals dict carries it. Such a root reads no
+    /// event data under any projection, so the program claims nothing.
+    ///
+    /// Written out literally rather than through the `read` helper, so the helper cannot hide the
+    /// same mistake, for the same reason
+    /// `a_global_chain_is_read_root_first_from_its_reversed_pushes` is written that way.
+    #[test]
+    fn a_root_no_globals_dict_carries_claims_no_reads() {
+        // organization.properties.name == 'Example Org'
+        let tokens = vec![
+            json!(32),
+            json!("Example Org"),
+            json!(32),
+            json!("name"),
+            json!(32),
+            json!("properties"),
+            json!(32),
+            json!("organization"),
+            json!(1),
+            json!(3),
+            json!(11),
+        ];
+        assert_eq!(reads(tokens), Vec::<String>::new());
+    }
+
+    /// The absent root continues the walk rather than ending it, so a read after one is still
+    /// claimed. A `Control::Terminate` implementation passes every other test in this file and
+    /// fails only here.
+    #[test]
+    fn a_read_after_an_absent_root_is_still_claimed() {
+        let mut tokens = read(&["organization"]);
+        tokens.extend(read(&["properties", "plan"]));
+        // `AND` of the two, so the program balances its stack the way the compiler would.
+        tokens.push(json!(3));
+        tokens.push(json!(2));
+        assert_eq!(reads(tokens), ["properties.plan"]);
+    }
+
+    /// A bare native name is not a read. `GET_GLOBAL` resolves it to a first-class closure, and
+    /// `arrayMap` invokes that closure through `CALL_LOCAL`, so the `CALL_GLOBAL` guard never sees
+    /// the name. `typeof` answers from how a number was spelled, so a caller rebuilding the blob
+    /// from the claimed keys re-prints `100.0` as `100` and the condition decides the other way.
+    /// The root carries the same obligation a direct call does.
+    #[test]
+    fn a_representation_sensitive_native_reached_as_a_root_widens() {
+        // arrayMap(typeof, [properties.n]) == ['float']
+        let tokens = vec![
+            json!(32),
+            json!("typeof"),
+            json!(1),
+            json!(1),
+            json!(32),
+            json!("n"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(43),
+            json!(1),
+            json!(2),
+            json!("arrayMap"),
+            json!(2),
+            json!(32),
+            json!("float"),
+            json!(43),
+            json!(1),
+            json!(11),
+        ];
+        assert_eq!(
+            full_columns_reason(tokens),
+            FullColumnsReason::RepresentationSensitiveCall
+        );
+    }
+
+    /// A native the rebuild cannot disturb stays projectable when it arrives as a root, so the
+    /// guard above widens on representation sensitivity rather than on every native reference.
+    #[test]
+    fn an_insensitive_native_reached_as_a_root_still_claims_its_reads() {
+        // arrayMap(base64Encode, [properties.n])
+        let tokens = vec![
+            json!(32),
+            json!("base64Encode"),
+            json!(1),
+            json!(1),
+            json!(32),
+            json!("n"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(43),
+            json!(1),
+            json!(2),
+            json!("arrayMap"),
+            json!(2),
+        ];
+        assert_eq!(reads(tokens), ["properties.n"]);
+    }
+
     /// `elements_chain` resolves to the event column or, when that is empty, to
     /// `properties.$elements_chain`. A claimed read set that named only the column would be short,
     /// and a caller projecting from it would evaluate the condition against a null chain.
@@ -788,8 +940,8 @@ mod tests {
         assert_eq!(reads(tokens), ["properties.a", "properties.b"]);
     }
 
-    /// A path segment computed at runtime, an unmodeled root, an unmodeled opcode, and garbage all
-    /// have to fail closed, each naming what stopped the analysis.
+    /// A path segment computed at runtime, an unmodeled opcode, and garbage all have to fail
+    /// closed, each naming what stopped the analysis.
     #[test]
     fn unmodeled_programs_fail_closed_with_their_reason() {
         // `properties[someValue]`: the segment on the stack is not a literal.
@@ -802,10 +954,6 @@ mod tests {
             json!(2),
         ];
         assert_eq!(unanalyzable(dynamic), UnanalyzableReason::DynamicGlobalPath);
-        assert_eq!(
-            unanalyzable(read(&["session"])),
-            UnanalyzableReason::UnknownGlobalRoot("session".to_owned())
-        );
         assert_eq!(
             unanalyzable(vec![json!(1), json!(0)]),
             UnanalyzableReason::ZeroLengthGlobalChain
@@ -1044,18 +1192,49 @@ mod tests {
         assert_eq!(reads(tokens), ["properties.plan"]);
     }
 
-    /// A native call is projection-safe whatever its name, because it only consumes stack values.
-    /// Refusing them would make every `toDateTime(timestamp) > x` condition unprojectable.
+    /// An ordinary native call is projection-safe, because it only consumes stack values. Refusing
+    /// every native would make every `toDateTime(timestamp) > x` condition unprojectable.
     #[test]
     fn a_native_call_over_a_read_keeps_the_read_precise() {
+        assert_eq!(reads(call_over_timestamp("toDateTime")), ["timestamp"]);
+    }
+
+    /// A native that reads a number's spelling is the one call the read set cannot describe: the
+    /// paths are right, but supplying them from re-serialized JSON changes the answer. See
+    /// [`REPRESENTATION_SENSITIVE_NATIVES`]. Reported as an understood program rather than as a
+    /// failure, because nothing about it escaped the model.
+    #[test]
+    fn a_representation_sensitive_native_widens_to_every_column() {
+        for name in REPRESENTATION_SENSITIVE_NATIVES {
+            assert_eq!(
+                full_columns_reason(call_over_timestamp(name)),
+                FullColumnsReason::RepresentationSensitiveCall,
+                "{name}"
+            );
+        }
+    }
+
+    /// The refusal is on the call, not on the read under it: a program that never calls one of
+    /// these keeps its narrow answer however many other natives it uses.
+    #[test]
+    fn a_sensitive_native_name_only_matters_when_it_is_called() {
+        assert_eq!(reads(call_over_timestamp("toTypeOf")), ["timestamp"]);
+        assert_eq!(
+            reads(read(&["properties", "typeof"])),
+            ["properties.typeof"]
+        );
+    }
+
+    /// `name(timestamp) > '2026-01-01'`.
+    fn call_over_timestamp(name: &str) -> Vec<Value> {
         let mut tokens = read(&["timestamp"]);
         tokens.push(json!(2));
-        tokens.push(json!("toDateTime"));
+        tokens.push(json!(name));
         tokens.push(json!(1));
         tokens.push(json!(32));
         tokens.push(json!("2026-01-01"));
         tokens.push(json!(13));
-        assert_eq!(reads(tokens), ["timestamp"]);
+        tokens
     }
 
     /// A hostile count immediate must not reach an allocation. `u64::MAX` is a capacity-overflow

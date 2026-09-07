@@ -147,6 +147,7 @@ export type ExecCommandErrorReason =
     | 'unknown_command'
     | 'unknown_tool'
     | 'deprecated_tool'
+    | 'gated_tool'
     | 'missing_scope'
     | 'invalid_json'
     | 'usage'

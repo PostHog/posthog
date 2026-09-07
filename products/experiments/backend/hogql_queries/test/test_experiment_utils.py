@@ -18,7 +18,7 @@ from posthog.schema import (
     StartHandling,
 )
 
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,

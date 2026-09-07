@@ -409,13 +409,39 @@ def test_stripe_config(config_dict, expected_auth_method_attrs):
         assert getattr(config.auth_method, attr) == expected
 
 
-def test_shopify_config():
-    config = ShopifySourceConfig.from_dict(
-        {"shopify_store_id": "store_id", "shopify_client_id": "client_id", "shopify_client_secret": "client_secret"}
-    )
+@pytest.mark.parametrize(
+    "stored,expected_auth_method_attrs",
+    [
+        (
+            {
+                "shopify_store_id": "store_id",
+                "auth_method": {
+                    "selection": "client_credentials",
+                    "shopify_client_id": "client_id",
+                    "shopify_client_secret": "client_secret",
+                },
+            },
+            {"shopify_client_id": "client_id", "shopify_client_secret": "client_secret"},
+        ),
+        (
+            {
+                "shopify_store_id": "store_id",
+                "auth_method": {"selection": "access_token", "shopify_access_token": "shpat_token"},
+            },
+            {"shopify_access_token": "shpat_token", "shopify_client_id": None},
+        ),
+    ],
+)
+def test_shopify_config(stored, expected_auth_method_attrs):
+    # These are the two shapes the `auth_method` backfill writes for sources connected before the
+    # select existed. `validate_dict` runs on update, so a rename on either side of that backfill
+    # blocks editing every Shopify source that already exists.
+    assert ShopifySourceConfig.validate_dict(stored) == (True, [])
+
+    config = ShopifySourceConfig.from_dict(stored)
     assert config.shopify_store_id == "store_id"
-    assert config.shopify_client_id == "client_id"
-    assert config.shopify_client_secret == "client_secret"
+    for attr, expected in expected_auth_method_attrs.items():
+        assert getattr(config.auth_method, attr) == expected
 
 
 def test_temporal_config():

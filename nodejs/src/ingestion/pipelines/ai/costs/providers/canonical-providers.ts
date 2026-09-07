@@ -1,10 +1,11 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-31 20:02:44 UTC
+// Generated at: 2026-09-04 20:02:16 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'aion-labs'
     | 'akashml-bf16'
+    | 'akashml-fp4'
     | 'akashml-fp8'
     | 'alibaba'
     | 'alibaba-fast'
@@ -17,10 +18,9 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
     | 'amazon-bedrock-us-west-2'
-    | 'ambient'
-    | 'ambient-fp4'
     | 'ambient-fp8'
     | 'anthropic'
+    | 'anthropic-fast'
     | 'arcee-ai'
     | 'atlas-cloud-fp4'
     | 'atlas-cloud-fp8'
@@ -96,8 +96,10 @@ export type CanonicalProvider =
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'ionstream-fp4'
+    | 'ionstream-fp8'
     | 'liquid-fp8'
     | 'makora'
+    | 'makora-fp4'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -120,7 +122,6 @@ export type CanonicalProvider =
     | 'morph-fast'
     | 'morph-fp4'
     | 'morph-fp8'
-    | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi'
@@ -141,7 +142,6 @@ export type CanonicalProvider =
     | 'openai-default'
     | 'openai-fast'
     | 'openai-flex'
-    | 'openai-priority'
     | 'parasail-bf16'
     | 'parasail-fp16'
     | 'parasail-fp4'

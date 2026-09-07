@@ -1540,6 +1540,10 @@ class TestSuggestedPromptSafetyJudgeInput:
 
         assert signal is not None
         assert "ignore previous instructions" in signal.content
+        # The label is what stops the judge from reading a benign action prompt ("create the alert,
+        # then resolve this report") as an anonymous agent-directed instruction and suppressing the
+        # report — the judge's rendering drops `source_id`, so the content must say what it is.
+        assert signal.content.startswith("Suggested prompts")
 
     def test_no_prompts_adds_nothing_to_the_judge_input(self) -> None:
         # A report without suggestions must produce the judge prompt it produced before they existed.

@@ -22,7 +22,7 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
-from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
+from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -60,13 +60,7 @@ def _save_session_with_recovery(session: SessionBase) -> None:
 
 def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        next_url = request.data.get("next_url") if request and request.data else None
-
-        # We only want to redirect to a relative url so that we don't redirect away from the current domain
-        if is_relative_url(next_url):
-            EmailVerifier.create_token_and_send_email_verification(user, next_url)
-        else:
-            EmailVerifier.create_token_and_send_email_verification(user)
+        email_verification_code_verifier.send_code(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 

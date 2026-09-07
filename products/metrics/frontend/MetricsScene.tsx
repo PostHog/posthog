@@ -1,7 +1,9 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -23,6 +25,8 @@ import { metricsFeaturePreviewGate } from './featurePreviewGate'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
 export const METRICS_LOGIC_KEY = 'metrics'
+
+const METRICS_FEEDBACK_SURVEY_ID = '01a07c35-6be3-0000-16b3-4cd66a6873f3'
 
 const TABS: { key: MetricsSceneActiveTab; label: string; 'data-attr': string }[] = [
     { key: 'overview', label: 'Overview', 'data-attr': 'metrics-scene-tab-overview' },
@@ -72,6 +76,10 @@ const MetricsSceneContent = (): JSX.Element => {
     // races the has_metrics check instead of waiting on the setup prompt to resolve.
     useMountedLogic(metricNamePickerLogic)
 
+    const onFeedbackClick = (): void => {
+        posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
+    }
+
     return (
         <>
             <SceneTitleSection
@@ -80,7 +88,23 @@ const MetricsSceneContent = (): JSX.Element => {
                 resourceType={{
                     type: sceneConfigurations[Scene.Metrics].iconType || 'default_icon_type',
                 }}
+                actions={
+                    <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
+                        Feedback
+                    </LemonButton>
+                }
             />
+            <LemonBanner
+                type="warning"
+                dismissKey="metrics-alpha-notice"
+                action={{
+                    icon: <IconFeedback />,
+                    children: 'Share feedback',
+                    onClick: onFeedbackClick,
+                }}
+            >
+                Metrics is in alpha. Please share feedback on how to improve the product.
+            </LemonBanner>
             <LemonTabs<MetricsSceneActiveTab>
                 activeKey={activeTab}
                 onChange={(tab) => {

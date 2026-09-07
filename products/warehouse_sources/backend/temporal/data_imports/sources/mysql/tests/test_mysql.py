@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_metadata_query_reset,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
+    _is_transient_tiproxy_unavailable,
     _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
     _is_transient_vitess_reparent,
@@ -44,7 +45,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _safe_convert_datetime,
     _sanitize_identifier,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import (
+    _INVALID_CREDENTIALS_ERROR,
+    MySQLSource,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 # ---------------------------------------------------------------------------
@@ -1493,6 +1497,26 @@ class TestConnectTransientRetry:
         assert mock_connect.call_count == 2
         sleep.assert_called_once_with(2)
 
+    def test_retries_tiproxy_unavailable_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available"
+                ),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
     def test_does_not_retry_connection_refused(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
@@ -1627,6 +1651,32 @@ class TestIsTransientVitessReparent:
         assert not _is_transient_vitess_reparent(ValueError("reparent operation in progress"))
 
 
+class TestIsTransientTiproxyUnavailable:
+    def test_matches_tiproxy_unavailable(self):
+        assert _is_transient_tiproxy_unavailable(
+            pymysql.err.OperationalError(1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available")
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Other 1105 payloads (Vitess cases, unrelated TiDB errors) are not this class.
+            (1105, "vttablet: rpc error: code = Unavailable desc = node is shutting down"),
+            (1105, "vttablet: rpc error: code = InvalidArgument desc = some bad request"),
+            (1045, "Access denied for user"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_tiproxy_unavailable(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_tiproxy_unavailable(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_tiproxy_unavailable(ValueError("TiProxy fails to connect to TiDB"))
+
+
 class TestIsTransientMetadataQueryReset:
     def test_matches_connection_reset_mid_query(self):
         # A peer reset landing on an already-open connection while a metadata query (e.g.
@@ -1701,6 +1751,22 @@ class TestRetryOnTransientTabletUnavailable:
             2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
         )
         operation = MagicMock(side_effect=[reset, "ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == 2
+
+    def test_retries_vitess_dial_timeout_then_succeeds(self, mocker):
+        # A vtgate dial timeout to a backend tablet (error 1815) can land on a metadata query
+        # against an already-open connection, not just at connect time — `connect()` succeeding
+        # doesn't retry it, so this wrapper must.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        dial_timeout = pymysql.err.OperationalError(
+            1815,
+            "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
+            "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+        )
+        operation = MagicMock(side_effect=[dial_timeout, "ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
 
@@ -2400,7 +2466,7 @@ class TestMySQLSourceValidateCredentials:
             # that sends the user to inspect the host/port instead. Mirrors Postgres.
             (
                 pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
-                "Invalid user or password",
+                _INVALID_CREDENTIALS_ERROR,
             ),
         ],
     )
@@ -2421,6 +2487,9 @@ class TestMySQLSourceValidateCredentials:
         [
             "https://db.example.com/",
             "mysql://root:secret@db.example.com:3306/mydb",
+            # No scheme, so the guard has to match on the path and userinfo separators instead.
+            "db.example.com/mydb",
+            "root:secret@db.example.com",
         ],
     )
     def test_url_in_host_field_rejected_without_echoing_input(self, source, mocker, host):

@@ -27,6 +27,17 @@ It measures the invariant at its end point: the worker's grouping stage processe
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
 Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
 
+## Offset ledger
+
+The consumer holds the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
+Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
+A partition that settles without a frontier is not committed and stays on its last commit.
+A batch with no frontier on any partition is not committed at all; `ingestion_consumer_commits_skipped_total{reason}` counts those, where `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
+The ledger emits its own metrics, so any consumer built on the crate reports the same series.
+`kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
+`kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
+`kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger and the consumer keeps running; the consumer logs the rejected slice with the batch and ledger generations and the window depth before the reset.
+
 ## Debug API
 
 Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time debug API on the health server (default `:3301`), for dev and incident debugging; off by default.
