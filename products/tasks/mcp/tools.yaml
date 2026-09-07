@@ -522,6 +522,9 @@ tools:
     tasks-run-create:
         operation: tasks_run_create
         enabled: false
+    tasks-runs-analysis-insight-create:
+        operation: tasks_runs_analysis_insight_create
+        enabled: false
     tasks-runs-analysis-activity-create:
         operation: tasks_runs_analysis_activity_create
         enabled: false
