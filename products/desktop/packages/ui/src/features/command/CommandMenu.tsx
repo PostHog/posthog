@@ -1,14 +1,25 @@
 import {
   ArchiveIcon,
+  ArrowClockwiseIcon,
   CaretLeftIcon,
   CaretRightIcon,
-  ChartLine,
+  ChartLineIcon,
   CubeIcon,
-  EnvelopeSimple,
-  Gauge,
+  DesktopIcon,
+  EnvelopeSimpleIcon,
+  FileTextIcon,
+  GaugeIcon,
+  GearIcon,
   GitDiffIcon,
   HashIcon,
+  HouseIcon,
+  MagnifyingGlassIcon,
+  MagnifyingGlassMinusIcon,
+  MagnifyingGlassPlusIcon,
+  MoonIcon,
+  SidebarSimpleIcon,
   SquaresFourIcon,
+  SunIcon,
 } from "@phosphor-icons/react";
 import { workspaceIdSet } from "@posthog/core/command-center/eligibility";
 import { resolveService } from "@posthog/di/container";
@@ -60,6 +71,7 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { PaletteFilterChips } from "@posthog/ui/features/command/PaletteFilterChips";
+import { sessionSubtitle } from "@posthog/ui/features/command/sessionSubtitle";
 import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { taskSearchDelay } from "@posthog/ui/features/command/taskSearchQuery";
 import {
@@ -100,19 +112,6 @@ import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { showLogFolder } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
-import {
-  DesktopIcon,
-  FileTextIcon,
-  GearIcon,
-  HomeIcon,
-  MagnifyingGlassIcon,
-  MoonIcon,
-  ReloadIcon,
-  SunIcon,
-  ViewVerticalIcon,
-  ZoomInIcon,
-  ZoomOutIcon,
-} from "@radix-ui/react-icons";
 import {
   lazy,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -325,7 +324,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "switch-theme-light",
         label: "Switch to light mode",
         keywords: "theme appearance",
-        icon: <SunIcon className="h-3 w-3 text-gray-11" />,
+        icon: <SunIcon size={12} className="text-muted-foreground" />,
         action: "toggle-theme",
         onRun: () => setTheme("light"),
       });
@@ -335,7 +334,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "switch-theme-dark",
         label: "Switch to dark mode",
         keywords: "theme appearance",
-        icon: <MoonIcon className="h-3 w-3 text-gray-11" />,
+        icon: <MoonIcon size={12} className="text-muted-foreground" />,
         action: "toggle-theme",
         onRun: () => setTheme("dark"),
       });
@@ -348,7 +347,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "switch-theme-system",
         label: "Switch to system theme",
         keywords: "theme appearance auto",
-        icon: <DesktopIcon className="h-3 w-3 text-gray-11" />,
+        icon: <DesktopIcon size={12} className="text-muted-foreground" />,
         action: "toggle-theme",
         onRun: () => setTheme("system"),
       });
@@ -361,7 +360,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       {
         id: "home",
         label: "Home",
-        icon: <HomeIcon className="h-3 w-3 text-gray-11" />,
+        icon: <HouseIcon size={12} className="text-muted-foreground" />,
         action: "home",
         onRun: () => {
           closeSettingsDialog();
@@ -371,7 +370,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       {
         id: "settings",
         label: "Settings",
-        icon: <GearIcon className="h-3 w-3 text-gray-11" />,
+        icon: <GearIcon size={12} className="text-muted-foreground" />,
         action: "settings",
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
@@ -382,7 +381,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               id: "inbox",
               label: "Self-driving",
               keywords: "reports pull requests agents notifications",
-              icon: <EnvelopeSimple size={12} className="text-gray-11" />,
+              icon: (
+                <EnvelopeSimpleIcon
+                  size={12}
+                  className="text-muted-foreground"
+                />
+              ),
               action: "open-inbox",
               shortcut: SHORTCUTS.INBOX,
               onRun: () => {
@@ -396,7 +400,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "archived",
         label: "Archived",
         keywords: "archive archived tasks",
-        icon: <ArchiveIcon size={12} className="text-gray-11" />,
+        icon: <ArchiveIcon size={12} className="text-muted-foreground" />,
         action: "open-archived",
         onRun: () => {
           closeSettingsDialog();
@@ -407,7 +411,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "command-center",
         label: "Command center",
         keywords: "grid tasks parallel dashboard",
-        icon: <SquaresFourIcon className="h-3 w-3 text-gray-11" />,
+        icon: <SquaresFourIcon size={12} className="text-muted-foreground" />,
         action: "open-command-center",
         onRun: () => {
           closeSettingsDialog();
@@ -420,7 +424,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               id: "loops",
               label: "Loops",
               keywords: "automations schedules recurring",
-              icon: <LoopIcon size={12} className="text-gray-11" />,
+              icon: <LoopIcon size={12} className="text-muted-foreground" />,
               action: "open-loops" as CommandMenuAction,
               onRun: () => {
                 closeSettingsDialog();
@@ -433,7 +437,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "cost-management",
         label: "Cost management",
         keywords: "cost spend limits budget savings recommendations",
-        icon: <Gauge size={12} className="text-gray-11" />,
+        icon: <GaugeIcon size={12} className="text-muted-foreground" />,
         action: "open-cost-management" as CommandMenuAction,
         onRun: () => openSettingsDialog("cost-management"),
       },
@@ -441,7 +445,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "plan-usage",
         label: "Plan & usage",
         keywords: "billing spend cost credits usage plan",
-        icon: <ChartLine size={12} className="text-gray-11" />,
+        icon: <ChartLineIcon size={12} className="text-muted-foreground" />,
         action: "open-usage",
         onRun: () => openSettingsDialog("plan-usage"),
       },
@@ -449,7 +453,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "go-back",
         label: "Go back",
         keywords: "navigate history previous",
-        icon: <CaretLeftIcon size={12} className="text-gray-11" />,
+        icon: <CaretLeftIcon size={12} className="text-muted-foreground" />,
         action: "go-back",
         shortcut: SHORTCUTS.GO_BACK,
         onRun: goBackInHistory,
@@ -458,7 +462,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "go-forward",
         label: "Go forward",
         keywords: "navigate history next",
-        icon: <CaretRightIcon size={12} className="text-gray-11" />,
+        icon: <CaretRightIcon size={12} className="text-muted-foreground" />,
         action: "go-forward",
         shortcut: SHORTCUTS.GO_FORWARD,
         onRun: goForwardInHistory,
@@ -470,7 +474,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "new-task",
         label: "New task",
         keywords: "create",
-        icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
+        icon: <FileTextIcon size={12} className="text-muted-foreground" />,
         action: "new-task",
         shortcut: SHORTCUTS.NEW_TASK,
         onRun: () => {
@@ -485,9 +489,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               label: spacesLayout ? "New space" : "New channel",
               keywords: "create add space channel context",
               icon: spacesLayout ? (
-                <CubeIcon size={12} className="text-gray-11" />
+                <CubeIcon size={12} className="text-muted-foreground" />
               ) : (
-                <HashIcon size={12} className="text-gray-11" />
+                <HashIcon size={12} className="text-muted-foreground" />
               ),
               action: "create-channel" as CommandMenuAction,
               onRun: () => {
@@ -501,7 +505,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       {
         id: "toggle-left-sidebar",
         label: "Toggle left sidebar",
-        icon: <ViewVerticalIcon className="h-3 w-3 text-gray-11" />,
+        icon: <SidebarSimpleIcon size={12} className="text-muted-foreground" />,
         action: "toggle-left-sidebar",
         shortcut: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
         onRun: toggleLeftSidebar,
@@ -511,7 +515,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             {
               id: "open-review-panel",
               label: "Open diff view",
-              icon: <GitDiffIcon className="h-3 w-3 text-gray-11" />,
+              icon: <GitDiffIcon size={12} className="text-muted-foreground" />,
               action: "open-review-panel" as CommandMenuAction,
               shortcut: SHORTCUTS.TOGGLE_REVIEW_PANEL,
               onRun: openReviewPanel,
@@ -524,7 +528,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               id: "archive-task",
               label: "Archive task",
               keywords: "archive close remove",
-              icon: <ArchiveIcon size={12} className="text-gray-11" />,
+              icon: <ArchiveIcon size={12} className="text-muted-foreground" />,
               action: "archive-task" as CommandMenuAction,
               shortcut: SHORTCUTS.ARCHIVE_TASK,
               onRun: requestArchive,
@@ -540,7 +544,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "search-files",
         label: "Search files",
         keywords: "file find open",
-        icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
+        ),
         action: "search-files",
         onRun: openFilePicker,
       });
@@ -551,7 +557,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "show-log-folder",
         label: "Show log folder",
         keywords: "logs debug files finder",
-        icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
+        icon: <FileTextIcon size={12} className="text-muted-foreground" />,
         action: "show-log-folder",
         onRun: showLogFolder,
       },
@@ -559,7 +565,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "reload-window",
         label: "Reload window",
         keywords: "refresh restart",
-        icon: <ReloadIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <ArrowClockwiseIcon size={12} className="text-muted-foreground" />
+        ),
         action: "reload-window",
         shortcut: SHORTCUTS.RELOAD_WINDOW,
         onRun: () => window.location.reload(),
@@ -571,7 +579,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "zoom-in",
         label: "Zoom in",
         keywords: "zoom increase larger",
-        icon: <ZoomInIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <MagnifyingGlassPlusIcon
+            size={12}
+            className="text-muted-foreground"
+          />
+        ),
         action: "zoom-in",
         shortcut: SHORTCUTS.ZOOM_IN,
         onRun: () =>
@@ -583,7 +596,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "zoom-out",
         label: "Zoom out",
         keywords: "zoom decrease smaller",
-        icon: <ZoomOutIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <MagnifyingGlassMinusIcon
+            size={12}
+            className="text-muted-foreground"
+          />
+        ),
         action: "zoom-out",
         shortcut: SHORTCUTS.ZOOM_OUT,
         onRun: () =>
@@ -595,7 +613,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "zoom-reset",
         label: "Reset zoom",
         keywords: "zoom actual size default",
-        icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
+        ),
         action: "zoom-reset",
         shortcut: SHORTCUTS.RESET_ZOOM,
         onRun: () =>
@@ -619,7 +639,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           id: `new-task-folder-${folder.id}`,
           label: `New task in ${folder.name}`,
           keywords: folder.path,
-          icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
+          icon: <FileTextIcon size={12} className="text-muted-foreground" />,
           action: "new-task",
           onRun: () => {
             closeSettingsDialog();
@@ -671,7 +691,17 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           return {
             id: `task-${task.id}`,
             label: task.title,
-            detail: channel?.name,
+            // Under the spaces layout a session wears the same row everywhere:
+            // status dot, title, and a second line saying where it lives. The
+            // legacy layout keeps the trailing `#channel`.
+            detail: spacesLayout ? undefined : channel?.name,
+            subtitle: spacesLayout
+              ? sessionSubtitle({
+                  space: channel?.name,
+                  repository: task.repository,
+                  createdAt: task.created_at,
+                })
+              : undefined,
             // Include the channel name so searching it surfaces filed tasks.
             keywords: channel?.name,
             icon: <TaskCommandIcon task={task} />,
@@ -700,6 +730,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     provisioningTaskIds,
     channels,
     bluebirdEnabled,
+    spacesLayout,
     closeSettingsDialog,
   ]);
 
@@ -957,8 +988,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                   spacesLayout
                     ? cn(
                         "[&_input]:whitespace-pre [&_input]:font-mono [&_input]:text-[13px] [&_input]:tracking-normal",
-                        "[&_input]:text-transparent [&_input]:caret-(--gray-12) [&_input]:placeholder:text-(--gray-9)",
-                        "[&_input]:selection:bg-(--blue-a4) [&_input]:selection:text-transparent",
+                        "[&_input]:text-transparent [&_input]:caret-foreground [&_input]:placeholder:text-subtle-foreground",
+                        "[&_input]:selection:bg-primary/25 [&_input]:selection:text-transparent",
                       )
                     : undefined
                 }
@@ -976,7 +1007,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               />
             )}
             {showMatchSummary ? (
-              <div className="border-(--gray-a4) border-b px-3 py-1.5 text-(--gray-9) text-xs tabular-nums">
+              <div className="border-border border-b px-3 py-1.5 text-subtle-foreground text-xs tabular-nums">
                 {partialResults
                   ? "Some matching tasks may not be shown."
                   : matchSummary(matchCount, shownCount, hasRepairs)}
@@ -1008,13 +1039,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                         <span className="wrap-break-word min-w-0 whitespace-normal">
                           {cmd.label}
                           {cmd.subtitle && (
-                            <span className="block truncate text-gray-9 text-xs">
+                            <span className="block truncate text-muted-foreground text-xs">
                               {cmd.subtitle}
                             </span>
                           )}
                         </span>
                         {cmd.detail && (
-                          <span className="shrink-0 text-gray-9">
+                          <span className="shrink-0 text-muted-foreground">
                             · {cmd.detailPrefix ?? "#"}
                             {cmd.detail}
                           </span>
