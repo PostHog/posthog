@@ -231,7 +231,7 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
         with patch(
             "products.logs.backend.presentation.views.anomalies_api.run_series_bands", return_value=_bands_result()
         ) as run:
-            response = self.client.post(self.url, {"serviceName": "svc", "intervalMinutes": 60}, format="json")
+            response = self.client.post(self.url, {"serviceName": "svc"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         kwargs = run.call_args.kwargs
@@ -256,7 +256,7 @@ class TestLogsSeriesBandsAPI(APIBaseTest):
             "upper": 57.0,
         }
 
-    @parameterized.expand([("-7d", 30), ("-1d", 5)])
+    @parameterized.expand([("-7d", 60), ("-1d", 15)])
     def test_omitted_interval_is_picked_from_the_window(self, date_from: str, expected_interval: int):
         with patch(
             "products.logs.backend.presentation.views.anomalies_api.run_series_bands",

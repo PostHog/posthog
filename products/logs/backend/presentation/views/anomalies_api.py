@@ -24,6 +24,7 @@ from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded
 from products.logs.backend.series_bands import (
     ALIVE_SLOT_FRACTION,
     BASELINE_WEEKS,
+    BUCKET_TARGET,
     INTERVAL_LADDER_MINUTES,
     MAX_BUCKETS_PER_SERIES,
     MAX_WINDOW_DAYS,
@@ -250,7 +251,8 @@ class LogsSeriesBandsRequestSerializer(serializers.Serializer):
         help_text=(
             f"Display grain in minutes for buckets and bands. One of {', '.join(map(str, INTERVAL_LADDER_MINUTES))}. "
             f"The window may hold at most {MAX_BUCKETS_PER_SERIES} buckets per series at the chosen grain, "
-            f"so a finer grain needs a shorter window. Omit it to get the finest grain that fits the window. "
+            f"so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest "
+            f"that still cuts it into about {BUCKET_TARGET} buckets. "
             f"A series too sparse to read at this grain is returned at a coarser one; see each series' "
             f"interval_minutes."
         ),
@@ -330,7 +332,10 @@ class LogsSeriesBandsResponseSerializer(serializers.Serializer):
     window_start = serializers.DateTimeField(help_text="Start of the observed window (UTC, inclusive).")
     window_end = serializers.DateTimeField(help_text="End of the observed window (UTC, exclusive).")
     interval_minutes = serializers.IntegerField(
-        help_text="Display grain requested, or picked as the finest that fits the window when the request left it out.",
+        help_text=(
+            f"Display grain requested, or picked to cut the window into about {BUCKET_TARGET} buckets when the "
+            f"request left it out."
+        ),
     )
     series_truncated = serializers.BooleanField(
         help_text="True when the service has more series than the response carries; the quietest were dropped."

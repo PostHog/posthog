@@ -334,13 +334,13 @@ class TestResolveWindow(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # (date_from, expected_interval): the finest rung under 500 buckets per series.
-            ("-7d", 30),
-            ("-2d", 15),
-            ("-1d", 5),
+            # (date_from, expected_interval): the rung at or above window / 168 buckets.
+            ("-7d", 60),
+            ("-1d", 15),
+            ("-6h", 5),
         ]
     )
-    def test_omitted_grain_picks_the_finest_that_fits(self, date_from: str, expected_interval: int) -> None:
+    def test_omitted_grain_aims_for_the_bucket_target(self, date_from: str, expected_interval: int) -> None:
         window = self._resolve(date_from, None, interval_minutes=None)
         assert window.interval_minutes == expected_interval
         assert window.end == NOW_FIXED.replace(minute=30 // expected_interval * expected_interval)

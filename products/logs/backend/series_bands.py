@@ -48,6 +48,10 @@ MAX_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_SERIES", "100"))
 # aligned with the weekly fold, and 5 is the bucket size of logs_volume_buckets.
 INTERVAL_LADDER_MINUTES = (5, 15, 30, 60)
 MAX_BUCKETS_PER_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_BUCKETS_PER_SERIES", "500"))
+# How many buckets a window aims for when the caller leaves the grain out. The
+# grain snaps up to the ladder rung at or above window / BUCKET_TARGET, so a
+# 7 day window keeps its hourly look and a 6 hour window reads at 5 minutes.
+BUCKET_TARGET = int(os.environ.get("LOGS_SERIES_BANDS_BUCKET_TARGET", "168"))
 # A series' lifetime starts at the first slot followed by sustained traffic: at
 # least this fraction of the slots after it are non-empty, over the day and over
 # the week. A stray row before the real start would otherwise date the lifetime
@@ -465,9 +469,10 @@ def _parse_bound(value: str, *, now: dt.datetime) -> dt.datetime:
 
 
 def pick_interval_minutes(window_start: dt.datetime, window_end: dt.datetime) -> int:
-    """The finest ladder rung that keeps the window under the bucket cap, else the coarsest."""
+    """The first ladder rung at or above the step that cuts the window into BUCKET_TARGET buckets, capped at the coarsest."""
+    step_minutes = (window_end - window_start).total_seconds() / 60 / BUCKET_TARGET
     for grain in INTERVAL_LADDER_MINUTES:
-        if _bucket_count(window_start, window_end, grain) <= MAX_BUCKETS_PER_SERIES:
+        if grain >= step_minutes:
             return grain
     return INTERVAL_LADDER_MINUTES[-1]
 
@@ -481,7 +486,7 @@ def resolve_window(
 ) -> SeriesBandsWindow:
     """Turn a request date range into the snapped window to chart, defaulting to the last WINDOW_DAYS.
 
-    Without a grain the window picks its own: the finest rung that fits the bucket cap."""
+    Without a grain the window picks its own, aiming for BUCKET_TARGET buckets."""
     # Wall clock, never max(time_bucket): prod carries future buckets from
     # device clock skew (ingest clamps at +24h), and the exclusive window_end
     # bound is what keeps them out of the observed line.

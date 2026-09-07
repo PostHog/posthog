@@ -1275,7 +1275,7 @@ export interface LogsSeriesBandsRequestApi {
     serviceName: string
     /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
     dateRange?: _SeriesBandsDateRangeApi
-    /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to get the finest grain that fits the window. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.
+    /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.
      *
      * * `5` - 5
      * * `15` - 15
@@ -1348,7 +1348,7 @@ export interface LogsSeriesBandsResponseApi {
     window_start: string
     /** End of the observed window (UTC, exclusive). */
     window_end: string
-    /** Display grain requested, or picked as the finest that fits the window when the request left it out. */
+    /** Display grain requested, or picked to cut the window into about 168 buckets when the request left it out. */
     interval_minutes: number
     /** True when the service has more series than the response carries; the quietest were dropped. */
     series_truncated: boolean
