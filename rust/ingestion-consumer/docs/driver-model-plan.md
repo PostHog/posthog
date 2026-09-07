@@ -134,7 +134,7 @@ This cycle has no switchover: the eager flush was never enabled.
 Outcome: commit contiguity is a property of a data structure, not of completion order.
 
 **Verify:** change 3 compares the frontier with every real commit on all lanes.
-Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `ingestion_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
+Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `kafka_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
 
 ### 2. Add the common Kafka consumer crate and offset ledger (implement)
 
@@ -144,7 +144,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 
 - Start from the config extraction in [Jose's branch](https://github.com/PostHog/posthog/compare/master...jose-sequeira/kafka-consumer-loop): move the current consumer config builder unchanged into `common-kafka-consumer`, retain its fixture coverage, and make `ingestion-consumer` depend on it.
 - Copy only the cycle-2 domain primitives from Jose's second commit into the new crate: the offset wrapper and the charge carried by a ledger slot. Adapt its `OffsetLedger` representation to this plan's `complete`, non-mutating `frontier`, and consuming `take_frontier` contract: Jose's current `complete` advances and removes the prefix, so it cannot be copied unchanged into the shadow comparison.
-- Do not take `Accumulator`, `Budget`, `PartitionDriver`, `PartitionManager`, or `CommitManager`; those implement later cycles and would make this PR cross several plan boundaries. The ledger module must not depend on `rdkafka`, `ingestion-consumer`, or service-specific metrics. The shared config module may retain its `rdkafka` dependency.
+- Do not take `Accumulator`, `Budget`, `PartitionDriver`, `PartitionManager`, or `CommitManager`; those implement later cycles and would make this PR cross several plan boundaries. The ledger module must not depend on `rdkafka`, `ingestion-consumer`, or service-specific metrics; it emits its own metrics under the crate prefix. The shared config module may retain its `rdkafka` dependency.
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
 - Each slot records: complete or not, event count, byte count. The counts serve the budget in change 23.
@@ -155,7 +155,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - Completions can arrive in any order. The frontier moves only over completed slots.
 - Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, and the commit sentinel treats a gap as a real skip (see the caveat on `CommitSentinel`).
 - The ledger still defines contiguity over delivered offsets, not offset arithmetic. A legitimate gap can then never block the frontier.
-- The sentinel's gap alert and the ledger's gap handling cannot both stand. Once the frontier owns commits (change 4), a commit that walks over a legitimate gap is correct, and the sentinel would report it as a skip. The ledger therefore counts each gap it walked over (`ingestion_consumer_ledger_gaps_total`), and the sentinel's gap alert retires in change 5. Until then the alert stays, because the ingestion topics have no legitimate gaps today and a gap is still a real skip.
+- The sentinel's gap alert and the ledger's gap handling cannot both stand. Once the frontier owns commits (change 4), a commit that walks over a legitimate gap is correct, and the sentinel would report it as a skip. The ledger therefore counts each gap it walked over (`kafka_consumer_ledger_gaps_total`), and the sentinel's gap alert retires in change 5. Until then the alert stays, because the ingestion topics have no legitimate gaps today and a gap is still a real skip.
 - Add property tests: out-of-order completion, monotonic frontier, `frontier` idempotence, the ring drains after `take_frontier`, offset gaps, ring capacity.
 
 **Interfaces:**
@@ -188,8 +188,8 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 **Metrics:**
 
 - Add `ingestion_consumer_ledger_mismatch_total` (counter): frontier vs committed offset disagreement.
-- Add `ingestion_consumer_ledger_uncommitted_offsets` (gauge, per partition): ring depth. It must fall at commit points. A value that only grows is a drain bug (a leak).
-- Add `ingestion_consumer_ledger_gaps_total` (counter): offset gaps the ledger walked over. Expected to stay at zero on the ingestion topics; a non-zero value is the signal the sentinel's gap alert gave before change 5 retires it.
+- Add `kafka_consumer_ledger_uncommitted_offsets` (gauge, per partition): ring depth. It must fall at commit points. A value that only grows is a drain bug (a leak).
+- Add `kafka_consumer_ledger_gaps_total` (counter): offset gaps the ledger walked over. Expected to stay at zero on the ingestion topics; a non-zero value is the signal the sentinel's gap alert gave before change 5 retires it.
 
 ### 4. Commit from the ledger frontier (switchover)
 
@@ -293,15 +293,18 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Interface out: dispatches. One dispatch is one run of one key on one worker.
 - The first implementation preserves today's semantics: pins, the stash, deferral on drain, and the flush pacing. This is code motion from `assign`, `flush_deferred`, and `on_sub_batch_resolved`.
 - The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
-- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
+- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches, the deferral counts, the evicted keys). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
+- The no-locks rule needs the worker world as data: the dispatcher captures a `WorkerSnapshot` (healthy pool, aperture-narrowed candidates, per-worker health, the load table) before each seam call, and the scheduler decides over it. Change 19 already names this shape: the worker-health snapshot stays the only shared read.
+- A failed send settles in one call: the settlement's failure arm carries the failed runs, and the scheduler requeues them before it releases the keys. This is the invariant change 9's key-table needs (requeue before release); the pin-stash implementation preserves today's stash-then-decrement order inside the one call. The two-step resolve methods stay public for the e2e suite, which must pass unedited.
 - The seam makes today's implicit ordering rules explicit and reviewable in one place.
 
 **Interfaces:**
 
-- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; `Vec<Dispatch>` out.
-- Add `Dispatch`: one run of one key, with the chosen worker.
-- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns `PinTable` and `Stash` unchanged.
-- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, and seam calls.
+- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; a `SchedulerEffects` out — the dispatches plus the deferral counts and evicted keys, so metrics and debug events stay in the plumbing. `on_deadline` names the batch to retry while the pacing is per batch; the key-table scheduler generalizes it to a parked-retry deadline.
+- Add `Dispatch`: one run of one key, with the chosen worker and the send kind for the key-order sentinel.
+- Add `WorkerSnapshot` and `Settlement` (with its delivered and failed arms) as the seam's input vocabulary.
+- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns the pins, the `Stash`, and the `Router` unchanged — placement is a scheduling decision.
+- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, sentinel calls, view capture, sub-batch assembly, and seam calls. `settle` is the one production resolve entry point.
 
 ### 9. Build the key-table scheduler (implement)
 
@@ -554,7 +557,7 @@ This is a deliberate structural outcome, not routine cleanup: it is the largest 
 
 Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
 
-**Verify:** the commit sentinel checks every commit, and `ingestion_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
+**Verify:** the commit sentinel checks every commit, and `kafka_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
 Exit criterion at the canary: zero sentinel violations, and a stalled partition no longer moves the commit rate of other partitions.
 
 ### 21. Switch completion to group granularity (switchover)
@@ -720,7 +723,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 The steady-state dashboard after the migration:
 
 - Delivery: `ingestion_lag_ms`, the `ingestion_consumer_messages_processed_total` rate, and the two sentinel violation counters, which must stay at zero.
-- Commits: `ingestion_consumer_ledger_uncommitted_offsets` per partition (frontier lag, and the ring-leak detector) and the `ingestion_consumer_offset_commits_total` rate.
+- Commits: `kafka_consumer_ledger_uncommitted_offsets` per partition (frontier lag, and the ring-leak detector) and the `ingestion_consumer_offset_commits_total` rate.
 - Scheduling: the key-table gauges and `ingestion_consumer_parked_retries_total`.
 - Admission: the budget gauges and `ingestion_consumer_budget_paused`.
 - Requests: the request-size histograms, `ingestion_consumer_transport_duration_seconds`, `ingestion_consumer_governor_permits`, `ingestion_consumer_request_rtt_seconds`, and `ingestion_consumer_request_budget_partials_total`.

@@ -486,6 +486,17 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
+ * Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
+ * refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read.
+ */
+export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
+    scanner_id: zod
+        .uuid()
+        .optional()
+        .describe("Scope to a single scanner's observations. Defaults to every scanner you can read."),
+})
+
+/**
  * CRUD for Replay Vision scanners.
  */
 export const visionScannersCreateBodyNameMax = 255
@@ -528,6 +539,17 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             )
             .describe(
                 'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        creation_method: zod
+            .union([
+                zod
+                    .enum(['ai', 'template', 'scratch'])
+                    .describe('\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
         scanner_config: zod
             .unknown()
@@ -659,6 +681,17 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        creation_method: zod
+            .union([
+                zod
+                    .enum(['ai', 'template', 'scratch'])
+                    .describe('\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
         scanner_config: zod
             .unknown()
@@ -936,6 +969,8 @@ export const visionScannersScoutsCreateBodyConfigOneTagsMax = 10
 
 export const visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax = 100
 
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 4
+
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -1089,6 +1124,13 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+                    ),
+                write_scopes: zod
+                    .array(zod.string())
+                    .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
+                    .optional()
+                    .describe(
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
                     ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')

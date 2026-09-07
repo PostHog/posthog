@@ -345,6 +345,18 @@ def has_enabled_source(team_id: int) -> bool:
     return _has_emitting_replay_scanner(team_id)
 
 
+def organization_acted_on_report(organization_id: "str | uuid.UUID") -> bool:
+    """True once someone in the org has acted on a Self-driving report — resolved or dismissed one.
+
+    Growth's product push reads this to stop advertising Self-driving to an org that already
+    engages with it, and to close an active Self-driving campaign as adopted.
+    """
+    return SignalReport.objects.filter(
+        team__organization_id=organization_id,
+        status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED],
+    ).exists()
+
+
 def team_ids_with_source_product_enabled(source_product: str) -> list[int]:
     """Team ids with at least one enabled source of ``source_product`` — the enrolment list a
     product's own scheduled emitter fans out over (e.g. engineering_analytics' CI-signals
@@ -728,6 +740,7 @@ def forward_report_discussion_note(
     report_id: str | None,
     relationship: str | None,
     text: str,
+    question: str | None,
     user_id: int | None,
     scoped_team_ids: Sequence[int] | None,
     api_scopes: Sequence[str] | None,
@@ -752,6 +765,7 @@ def forward_report_discussion_note(
         team=team,
         report_id=report_id,
         text=text,
+        question=question,
         user_id=user_id,
         scoped_team_ids=scoped_team_ids,
         api_scopes=api_scopes,
