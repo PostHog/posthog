@@ -3,12 +3,21 @@ import {
   ArrowClockwiseIcon,
   CaretLeftIcon,
   CaretRightIcon,
-  ChartLine,
+  ChartLineIcon,
   CubeIcon,
-  EnvelopeSimple,
-  Gauge,
+  DesktopIcon,
+  EnvelopeSimpleIcon,
+  FileTextIcon,
+  GaugeIcon,
+  GearIcon,
   GitDiffIcon,
   HashIcon,
+  HouseIcon,
+  MagnifyingGlassIcon,
+  MagnifyingGlassMinusIcon,
+  MagnifyingGlassPlusIcon,
+  MoonIcon,
+  SidebarSimpleIcon,
   SquaresFourIcon,
   SunIcon,
 } from "@phosphor-icons/react";
@@ -103,19 +112,6 @@ import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { showLogFolder } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
-import {
-  DesktopIcon,
-  FileTextIcon,
-  GearIcon,
-  HomeIcon,
-  MagnifyingGlassIcon,
-  MoonIcon,
-  ReloadIcon,
-  SunIcon,
-  ViewVerticalIcon,
-  ZoomInIcon,
-  ZoomOutIcon,
-} from "@radix-ui/react-icons";
 import {
   lazy,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -385,7 +381,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               id: "inbox",
               label: "Self-driving",
               keywords: "reports pull requests agents notifications",
-              icon: <EnvelopeSimple size={12} className="text-gray-11" />,
+              icon: (
+                <EnvelopeSimpleIcon
+                  size={12}
+                  className="text-muted-foreground"
+                />
+              ),
               action: "open-inbox",
               shortcut: SHORTCUTS.INBOX,
               onRun: () => {
@@ -436,7 +437,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "cost-management",
         label: "Cost management",
         keywords: "cost spend limits budget savings recommendations",
-        icon: <Gauge size={12} className="text-gray-11" />,
+        icon: <GaugeIcon size={12} className="text-muted-foreground" />,
         action: "open-cost-management" as CommandMenuAction,
         onRun: () => openSettingsDialog("cost-management"),
       },
@@ -488,9 +489,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               label: spacesLayout ? "New space" : "New channel",
               keywords: "create add space channel context",
               icon: spacesLayout ? (
-                <CubeIcon size={12} className="text-gray-11" />
+                <CubeIcon size={12} className="text-muted-foreground" />
               ) : (
-                <HashIcon size={12} className="text-gray-11" />
+                <HashIcon size={12} className="text-muted-foreground" />
               ),
               action: "create-channel" as CommandMenuAction,
               onRun: () => {
@@ -527,7 +528,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               id: "archive-task",
               label: "Archive task",
               keywords: "archive close remove",
-              icon: <ArchiveIcon size={12} className="text-gray-11" />,
+              icon: <ArchiveIcon size={12} className="text-muted-foreground" />,
               action: "archive-task" as CommandMenuAction,
               shortcut: SHORTCUTS.ARCHIVE_TASK,
               onRun: requestArchive,
