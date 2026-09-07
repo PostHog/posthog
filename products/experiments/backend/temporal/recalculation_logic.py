@@ -28,6 +28,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import NonReportableApplicationError
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -812,7 +813,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     },
                     trigger=state.trigger,
                 )
-            raise ApplicationError(
+            # Non-reportable: an expected bounce off a saturated limiter, already recorded on the recalc row.
+            raise NonReportableApplicationError(
                 message,
                 type=type(e).__name__,
                 next_retry_delay=timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS),
@@ -896,5 +898,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     trigger=state.trigger,
                 )
             if is_permanent:
-                raise ApplicationError(message, type=error_type, non_retryable=True) from e
+                # Non-reportable: this branch either skipped the capture on purpose (validation_error)
+                # or already made it above with richer properties.
+                raise NonReportableApplicationError(message, type=error_type, non_retryable=True) from e
             raise

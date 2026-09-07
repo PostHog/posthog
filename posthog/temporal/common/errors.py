@@ -15,6 +15,15 @@ class NonReportableError(Exception):
     retrying can't resolve, so a tracked exception would only be noise."""
 
 
+class NonReportableApplicationError(ApplicationError, NonReportableError):
+    """An ``ApplicationError`` that must fail the activity without reaching error tracking.
+
+    A plain ``ApplicationError`` is reported by the activity interceptor, which cancels any
+    ``capture_exception`` the activity deliberately skipped one frame down. Raise this instead when
+    the failure is the customer's config (or another expected condition) and the activity still has
+    to carry a Temporal error ``type``, ``non_retryable``, or ``next_retry_delay`` to the workflow."""
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000

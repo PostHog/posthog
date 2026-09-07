@@ -15,6 +15,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.temporal.common.errors import NonReportableError
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -785,6 +786,7 @@ class TestCalculateActivity(BaseTest):
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
             assert exc_info.value.type == type(exc).__name__
             assert exc_info.value.next_retry_delay == timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS)
+            assert isinstance(exc_info.value, NonReportableError)
             mock_capture.assert_not_called()
             recalc.refresh_from_db()
             assert recalc.metric_errors == {}
@@ -801,22 +803,28 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
-            ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
-            ("byte_limit", ServerException("too many bytes", code=307), "byte_limit"),
-            ("validation_error", ValidationError("bad metric config"), "validation_error"),
-            ("config_value_error", ValueError("No control variant found"), "server_error"),
+            ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory", 1),
+            ("byte_limit", ServerException("too many bytes", code=307), "byte_limit", 1),
+            ("validation_error", ValidationError("bad metric config"), "validation_error", 0),
+            ("config_value_error", ValueError("No control variant found"), "server_error", 1),
         ]
     )
     def test_permanent_error_fails_non_retryable_and_persists_on_first_attempt(
-        self, name: str, exc: Exception, expected_type: str
+        self, name: str, exc: Exception, expected_type: str, expected_captures: int
     ):
         # Deterministic failures (out-of-memory, byte limits, invalid config) can't succeed on retry, so
         # even a NON-final attempt must persist the FAILED row immediately and raise non_retryable — every
         # retry would burn a full ClickHouse query without changing the outcome.
+        # The raise must also carry the NonReportableError marker, because the activity interceptor reports
+        # every other ApplicationError — which re-reports the capture made here, and cancels the skip for a
+        # validation_error (a broken metric or exposure filter is a stored failure, not a defect).
         exp = self._experiment(flag_key=f"calc-permanent-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+        ):
             mock_runner.return_value.run.side_effect = exc
 
             with pytest.raises(ApplicationError) as exc_info:
@@ -824,6 +832,8 @@ class TestCalculateActivity(BaseTest):
 
         assert exc_info.value.non_retryable is True
         assert exc_info.value.type == expected_type
+        assert isinstance(exc_info.value, NonReportableError)
+        assert mock_capture.call_count == expected_captures
         recalc.refresh_from_db()
         assert "m1" in recalc.metric_errors
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
