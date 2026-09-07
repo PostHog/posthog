@@ -45,7 +45,15 @@ jobs:
               )
             )
         uses: ./.github/workflows/desktop-build-installers.yml
-        secrets: inherit
+        secrets:
+            APPLE_CODESIGN_CERT_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+            APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            AWS_TWIG_APP_ASSETS_ROLE_ARN: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+            AWS_TWIG_APP_ASSETS_REGION: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+            AWS_TWIG_APP_ASSETS_BUCKET: ${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
         with:
             build_kind: test
         permissions:

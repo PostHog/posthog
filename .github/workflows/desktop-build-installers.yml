@@ -41,6 +41,23 @@ on:
                     SHA so backend and installers share one revision.
                 type: string
                 default: ''
+        secrets:
+            APPLE_CODESIGN_CERT_BASE64:
+                required: true
+            APPLE_CODESIGN_CERT_PASSWORD:
+                required: true
+            APPLE_TEAM_ID:
+                required: true
+            AWS_TWIG_APP_ASSETS_ROLE_ARN:
+                required: true
+            AWS_TWIG_APP_ASSETS_REGION:
+                required: true
+            AWS_TWIG_APP_ASSETS_BUCKET:
+                required: true
+            VITE_POSTHOG_API_KEY:
+                required: false
+            VITE_POSTHOG_API_HOST:
+                required: false
         outputs:
             macos:
                 description: Conclusion of the macOS build matrix (both arches).
