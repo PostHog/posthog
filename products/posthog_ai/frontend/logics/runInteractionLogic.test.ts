@@ -15,6 +15,7 @@ import {
     tasksWarmResumeCreate,
 } from 'products/tasks/frontend/generated/api'
 
+import type { PermissionRequestRecord } from '../types/streamTypes'
 import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
 import { runInteractionLogic } from './runInteractionLogic'
@@ -37,10 +38,18 @@ jest.mock('./runStreamLogic', () => {
             cancelRun: (run?: unknown) => ({ run }),
             markTurnComplete: true,
             setCurrentMode: (mode: string) => ({ mode }),
-            handleTerminalStatus: (status: string) => ({ status }),
+            handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
             setStubClearSupported: (supported: boolean) => ({ supported }),
+            ingestPermissionRequest: (record: PermissionRequestRecord) => ({ record }),
+            markPermissionRequestResolved: (requestId: string) => ({ requestId }),
+            deliverPermission: (record: PermissionRequestRecord) => ({ record }),
+            permissionResponseFailed: (requestId: string) => ({ requestId }),
+            permissionRunChanged: true,
+            cancelPermissionDelivery: true,
+            clearPermissionRequest: true,
+            reset: true,
         }),
         reducers({
             currentRunStatus: [
@@ -56,14 +65,48 @@ jest.mock('./runStreamLogic', () => {
                     setStubThinking: (_: boolean, { thinking }: { thinking: boolean }) => thinking,
                 },
             ],
-            pendingPermissionRequest: [null, {}],
+            bootstrappedRunId: [null, {}],
+            bootstrappedTaskId: [null, {}],
+            pendingPermissionRequest: [
+                null,
+                {
+                    ingestPermissionRequest: (_: unknown, { record }: { record: PermissionRequestRecord }) => record,
+                    markPermissionRequestResolved: (
+                        state: PermissionRequestRecord | null,
+                        { requestId }: { requestId: string }
+                    ) => (state?.requestId === requestId ? null : state),
+                    clearPermissionRequest: () => null,
+                    permissionRunChanged: () => null,
+                    reset: () => null,
+                },
+            ],
+            permissionResponseRequestIds: [
+                new Set<string>(),
+                {
+                    deliverPermission: (_: unknown, { record }: { record: PermissionRequestRecord }) =>
+                        new Set([record.requestId]),
+                    markPermissionRequestResolved: () => new Set<string>(),
+                    permissionResponseFailed: () => new Set<string>(),
+                    cancelPermissionDelivery: () => new Set<string>(),
+                    reset: () => new Set<string>(),
+                },
+            ],
             conversationClearSupported: [
                 true,
                 {
                     setStubClearSupported: (_: boolean, { supported }: { supported: boolean }) => supported,
                 },
             ],
-            respondingToPermission: [false, {}],
+            respondingToPermission: [
+                false,
+                {
+                    deliverPermission: () => true,
+                    markPermissionRequestResolved: () => false,
+                    permissionResponseFailed: () => false,
+                    cancelPermissionDelivery: () => false,
+                    reset: () => false,
+                },
+            ],
             currentMode: [
                 null,
                 {
@@ -140,7 +183,7 @@ describe('runInteractionLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
-        ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({})
+        ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({ jsonrpc: '2.0', result: { queued: true } })
         ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
         ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
         ;(tasksWarmResumeCreate as jest.Mock).mockResolvedValue({ task_id: TASK_ID, run_id: 'warm-run' })
@@ -331,6 +374,204 @@ describe('runInteractionLogic', () => {
 
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('first\n\nsecond'))
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it.each(['approval first', 'turn first'])('holds ordinary delivery until both gates clear: %s', async (order) => {
+        const record = { requestId: 'approval-1', sourceRunId: RUN_ID } as PermissionRequestRecord
+        stream.actions.ingestPermissionRequest(record)
+        setThinking(true)
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        logic.actions.submitComposerForm()
+        const resolveApproval = (): void => stream.actions.markPermissionRequestResolved(record.requestId)
+        const endTurn = (): void => {
+            setThinking(false)
+            stream.actions.markTurnComplete()
+        }
+        const [first, last] = order === 'approval first' ? [resolveApproval, endTurn] : [endTurn, resolveApproval]
+        first()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        last()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('follow up'))
+    })
+
+    it('defers steering through approval confirmation and sends the current saved queue once', async () => {
+        const record = { requestId: 'approval-1', sourceRunId: RUN_ID } as PermissionRequestRecord
+        stream.actions.ingestPermissionRequest(record)
+        stream.actions.deliverPermission(record, 'allow_once')
+        setThinking(true)
+        logic.actions.enqueueMessage('first')
+        logic.actions.setComposerFormValues({ draft: 'still drafting' })
+        logic.actions.steerQueue()
+        logic.actions.steerQueue()
+        logic.actions.enqueueMessage('second')
+        expect(logic.values.steerPending).toBe(true)
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () =>
+            stream.actions.markPermissionRequestResolved(record.requestId)
+        ).toFinishAllListeners()
+        stream.actions.markPermissionRequestResolved(record.requestId)
+        logic.actions.steerQueue()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+            jsonrpc: '2.0',
+            method: 'user_message',
+            params: { content: 'first\n\nsecond', steer: true },
+        })
+        expect(logic.values.composerForm.draft).toBe('still drafting')
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it.each(['failure', 'replacement approval', 'replacement run', 'terminal', 'cancel', 'reset', 'empty', 'unmount'])(
+        'cancels deferred steering on %s',
+        async (event) => {
+            const record = { requestId: 'approval-1', sourceRunId: RUN_ID } as PermissionRequestRecord
+            stream.actions.ingestPermissionRequest(record)
+            stream.actions.deliverPermission(record, 'allow_once')
+            setThinking(true)
+            logic.actions.enqueueMessage('saved')
+            logic.actions.steerQueue()
+            expect(logic.values.steerPending).toBe(true)
+
+            switch (event) {
+                case 'failure':
+                    stream.actions.permissionResponseFailed(record.requestId)
+                    break
+                case 'replacement approval':
+                    stream.actions.ingestPermissionRequest({ ...record, requestId: 'approval-2' })
+                    break
+                case 'replacement run':
+                    stream.actions.permissionRunChanged()
+                    break
+                case 'terminal':
+                    setStatus('completed')
+                    stream.actions.handleTerminalStatus({ status: 'completed' })
+                    break
+                case 'cancel':
+                    stream.actions.cancelPermissionDelivery()
+                    break
+                case 'reset':
+                    stream.actions.reset()
+                    break
+                case 'empty':
+                    logic.actions.updateQueuedMessage(logic.values.queuedMessages[0].id, '')
+                    break
+                case 'unmount':
+                    logic.unmount()
+                    logic.mount()
+                    break
+            }
+            stream.actions.markPermissionRequestResolved(record.requestId)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            expect(logic.values.steerPending).toBe(false)
+        }
+    )
+
+    it.each([
+        { jsonrpc: '2.0', error: { code: -32000, message: 'Rejected' } },
+        { jsonrpc: '2.0', result: { queued: false } },
+        { result: { queued: true } },
+        undefined,
+    ])('restores unconfirmed steering before newer queued text: %j', async (response) => {
+        let complete!: (response: unknown) => void
+        ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                complete = resolve
+            })
+        )
+        setThinking(true)
+        logic.actions.enqueueMessage('first')
+        logic.actions.setComposerFormValues({ draft: 'unsent draft' })
+        logic.actions.steerQueue()
+        logic.actions.enqueueMessage('second')
+        logic.actions.steerQueue()
+        await expectLogic(logic, () => complete(response)).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+        expect(logic.values.queuedMessages[0].content).toBe('first\n\nsecond')
+        expect(logic.values.composerForm.draft).toBe('unsent draft')
+        expect(logic.values.steerPending).toBe(false)
+        expect(lemonToast.error).toHaveBeenCalled()
+        setThinking(false)
+        stream.actions.markTurnComplete()
+        stream.actions.markPermissionRequestResolved('earlier-approval')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(['reset', 'replacement run', 'cancel', 'terminal', 'unmount'])(
+        'ignores a config completion after %s without sending a message',
+        async (event) => {
+            let complete!: (response: unknown) => void
+            ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+                new Promise((resolve) => {
+                    complete = resolve
+                })
+            )
+            setThinking(true)
+            logic.actions.setModel('claude-opus-4-8')
+            logic.actions.enqueueMessage('saved')
+            logic.actions.steerQueue()
+            expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+            switch (event) {
+                case 'reset':
+                    stream.actions.reset()
+                    break
+                case 'replacement run':
+                    stream.actions.permissionRunChanged()
+                    break
+                case 'cancel':
+                    stream.actions.cancelPermissionDelivery()
+                    break
+                case 'terminal':
+                    setStatus('completed')
+                    stream.actions.handleTerminalStatus({ status: 'completed' })
+                    break
+                case 'unmount':
+                    logic.unmount()
+                    logic.mount()
+                    break
+            }
+            await expectLogic(logic, () => complete({ jsonrpc: '2.0', result: {} })).toFinishAllListeners()
+            expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+        }
+    )
+
+    it('does nothing on an empty queue and keeps unsent context after failed steering', async () => {
+        setThinking(true)
+        const context = attachedContextLogic()
+        context.actions.registerContext('test', [{ type: 'insight', key: 'fake', value: 'example insight' }])
+        logic.actions.setComposerFormValues({ draft: 'unsent' })
+        logic.actions.steerQueue()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(new Error('Connection lost'))
+        logic.actions.enqueueMessage('saved')
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        expect(logic.values.pendingContextItems).toHaveLength(1)
+        expect(logic.values.composerForm.draft).toBe('unsent')
+        expect(logic.values.queuedMessages[0].content).toBe('saved')
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(['remove', 'edit'])('delivers a fresh queue after discarding a failed submission: %s', async (action) => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+        setThinking(true)
+        logic.actions.enqueueMessage('discard this')
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        const { id } = logic.values.queuedMessages[0]
+        if (action === 'remove') {
+            logic.actions.removeQueuedMessage(id)
+        } else {
+            logic.actions.updateQueuedMessage(id, '')
+        }
+        logic.actions.enqueueMessage('new follow-up')
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(2)
+        expect(tasksRunsCommandCreate).toHaveBeenLastCalledWith(...userMessageCommand('new follow-up'))
         expect(logic.values.queuedMessages).toEqual([])
     })
 
@@ -766,8 +1007,8 @@ describe('runInteractionLogic', () => {
     it('keeps text typed into the composer during an in-flight draft send instead of clobbering it on success', async () => {
         let resolveSend: () => void = () => {}
         ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
-            new Promise<void>((resolve) => {
-                resolveSend = () => resolve()
+            new Promise((resolve) => {
+                resolveSend = () => resolve({ jsonrpc: '2.0', result: { queued: true } })
             })
         )
 
@@ -817,8 +1058,8 @@ describe('runInteractionLogic', () => {
     it('keeps a follow-up typed during an in-flight queue flush instead of clearing it with the send', async () => {
         let resolveSend: () => void = () => {}
         ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
-            new Promise<void>((resolve) => {
-                resolveSend = () => resolve()
+            new Promise((resolve) => {
+                resolveSend = () => resolve({ jsonrpc: '2.0', result: { queued: true } })
             })
         )
 
@@ -880,40 +1121,59 @@ describe('runInteractionLogic', () => {
     // terminal run) must be blocked client-side before it reaches `tasksRunsCommandCreate` /
     // `tasksRunCreate`. Uses a distinct `runId` key so the logic is built (and connects to
     // `aiConsentLogic`) after the selector is stubbed.
-    it('blocks composerForm.submit and sends nothing when consent is not accepted', async () => {
-        const consent = aiConsentLogic()
-        consent.mount()
-        jest.spyOn(consent.selectors, 'dataProcessingAccepted').mockReturnValue(false)
+    it.each(['draft', 'steer'])(
+        'blocks %s without consent and never substitutes the unsent draft for steering',
+        async (source) => {
+            const consent = aiConsentLogic()
+            consent.mount()
+            const consentAccepted = jest.spyOn(consent.selectors, 'dataProcessingAccepted').mockReturnValue(false)
 
-        const blockedRunId = 'run-blocked'
-        const blockedStream = runStreamLogic({ streamKey: blockedRunId })
-        blockedStream.mount()
-        const blockedLogic = runInteractionLogic({ taskId: TASK_ID, runId: blockedRunId, onRunStarted })
-        blockedLogic.mount()
+            const blockedRunId = 'run-blocked'
+            const blockedStream = runStreamLogic({ streamKey: blockedRunId })
+            blockedStream.mount()
+            const blockedLogic = runInteractionLogic({ taskId: TASK_ID, runId: blockedRunId, onRunStarted })
+            blockedLogic.mount()
 
-        // Terminal, so typing would otherwise warm a successor — which boots a cloud sandbox and
-        // restores the repository snapshot, before the organization has accepted anything.
-        ;(blockedStream.actions as unknown as { setStubStatus: (status: string | null) => void }).setStubStatus(
-            'completed'
-        )
-        jest.useFakeTimers()
-        blockedLogic.actions.setComposerFormValues({ draft: 'ship it' })
-        jest.advanceTimersByTime(300)
-        jest.useRealTimers()
-        await expectLogic(blockedLogic, () => {
-            blockedLogic.actions.submitComposerForm()
-        }).toFinishAllListeners()
+            // Terminal, so typing would otherwise warm a successor — which boots a cloud sandbox and
+            // restores the repository snapshot, before the organization has accepted anything.
+            ;(blockedStream.actions as unknown as { setStubStatus: (status: string | null) => void }).setStubStatus(
+                source === 'draft' ? 'completed' : 'in_progress'
+            )
+            jest.useFakeTimers()
+            blockedLogic.actions.setComposerFormValues({ draft: 'ship it' })
+            jest.advanceTimersByTime(300)
+            jest.useRealTimers()
+            await expectLogic(blockedLogic, () => {
+                if (source === 'draft') {
+                    blockedLogic.actions.submitComposerForm()
+                } else {
+                    blockedLogic.actions.enqueueMessage('saved follow up')
+                    blockedLogic.actions.steerQueue()
+                }
+            }).toFinishAllListeners()
 
-        expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
-        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-        expect(tasksRunCreate).not.toHaveBeenCalled()
-        expect(blockedLogic.values.consentBlocked).toBe(true)
+            expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            expect(tasksRunCreate).not.toHaveBeenCalled()
+            expect(blockedLogic.values.consentBlocked).toBe(true)
 
-        blockedLogic.unmount()
-        blockedStream.unmount()
-        consent.unmount()
-        jest.restoreAllMocks()
-    })
+            if (source === 'steer') {
+                consentAccepted.mockReturnValue(true)
+                await expectLogic(blockedLogic, () => blockedLogic.actions.submitAfterConsent()).toFinishAllListeners()
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, blockedRunId, {
+                    jsonrpc: '2.0',
+                    method: 'user_message',
+                    params: { content: 'saved follow up', steer: true },
+                })
+                expect(blockedLogic.values.composerForm.draft).toBe('ship it')
+            }
+
+            blockedLogic.unmount()
+            blockedStream.unmount()
+            consent.unmount()
+            jest.restoreAllMocks()
+        }
+    )
 
     it('no-ops on submit with an empty draft', async () => {
         await expectLogic(logic, () => {
