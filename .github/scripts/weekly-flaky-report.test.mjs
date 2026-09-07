@@ -110,27 +110,48 @@ describe('weekly flaky report', () => {
         })
     })
 
-    it('selects proved flakes for the requested runner', () => {
+    it('selects on-master candidates for the requested runner', () => {
         const common = {
             failed_run_count: 4,
             failed_pr_count: 1,
             master_failed_run_count: 3,
+            same_commit_recovery_run_count: 0,
             quarantined_failed_run_count: 0,
         }
         const items = [
-            { ...common, runner: 'pytest', selector: 'test_proved.py::test_proved', classification: 'confirmed_flake' },
+            {
+                ...common,
+                runner: 'pytest',
+                selector: 'test_proved.py::test_proved',
+                classification: 'confirmed_flake',
+                same_commit_recovery_run_count: 1,
+            },
             {
                 ...common,
                 runner: 'pytest',
                 selector: 'test_burst.py::test_burst',
                 classification: 'suspected_regression',
             },
-            { ...common, runner: 'jest', selector: 'test_report.ts', classification: 'confirmed_flake' },
+            {
+                ...common,
+                runner: 'pytest',
+                selector: 'test_pr_only.py::test_pr_only',
+                classification: 'suspected_regression',
+                failed_pr_count: 4,
+                master_failed_run_count: 0,
+            },
+            {
+                ...common,
+                runner: 'jest',
+                selector: 'test_report.ts',
+                classification: 'confirmed_flake',
+                same_commit_recovery_run_count: 1,
+            },
         ]
 
         assert.deepEqual(
             selectReportCandidates(items, 'pytest', onMasterResolver).map((candidate) => candidate.selector),
-            ['test_proved.py::test_proved']
+            ['test_proved.py::test_proved', 'test_pr_only.py::test_pr_only']
         )
         assert.deepEqual(
             selectReportCandidates(items, 'jest', onMasterResolver).map((candidate) => candidate.selector),
@@ -144,6 +165,7 @@ describe('weekly flaky report', () => {
             failed_run_count: 6,
             failed_pr_count: 3,
             master_failed_run_count: 0,
+            same_commit_recovery_run_count: 0,
             quarantined_failed_run_count: 0,
         }
         const items = [
@@ -178,6 +200,57 @@ describe('weekly flaky report', () => {
                 ['jest', ['jest.test']],
             ]
         )
+    })
+
+    it('filters PR-only regressions after an available Trunk lookup', async () => {
+        const common = {
+            runner: 'pytest',
+            classification: 'suspected_regression',
+            failed_run_count: 6,
+            failed_pr_count: 4,
+            master_failed_run_count: 0,
+            same_commit_recovery_run_count: 0,
+            quarantined_failed_run_count: 0,
+        }
+        const plainRegressions = Array.from({ length: 40 }, (_, index) => ({
+            ...common,
+            selector: `${index < CLUSTER_MIN_TESTS ? 'shared.py' : `plain_${index}.py`}::test_${index}`,
+        }))
+        const trunked = { ...common, selector: 'trunked.py::test_trunked' }
+        const confirmed = {
+            ...common,
+            selector: 'confirmed.py::test_confirmed',
+            classification: 'confirmed_flake',
+            same_commit_recovery_run_count: 1,
+        }
+        const fileQuarantined = {
+            ...common,
+            selector: 'quarantined.py::test_quarantined',
+            classification: 'quarantined',
+            failed_run_count: 0,
+            failed_pr_count: 0,
+            quarantined_failed_run_count: 2,
+        }
+        const master = { ...common, selector: 'master.py::test_master', master_failed_run_count: 1 }
+        const getEnrichment = async () => () => ({ runsRescued: 0, evidence: [] })
+        const candidatePools = await fetchCandidatePools(['pytest'], onMasterResolver, async () => ({
+            items: [...plainRegressions, trunked, confirmed, fileQuarantined, master],
+        }))
+        const [{ candidates }] = await buildRunnerReports(candidatePools, getEnrichment, async () => (item) =>
+            item === trunked ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
+        )
+
+        assert.deepEqual(
+            candidates.map((candidate) => candidate.selector),
+            [trunked.selector, confirmed.selector, master.selector, fileQuarantined.selector]
+        )
+
+        const [{ candidates: candidatesWithoutTrunk }] = await buildRunnerReports(
+            [{ runner: 'pytest', candidates: [plainRegressions[0]] }],
+            getEnrichment,
+            async () => null
+        )
+        assert.deepEqual(candidatesWithoutTrunk, [plainRegressions[0]])
     })
 
     it('ranks and limits each runner independently', async () => {
@@ -274,28 +347,30 @@ describe('weekly flaky report', () => {
         ])
     })
 
-    it('reports without Trunk state when uploads are off, the table is missing, or it is empty', async () => {
-        const item = { selector: 'posthog/test/test_example.py::test_report' }
+    it('distinguishes unavailable Trunk data from an empty result', async () => {
         const cases = [
             {
                 label: 'uploads off',
                 enabled: false,
+                available: false,
                 runHogql: () => assert.fail('must not query Trunk while uploads are disabled'),
             },
             {
                 label: 'table missing',
                 enabled: true,
+                available: false,
                 runHogql: async () => {
                     throw new Error('Unknown table trunkio.quarantinedtests')
                 },
             },
-            { label: 'no rows', enabled: true, runHogql: async () => ({ results: [] }) },
+            { label: 'no rows', enabled: true, available: true, runHogql: async () => ({ results: [] }) },
         ]
 
-        for (const { label, enabled, runHogql } of cases) {
+        for (const { label, enabled, available, runHogql } of cases) {
             const trunkFor = await fetchTrunkQuarantined('pytest', runHogql, enabled)
 
-            assert.equal(trunkFor(item), null, label)
+            assert.equal(typeof trunkFor === 'function', available, label)
+            assert.equal(trunkFor?.({ selector: 'posthog/test/test_example.py::test_report' }) ?? null, null, label)
         }
     })
 
@@ -364,9 +439,20 @@ describe('weekly flaky report', () => {
             selector: `shared.py::test_${index}`,
             failed_run_count: index < 2 ? 0 : 2,
             quarantined_failed_run_count: index < 2 ? 3 : 0,
+            same_commit_recovery_run_count: index < 2 ? 0 : 1,
+            master_failed_run_count: 0,
             failed_pr_count: 1,
         }))
-        const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
+        const trunked = {
+            runner: 'pytest',
+            selector: 'masked.py::test_masked',
+            classification: 'suspected_regression',
+            failed_run_count: 9,
+            failed_pr_count: 4,
+            master_failed_run_count: 0,
+            same_commit_recovery_run_count: 0,
+            quarantined_failed_run_count: 0,
+        }
         const [{ candidates, statusFor }] = await buildRunnerReports(
             [{ runner: 'pytest', candidates: [...clustered, trunked] }],
             async () => () => ({ runsRescued: null, evidence: [] }),

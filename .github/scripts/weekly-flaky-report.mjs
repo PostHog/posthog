@@ -115,7 +115,7 @@ function selectReportCandidates(items, runner, toRepoPaths) {
                 .join(', ')}`
         )
     }
-    return onMaster.slice(0, CANDIDATE_POOL)
+    return onMaster
 }
 
 async function fetchCandidatePools(runners, toRepoPaths, fetchTests = fetchFlakyTests) {
@@ -235,9 +235,8 @@ const TRUNK_QUARANTINED_QUERY = `
 // Uploads off, a missing table, or a query error all degrade to a report without Trunk state,
 // never to a failed run.
 async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_UPLOADS_ON) {
-    const none = () => null
     if (!enabled) {
-        return none
+        return null
     }
     let rows = []
     try {
@@ -247,7 +246,7 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
         rows = result.results || []
     } catch (err) {
         console.warn(`Trunk quarantine lookup failed — reporting without Trunk state: ${err.message}`)
-        return none
+        return null
     }
     const byVariant = new Map()
     for (const [nodeid, quarantinedAt] of rows) {
@@ -281,7 +280,7 @@ function quarantineStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
         if (quarantineFile && !item.failed_run_count) {
             return 'file'
         }
-        const trunk = trunkFor(item)
+        const trunk = trunkFor?.(item)
         if (!trunk) {
             return null
         }
@@ -356,8 +355,18 @@ async function buildRunnerReports(
 ) {
     return Promise.all(
         candidatePools.map(async ({ runner, candidates }) => {
-            const statusFor = quarantineStatusFor(await getTrunk(runner))
-            const queue = collapseClusters(candidates, statusFor)
+            const trunkFor = await getTrunk(runner)
+            const statusFor = quarantineStatusFor(trunkFor)
+            const candidatesWithTrunkStatus = trunkFor
+                ? candidates.filter(
+                      (item) =>
+                          item.classification !== 'suspected_regression' ||
+                          item.master_failed_run_count !== 0 ||
+                          item.same_commit_recovery_run_count !== 0 ||
+                          trunkFor(item)
+                  )
+                : candidates
+            const queue = collapseClusters(candidatesWithTrunkStatus.slice(0, CANDIDATE_POOL), statusFor)
             const extrasFor = await getEnrichment(runner, queue)
             return { runner, candidates: rankReportCandidates(queue, extrasFor), extrasFor, statusFor }
         })
