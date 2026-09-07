@@ -287,6 +287,16 @@ class TestSlackFormatting(SimpleTestCase):
                 },
                 "`a *b* c`",
             ),
+            (
+                # Code holding a backtick is serialized in the `` form, which has to be
+                # recognized as code too, or its backslashes are read as escapes.
+                "double_backtick_span_keeps_backslashes",
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": r"a`b\*c", "marks": [{"type": "code"}]}],
+                },
+                "`` a`b\\*c ``",
+            ),
         ]
     )
     def test_outbound_code_is_literal_in_the_text_fallback(self, _name: str, node: dict, expected: str) -> None:

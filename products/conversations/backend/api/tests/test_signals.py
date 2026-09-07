@@ -61,13 +61,6 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 0  # Customer messages don't increment this
 
-    def test_message_preview_drops_markdown_escapes(self, mock_on_commit):
-        # The widget and the outbound notifications read this preview as plain text.
-        self._create_team_message("On it\\! Migration docs are here\\.")
-
-        self.ticket.refresh_from_db()
-        assert self.ticket.last_message_text == "On it! Migration docs are here."
-
     def test_team_message_updates_stats_and_unread(self, mock_on_commit):
         comment = self._create_team_message("Response from team")
 

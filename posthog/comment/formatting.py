@@ -31,11 +31,14 @@ _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
-# A backslash escape, a fenced block, or an inline code span. All three are lifted out
-# before the conversions that follow: an escaped character must not be read as syntax, and
-# code is literal, so neither the rewrites nor the unescaping may reach inside it. The
-# escape branch is first, so an escaped backtick cannot open a span it never opened.
-_RE_MD_ESCAPED_CHAR_OR_CODE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])|```[\s\S]*?```|`[^`\n]*`")
+# A backslash escape, a fenced block, or an inline code span in either delimiter form. All
+# are lifted out before the conversions that follow: an escaped character must not be read
+# as syntax, and code is literal, so neither the rewrites nor the unescaping may reach
+# inside it. Order carries two rules. The escape branch is first, so an escaped backtick
+# cannot open a span it never opened. The longer fences precede the shorter ones, so ``` is
+# never read as `` plus `, and the `` form the serializer uses for code holding a backtick
+# is never read as an empty span.
+_RE_MD_ESCAPED_CHAR_OR_CODE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])|```[\s\S]*?```|``[^\n]+?``|`[^`\n]*`")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
@@ -349,19 +352,6 @@ def _normalize_single_newlines_to_markdown(text: str) -> str:
 
 def _escape_markdown(text: str) -> str:
     return _RE_MD_ESCAPE.sub(r"\\\1", text)
-
-
-def strip_markdown_escapes(text: str) -> str:
-    """Drop the backslash escapes that ``_escape_markdown`` adds.
-
-    Use this for destinations that do not read markdown — plain-text email bodies, message
-    previews — where ``world\\!`` has to read as ``world!``. Code keeps its contents
-    literal, so a backslash inside it survives.
-    """
-    if not text:
-        return ""
-
-    return _RE_MD_ESCAPED_CHAR_OR_CODE.sub(lambda match: match.group(1) if match.group(1) else match.group(0), text)
 
 
 def _escape_alt_text(text: str) -> str:

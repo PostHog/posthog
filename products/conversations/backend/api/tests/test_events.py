@@ -303,15 +303,6 @@ class TestConversationEvents(BaseTest):
         assert len(call_kwargs["properties"]["message_content"]) == 1000
 
     @patch("products.conversations.backend.events.capture_internal")
-    def test_message_content_drops_markdown_escapes(self, mock_capture):
-        # Workflow email templates render this property as plain text, so an escape the
-        # editor added when it serialized to markdown would reach the customer verbatim.
-        capture_message_sent(self.ticket, "msg-id", "No worries\\! Docs are here\\.", author=self.user)
-
-        call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["properties"]["message_content"] == "No worries! Docs are here."
-
-    @patch("products.conversations.backend.events.capture_internal")
     def test_event_uses_ticket_team_token_not_other_team(self, mock_capture):
         """Verify events route to the ticket's team, not any other team."""
         from posthog.models import Organization, Team

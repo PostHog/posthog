@@ -9,7 +9,6 @@ from django.dispatch import receiver
 
 import structlog
 
-from posthog.comment.formatting import strip_markdown_escapes
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
@@ -155,7 +154,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         update_fields = {
             "message_count": F("message_count") + 1,
             "last_message_at": created_at,
-            "last_message_text": strip_markdown_escapes(content or "")[:500],  # Truncate to 500 chars
+            "last_message_text": (content or "")[:500],  # Truncate to 500 chars
             "updated_at": created_at,
         }
 
@@ -286,7 +285,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
             if last_comment:
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(
                     last_message_at=last_comment.created_at,
-                    last_message_text=strip_markdown_escapes(last_comment.content or "")[:500],
+                    last_message_text=(last_comment.content or "")[:500],
                 )
             else:
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(
