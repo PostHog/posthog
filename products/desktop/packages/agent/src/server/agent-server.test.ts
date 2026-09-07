@@ -921,7 +921,7 @@ describe("AgentServer HTTP Mode", () => {
       });
     });
 
-    it("does not write an old failure into a replacement session", async () => {
+    it("does not send an old failure into a replacement session", async () => {
       const appendRawLine = vi.fn();
       const flush = vi.fn(async () => {});
       const shutdown = vi.fn(async () => {});
@@ -942,11 +942,10 @@ describe("AgentServer HTTP Mode", () => {
         };
         posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
         session: unknown;
-        signalTaskComplete(
+        handleTurnFailure(
           payload: JwtPayload,
-          stopReason: string,
-          errorMessage?: string,
-          options?: { errorCategory?: string },
+          phase: "initial" | "resume" | "followup",
+          error: unknown,
         ): Promise<void>;
       };
       testServer.eventStreamSender = {
@@ -960,7 +959,7 @@ describe("AgentServer HTTP Mode", () => {
         telemetry: { shutdown },
       };
 
-      await testServer.signalTaskComplete(
+      await testServer.handleTurnFailure(
         {
           run_id: "run-1",
           task_id: "task-1",
@@ -969,9 +968,8 @@ describe("AgentServer HTTP Mode", () => {
           distinct_id: "distinct-id",
           mode: "interactive",
         },
-        "error",
-        "unexpected status 503",
-        { errorCategory: "upstream_provider_failure" },
+        "initial",
+        new Error("old run failed"),
       );
 
       expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalled();
@@ -984,9 +982,52 @@ describe("AgentServer HTTP Mode", () => {
         "run-1",
         {
           status: "failed",
-          error_message: "upstream_provider_failure: unexpected status 503",
+          error_message: "agent_error: old run failed",
         },
       );
+    });
+
+    it("does not stop a replacement session after a final flush", async () => {
+      let releaseFlush!: () => void;
+      const flushPending = new Promise<void>((resolve) => {
+        releaseFlush = resolve;
+      });
+      const flush = vi.fn(() => flushPending);
+      const testServer = createFailureTestServer() as unknown as {
+        eventStreamSender: {
+          enqueue: ReturnType<typeof vi.fn>;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        session: unknown;
+        signalTaskComplete(
+          payload: JwtPayload,
+          stopReason: string,
+          errorMessage?: string,
+          options?: { errorCategory?: string },
+        ): Promise<void>;
+      };
+      testServer.session = {
+        payload: { run_id: "run-1" },
+        logWriter: { appendRawLine: vi.fn(), flush },
+        telemetry: { shutdown: vi.fn(async () => {}) },
+      };
+
+      const completion = testServer.signalTaskComplete(
+        interactivePayload,
+        "error",
+        "old run failed",
+        { errorCategory: "agent_error" },
+      );
+      await vi.waitFor(() => expect(flush).toHaveBeenCalledOnce());
+      testServer.session = {
+        payload: { run_id: "run-2" },
+        logWriter: { appendRawLine: vi.fn(), flush: vi.fn() },
+      };
+      releaseFlush();
+      await completion;
+
+      expect(testServer.eventStreamSender.stop).not.toHaveBeenCalled();
     });
 
     it("still stops event ingest when terminal failure status update fails", async () => {
@@ -1559,6 +1600,25 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
+    it("sanitizes an unstructured provider cause before persistence", async () => {
+      const testServer = createFailureTestServer();
+
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        new Error("API Error: 503 private provider body"),
+      );
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: "upstream_provider_failure: API Error: 503",
+        }),
+      );
+    });
+
     it("quietly ends an interactive follow-up when its idle ACP transport closed", async () => {
       const testServer = createFailureTestServer();
 
@@ -1679,6 +1739,38 @@ describe("AgentServer HTTP Mode", () => {
 
         await assertion;
         expect(prompt).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps continuation mode after a second retryable failure", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("API Error: terminated"))
+          .mockRejectedValueOnce(new Error("API Error: Connection error."))
+          .mockResolvedValueOnce({ stopReason: "end_turn" });
+        const testServer = createRetryTestServer(prompt);
+        const resultPromise = testServer.promptWithUpstreamRetry({
+          sessionId: "acp-1",
+          prompt: [{ type: "text", text: "do the task" }],
+        });
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        await expect(resultPromise).resolves.toEqual({
+          stopReason: "end_turn",
+        });
+        expect(prompt).toHaveBeenCalledTimes(3);
+        for (const call of prompt.mock.calls.slice(1)) {
+          const retryRequest = call[0] as {
+            prompt: Array<{ type: string; text: string }>;
+          };
+          expect(retryRequest.prompt[0].text).toContain(
+            "Continue from where you left off",
+          );
+        }
       } finally {
         vi.useRealTimers();
       }

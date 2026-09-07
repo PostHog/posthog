@@ -2187,10 +2187,11 @@ export class AgentServer {
       };
     }
 
+    const classification = classifyAgentError(message);
     return {
-      classification: classifyAgentError(message),
+      classification,
       message,
-      cause: message,
+      cause: sanitizeAgentErrorCause(message, classification),
     };
   }
 
@@ -2278,7 +2279,7 @@ export class AgentServer {
         retries += 1;
         // Only a mid-response stream death guarantees the prompt reached the
         // model; connection/timeout/status failures re-send the original.
-        continueInterruptedTurn =
+        continueInterruptedTurn ||=
           classification === "upstream_stream_terminated";
         this.logger.warn(
           "Turn hit a transient upstream failure; retrying after a short delay",
@@ -2320,6 +2321,8 @@ export class AgentServer {
       recoverable && /^ACP connection closed$/i.test(message.trim());
     const suppressClientError =
       retryableFollowup || expectedIdleTransportClosure;
+    const activeSessionOwnsFailure =
+      this.session?.payload.run_id === payload.run_id;
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
@@ -2332,12 +2335,14 @@ export class AgentServer {
       return "retryable_delivery";
     }
 
-    if (!suppressClientError) {
+    if (!suppressClientError && activeSessionOwnsFailure) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
-      this.broadcastTurnComplete("error_recoverable");
+      if (activeSessionOwnsFailure) {
+        this.broadcastTurnComplete("error_recoverable");
+      }
       return "recoverable";
     }
 
@@ -4627,7 +4632,7 @@ ${commonInstructions}
     } catch (error) {
       this.logger.error("Failed to signal task completion", error);
     } finally {
-      if (!currentSession || sessionMatchesRun) {
+      if (this.session === currentSession) {
         await this.emitRtkSavings();
         await this.eventStreamSender?.stop();
       }
