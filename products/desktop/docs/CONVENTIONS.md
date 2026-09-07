@@ -19,11 +19,7 @@ Hooks wrap one source: one query, one mutation, one subscription, or one store s
 
 ## Components
 
-Session and canvas presence indicators use `UserAvatar` with the creator's
-UUID, email, and name fields. Canvas records keep these fields in
-`createdByUser`, so the same person has the same avatar on both surfaces.
-Older canvas records without these fields use the display name and UUID as a
-fallback. Presence timing and ownership checks do not depend on the avatar.
+Use `PresenceAvatars` to show presence in a space.
 
 Use functional components and typed props.
 
