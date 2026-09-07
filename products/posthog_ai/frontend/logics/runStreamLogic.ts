@@ -27,7 +27,7 @@ import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from '
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
-import { deliverPermissionResponse } from '../policy/permissionDelivery'
+import { deliverPermissionResponse, isPermissionTargetEnded } from '../policy/permissionDelivery'
 import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
 import {
@@ -3095,6 +3095,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     return
                 }
                 posthog.captureException(error)
+                // The run ended before the approval arrived, so every further attempt gets the same
+                // rejection. Drop the card instead of asking for a retry that cannot succeed.
+                if (isPermissionTargetEnded(error)) {
+                    actions.clearPermissionRequest()
+                    lemonToast.error("This run has ended, so the approval wasn't sent. Send a new message to continue.")
+                    return
+                }
                 if (automatic) {
                     actions.ingestPermissionRequest(record)
                 }

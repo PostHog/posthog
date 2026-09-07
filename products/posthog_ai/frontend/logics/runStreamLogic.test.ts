@@ -3371,6 +3371,17 @@ describe('runStreamLogic', () => {
                 }
             )
 
+            test('drops the card when the target run has already ended', async () => {
+                const command = jest
+                    .mocked(tasksRunsCommandCreate)
+                    .mockRejectedValue({ status: 409, code: 'permission_target_ended' })
+                submit()
+                await jest.advanceTimersByTimeAsync(10_000)
+                expect(command).toHaveBeenCalledTimes(1)
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+                expect(logic.values.respondingToPermission).toBe(false)
+            })
+
             test('cancels an outstanding request when the streamed run is canceled', async () => {
                 const command = jest.mocked(tasksRunsCommandCreate)
                 let complete!: (value: typeof accepted) => void

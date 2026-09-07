@@ -23,6 +23,11 @@ async function waitForReadiness(ms: number, signal: AbortSignal): Promise<void> 
     }
 }
 
+export function isPermissionTargetEnded(error: unknown): boolean {
+    const rejection = error as { status?: number; code?: string }
+    return rejection?.status === 409 && rejection.code === 'permission_target_ended'
+}
+
 export async function deliverPermissionResponse(
     send: (signal: AbortSignal) => Promise<TaskRunCommandResponseApi>,
     signal: AbortSignal
