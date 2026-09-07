@@ -375,7 +375,8 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
             body["next"],
         )
 
-        mock_get.return_value = _response(SERIES)
+        # The second page's previous is the first page: the same request without a cursor.
+        mock_get.return_value = _response({**SERIES, "next": "c3", "previous": "", "total_count": 7})
         response = self.client.get(
             self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&limit=2&cursor=c2")
         )
@@ -383,8 +384,26 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         sent = mock_get.call_args.kwargs["params"]
         self.assertEqual((sent.get("after"), "cursor" in sent), ("c2", False))
         body = response.json()
-        # An unpaged answer, or the last page, has no next link and counts what it holds.
-        self.assertEqual((body["count"], body["next"]), (3, None))
+        self.assertTrue(
+            body["previous"].endswith("/billing/usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&limit=2"),
+            body["previous"],
+        )
+
+        # Further in, previous carries the cursor that seeks to the page before.
+        mock_get.return_value = _response({**SERIES, "previous": "c2", "total_count": 7})
+        response = self.client.get(
+            self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&limit=2&cursor=c3")
+        )
+        body = response.json()
+        self.assertTrue(body["previous"].endswith("&limit=2&cursor=c2"), body["previous"])
+        # The last page has no next link.
+        self.assertEqual((body["count"], body["next"]), (7, None))
+
+        mock_get.return_value = _response(SERIES)
+        response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        body = response.json()
+        # An unpaged answer has no links and counts what it holds.
+        self.assertEqual((body["count"], body["next"], body["previous"]), (3, None, None))
 
     def test_team_scoped_key_is_refused_on_organization_endpoints_like_everywhere_else(self):
         raw = generate_random_token_personal()

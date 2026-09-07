@@ -560,7 +560,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             {
                 "count": data.get("total_count", len(results)),
                 "next": self._cursor_url(request, data.get("next")),
-                "previous": None,
+                "previous": self._previous_url(request, data.get("previous")),
                 "results": results,
             }
         )
@@ -716,6 +716,17 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         params = request.query_params.copy()
         params["cursor"] = cursor
         return request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
+
+    def _previous_url(self, request: Request, cursor: Optional[str]) -> Optional[str]:
+        """The page before this one. Billing names the first page with an empty cursor, and the
+        link to it is the same request without one."""
+        if cursor is None:
+            return None
+        if cursor == "":
+            params = request.query_params.copy()
+            params.pop("cursor", None)
+            return request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
+        return self._cursor_url(request, cursor)
 
     @extend_schema(
         operation_id="billing_invoices_list",
