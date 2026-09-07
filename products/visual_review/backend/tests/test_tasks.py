@@ -42,6 +42,76 @@ def _make_png_with_single_changed_pixel() -> bytes:
     return buffer.getvalue()
 
 
+def _make_striped_page(width: int = 100, height: int = 100) -> bytes:
+    """A page where every row has its own color, so no two rows hash alike."""
+    image = Image.new("RGBA", (width, height))
+    for y in range(height):
+        for x in range(width):
+            image.putpixel((x, y), (10 + (y * 2) % 240, 40 + y % 100, 200 - y % 150, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _make_png_with_inserted_row(rows: int = 1) -> bytes:
+    """A striped page with `rows` background rows pushed in near the top.
+
+    Every row has its own color, so row alignment has one answer: the page
+    below the insert moved down and nothing else changed.
+    """
+    baseline = _make_striped_page()
+    image = Image.open(io.BytesIO(baseline)).convert("RGBA")
+    width, height = image.size
+    out = Image.new("RGBA", (width, height + rows), (255, 255, 255, 255))
+    out.paste(image.crop((0, 0, width, 20)), (0, 0))
+    out.paste(image.crop((0, 20, width, height)), (0, 20 + rows))
+    buffer = io.BytesIO()
+    out.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _process_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes) -> RunSnapshot:
+    """Drive `process_diffs` over one CHANGED snapshot and return the stored row."""
+    stored_bytes = {"old_hash": baseline_png, "new_hash": current_png}
+    artifact_store.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
+    artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
+    create_result = api.create_run(
+        CreateRunInput(
+            repo_id=repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+            baseline_hashes={"Button": "old_hash"},
+        ),
+        team_id=repo.team_id,
+    )
+    with (
+        patch(
+            "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
+            return_value=({"Button": "old_hash"}, 0),
+        ),
+        patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+    ):
+        runs.complete_run(create_result.run_id)
+
+    mocker.patch(
+        "products.visual_review.backend.storage.ArtifactStorage.read",
+        autospec=True,
+        side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
+    )
+    mocker.patch(
+        "products.visual_review.backend.storage.ArtifactStorage.write",
+        autospec=True,
+        side_effect=lambda _storage, content_hash, content: (
+            stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
+        ),
+    )
+
+    assert process_diffs(create_result.run_id) == 1
+    return RunSnapshot.objects.get(run_id=create_result.run_id)
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestProcessRunDiffs:
     @pytest.fixture
@@ -332,48 +402,13 @@ class TestProcessRunDiffs:
         assert compare_images.call_count == 1
 
     def test_process_diffs_counts_below_threshold_comparisons(self, repo, mocker):
-        stored_bytes = {
-            "old_hash": _make_png((255, 0, 0, 255), size=(100, 100)),
-            "new_hash": _make_png_with_single_changed_pixel(),
-        }
-        artifact_store.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
-        artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
-        create_result = api.create_run(
-            CreateRunInput(
-                repo_id=repo.id,
-                run_type=RunType.STORYBOOK,
-                commit_sha="abc123",
-                branch="main",
-                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
-                baseline_hashes={"Button": "old_hash"},
-            ),
-            team_id=repo.team_id,
-        )
-        with (
-            patch(
-                "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
-                return_value=({"Button": "old_hash"}, 0),
-            ),
-            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
-        ):
-            runs.complete_run(create_result.run_id)
-
-        mocker.patch(
-            "products.visual_review.backend.storage.ArtifactStorage.read",
-            autospec=True,
-            side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
-        )
-        mocker.patch(
-            "products.visual_review.backend.storage.ArtifactStorage.write",
-            autospec=True,
-            side_effect=lambda _storage, content_hash, content: (
-                stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
-            ),
+        snapshot = _process_one_diff(
+            repo,
+            mocker,
+            baseline_png=_make_png((255, 0, 0, 255), size=(100, 100)),
+            current_png=_make_png_with_single_changed_pixel(),
         )
 
-        assert process_diffs(create_result.run_id) == 1
-
-        snapshot = RunSnapshot.objects.get(run_id=create_result.run_id)
         assert snapshot.result == SnapshotResult.UNCHANGED
         assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
         assert snapshot.diff_pixel_count is not None
@@ -386,6 +421,32 @@ class TestProcessRunDiffs:
             baseline_hash="old_hash",
             alternate_hash="new_hash",
         ).exists()
+
+    def test_process_diffs_absorbs_a_one_row_shift_but_keeps_its_trace(self, repo, mocker):
+        # The whole point of row alignment: a page that moved down by a row is
+        # noise, but the run still has to say what moved, and the tolerated
+        # hash has to record what the run really cost. Recording the naive
+        # percentage here would eat the flakiness headroom of a clean story.
+        snapshot = _process_one_diff(
+            repo,
+            mocker,
+            baseline_png=_make_striped_page(),
+            current_png=_make_png_with_inserted_row(),
+        )
+
+        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
+        assert snapshot.diff_metadata["row_shift"]["inserted_rows"] == 1
+        assert snapshot.diff_metadata["row_shift"]["raw_diff_percentage"] > snapshot.diff_percentage
+        assert snapshot.diff_artifact is not None
+
+        tolerated = ToleratedHash.objects.get(
+            repo_id=repo.id,
+            identifier="Button",
+            baseline_hash="old_hash",
+            alternate_hash="new_hash",
+        )
+        assert tolerated.diff_percentage == snapshot.diff_percentage
 
 
 class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):

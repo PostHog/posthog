@@ -166,6 +166,24 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
+        # The row shift the diff pipeline stored has to survive the trip
+        # through the facade DTO and the serializer, because the badge and the
+        # band overlays are built from it.
+        RunSnapshot.objects.filter(run_id=create_result.run_id, identifier="Button").update(
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 2.4,
+                    "raw_ssim_score": 0.76,
+                    "bands": [{"y": 210, "rows": 1, "kind": "inserted"}],
+                }
+            }
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -174,6 +192,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
         identifiers = {s["identifier"] for s in results}
         self.assertEqual(identifiers, {"Button", "Card"})
+
+        by_identifier = {s["identifier"]: s for s in results}
+        row_shift = by_identifier["Button"]["row_shift"]
+        self.assertEqual(row_shift["inserted_rows"], 1)
+        self.assertEqual(row_shift["raw_diff_percentage"], 2.4)
+        self.assertEqual(row_shift["bands"], [{"y": 210, "rows": 1, "kind": "inserted"}])
+        self.assertIsNone(by_identifier["Card"]["row_shift"])
 
     @parameterized.expand(
         [

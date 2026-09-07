@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-# Two-tier classification thresholds, applied by `diffing.classify_compare_result`:
+# Classification thresholds, applied by `diffing.classify_compare_result`:
 #
 # 1. Pixel diff ratio — fast path for obvious changes. Snapshots above
 #    this are immediately classified as CHANGED.
@@ -29,6 +29,8 @@ from pydantic.dataclasses import dataclass
 #    a measurable structural shift that SSIM catches.
 #
 # Only when both are below threshold is the snapshot reclassified as UNCHANGED.
+# When the pair aligned, both are measured after alignment, so a vertical
+# shift is judged on what actually changed rather than on everything below it.
 #
 # They live here rather than next to the classifier because they are also what
 # `FlakinessEntry.headroom` is measured against, so a consumer reading that
@@ -36,6 +38,17 @@ from pydantic.dataclasses import dataclass
 # libraries onto the web request path.
 PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
 SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
+
+# How many inserted or deleted rows the classifier absorbs as noise before it
+# calls the change a layout change.
+#
+# Every run measures its shift against the committed baseline, not against the
+# previous run, so an absorbed shift cannot accumulate into a page that has
+# quietly moved by twenty rows. Two rows is also the point where the change
+# stops being actionable: a reviewer cannot do anything about one or two pixels
+# of spacing, but a taller band is a block that appeared or disappeared and
+# somebody should look at it.
+SHIFT_ABSORB_MAX_ROWS = 2
 
 # --- Input DTOs ---
 
@@ -206,6 +219,40 @@ class ClusterSummary:
 
 
 @dataclass(frozen=True)
+class ShiftBand:
+    """One run of rows the current image gained or lost.
+
+    A deleted band has no rows of its own in the current image, so `y` is the
+    seam the removed rows left behind and `rows` counts what went away.
+    """
+
+    y: int
+    rows: int
+    kind: str  # "inserted" or "deleted"
+
+
+@dataclass(frozen=True)
+class RowShift:
+    """A vertical shift between baseline and current, separated from the real change.
+
+    Row alignment pairs the rows that exist in both images, so the pixels
+    below an inserted row stop counting as differences. `residual_*` is what
+    survives that pairing and is what the classifier thresholds on. `raw_*`
+    is what the same pair measured without alignment, which is how the UI can
+    say what the shift would otherwise have cost.
+    """
+
+    inserted_rows: int
+    deleted_rows: int
+    changed_rows: int
+    residual_pixel_count: int
+    residual_percentage: float
+    raw_diff_percentage: float
+    raw_ssim_score: float
+    bands: list[ShiftBand]
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -239,6 +286,10 @@ class Snapshot:
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
     size_mismatch: bool = False
+    # The vertical shift the diff pipeline measured, if it could align the
+    # pair. Present on absorbed (UNCHANGED) snapshots as well, because a shift
+    # small enough to absorb is still the only trace of why the pixels moved.
+    row_shift: RowShift | None = None
 
 
 @dataclass(frozen=True)
@@ -419,6 +470,9 @@ class SnapshotHistoryEntry:
     ssim_score: float | None = None
     change_kind: str = ""
     size_mismatch: bool = False
+    # Same meaning as on `Snapshot`, and present on absorbed rows too, so the
+    # history view can show which runs only moved rather than changed.
+    row_shift: RowShift | None = None
 
 
 @dataclass(frozen=True)

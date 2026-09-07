@@ -15,6 +15,17 @@ def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> byte
     return buffer.getvalue()
 
 
+def _make_striped_png(rows: list[tuple[int, int, int, int]], width: int = 20) -> bytes:
+    """Create a PNG where every row has its own color."""
+    img = Image.new("RGBA", (width, len(rows)))
+    for y, color in enumerate(rows):
+        for x in range(width):
+            img.putpixel((x, y), color)
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 class TestCompareImages:
     def test_identical_images_zero_diff(self):
         red = (255, 0, 0, 255)
@@ -28,6 +39,8 @@ class TestCompareImages:
         assert result.width == 10
         assert result.height == 10
         assert len(result.diff_hash) == 64  # BLAKE3 hex
+        assert result.row_shift is not None
+        assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (0, 0)
 
     def test_completely_different_images_full_diff(self):
         red = (255, 0, 0, 255)
@@ -93,3 +106,26 @@ class TestCompareImages:
         diff_img = Image.open(io.BytesIO(result.diff_image))
         assert diff_img.size == (10, 10)
         assert diff_img.mode in ("RGB", "RGBA")
+
+    def test_inserted_row_diff_image_marks_only_that_row(self):
+        # Each row has its own color, so row alignment has one answer and the
+        # diff image can only be red where the new row landed. Without
+        # alignment every row below the insert would come back red.
+        baseline_rows = [(10 * i % 250, 40, 200, 255) for i in range(20)]
+        current_rows = [*baseline_rows[:8], (255, 255, 255, 255), *baseline_rows[8:]]
+
+        result = compare_images(_make_striped_png(baseline_rows), _make_striped_png(current_rows))
+
+        assert result.row_shift is not None
+        assert result.row_shift.inserted_rows == 1
+        assert [(b.y, b.rows, b.kind) for b in result.row_shift.bands] == [(8, 1, "inserted")]
+
+        assert result.diff_image is not None
+        diff_img = Image.open(io.BytesIO(result.diff_image)).convert("RGBA")
+        assert diff_img.size == (20, 21)  # the current image, one row taller than the baseline
+        red_rows = {
+            y
+            for y in range(diff_img.height)
+            if any(diff_img.getpixel((x, y))[:3] == (255, 0, 0) for x in range(diff_img.width))
+        }
+        assert red_rows == {8}

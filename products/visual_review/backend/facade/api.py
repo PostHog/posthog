@@ -24,7 +24,10 @@ from django.contrib.auth import get_user_model
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import search_match_type_from_instance
 
-from ..diff_metadata import DiffMetadata
+from ..diff_metadata import (
+    DiffMetadata,
+    RowShift as StoredRowShift,
+)
 from ..logic import (
     approvals,
     artifact_store,
@@ -109,17 +112,40 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
+def _parse_row_shift(diff_metadata_raw: dict | None) -> contracts.RowShift | None:
+    """Translate the stored row shift into the wire shape.
+
+    Split out from `_parse_diff_metadata` so the history view can read the
+    shift without also building the cluster dataclasses its contract does not
+    carry. None for legacy rows and for pairs pixelhog could not align.
+    """
+    raw = (diff_metadata_raw or {}).get("row_shift")
+    if not raw:
+        return None
+    parsed = StoredRowShift.model_validate(raw)
+    return contracts.RowShift(
+        inserted_rows=parsed.inserted_rows,
+        deleted_rows=parsed.deleted_rows,
+        changed_rows=parsed.changed_rows,
+        residual_pixel_count=parsed.residual_pixel_count,
+        residual_percentage=parsed.residual_percentage,
+        raw_diff_percentage=parsed.raw_diff_percentage,
+        raw_ssim_score=parsed.raw_ssim_score,
+        bands=[contracts.ShiftBand(y=b.y, rows=b.rows, kind=b.kind) for b in parsed.bands],
+    )
+
+
 def _parse_diff_metadata(
     diff_metadata_raw: dict | None,
-) -> tuple[contracts.ClusterSummary | None, bool]:
+) -> tuple[contracts.ClusterSummary | None, bool, contracts.RowShift | None]:
     """Translate the compact storage shape into the verbose wire shape.
 
-    Returns `(cluster_summary, size_mismatch)`. The cluster_summary side
-    is None for legacy rows and identical-pair rows; size_mismatch
-    defaults to False everywhere it isn't explicitly recorded.
+    Returns `(cluster_summary, size_mismatch, row_shift)`. The cluster_summary
+    and row_shift sides are None for legacy rows and identical-pair rows;
+    size_mismatch defaults to False everywhere it isn't explicitly recorded.
     """
     if not diff_metadata_raw:
-        return None, False
+        return None, False, None
     parsed = DiffMetadata.model_validate(diff_metadata_raw)
     cluster_summary: contracts.ClusterSummary | None = None
     if parsed.cluster_summary is not None:
@@ -140,14 +166,14 @@ def _parse_diff_metadata(
             total=cs.total,
             truncated=cs.truncated,
         )
-    return cluster_summary, parsed.size_mismatch
+    return cluster_summary, parsed.size_mismatch, _parse_row_shift(diff_metadata_raw)
 
 
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
-    cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
+    cluster_summary, size_mismatch, row_shift = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         run_id=snapshot.run_id,
@@ -170,6 +196,7 @@ def _to_snapshot(
         change_kind=snapshot.change_kind or "",
         cluster_summary=cluster_summary,
         size_mismatch=size_mismatch,
+        row_shift=row_shift,
     )
 
 
@@ -550,6 +577,7 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
             # entry contract and we'd just be allocating cluster dataclasses
             # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
             size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
+            row_shift=_parse_row_shift(e.diff_metadata),
         )
         for e in entries
     ]
