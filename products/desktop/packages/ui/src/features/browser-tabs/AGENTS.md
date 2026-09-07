@@ -107,9 +107,9 @@ differ. Desktop ships first.
 - **New tabs usually come from explicit new-tab actions.** `+` and Cmd/Ctrl+T open
   `/activity`. Cmd/Ctrl-clicking a navigation destination opens that destination's
   root in a new tab (the rail in Spaces, the sidebar in the legacy layout).
-- A first run adds `/onboarding-landing` as an inactive second tab. This tab keeps
-  the first-run session active. Its links use explicit new-tab actions so the
-  onboarding page stays open.
+- App startup adds `/onboarding-landing` as an inactive tab unless the user closed
+  it. Its links use explicit new-tab actions so the onboarding page stays open.
+  General settings can add the tab again after the user closes it.
 - `openTab` always appends. It activates the new tab by default. A caller can set
   `activate: false` to keep the current tab active. There is no dedup to focus an
   existing tab.

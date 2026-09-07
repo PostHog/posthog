@@ -1,0 +1,29 @@
+@keyframes onboarding-cycle-flow-progress {
+  from {
+    stroke-dashoffset: 25.13;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.onboarding-cycle-flow__timer-progress {
+  animation: onboarding-cycle-flow-progress 5s linear forwards;
+  stroke-dasharray: 25.13;
+  stroke-dashoffset: 25.13;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+
+.onboarding-cycle-flow__control[data-paused="true"]
+  .onboarding-cycle-flow__timer-progress {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-cycle-flow__timer-progress {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

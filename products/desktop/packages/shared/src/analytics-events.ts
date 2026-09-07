@@ -612,7 +612,6 @@ export interface OnboardingAbandonedProperties {
 
 export type OnboardingLandingDestination =
   | "spaces"
-  | "multiplayer"
   | "self-driving"
   | "canvases"
   | "agents"

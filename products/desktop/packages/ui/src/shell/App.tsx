@@ -41,8 +41,8 @@ import {
 } from "@posthog/ui/shell/desktopAccessGate";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
-import { openFirstRunOnboardingTab } from "@posthog/ui/shell/firstRunOnboardingTab";
 import { logger } from "@posthog/ui/shell/logger";
+import { ensureOnboardingTab } from "@posthog/ui/shell/onboardingTab";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
   rememberStartupLocation,
@@ -187,12 +187,12 @@ function App({ devToolbar }: AppProps) {
           authenticatedClient,
           spacesLayoutEnabledRef.current,
         );
+        try {
+          await ensureOnboardingTab(startupIdentity, browserTabsClient);
+        } catch (error) {
+          log.warn("Failed to open onboarding tab", { error });
+        }
         if (firstRun) {
-          try {
-            await openFirstRunOnboardingTab(startupIdentity, browserTabsClient);
-          } catch (error) {
-            log.warn("Failed to open onboarding tab", { error });
-          }
           showChannelList({ keepForRoute: firstRun.generalChannelId });
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
         }
