@@ -94,7 +94,8 @@ For each candidate you assess, gather context before recommending action:
   (`effectively_full_rollout`, `has_targeting_conditions`, `max_rollout_percentage`, `is_multivariate`).
   The status reflects recent evaluation, not rollout completeness — use `rollout` for that.
 - **`posthog:feature-flag-get-definition`** returns the full definition:
-  `experiment_set`, linked surveys, early access features, session replay settings, variants, and filters.
+  `experiment_set`, linked surveys, early access features, session replay settings, variants, and filters,
+  including any `payloads` the flag carries.
 - **`posthog:feature-flags-dependent-flags-retrieve`** lists other active flags that depend on this one.
 - **`posthog:scheduled-changes-list`** with `model_name: "FeatureFlag"` and `record_id` set to the flag's id
   lists the changes queued for it. It returns executed and failed schedules too, so read the unexecuted future ones.
@@ -153,7 +154,7 @@ Then trace outward:
 - follow every usage of those constants and enums with language-aware references or repository search
 - inspect local flag helper abstractions and wrapper components (a `useFlag('...')` hook, a `Flags.SOME_KEY` registry)
 - check directories that deploy independently: server, browser, mobile, workers, infrastructure
-- distinguish runtime flag checks from analytics properties, event payloads, or historical documentation
+- distinguish runtime flag checks from analytics properties, analytics event payloads, or historical documentation
 - stop and ask when different call sites imply different intended outcomes
 
 Do not rely on a fixed list of SDK call names — exact-key search plus reference tracing adapts to the repository's abstractions.
@@ -170,6 +171,11 @@ The flag still stays untouched — the user may need to check other repositories
 - **Fully rolled out multivariate**: remove the flag check, keep only the winning variant's branch or case.
 - **Effectively off**: remove the flag check and the gated feature path, keep the disabled/control behavior.
 - **Partial or ambiguous**: no edits — this was excluded in step 3.
+
+One call-site shape has no retained path: a read of the flag's payload rather than a branch, such as a
+`getFeatureFlagPayload` call. Deleting it removes a value the code uses, and payloads live in
+`filters.payloads` on any flag, not only on remote configuration ones, so that exclusion does not cover them.
+Leave these call sites alone, report them, and let the user decide where the value should come from.
 
 Remove dead branches, unused imports, and orphaned helpers the cleanup creates.
 Do not broaden the work into unrelated refactoring.
