@@ -35,6 +35,7 @@ use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::{load_person_from_pg, PgFallback};
 use crate::recovery::ChangelogRecovery;
+use crate::validation::{validate_before_publish, Limits};
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
     can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
@@ -496,6 +497,26 @@ impl PersonHogLeaderService {
         // coordinator to warm a successor past the point this record
         // would land.
         self.check_authority(partition)?;
+
+        // Reject structurally invalid records before spending any version.
+        // Validation failures are not retryable: the input is bad, not the
+        // infrastructure. InvalidArgument signals the caller not to retry.
+        if let Err(reason) = crate::validation::validate_before_publish(
+            &proto.uuid,
+            &person.properties,
+            self.size_limits.threshold,
+        ) {
+            counter!("personhog_leader_invalid_record_total").increment(1);
+            tracing::error!(
+                team_id = cache_key.team_id,
+                person_id = cache_key.person_id,
+                reason = %reason,
+                "rejecting changelog write: invalid record (non-retryable)"
+            );
+            return Err(Status::invalid_argument(format!(
+                "changelog record is invalid and cannot be stored: {reason}"
+            )));
+        }
 
         // From here the record may reach the changelog whatever happens
         // to this request — including the request simply ceasing to exist
