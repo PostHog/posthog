@@ -23,6 +23,7 @@ import json
 import uuid
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -70,8 +71,11 @@ from products.signals.backend.scout_report import (
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     ScoutReportSignal,
+    append_report_evidence,
     append_report_note,
     create_scout_report,
+    emit_appended_report_evidence,
+    get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
     record_report_edit,
@@ -174,6 +178,9 @@ class EditReportResult:
     updated_fields: list[str]
     note_appended: bool
     reviewers_set: bool = False
+    # How many observations this edit added to the report's evidence rail. Additive, so a plain count
+    # rather than the nullable "set or untouched" the replace-semantics fields below carry.
+    evidence_appended: int = 0
     # How many charts the report now shows, or None when the edit left its charts as they were (the
     # field omitted, or a re-send of what was already stored). Nullable rather than 0-for-untouched
     # because taking a report's charts down is itself a real outcome, and 0 would otherwise mean both
@@ -202,10 +209,24 @@ class EditReportResult:
         took the report's charts or prompts down reports 0, and reading that as "nothing happened"
         would keep the retraction off the run tally and out of both event streams."""
         return (
-            bool(self.updated_fields or self.note_appended or self.reviewers_set)
+            bool(self.updated_fields or self.note_appended or self.reviewers_set or self.evidence_appended)
             or self.charts_set is not None
             or self.suggested_prompts_set is not None
         )
+
+
+def _edit_update_text(note: str | None, evidence: Sequence[ScoutReportSignal] | None) -> str:
+    """The text a note-shaped Slack update carries for an edit that left the report message alone.
+
+    Appended evidence goes first because Slack truncates this text as one section. Thus, a long note
+    cannot hide the fact that the scout added evidence. The report link gives access to all content."""
+    parts = []
+    if evidence:
+        lines = "\n".join(f"- {signal.description}" for signal in evidence)
+        parts.append(f"**New evidence**\n{lines}")
+    if note is not None:
+        parts.append(note)
+    return "\n\n".join(parts)
 
 
 def _surfaced(status: SignalReport.Status) -> bool:
@@ -213,7 +234,10 @@ def _surfaced(status: SignalReport.Status) -> bool:
 
 
 def _build_signals(evidence: list[ReportEvidence]) -> list[ScoutReportSignal]:
-    return [ScoutReportSignal(description=e.description, source_id=e.source_id, weight=e.weight) for e in evidence]
+    return [
+        ScoutReportSignal(description=e.description, source_id=e.source_id, weight=SCOUT_SIGNAL_WEIGHT)
+        for e in evidence
+    ]
 
 
 def _build_actionability(*, explanation: str, choice: str, already_addressed: bool) -> ActionabilityAssessment:
@@ -844,12 +868,13 @@ def _report_event_uuid(*parts: object, structured: bool = False) -> str:
     two workers different uuids for one action and ingestion would let the retry through as a second
     event — the exact double-fire this function exists to prevent.
 
-    An edit carrying charts or suggested prompts is a new shape with no key to preserve, so it takes a
-    JSON-encoded one under its own namespace, for the reason `_chart_event_key` gives one level down: the
-    parts are scout-authored free text, so joined on a separator a note of `x|<the chart key>` on a
-    chartless edit would key the same as a note of `x` on an edit appending that chart, and ingestion
-    would drop the second. The namespace literal still reads `_charted` because charts were the first
-    shape to take this branch and its hashes are already in ingestion; renaming it would re-key them."""
+    An edit carrying charts, suggested prompts, or appended evidence is a new shape with no key to
+    preserve, so it takes a JSON-encoded one under its own namespace, for the reason `_chart_event_key`
+    gives one level down: the parts are scout-authored free text, so joined on a separator a note of
+    `x|<the chart key>` on a chartless edit would key the same as a note of `x` on an edit appending
+    that chart, and ingestion would drop the second. The namespace literal still reads `_charted`
+    because charts were the first shape to take this branch and its hashes are already in ingestion;
+    renaming it would re-key them."""
     if structured:
         key = json.dumps(["" if part is None else str(part) for part in parts], separators=(",", ":"))
         return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report_charted:{key}"))
@@ -979,6 +1004,7 @@ def _capture_report_edited(
     title: str | None,
     summary: str | None,
     note: str | None,
+    evidence: Sequence[ScoutReportSignal] | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
     suggested_prompts: list[str] | None = None,
@@ -1003,6 +1029,7 @@ def _capture_report_edited(
         "report_id": result.report_id,
         "updated_fields": result.updated_fields,
         "note_appended": result.note_appended,
+        "evidence_appended": result.evidence_appended,
         "reviewers_set": result.reviewers_set,
         "charts_set": result.charts_set,
         "suggested_prompts_set": result.suggested_prompts_set,
@@ -1032,6 +1059,18 @@ def _capture_report_edited(
     parts: list[object] = ["edit", run.id, result.report_id, sorted(result.updated_fields), title, summary, note]
     if result.reviewers_set and suggested_reviewers:
         parts.append(",".join(sorted(f"{r.github_login or ''}:{r.user_uuid or ''}" for r in suggested_reviewers)))
+    # Evidence is a valid sole input too, so two evidence-only edits to one report in a run share
+    # every other part and would hash identically. Key on the observations, and field-tag the part so
+    # an empty encoding can't collide with another field's, for the reasons the prompts part below
+    # gives. A genuinely identical re-send still hashes the same and stays one event, like the charts.
+    #
+    # `source_id` and `weight` ride in the key with the description, because the same prose recorded
+    # under two source ids is two distinct rows on the report. Keyed on the description alone, the
+    # second append hashes like the first and ingestion drops its event.
+    appended_evidence = evidence if result.evidence_appended and evidence else None
+    if appended_evidence:
+        observations = [[signal.description, signal.source_id, signal.weight] for signal in appended_evidence]
+        parts.append(f"evidence:{json.dumps(observations, separators=(',', ':'))}")
     # Charts are a valid *sole* input to an edit, so the same reasoning applies: two chart-only edits to
     # one report in a run carry no updated_fields and no title/summary/note, and would hash identically —
     # ingestion would collapse the second and the team would never see that chart land. Key on the charts
@@ -1063,7 +1102,10 @@ def _capture_report_edited(
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
-        event_uuid=_report_event_uuid(*parts, structured=charts is not None or suggested_prompts is not None),
+        event_uuid=_report_event_uuid(
+            *parts,
+            structured=charts is not None or suggested_prompts is not None or appended_evidence is not None,
+        ),
         properties=properties,
     )
 
@@ -1358,6 +1400,7 @@ def _do_edit_report(
     title: str | None,
     summary: str | None,
     append_note: str | None,
+    append_evidence: list[ScoutReportSignal] | None,
     reviewers: SuggestedReviewers | None,
     charts: list[ReportChart] | None,
     suggested_prompts: list[str] | None,
@@ -1376,6 +1419,7 @@ def _do_edit_report(
     attribution = _attribution_for(_resolve_task_id(run))
     updated_fields: list[str] = []
     note_appended = False
+    evidence_document_ids: list[str] = []
     charts_changed = False
     prompts_changed = False
     # One edit is one transaction, so a rejection part-way through takes the whole edit with it
@@ -1431,6 +1475,16 @@ def _do_edit_report(
                 team_id=team.id, report_id=report_id, note=append_note, attribution=attribution, author=run.skill_name
             )
             note_appended = True
+        # Additive, unlike the charts and prompts below: appended observations join the report's
+        # existing evidence rail rather than replacing it, which is why the field is named for it.
+        if append_evidence:
+            evidence_document_ids = append_report_evidence(
+                team_id=team.id,
+                report_id=report_id,
+                signals=append_evidence,
+                attribution=attribution,
+                author=run.skill_name,
+            )
         # Replace the report's charts, the way a summary rewrite replaces the summary. Omitting the
         # field leaves the existing ones alone, so an edit that only appends a note keeps them; an
         # explicit empty list takes them down.
@@ -1454,8 +1508,11 @@ def _do_edit_report(
             )
     charts_set = len(charts) if charts is not None and charts_changed else None
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
+    evidence_appended = len(evidence_document_ids)
     changed = (
-        bool(updated_fields or note_appended or reviewers_set) or charts_set is not None or prompts_set is not None
+        bool(updated_fields or note_appended or reviewers_set or evidence_appended)
+        or charts_set is not None
+        or prompts_set is not None
     )
     # Enqueue the edited report's Slack delivery as the first post-commit step — before the slower
     # side effects below (repository inference, autostart) and the tally writes further down. An
@@ -1488,20 +1545,32 @@ def _do_edit_report(
         # touched only them has nothing to say in the channel — delivering it would post the report
         # a second time byte for byte.
         prompts_only = prompts_set is not None and not (
-            updated_fields or note_appended or reviewers_set or charts_set is not None
+            updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None
         )
         if report_status is not None and _surfaced(report_status) and not prompts_only:
-            # A note-only edit leaves the title, summary and charts the Slack report message shows
-            # unchanged, so re-posting it would duplicate the message already in the channel.
-            # Deliver the note itself instead; any edit that rewrote the content re-posts the
-            # report as before.
-            note_only = note_appended and not updated_fields and not charts_changed
+            # An edit that only added a note or evidence leaves the title, summary and charts the
+            # Slack report message shows unchanged, so re-posting it would duplicate the message
+            # already in the channel. Deliver the addition itself instead; any edit that rewrote the
+            # content re-posts the report as before.
+            note_only = (note_appended or evidence_appended) and not updated_fields and not charts_changed
             queue_configured_scout_slack_delivery(
                 run_id=run.id,
                 output_type="report",
                 output_id=report_id,
-                edit_note=append_note if note_only else None,
+                edit_note=_edit_update_text(append_note, append_evidence) if note_only else None,
             )
+    # After the commit, never inside it: a rolled-back edit must not leave signal rows bound to the
+    # report. After the delivery claim above too, so the evidence emits don't widen the window in
+    # which a prior in-flight delivery can post this edit a second time. A broker failure surfaces to
+    # the caller (the counters moved, so the caller has to know the rows did not land).
+    if evidence_document_ids:
+        emit_appended_report_evidence(
+            team_id=team.id,
+            report_id=report_id,
+            signals=append_evidence or [],
+            document_ids=evidence_document_ids,
+            skill_name=run.skill_name,
+        )
     # A rewrite can move the report onto a different repository, and an inferred target is only ever a
     # reading of that text. Outside the transaction above for the same reason autostart is: it reads
     # the team's GitHub repo cache, which has no business holding the content write open.
@@ -1547,6 +1616,7 @@ def _do_edit_report(
             "report_id": report_id,
             "fields": updated_fields,
             "note": note_appended,
+            "evidence_appended": evidence_appended,
             "reviewers_set": reviewers_set,
             "charts_set": charts_set,
             "suggested_prompts_set": prompts_set,
@@ -1570,6 +1640,7 @@ def _do_edit_report(
         report_id=report_id,
         updated_fields=updated_fields,
         note_appended=note_appended,
+        evidence_appended=evidence_appended,
         reviewers_set=reviewers_set,
         charts_set=charts_set,
         suggested_prompts_set=prompts_set,
@@ -1578,7 +1649,7 @@ def _do_edit_report(
     return result
 
 
-def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str) -> None:
+def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str, appended_evidence: int = 0) -> None:
     """The emit preflight gates, applied to an edit. Shared by the entrypoints (which must gate
     before spending the safety-judge LLM call) and `_do_edit_report` (so a future caller that skips
     the entrypoints still fails closed)."""
@@ -1601,6 +1672,16 @@ def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str) -> None:
     # Cost gate only, owned by the scout_report service like every other report read.
     if not scout_report_exists(team_id=team.id, report_id=report_id):
         raise InvalidScoutReportError(f"report {report_id} not found for team {team.id}")
+    # The report's own cap, applied before the judge for the reason the emit cap is: an append that
+    # the write would reject must not pay for an LLM call first. `append_report_evidence` re-checks it
+    # under the report lock, which is what actually holds against a concurrent append.
+    if appended_evidence:
+        stored = get_scout_report_signal_count(team_id=team.id, report_id=report_id) or 0
+        if stored + appended_evidence > MAX_REPORT_SIGNALS:
+            raise InvalidScoutReportError(
+                f"report {report_id} holds {stored} signals; appending {appended_evidence} "
+                f"exceeds the {MAX_REPORT_SIGNALS} cap"
+            )
 
 
 def _raise_if_unsafe_edit(safety: SafetyJudgment) -> None:
@@ -1615,26 +1696,47 @@ def _raise_if_unsafe_edit(safety: SafetyJudgment) -> None:
 
 
 def _validate_edit_inputs(
-    team: Team, run: SignalScoutRun, title, summary, append_note, suggested_reviewers, charts, suggested_prompts
+    team: Team,
+    run: SignalScoutRun,
+    title,
+    summary,
+    append_note,
+    append_evidence,
+    suggested_reviewers,
+    charts,
+    suggested_prompts,
 ) -> None:
     _assert_team_owns_run(team, run)
     if summary is not None and len(summary) > MAX_REPORT_SUMMARY_LENGTH:
         raise InvalidScoutReportError(f"summary exceeds {MAX_REPORT_SUMMARY_LENGTH} chars ({len(summary)})")
     if append_note is not None and len(append_note) > MAX_NOTE_CONTENT_LENGTH:
         raise InvalidScoutReportError(f"note exceeds {MAX_NOTE_CONTENT_LENGTH} chars ({len(append_note)})")
+    if append_evidence:
+        if len(append_evidence) > MAX_REPORT_SIGNALS:
+            raise InvalidScoutReportError(
+                f"edit_report accepts at most {MAX_REPORT_SIGNALS} evidence items ({len(append_evidence)})"
+            )
+        for item in append_evidence:
+            if not item.description.strip():
+                raise InvalidScoutReportError("evidence description must not be empty")
+            if len(item.description) > MAX_EVIDENCE_DESCRIPTION_LENGTH:
+                raise InvalidScoutReportError(
+                    f"evidence description exceeds {MAX_EVIDENCE_DESCRIPTION_LENGTH} chars ({len(item.description)})"
+                )
     # `charts` / `suggested_prompts` are checked against None rather than falsiness: an explicit
     # empty list clears them, so a clear-only edit is a real edit and must not be rejected as empty.
     if (
         title is None
         and summary is None
         and append_note is None
+        and not append_evidence
         and not suggested_reviewers
         and charts is None
         and suggested_prompts is None
     ):
         raise InvalidScoutReportError(
-            "edit_report needs at least one of title, summary, append_note, suggested_reviewers, "
-            "charts, suggested_prompts"
+            "edit_report needs at least one of title, summary, append_note, append_evidence, "
+            "suggested_reviewers, charts, suggested_prompts"
         )
 
 
@@ -1646,22 +1748,29 @@ async def edit_report(
     title: str | None = None,
     summary: str | None = None,
     append_note: str | None = None,
+    append_evidence: list[ReportEvidence] | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
     suggested_prompts: list[str] | None = None,
 ) -> EditReportResult:
-    """Edit an existing inbox report: rewrite title/summary, append a note, and/or set suggested
-    reviewers (which re-runs autostart so a report missing a qualifying reviewer can open a draft PR).
+    """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, and/or
+    set suggested reviewers (which re-runs autostart so a report missing a qualifying reviewer can
+    open a draft PR).
     Team-scoped fail-closed in the service. Async entry; runs the sync edit core in the thread pool.
 
     Content-changing edits pass the same safety judge as `emit_report` before anything is written
     (see `_raise_if_unsafe_edit`); an unsafe edit is rejected whole and the report keeps what it
     had."""
-    _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers, charts, suggested_prompts)
+    _validate_edit_inputs(
+        team, run, title, summary, append_note, append_evidence, suggested_reviewers, charts, suggested_prompts
+    )
+    built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
-    await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(team, run, report_id)
+    await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(
+        team, run, report_id, len(built_evidence or [])
+    )
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
     # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
     built_reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
@@ -1673,6 +1782,7 @@ async def edit_report(
             title=title,
             summary=summary,
             note=append_note,
+            signals=built_evidence or (),
             charts=built_charts or (),
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
@@ -1685,6 +1795,7 @@ async def edit_report(
         title=title,
         summary=summary,
         append_note=append_note,
+        append_evidence=built_evidence,
         reviewers=built_reviewers,
         charts=built_charts,
         suggested_prompts=built_prompts,
@@ -1696,6 +1807,7 @@ async def edit_report(
         title=title,
         summary=summary,
         note=append_note,
+        evidence=built_evidence,
         suggested_reviewers=suggested_reviewers,
         charts=charts,
         suggested_prompts=suggested_prompts,
@@ -1712,16 +1824,20 @@ def edit_report_sync(
     title: str | None = None,
     summary: str | None = None,
     append_note: str | None = None,
+    append_evidence: list[ReportEvidence] | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
     suggested_prompts: list[str] | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
-    _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers, charts, suggested_prompts)
+    _validate_edit_inputs(
+        team, run, title, summary, append_note, append_evidence, suggested_reviewers, charts, suggested_prompts
+    )
+    built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
-    _assert_edit_gates(team, run, report_id)
+    _assert_edit_gates(team, run, report_id, len(built_evidence or []))
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
     # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
     built_reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
@@ -1731,6 +1847,7 @@ def edit_report_sync(
             title=title,
             summary=summary,
             note=append_note,
+            signals=built_evidence or (),
             charts=built_charts or (),
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
@@ -1743,6 +1860,7 @@ def edit_report_sync(
         title=title,
         summary=summary,
         append_note=append_note,
+        append_evidence=built_evidence,
         reviewers=built_reviewers,
         charts=built_charts,
         suggested_prompts=built_prompts,
@@ -1754,6 +1872,7 @@ def edit_report_sync(
         title=title,
         summary=summary,
         note=append_note,
+        evidence=built_evidence,
         suggested_reviewers=suggested_reviewers,
         charts=charts,
         suggested_prompts=suggested_prompts,

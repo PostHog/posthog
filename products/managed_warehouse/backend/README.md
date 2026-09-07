@@ -71,6 +71,8 @@ To retry specific failures, select failed or stale rows in `Managed warehouse vi
 
 The manual trigger is deliberately separate from provisioning. A future provisioning trigger should call the same job starter instead of adding compilation to the provisioning request path.
 
+Data modeling shadow materialization starts only when its feature flag is enabled, the managed warehouse is provisioned, the organization has a ready Trino target, and the saved query has a compiled translation for its current definition. Missing, failed, stale, or empty translations keep the shadow path disabled.
+
 ## Environment variables
 
 The workflow obtains its DuckLake configuration from the following environment variables:
@@ -174,10 +176,10 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
    Run `hogli start` (or `bin/start`) so Postgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-modeling-copy-workflow` feature flag is enabled for the team you plan to use.
 
 2. **Trigger a model materialization from the app**
-   In the PostHog UI, open Data Warehouse → Views, pick (or create) a view, open the Materialization section, enable it if needed, and click **Sync now**. This schedules the `data-modeling-run` workflow for that team/view.
+   In the PostHog UI, open Data Warehouse → Views, pick (or create) a view, open the Materialization section, enable it if needed, and click **Sync now**. This starts a `data-modeling-materialize-view` workflow for that view's DAG node.
 
 3. **Observe the data-modeling workflow**
-   Visit the Temporal UI at `http://localhost:8081/namespaces/default/workflows` and confirm a `data-modeling-run` execution appears. Wait for it to finish successfully.
+   Visit the Temporal UI at `http://localhost:8081/namespaces/default/workflows` and confirm a `materialize-view-{node_id}` execution appears. Wait for it to finish successfully.
 
 4. **Verify the DuckLake copy workflow runs**
    Once the modeling workflow completes it automatically starts `ducklake-copy.data-modeling` as a child run. You should see it listed in the same Temporal UI; wait for the run to complete.

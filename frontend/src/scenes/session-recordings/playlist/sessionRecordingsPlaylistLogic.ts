@@ -461,8 +461,12 @@ export interface SessionRecordingPlaylistLogicProps {
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
-    /** Called with each freshly loaded page of recordings (not the accumulated list). */
-    onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
+    /**
+     * Called with each freshly loaded page of recordings (not the accumulated list). `isFirstPage`
+     * is false for the pages scrolling adds on either end, so a host page can tell the list it
+     * first rendered from the ones paging appended to it.
+     */
+    onRecordingsLoaded?: (recordings: SessionRecordingType[], isFirstPage: boolean) => void
     /**
      * Called once each time the recording the player shows changes — clicked, played next,
      * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
@@ -473,6 +477,17 @@ export interface SessionRecordingPlaylistLogicProps {
     pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
+}
+
+/**
+ * The most recent recordings list request this logic issued. `promise` is dropped once the response
+ * lands, so only a live request can be waited on, while `selectedRecordingId` outlives it and
+ * records which recording the server was already asked to include.
+ */
+interface IssuedListRequest {
+    key: string
+    selectedRecordingId: RecordingsQuery['session_recording_id']
+    promise: Promise<RecordingsQueryResponse> | undefined
 }
 
 const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
@@ -544,11 +559,21 @@ export interface sessionRecordingsPlaylistLogicActions {
         loadTime: number,
         filters: RecordingUniversalFilters,
         defaultDurationFilter: RecordingDurationFilter,
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        },
         source?: string | undefined
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        }
         source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
@@ -651,9 +676,11 @@ export interface sessionRecordingsPlaylistLogicActions {
     }
     loadSessionRecordings: (
         direction?: 'newer' | 'older',
-        userModifiedFilters?: Record<string, any>
+        userModifiedFilters?: Record<string, any>,
+        forceRefetch?: boolean
     ) => {
         direction: 'newer' | 'older' | undefined
+        forceRefetch: boolean | undefined
         userModifiedFilters: Record<string, any> | undefined
     }
     loadSessionRecordingsFailure: (
@@ -686,6 +713,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         },
         payload?: {
             direction: 'newer' | 'older' | undefined
+            forceRefetch: boolean | undefined
             userModifiedFilters: Record<string, any> | undefined
         }
     ) => {
@@ -711,6 +739,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         }
         payload?: {
             direction: 'newer' | 'older' | undefined
+            forceRefetch: boolean | undefined
             userModifiedFilters: Record<string, any> | undefined
         }
     }
@@ -883,9 +912,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
+        loadSessionRecordings: (
+            direction?: 'newer' | 'older',
+            userModifiedFilters?: Record<string, any>,
+            /** Issue the request even when an identical one is already in flight. */
+            forceRefetch?: boolean
+        ) => ({
             direction,
             userModifiedFilters,
+            forceRefetch,
         }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
@@ -922,7 +957,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
     }),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values, actions, cache }) => ({
         eventsHaveSessionId: [
             {} as Record<string, boolean>,
             {
@@ -956,7 +991,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 order_direction: RecordingsQuery['order_direction']
             },
             {
-                loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
+                loadSessionRecordings: async ({ direction, userModifiedFilters, forceRefetch }, breakpoint) => {
                     // Captured before the awaits: `values` reads throw if this logic unmounts
                     // mid-flight, and the fetch report must carry the filters the request was
                     // built from, not whatever they are once the response lands.
@@ -1005,18 +1040,62 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         params.after = undefined
                     }
 
-                    await breakpoint(400) // Debounce for lots of quick filter changes
+                    // Each list request is a full ClickHouse read, so two identical ones in flight
+                    // read the same rows twice. The debounce below cannot prevent the second: it
+                    // discards the earlier *result*, but a request already past it has reached the
+                    // server, and cancellation does not reach the query layer. So a request that
+                    // matches one in flight waits for that response instead of issuing its own.
+                    // The comparison ignores `user_modified_filters` because the server only feeds
+                    // it to an analytics event, so it does not change which rows are read.
+                    const requestKey = JSON.stringify({ ...params, user_modified_filters: undefined })
+                    const lastRequest: IssuedListRequest | undefined = cache.listRequest
+                    const requestInFlight =
+                        !forceRefetch && lastRequest && lastRequest.key === requestKey ? lastRequest.promise : undefined
 
-                    const startTime = performance.now()
-                    const response = await api.recordings.list(params)
-                    const loadTimeMs = performance.now() - startTime
+                    let response: RecordingsQueryResponse
+                    if (requestInFlight) {
+                        // This call issued no request, so it has no fetch to report. The call that
+                        // did issue it reports the one read both calls answer from.
+                        response = await requestInFlight
+                    } else {
+                        await breakpoint(400) // Debounce for lots of quick filter changes
 
-                    actions.reportRecordingsListFetched(
-                        loadTimeMs,
-                        filters,
-                        defaultRecordingDurationFilter,
-                        props.analyticsSource
-                    )
+                        const promise = api.recordings.list(params)
+                        const request: IssuedListRequest = {
+                            key: requestKey,
+                            selectedRecordingId: params.session_recording_id,
+                            promise,
+                        }
+                        cache.listRequest = request
+
+                        const startTime = performance.now()
+                        try {
+                            response = await promise
+                        } catch (e) {
+                            // A read that failed says nothing about what the server holds, so drop
+                            // the entry and let the next request for these parameters go out.
+                            if (cache.listRequest === request) {
+                                cache.listRequest = undefined
+                            }
+                            throw e
+                        }
+                        // The response is here, so nothing can wait on this request any more. The
+                        // entry stays, because it records the recording the server was asked for.
+                        request.promise = undefined
+                        const loadTimeMs = performance.now() - startTime
+
+                        actions.reportRecordingsListFetched(
+                            loadTimeMs,
+                            filters,
+                            defaultRecordingDurationFilter,
+                            {
+                                resultCount: response.results.length,
+                                hasNext: response.has_next,
+                                isFirstPage: !direction,
+                            },
+                            props.analyticsSource
+                        )
+                    }
 
                     // Must run after the fetch report (superseded and abandoned fetches still
                     // count toward load-time metrics) and before the `values` reads below
@@ -1045,6 +1124,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             limit: 30,
                             order: '-last_modified_at',
                             type: 'collection',
+                            // Built-in collections can't be added to, so keep them out of the list.
+                            collection_type: 'custom',
                             search: values.addToCollectionSearch || undefined,
                         })
                     )
@@ -1301,7 +1382,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             loadAllRecordings: () => {
-                actions.loadSessionRecordings()
+                // The manual refresh asks for fresh rows, so it re-reads even when an identical
+                // request is in flight.
+                actions.loadSessionRecordings(undefined, undefined, true)
                 actions.loadPinnedRecordings()
             },
             setFilters: ({ filters }) => {
@@ -1502,9 +1585,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings(direction)
             },
 
-            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse }) => {
+            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse, payload }) => {
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
-                props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
+                // A load without a direction replaces the list rather than paging it, the same
+                // reading the `sessionRecordings` reducer takes.
+                props.onRecordingsLoaded?.(sessionRecordingsResponse.results, !payload?.direction)
                 pruneSelectedRecordingsIds()
                 notifyRecordingSelected()
             },
@@ -1524,9 +1609,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
 
-                // If recording not found in current list, reload with the new selected recording
-                // The backend will automatically include it via session_recording_id parameter
-                if (recordingIndex === -1 && values.selectedRecordingId) {
+                // A recording the list does not hold needs a request carrying session_recording_id,
+                // which makes the server include it. Once a request asked for this recording, a
+                // second one reads the whole first page again and adds nothing: that request is
+                // either still in flight, or it already answered without the recording.
+                const lastRequest: IssuedListRequest | undefined = cache.listRequest
+                if (
+                    recordingIndex === -1 &&
+                    values.selectedRecordingId &&
+                    lastRequest?.selectedRecordingId !== values.selectedRecordingId
+                ) {
                     actions.loadSessionRecordings()
                 }
 
@@ -1551,25 +1643,32 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings()
             },
             handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
+                const requestedCount = values.selectedRecordingsIds.length
+                let addedCount = 0
                 await lemonToast.promise(
                     (async () => {
-                        try {
-                            await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
-                            actions.setSelectedRecordingsIds([])
-
-                            // Reload the playlist to show the new recordings
-                            handleLoadCollectionRecordings(short_id)
-                        } catch (e) {
-                            posthog.captureException(e)
+                        const result = await api.recordings
+                            .bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
+                            .catch((e) => {
+                                // Report real API or network failures; rethrow so the toast still shows its error state.
+                                posthog.captureException(e)
+                                throw e
+                            })
+                        // The endpoint answers 200 even when it saved nothing, so trust added_count.
+                        if (result.added_count === 0) {
+                            throw new Error('No recordings were added to the collection')
                         }
+                        addedCount = result.added_count
+                        actions.setSelectedRecordingsIds([])
+
+                        // Reload the playlist to show the new recordings
+                        handleLoadCollectionRecordings(short_id)
                     })(),
                     {
-                        success: `${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
-                        } added to collection!`,
+                        success: () => `${addedCount} recording${addedCount > 1 ? 's' : ''} added to collection!`,
                         error: 'Failed to add to collection!',
-                        pending: `Adding ${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        pending: `Adding ${requestedCount} recording${
+                            requestedCount > 1 ? 's' : ''
                         } to the collection...`,
                     },
                     {
@@ -1683,7 +1782,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             if (shortId) {
                                 handleLoadCollectionRecordings(shortId)
                             } else {
-                                actions.loadSessionRecordings()
+                                // The request parameters do not change here, but the rows the server
+                                // returns do, so re-read even when an identical request is in flight.
+                                actions.loadSessionRecordings(undefined, undefined, true)
                             }
                         } catch (e) {
                             posthog.captureException(e)
@@ -1711,7 +1812,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             if (shortId) {
                                 handleLoadCollectionRecordings(shortId)
                             } else {
-                                actions.loadSessionRecordings()
+                                // The request parameters do not change here, but the rows the server
+                                // returns do, so re-read even when an identical request is in flight.
+                                actions.loadSessionRecordings(undefined, undefined, true)
                             }
                         } catch (e) {
                             posthog.captureException(e)

@@ -1,4 +1,8 @@
-"""Celery tasks for the conversations product."""
+"""Celery tasks for the conversations product.
+
+Task names are pinned to this module path so queued messages and Beat entries
+keep the same identity after this file is split.
+"""
 
 import html as html_mod
 import json
@@ -125,7 +129,12 @@ def is_duplicate_teams_event(activity_id: str) -> bool:
     return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.process_supporthog_event",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id: str | None = None) -> None:
     if event_id and _is_duplicate_supporthog_event(event_id):
@@ -229,7 +238,12 @@ def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts:
         logger.warning("supporthog_interactivity_dismiss_ack_failed", exc_info=True)
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.process_supporthog_interactivity",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str) -> None:
     """Handle a button click from the opt-in "open a ticket?" confirmation prompt."""
@@ -361,7 +375,12 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             return
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.post_reply_to_slack",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def post_reply_to_slack(
     ticket_id: str,
@@ -853,7 +872,10 @@ def _claim_outbox_row(outbox_id: str) -> EmailOutboxMessage | None:
         return outbox
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    name="products.conversations.backend.tasks.send_email_reply",
+    ignore_result=True,
+)
 @skip_team_scope_audit
 def send_email_reply(outbox_id: str) -> None:
     """Attempt one delivery of a queued outbound email reply.
@@ -868,7 +890,10 @@ def send_email_reply(outbox_id: str) -> None:
     _process_outbox_row(outbox)
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    name="products.conversations.backend.tasks.flush_pending_email_replies",
+    ignore_result=True,
+)
 @skip_team_scope_audit
 def flush_pending_email_replies() -> None:
     """Re-drive pending outbound email replies on a schedule.
@@ -908,7 +933,13 @@ def flush_pending_email_replies() -> None:
     logger.info("flush_pending_email_replies_completed", count=len(batch))
 
 
-@shared_task(bind=True, ignore_result=True, max_retries=2, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.send_teams_help",
+    bind=True,
+    ignore_result=True,
+    max_retries=2,
+    default_retry_delay=5,
+)
 def send_teams_help(self, activity: dict[str, Any], reply: bool = False) -> None:
     """Post the help/welcome adaptive card (Teams Store cert 11.4.4.3).
 
@@ -937,7 +968,12 @@ def send_teams_help(self, activity: dict[str, Any], reply: bool = False) -> None
         raise cast(Any, self).retry(exc=Exception("teams_help_card_post_failed"))
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.process_teams_event",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: str = "") -> None:
     """Process an inbound Teams Bot Framework activity."""
@@ -979,7 +1015,12 @@ def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: s
         raise cast(Any, process_teams_event).retry(exc=e)
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.post_reply_to_teams",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def post_reply_to_teams(
     ticket_id: str,
@@ -1053,7 +1094,12 @@ def post_reply_to_teams(
         raise cast(Any, post_reply_to_teams).retry(exc=e)
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.post_reply_to_teams_via_graph",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def post_reply_to_teams_via_graph(
     ticket_id: str,
@@ -1538,7 +1584,10 @@ def _poll_one_shared_channel(
     return surfaced_conversation_ids
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    name="products.conversations.backend.tasks.poll_team_shared_channels",
+    ignore_result=True,
+)
 @skip_team_scope_audit
 def poll_team_shared_channels(team_id: int) -> None:
     """Poll every configured shared channel for one team."""
@@ -1600,7 +1649,10 @@ def poll_team_shared_channels(team_id: int) -> None:
             logger.exception("poll_teams_shared_channel_unexpected", team_id=team_id, channel_id=channel_id)
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    name="products.conversations.backend.tasks.poll_teams_shared_channels",
+    ignore_result=True,
+)
 @skip_team_scope_audit
 def poll_teams_shared_channels() -> None:
     """Fan out per-team shared-channel polling.
@@ -1663,7 +1715,10 @@ def _log_snooze_expired(ticket: Ticket, old_status: str, old_snoozed_until: date
         logger.exception("wake_snoozed_ticket_activity_log_failed", ticket_id=str(ticket.id))
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    name="products.conversations.backend.tasks.wake_snoozed_tickets",
+    ignore_result=True,
+)
 def wake_snoozed_tickets() -> None:
     """Reopen tickets whose snooze period has expired, in batches."""
 
@@ -1780,7 +1835,12 @@ def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, paylo
         raise
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.process_github_event",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def process_github_event(
     event_type: str,
@@ -1959,7 +2019,12 @@ def _handle_github_comment_event(team: Team, repo: str, action: str, payload: di
     )
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.post_reply_to_github",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def post_reply_to_github(
     ticket_id: str,
@@ -2036,7 +2101,12 @@ def post_reply_to_github(
         raise cast(Any, post_reply_to_github).retry(exc=e)
 
 
-@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@shared_task(
+    name="products.conversations.backend.tasks.create_github_issue",
+    ignore_result=True,
+    max_retries=3,
+    default_retry_delay=5,
+)
 @skip_team_scope_audit
 def create_github_issue(
     team_id: int,

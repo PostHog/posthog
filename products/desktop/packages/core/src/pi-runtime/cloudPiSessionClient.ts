@@ -30,6 +30,8 @@ import type { CloudTaskClient } from "../cloud-task/cloudTaskClient";
 import {
   isTerminalStatus,
   progressNotificationParams,
+  type SendCommandInput,
+  type SendCommandOutput,
 } from "../cloud-task/schemas";
 import type {
   PiConversationEventContext,
@@ -126,6 +128,15 @@ function isCompletedCompaction(event: AgentConversationEvent): boolean {
   );
 }
 
+function isNoActiveSandboxError(result: SendCommandOutput): boolean {
+  return (
+    result.success === false &&
+    result.status === 400 &&
+    (result.code === "sandbox_not_ready" ||
+      result.error === "No active sandbox for this task run")
+  );
+}
+
 export interface CloudPiSessionContext {
   taskId: string;
   runId: string;
@@ -157,6 +168,15 @@ export class CloudPiSessionClient implements PiSession {
       this.rejectRuntimeReady = reject;
     },
   );
+  private liveRuntimeStarted = false;
+  private resolveLiveRuntimeStarted: () => void = () => {};
+  private rejectLiveRuntimeStarted: (error: unknown) => void = () => {};
+  private readonly liveRuntimeStartedReceived = new Promise<void>(
+    (resolve, reject) => {
+      this.resolveLiveRuntimeStarted = resolve;
+      this.rejectLiveRuntimeStarted = reject;
+    },
+  );
   private terminalEventSent = false;
   private readonly resolvedExtensionRequestIds = new Set<string>();
   private resolveTerminalStatus: () => void = () => {};
@@ -174,6 +194,7 @@ export class CloudPiSessionClient implements PiSession {
     }
     void this.snapshotReceived.catch(() => {});
     void this.runtimeReadyReceived.catch(() => {});
+    void this.liveRuntimeStartedReceived.catch(() => {});
     this.liveClient = new RemotePiRpcClient({
       request: (command) => this.request(command),
     });
@@ -441,6 +462,7 @@ export class CloudPiSessionClient implements PiSession {
       (update) => this.handleUpdate(update, onEvent, onError, onCloudStatus),
       (error) => {
         this.rejectRuntimeReady(error);
+        this.rejectLiveRuntimeStarted(error);
         if (!this.snapshotReady || isTerminalStatus(this.runStatus)) {
           this.rejectSnapshot(error);
         }
@@ -460,6 +482,7 @@ export class CloudPiSessionClient implements PiSession {
           })
           .catch((error) => {
             this.rejectRuntimeReady(error);
+            this.rejectLiveRuntimeStarted(error);
             if (!this.snapshotReady || isTerminalStatus(this.runStatus)) {
               this.rejectSnapshot(error);
             }
@@ -492,10 +515,15 @@ export class CloudPiSessionClient implements PiSession {
       update.kind === "snapshot" &&
       update.status === "in_progress" &&
       update.sandboxAlive !== false;
-    const hasCurrentReadinessEvent =
-      (update.kind === "logs" || snapshotCanProveReadiness) &&
+    const hasRuntimeStartedEvent =
+      (update.kind === "logs" || update.kind === "snapshot") &&
       update.newEntries.some((entry) => entry.type === "pi_run_started");
-    if (hasCurrentReadinessEvent) {
+    const hasLiveRuntimeStarted =
+      update.kind === "logs" && hasRuntimeStartedEvent;
+    if (hasLiveRuntimeStarted) {
+      this.markLiveRuntimeStarted();
+      this.markRuntimeReady();
+    } else if (snapshotCanProveReadiness && hasRuntimeStartedEvent) {
       this.markRuntimeReady();
     }
 
@@ -505,6 +533,7 @@ export class CloudPiSessionClient implements PiSession {
         retryable: update.retryable,
       });
       this.rejectRuntimeReady(error);
+      this.rejectLiveRuntimeStarted(error);
       if (!this.snapshotReady || isTerminalStatus(this.runStatus)) {
         this.rejectSnapshot(error);
       }
@@ -644,6 +673,9 @@ export class CloudPiSessionClient implements PiSession {
   private normalizeLegacyEvent(
     event: AgentConversationEvent,
   ): AgentConversationEvent {
+    if (event.type === "turn_completed" && event.stopReason === "aborted") {
+      return { ...event, stopReason: "cancelled" };
+    }
     if (
       event.type === "tool_call_started" &&
       event.toolCall.origin === undefined &&
@@ -699,7 +731,7 @@ export class CloudPiSessionClient implements PiSession {
     if (isTerminalStatus(this.runStatus)) {
       return { steering: [], followUp: [] };
     }
-    const result = await this.cloudTaskClient.sendCommand({
+    const result = await this.sendSandboxCommand({
       taskId: this.context.taskId,
       runId: this.context.runId,
       apiHost: this.context.apiHost,
@@ -740,7 +772,7 @@ export class CloudPiSessionClient implements PiSession {
       };
     }
 
-    const result = await this.cloudTaskClient.sendCommand({
+    const result = await this.sendSandboxCommand({
       taskId: this.context.taskId,
       runId: this.context.runId,
       apiHost: this.context.apiHost,
@@ -775,6 +807,22 @@ export class CloudPiSessionClient implements PiSession {
     return result.result;
   }
 
+  private async sendSandboxCommand(
+    input: SendCommandInput,
+  ): Promise<SendCommandOutput> {
+    const result = await this.cloudTaskClient.sendCommand(input);
+    if (isTerminalStatus(this.runStatus) || !isNoActiveSandboxError(result)) {
+      return result;
+    }
+
+    await this.waitForLiveRuntimeStarted();
+    if (isTerminalStatus(this.runStatus)) {
+      return result;
+    }
+
+    return this.cloudTaskClient.sendCommand(input);
+  }
+
   private markSnapshotReady(): void {
     if (this.snapshotReady) {
       return;
@@ -783,12 +831,31 @@ export class CloudPiSessionClient implements PiSession {
     this.resolveSnapshot();
   }
 
+  private markLiveRuntimeStarted(): void {
+    if (this.liveRuntimeStarted) {
+      return;
+    }
+    this.liveRuntimeStarted = true;
+    this.resolveLiveRuntimeStarted();
+  }
+
   private markRuntimeReady(): void {
     if (this.runtimeReady) {
       return;
     }
     this.runtimeReady = true;
     this.resolveRuntimeReady();
+  }
+
+  private async waitForLiveRuntimeStarted(): Promise<void> {
+    if (this.liveRuntimeStarted || isTerminalStatus(this.runStatus)) {
+      return;
+    }
+
+    await Promise.race([
+      this.liveRuntimeStartedReceived,
+      this.terminalStatusReceived,
+    ]);
   }
 
   private async waitForRuntimeReady(): Promise<void> {
