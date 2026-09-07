@@ -7,6 +7,8 @@ import {
     canNudgeToSubscribe,
     coerceDeliveryConfigForScope,
     formatSubscriptionSchedule,
+    getAiSubscriptionDisplayOptionState,
+    getAiSubscriptionDisplaySummary,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     getSubscriptionAdvancedSettings,
@@ -15,6 +17,7 @@ import {
     shouldShowDayPicker,
     targetTypeOptions,
     toggleSelectedDay,
+    updateAiSubscriptionDisplayOption,
 } from './utils'
 
 describe('targetTypeOptions', () => {
@@ -77,6 +80,116 @@ describe('getSubscriptionAdvancedSettings', () => {
                 send_test_now: false,
             })
         ).toEqual(['Automatic AI summary', 'Custom AI summary context', 'No test delivery'])
+    })
+})
+
+describe('AI subscription display options', () => {
+    it.each([
+        ['uses full report for legacy subscriptions with no display flags', undefined, 'Full report'],
+        [
+            'recognizes text only',
+            {
+                include_images: false,
+                include_feedback: false,
+                include_manage_link: false,
+                include_posthog_hint: false,
+            },
+            'Text only',
+        ],
+        [
+            'recognizes text and charts',
+            {
+                include_images: true,
+                include_feedback: false,
+                include_manage_link: false,
+                include_posthog_hint: false,
+            },
+            'Text and charts',
+        ],
+        [
+            'recognizes a custom combination',
+            {
+                include_images: false,
+                include_feedback: true,
+                include_manage_link: false,
+                include_posthog_hint: false,
+            },
+            'Custom',
+        ],
+    ] as const)('%s', (_label, deliveryConfig, expected) => {
+        expect(getAiSubscriptionDisplaySummary(deliveryConfig)).toBe(expected)
+    })
+
+    it.each([
+        ['images', false, { include_images: false }],
+        ['feedback', false, { include_feedback: false }],
+        ['posthog_actions', false, { include_manage_link: false, include_posthog_hint: false }],
+    ] as const)('updates %s without losing unrelated delivery settings', (option, enabled, expectedDisplayConfig) => {
+        expect(
+            updateAiSubscriptionDisplayOption(
+                {
+                    post_all_insights_in_main_message: true,
+                    include_images: true,
+                    include_feedback: true,
+                    include_manage_link: true,
+                    include_posthog_hint: true,
+                },
+                option,
+                enabled
+            )
+        ).toEqual({
+            post_all_insights_in_main_message: true,
+            include_images: true,
+            include_feedback: true,
+            include_manage_link: true,
+            include_posthog_hint: true,
+            ...expectedDisplayConfig,
+        })
+    })
+
+    it('treats different PostHog action flags as a mixed setting', () => {
+        expect(
+            getAiSubscriptionDisplayOptionState(
+                { include_manage_link: true, include_posthog_hint: false },
+                'posthog_actions'
+            )
+        ).toBe('indeterminate')
+    })
+
+    it('treats omitted legacy flags as enabled', () => {
+        expect(getAiSubscriptionDisplayOptionState(undefined, 'images')).toBe(true)
+        expect(getAiSubscriptionDisplayOptionState(undefined, 'feedback')).toBe(true)
+        expect(getAiSubscriptionDisplayOptionState(undefined, 'posthog_actions')).toBe(true)
+    })
+
+    it.each([
+        [
+            'lists the full legacy report',
+            undefined,
+            'AI-written report · Chart images · Feedback buttons · PostHog links and suggestions',
+        ],
+        [
+            'lists text only',
+            {
+                include_images: false,
+                include_feedback: false,
+                include_manage_link: false,
+                include_posthog_hint: false,
+            },
+            'AI-written report only',
+        ],
+        [
+            'lists the exact parts of a mixed API configuration',
+            {
+                include_images: false,
+                include_feedback: true,
+                include_manage_link: true,
+                include_posthog_hint: false,
+            },
+            'AI-written report · Feedback buttons · Manage subscription link',
+        ],
+    ] as const)('%s in the review summary', (_label, deliveryConfig, expected) => {
+        expect(getAiSubscriptionDisplaySummary(deliveryConfig, 'review')).toBe(expected)
     })
 })
 

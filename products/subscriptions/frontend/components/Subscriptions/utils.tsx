@@ -15,9 +15,108 @@ import { InsightShortId, IntegrationType, SubscriptionType, WeekdayType } from '
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 
-import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import {
+    type DeliveryConfigApi,
+    SubscriptionTargetEnumApi,
+    type SubscriptionApi,
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+
+type AiSubscriptionDisplayConfig = Required<
+    Pick<DeliveryConfigApi, 'include_images' | 'include_feedback' | 'include_manage_link' | 'include_posthog_hint'>
+>
+
+function resolveAiSubscriptionDisplayConfig(
+    deliveryConfig: DeliveryConfigApi | null | undefined
+): AiSubscriptionDisplayConfig {
+    return {
+        include_images: deliveryConfig?.include_images ?? true,
+        include_feedback: deliveryConfig?.include_feedback ?? true,
+        include_manage_link: deliveryConfig?.include_manage_link ?? true,
+        include_posthog_hint: deliveryConfig?.include_posthog_hint ?? true,
+    }
+}
+
+export type AiSubscriptionDisplayOption = 'images' | 'feedback' | 'posthog_actions'
+
+function getAiSubscriptionDisplayCompactSummary(resolved: AiSubscriptionDisplayConfig): string {
+    if (Object.values(resolved).every(Boolean)) {
+        return 'Full report'
+    }
+    if (
+        resolved.include_images &&
+        !resolved.include_feedback &&
+        !resolved.include_manage_link &&
+        !resolved.include_posthog_hint
+    ) {
+        return 'Text and charts'
+    }
+    if (!Object.values(resolved).some(Boolean)) {
+        return 'Text only'
+    }
+    return 'Custom'
+}
+
+function getAiSubscriptionDisplayReviewSummary(resolved: AiSubscriptionDisplayConfig): string {
+    const includedContent = ['AI-written report']
+    if (resolved.include_images) {
+        includedContent.push('Chart images')
+    }
+    if (resolved.include_feedback) {
+        includedContent.push('Feedback buttons')
+    }
+    if (resolved.include_manage_link && resolved.include_posthog_hint) {
+        includedContent.push('PostHog links and suggestions')
+    } else if (resolved.include_manage_link) {
+        includedContent.push('Manage subscription link')
+    } else if (resolved.include_posthog_hint) {
+        includedContent.push('PostHog suggestions')
+    }
+    return includedContent.length === 1 ? 'AI-written report only' : includedContent.join(' · ')
+}
+
+export function getAiSubscriptionDisplaySummary(
+    deliveryConfig: DeliveryConfigApi | null | undefined,
+    mode: 'compact' | 'review' = 'compact'
+): string {
+    const resolved = resolveAiSubscriptionDisplayConfig(deliveryConfig)
+    return mode === 'review'
+        ? getAiSubscriptionDisplayReviewSummary(resolved)
+        : getAiSubscriptionDisplayCompactSummary(resolved)
+}
+
+export function getAiSubscriptionDisplayOptionState(
+    deliveryConfig: DeliveryConfigApi | null | undefined,
+    option: AiSubscriptionDisplayOption
+): boolean | 'indeterminate' {
+    const resolved = resolveAiSubscriptionDisplayConfig(deliveryConfig)
+
+    if (option === 'images') {
+        return resolved.include_images
+    }
+    if (option === 'feedback') {
+        return resolved.include_feedback
+    }
+    if (resolved.include_manage_link !== resolved.include_posthog_hint) {
+        return 'indeterminate'
+    }
+    return resolved.include_manage_link
+}
+
+export function updateAiSubscriptionDisplayOption(
+    deliveryConfig: DeliveryConfigApi | null | undefined,
+    option: AiSubscriptionDisplayOption,
+    enabled: boolean
+): DeliveryConfigApi {
+    if (option === 'images') {
+        return { ...deliveryConfig, include_images: enabled }
+    }
+    if (option === 'feedback') {
+        return { ...deliveryConfig, include_feedback: enabled }
+    }
+    return { ...deliveryConfig, include_manage_link: enabled, include_posthog_hint: enabled }
+}
 
 export function requestSubscriptionWizardCancellation({
     onCancel,

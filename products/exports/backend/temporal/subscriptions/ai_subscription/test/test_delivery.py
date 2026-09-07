@@ -211,6 +211,7 @@ def _mock_subscription() -> MagicMock:
     sub.url = _SUBSCRIPTION_URL
     sub.team_id = 1
     sub.id = 2
+    sub.delivery_config = {}
     return sub
 
 
@@ -340,6 +341,46 @@ class TestBuildAISlackMessage:
             for block in thread_msg["blocks"]:
                 assert block["text"]["text"].strip(), "thread section text must be non-empty"
 
+    def test_minimal_delivery_keeps_only_the_title_and_report(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": False,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+
+        message = _build_ai_slack_message(
+            subscription,
+            "A short report.",
+            delivery_id=_DELIVERY_ID,
+            integration=_mock_integration(REQUIRED_SLACK_SCOPES),
+            charts=[_CHART],
+        )
+
+        assert [block["type"] for block in message.blocks] == ["section", "section"]
+        assert message.blocks[1]["text"]["text"] == "A short report."
+
+    def test_with_images_delivery_keeps_charts_without_posthog_controls(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": True,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+
+        message = _build_ai_slack_message(
+            subscription,
+            "A short report.",
+            delivery_id=_DELIVERY_ID,
+            integration=_mock_integration(REQUIRED_SLACK_SCOPES),
+            charts=[_CHART],
+        )
+
+        assert [block["type"] for block in message.blocks] == ["section", "section", "image"]
+        assert message.blocks[2]["image_url"] == _CHART["image_url"]
+
 
 class TestBuildAITeamsCard:
     def _body(self, markdown: str) -> list[dict]:
@@ -382,6 +423,40 @@ class TestBuildAITeamsCard:
         body = card["attachments"][0]["content"]["body"]
 
         assert body[0]["text"] == "**Open report**"
+
+    def test_minimal_delivery_removes_feedback_and_manage_action(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": False,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+
+        card = build_ai_teams_card(subscription, "A short report.", delivery_id=_DELIVERY_ID)
+        content = card["attachments"][0]["content"]
+
+        assert "Was this report useful?" not in str(content["body"])
+        assert content["actions"] == []
+
+    def test_minimal_delivery_shortening_notice_has_no_posthog_link(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": False,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+
+        card = build_ai_teams_card(
+            subscription,
+            "\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)),
+            delivery_id=_DELIVERY_ID,
+        )
+        content = card["attachments"][0]["content"]
+
+        assert "This report was shortened to fit." in str(content["body"])
+        assert "Read all of it in PostHog" not in str(content["body"])
 
 
 def _mock_integration(scopes: frozenset[str]) -> MagicMock:
@@ -472,6 +547,44 @@ class TestFeedbackFooter:
         # `ai_report_clicked` from it, the report-engagement signal.
         context = self._send_email_and_get_context()
         assert f"&delivery={_DELIVERY_ID}" in context["subscription_url"]
+
+    def test_minimal_email_keeps_unsubscribe_without_images_or_posthog_controls(self) -> None:
+        subscription = _mock_subscription()
+        subscription.delivery_config = {
+            "include_images": False,
+            "include_feedback": False,
+            "include_manage_link": False,
+            "include_posthog_hint": False,
+        }
+        with (
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
+            ) as email_message,
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.get_unsubscribe_token",
+                return_value="tok",
+            ),
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.raise_if_delivery_rejected"
+            ),
+        ):
+            send_email_ai_subscription_report(
+                email="a@b.com",
+                subscription=subscription,
+                markdown="Report body",
+                delivery_run_id="run-1",
+                delivery_id=_DELIVERY_ID,
+                charts=[_CHART],
+            )
+
+        html = render_to_string("email/ai_subscription_report.html", email_message.call_args.kwargs["template_context"])
+
+        assert "Report body" in html
+        assert _CHART["image_url"] not in html
+        assert "Manage subscription" not in html
+        assert "Was this report useful?" not in html
+        assert "Unsubscribe from this report" in html
+        assert "Unsubscribe from this report" in html
 
 
 class TestPersistAiQueryPlanRaceGuard(APIBaseTest):

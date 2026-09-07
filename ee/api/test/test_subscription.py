@@ -3412,6 +3412,39 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "ai_prompt_config" in str(response.json()), response.json()
 
+    def test_ai_delivery_display_flags_round_trip_independently(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        display_flags = {
+            "include_images": True,
+            "include_feedback": False,
+            "include_manage_link": True,
+            "include_posthog_hint": False,
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config=display_flags),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        expected_config = {"post_all_insights_in_main_message": False, **display_flags}
+        assert response.json()["delivery_config"] == expected_config
+        subscription = Subscription.objects.get(id=response.json()["id"])
+        assert subscription.delivery_config == expected_config
+
+    def test_ai_delivery_display_flags_are_rejected_for_insight_subscriptions(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ):
+        self._mock_temporal(mock_sync)
+        payload = self._insight_payload()
+        payload["delivery_config"] = {"include_images": False}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "only supported for prompt subscriptions" in str(response.json())
+
 
 class TestSubscriptionObjectAccessControl(APILicensedTest):
     def setUp(self):

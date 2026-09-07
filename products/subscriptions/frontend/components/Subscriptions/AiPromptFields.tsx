@@ -4,14 +4,23 @@ import { IconLineGraph, IconPulse, IconTrending, IconWarning } from '@posthog/ic
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
 
-import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { AIWindowConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import {
+    type AiSubscriptionDisplayOption,
+    getAiSubscriptionDisplayOptionState,
+    getAiSubscriptionDisplaySummary,
+    updateAiSubscriptionDisplayOption,
+} from './utils'
 
 export function AiPromptSubscriptionIntroduction(): JSX.Element {
     return (
@@ -76,6 +85,24 @@ const AI_WINDOW_MODE_OPTIONS = [
                 <span className="text-xs text-secondary">An explicit historical range, e.g. 14 to 7 days ago</span>
             </div>
         ),
+    },
+]
+
+const AI_DISPLAY_OPTIONS: { option: AiSubscriptionDisplayOption; label: string; description: string }[] = [
+    {
+        option: 'images',
+        label: 'Chart images',
+        description: 'Include chart images when the report generates them.',
+    },
+    {
+        option: 'feedback',
+        label: 'Feedback buttons',
+        description: 'Ask recipients whether the report was useful.',
+    },
+    {
+        option: 'posthog_actions',
+        label: 'PostHog links and suggestions',
+        description: 'Include ways to manage the subscription and keep exploring in PostHog.',
     },
 ]
 
@@ -198,6 +225,83 @@ export function AiPromptFields({
                     </LemonField>
                 </div>
             ) : null}
+            <LemonField name="delivery_config">
+                {({ value, onChange }) => {
+                    const deliveryConfig = value as DeliveryConfigApi | undefined
+                    const displaySummary = getAiSubscriptionDisplaySummary(deliveryConfig)
+                    const posthogActionsState = getAiSubscriptionDisplayOptionState(deliveryConfig, 'posthog_actions')
+
+                    return (
+                        <LemonCollapse
+                            className="bg-bg-light"
+                            panels={[
+                                {
+                                    key: 'advanced',
+                                    header: {
+                                        children: (
+                                            <div className="flex min-w-0 w-full items-start justify-between gap-2 py-1">
+                                                <div className="min-w-0">
+                                                    <div className="font-semibold">Advanced options</div>
+                                                    <div className="text-secondary text-sm font-normal">
+                                                        Choose optional content included in each delivery.
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0 text-secondary text-sm font-normal">
+                                                    {displaySummary}
+                                                </div>
+                                            </div>
+                                        ),
+                                    },
+                                    content: (
+                                        <div className="flex flex-col gap-2">
+                                            <p className="text-secondary text-sm mb-1">
+                                                The report title and AI-written answer are always included.
+                                            </p>
+                                            {AI_DISPLAY_OPTIONS.map(({ option, label, description }) => {
+                                                const state = getAiSubscriptionDisplayOptionState(
+                                                    deliveryConfig,
+                                                    option
+                                                )
+
+                                                return (
+                                                    <LemonSwitch
+                                                        key={option}
+                                                        checked={state}
+                                                        onChange={(enabled) =>
+                                                            onChange(
+                                                                updateAiSubscriptionDisplayOption(
+                                                                    deliveryConfig,
+                                                                    option,
+                                                                    enabled
+                                                                )
+                                                            )
+                                                        }
+                                                        bordered
+                                                        fullWidth
+                                                        data-attr={`ai-subscription-display-${option.replace('_', '-')}`}
+                                                        label={
+                                                            <div className="flex flex-col gap-1 py-1">
+                                                                <div className="leading-tight">{label}</div>
+                                                                <div className="text-xs text-secondary font-normal leading-tight">
+                                                                    {description}
+                                                                    {option === 'posthog_actions' &&
+                                                                    posthogActionsState === 'indeterminate'
+                                                                        ? ' Some PostHog links are currently included; changing this option updates them together.'
+                                                                        : null}
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    />
+                                                )
+                                            })}
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    )
+                }}
+            </LemonField>
         </>
     )
 }

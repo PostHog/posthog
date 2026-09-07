@@ -268,6 +268,11 @@ def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback:
     return f"{subscription_url}?{params}"
 
 
+def _include_delivery_part(subscription: Subscription, option: str) -> bool:
+    config = subscription.delivery_config if isinstance(subscription.delivery_config, dict) else {}
+    return bool(config.get(option, True))
+
+
 def render_ai_email_html(markdown: str) -> str:
     rendered = _MARKDOWN_RENDERER.render(strip_external_links_markdown(markdown))
     return nh3.clean(rendered, tags=_ALLOWED_EMAIL_TAGS, attributes=_ALLOWED_EMAIL_ATTRS)
@@ -299,7 +304,9 @@ def send_email_ai_subscription_report(
         template_context={
             "title": title,
             "rendered_html": html,
-            "charts": charts or [],
+            "charts": (charts or []) if _include_delivery_part(subscription, "include_images") else [],
+            "include_feedback": _include_delivery_part(subscription, "include_feedback"),
+            "include_manage_link": _include_delivery_part(subscription, "include_manage_link"),
             # `delivery` lets the frontend capture `ai_report_clicked` on landing — the
             # click-through signal for whether delivered reports actually get read.
             "subscription_url": f"{subscription_url}?{utm_tags}&delivery={delivery_id}",
@@ -364,7 +371,7 @@ def _build_ai_slack_message(
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
     ]
-    for chart in charts or []:
+    for chart in (charts or []) if _include_delivery_part(subscription, "include_images") else []:
         caption = chart.get("title") or "Chart"
         image_block: dict = {
             "type": "image",
@@ -382,20 +389,24 @@ def _build_ai_slack_message(
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
-    feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "slack")
-    feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "slack")
-
-    action_elements: list[dict] = [
-        {
-            "type": "button",
-            "text": {"type": "plain_text", "text": "Manage subscription"},
-            "url": f"{subscription_url}?{utm_tags}",
-        }
-    ]
-    blocks.extend(
-        [
-            {"type": "divider"},
-            {"type": "actions", "elements": action_elements},
+    footer_blocks: list[dict] = []
+    if _include_delivery_part(subscription, "include_manage_link"):
+        footer_blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Manage subscription"},
+                        "url": f"{subscription_url}?{utm_tags}",
+                    }
+                ],
+            }
+        )
+    if _include_delivery_part(subscription, "include_feedback"):
+        feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "slack")
+        feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "slack")
+        footer_blocks.append(
             {
                 "type": "context",
                 "elements": [
@@ -407,12 +418,15 @@ def _build_ai_slack_message(
                         ),
                     }
                 ],
-            },
-        ]
-    )
+            }
+        )
     # AI consent is enforced upstream before this report is built, so the hint always shows here.
-    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
-        blocks.append(explore_hint)
+    if _include_delivery_part(subscription, "include_posthog_hint"):
+        if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
+            footer_blocks.append(explore_hint)
+    if footer_blocks:
+        blocks.append({"type": "divider"})
+        blocks.extend(footer_blocks)
 
     thread_messages = [
         {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": section}}]} for section in sections[1:]
@@ -459,9 +473,11 @@ def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_i
     sections = _split_text_into_chunks(report[:_TEAMS_REPORT_CHUNKING_LIMIT], TEAMS_TEXT_BLOCK_LIMIT)
 
     heading = f"**{title}**"
-    shortened_notice = (
-        f"This report was shortened to fit. [Read all of it in PostHog]({subscription_url}?{TEAMS_UTM_TAGS})"
-    )
+    include_manage_link = _include_delivery_part(subscription, "include_manage_link")
+    include_feedback = _include_delivery_part(subscription, "include_feedback")
+    shortened_notice = "This report was shortened to fit."
+    if include_manage_link:
+        shortened_notice += f" [Read all of it in PostHog]({subscription_url}?{TEAMS_UTM_TAGS})"
     feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "teams")
     feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "teams")
     feedback = f"Was this report useful? [👍 Yes]({feedback_positive_url}) · [👎 No]({feedback_negative_url})"
@@ -473,7 +489,7 @@ def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_i
         TEAMS_CARD_TEXT_BUDGET
         - teams_byte_size(heading)
         - teams_byte_size(shortened_notice)
-        - teams_byte_size(feedback)
+        - (teams_byte_size(feedback) if include_feedback else 0)
     )
 
     kept: list[str] = []
@@ -496,9 +512,14 @@ def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_i
         body.append(teams_text_block("_No report content was generated._"))
     if over_budget or len(kept) < len(sections) or len(report) > _TEAMS_REPORT_CHUNKING_LIMIT:
         body.append(teams_text_block(shortened_notice, is_subtle=True))
-    body.append(teams_text_block(feedback, is_subtle=True))
+    if include_feedback:
+        body.append(teams_text_block(feedback, is_subtle=True))
 
-    actions = [teams_open_url_action("Manage subscription", f"{subscription_url}?{TEAMS_UTM_TAGS}")]
+    actions = (
+        [teams_open_url_action("Manage subscription", f"{subscription_url}?{TEAMS_UTM_TAGS}")]
+        if include_manage_link
+        else []
+    )
     return teams_card_message(body, actions)
 
 

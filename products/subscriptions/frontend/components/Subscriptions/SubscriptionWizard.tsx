@@ -42,6 +42,7 @@ import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    getAiSubscriptionDisplaySummary,
     getAiSubscriptionGate,
     intervalOptions,
     bysetposOptions,
@@ -597,7 +598,11 @@ function SubscriptionSettingsStep({
 
     return (
         <div className="mt-6 flex flex-col gap-2">
-            <LemonLabel>Advanced settings</LemonLabel>
+            <LemonLabel>
+                {subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+                    ? 'After creating'
+                    : 'Advanced settings'}
+            </LemonLabel>
             {dataProcessingAccepted && subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ? (
                 <LemonField name="summary_enabled">
                     {({ value, onChange }) => (
@@ -709,6 +714,10 @@ function SubscriptionReviewStep({
             ? [
                   { label: 'Prompt', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
+                  {
+                      label: 'Report contents',
+                      value: getAiSubscriptionDisplaySummary(subscription.delivery_config, 'review'),
+                  },
               ]
             : []),
         { label: 'Sends to', value: subscription.target_value },
