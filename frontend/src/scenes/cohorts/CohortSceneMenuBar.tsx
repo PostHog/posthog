@@ -9,7 +9,7 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
+import { cohortWorkflowDisabledReason, urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -44,6 +44,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     }
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const workflowDisabledReason = cohortWorkflowDisabledReason(cohort)
     const isDeleted = cohort.deleted
 
     const cohortIdNumber = typeof cohort.id === 'number' ? cohort.id : undefined
@@ -56,6 +57,8 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                         <SceneMenuBarSubMenu label="Create">
                             <SceneMenuBarItem
                                 onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
+                                disabled={!!workflowDisabledReason}
+                                tooltip={workflowDisabledReason ?? undefined}
                                 data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
                             >
                                 <IconSend />

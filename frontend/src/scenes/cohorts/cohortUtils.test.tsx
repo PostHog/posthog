@@ -3,12 +3,19 @@ import { BehavioralFilterKey, CohortClientErrors } from 'scenes/cohorts/CohortFi
 import {
     cleanBehavioralTypeCriteria,
     cleanCriteria,
+    cohortWorkflowDisabledReason,
     criteriaToHumanSentence,
     determineFilterType,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
-import { AnyCohortCriteriaType, BehavioralEventType, CohortCriteriaGroupFilter, FilterLogicalOperator } from '~/types'
+import {
+    AnyCohortCriteriaType,
+    BehavioralEventType,
+    CohortCriteriaGroupFilter,
+    CohortType,
+    FilterLogicalOperator,
+} from '~/types'
 
 describe('validateGroup', () => {
     function groupWithNegatedCriteria(criteria: AnyCohortCriteriaType[]): CohortCriteriaGroupFilter {
@@ -228,4 +235,46 @@ describe('criteria whose value collides with an Object.prototype key', () => {
             expect(criteriaToHumanSentence(criteria(value), {}, {})).toEqual(<></>)
         }
     )
+})
+
+describe('cohortWorkflowDisabledReason', () => {
+    const cohortWith = (partial: Partial<CohortType>): CohortType =>
+        ({ id: 1, name: 'Test cohort', ...partial }) as CohortType
+
+    const behavioralGroup: CohortCriteriaGroupFilter = {
+        type: FilterLogicalOperator.Or,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [{ type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent }],
+            },
+        ],
+    }
+    const personPropertyGroup: CohortCriteriaGroupFilter = {
+        type: FilterLogicalOperator.Or,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [{ type: BehavioralFilterKey.Person, value: BehavioralEventType.HaveProperty }],
+            },
+        ],
+    }
+
+    it.each<[string, Partial<CohortType>, boolean]>([
+        ['dynamic cohort with a nested behavioral criterion', { filters: { properties: behavioralGroup } }, true],
+        ['dynamic cohort with only person-property criteria', { filters: { properties: personPropertyGroup } }, false],
+        [
+            'static cohort that kept behavioral filters',
+            { is_static: true, filters: { properties: behavioralGroup } },
+            false,
+        ],
+        ['cohort without filters', {}, false],
+    ])('%s', (_name, partial, disabled) => {
+        const reason = cohortWorkflowDisabledReason(cohortWith(partial))
+        if (disabled) {
+            expect(reason).toEqual(expect.stringContaining("Workflows can't message"))
+        } else {
+            expect(reason).toBeNull()
+        }
+    })
 })

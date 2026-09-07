@@ -57,7 +57,7 @@ import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
-import { createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
+import { cohortWorkflowDisabledReason, createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
@@ -201,6 +201,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const workflowDisabledReason = cohortWorkflowDisabledReason(cohort)
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -255,6 +256,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
+                                ...(workflowDisabledReason ? { [workflowDisabledReason]: true } : {}),
                             }}
                             data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
                             tooltip="Start a workflow that emails everyone in this cohort"

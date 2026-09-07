@@ -16,13 +16,16 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { objectsEqual } from 'lib/utils/objects'
-import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import {
+    sanitizeInputs,
+    templateToConfiguration,
+} from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
+import { AccessControlLevel, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -53,13 +56,14 @@ import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
-import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
+import { applyEmailScaffold, parseWorkflowScaffold, parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
     editTemplateId?: string
     triggerPrefill?: string
+    scaffold?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -2997,7 +3001,7 @@ export const workflowLogic = kea<workflowLogicType>([
     props({ id: 'new' } as WorkflowLogicProps),
     key(
         (props) =>
-            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}`
+            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.scaffold || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
@@ -3066,6 +3070,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 status: 'draft' as const, // Temporary status for editor compatibility, won't be saved
                             } as HogFlow
                         }
+                        const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (props.templateId) {
                             const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
 
@@ -3081,15 +3086,30 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
+                            if (triggerConfig) {
+                                newWorkflow.actions = newWorkflow.actions.map((action) =>
+                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
+                                )
+                            }
+
                             return newWorkflow
                         }
-                        const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {
                             const prefilled: HogFlow = {
                                 ...NEW_WORKFLOW,
                                 actions: NEW_WORKFLOW.actions.map((action) =>
                                     action.type === 'trigger' ? { ...action, config: triggerConfig } : action
                                 ),
+                            }
+                            if (parseWorkflowScaffold(props.scaffold) === 'email') {
+                                let emailInputs: Record<string, CyclotronJobInputType> = {}
+                                try {
+                                    const template = await api.hogFunctions.getTemplate('template-email')
+                                    emailInputs = templateToConfiguration(template).inputs ?? {}
+                                } catch {
+                                    // A failed template fetch just leaves the step's fields blank
+                                }
+                                return applyEmailScaffold(prefilled, emailInputs)
                             }
                             return prefilled
                         }

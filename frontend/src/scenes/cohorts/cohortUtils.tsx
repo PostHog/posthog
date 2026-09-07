@@ -37,7 +37,7 @@ import {
     TimeUnitType,
 } from '~/types'
 
-import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
+import { urlForWorkflowChooserWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 /**
  * Single source of truth for whether a HaveProperty/NotHaveProperty criterion targets a
@@ -684,21 +684,40 @@ export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
     return `cohort_${cohortId}_persons`
 }
 
+export function cohortWorkflowDisabledReason(cohort: CohortType): string | null {
+    if (cohort.is_static) {
+        return null
+    }
+    const hasBehavioralCriteria = (value: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean =>
+        isCohortCriteriaGroup(value)
+            ? value.values.some((nested) =>
+                  hasBehavioralCriteria(nested as CohortCriteriaGroupFilter | AnyCohortCriteriaType)
+              )
+            : value.type === BehavioralFilterKey.Behavioral
+    if (cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)) {
+        return "Workflows can't message cohorts that filter on events. Duplicate it as a static cohort first."
+    }
+    return null
+}
+
 export function urlForCohortWorkflow(cohort: CohortType): string {
-    return urlForNewWorkflowWithTrigger({
-        type: 'batch',
-        filters: {
-            properties: [
-                {
-                    key: 'id',
-                    type: PropertyFilterType.Cohort,
-                    value: cohort.id as number,
-                    operator: PropertyOperator.In,
-                    cohort_name: cohort.name,
-                },
-            ],
+    return urlForWorkflowChooserWithTrigger(
+        {
+            type: 'batch',
+            filters: {
+                properties: [
+                    {
+                        key: 'id',
+                        type: PropertyFilterType.Cohort,
+                        value: cohort.id as number,
+                        operator: PropertyOperator.In,
+                        cohort_name: cohort.name,
+                    },
+                ],
+            },
         },
-    })
+        'email'
+    )
 }
 
 export const COHORT_MATCHING_DAYS = {

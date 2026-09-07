@@ -49,6 +49,43 @@ describe('newWorkflowLogic', () => {
         })
     })
 
+    describe('trigger prefill forwarding', () => {
+        const triggerJson = '{"type":"batch","filters":{}}'
+
+        it.each([
+            ['createWorkflowFromTemplate', { templateId: 'template-1' }],
+            ['createEmptyWorkflow', {}],
+        ])('%s carries the prefill params onto the new-workflow URL', (action, extraParams) => {
+            const logic = newWorkflowLogic()
+            logic.mount()
+            router.actions.push('/workflows', { trigger: triggerJson, scaffold: 'email' }, { newWorkflow: 'modal' })
+
+            if (action === 'createWorkflowFromTemplate') {
+                logic.actions.createWorkflowFromTemplate({ id: 'template-1' } as any)
+            } else {
+                logic.actions.createEmptyWorkflow()
+            }
+
+            expect(router.values.location.pathname).toBe('/workflows/new/workflow')
+            expect(router.values.searchParams).toEqual({
+                ...extraParams,
+                trigger: triggerJson,
+                scaffold: 'email',
+            })
+        })
+
+        it('dismissing the modal drops the prefill params from the URL', () => {
+            const logic = newWorkflowLogic()
+            logic.mount()
+            router.actions.push('/workflows', { trigger: triggerJson, scaffold: 'email' }, { newWorkflow: 'modal' })
+
+            logic.actions.hideNewWorkflowModal()
+
+            expect(router.values.searchParams).not.toHaveProperty('trigger')
+            expect(router.values.searchParams).not.toHaveProperty('scaffold')
+        })
+    })
+
     describe('actionToUrl', () => {
         it('adds newWorkflow hash param when showing modal', () => {
             const logic = newWorkflowLogic()
