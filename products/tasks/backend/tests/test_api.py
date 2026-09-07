@@ -10203,8 +10203,7 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         self.assertTrue(
             ChannelMembership.objects.unscoped().filter(channel_id=channel.id, user_id=recipient.id).exists()
         )
-        # The task stays in the shared space, so the recipient (now a member) and the previous
-        # owner (still a member) both see it.
+
         recipient_client = APIClient()
         recipient_client.force_authenticate(recipient)
         for client in (self.client, recipient_client):

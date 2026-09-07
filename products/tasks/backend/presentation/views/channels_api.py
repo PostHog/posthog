@@ -83,13 +83,6 @@ PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
 
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """
-    API for task channels — the shared feeds tasks are kicked off in. The
-    provision_defaults action get-or-creates the requester's personal "#me" channel and
-    the team's shared "#general" channel; creation is resolve-or-create by normalized
-    name so clients can map channel-like surfaces onto backend channels.
-    """
-
     authentication_classes = [
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
@@ -139,11 +132,11 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
         summary="List channels",
         description=(
-            "Every space the requester can see: all live public channels, the requester's "
-            "personal #me channel when it exists, and any private channel they are a member of. "
-            "Sorted by name. Listing does not provision; call provision_defaults to create the "
-            "default channels. Send `limit` (with `offset`) for one page and a `count`/`next` "
-            "envelope; without `limit` the response is the full array of channels."
+            "List channels the requester can access, sorted by name and ID. "
+            "Includes public channels, their personal #me channel, and private channels they belong to. "
+            "Call provision_defaults to create missing default channels. "
+            "Send limit and offset to get a page with count, next, previous, and results. "
+            "Without limit, the response is an array of all accessible channels."
         ),
     )
     def list(self, request, *args, **kwargs):
@@ -246,11 +239,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: ChannelSerializer},
         summary="Create a channel",
         description=(
-            "For a public channel (default), returns the existing channel with the (normalized) "
-            "name, creating it if needed; the general name returns the team's general space. For a "
-            "private channel, always creates a fresh space with the requester and member_ids as its "
-            "members. A channel created here is starred for the requester unless star is false. "
-            'Names that read as a private #me space ("me", "personal") are rejected.'
+            "Create a channel. Public channels use lowercase names with hyphens. "
+            "If a public channel has that name, return it. The name general returns the project's general space. "
+            "Private channels always get a new ID, even if another channel has the same name. "
+            "The requester and users in member_ids with project access become members. "
+            "New channels are starred for the requester unless star is false. "
+            'The names "me" and "personal" are reserved.'
         ),
     )
     def create(self, request, **kwargs):
@@ -277,7 +271,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=ChannelUpdateSerializer,
         responses={200: ChannelSerializer},
-        summary="Rename a public channel",
+        summary="Update a channel",
     )
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
@@ -317,7 +311,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="The space still contains tasks or canvases.",
             ),
         },
-        summary="Delete a public channel",
+        summary="Delete a channel",
     )
     def destroy(self, request, pk=None, **kwargs):
         result = tasks_facade.delete_channel(pk, self.team_id, self._user_id())
@@ -475,14 +469,10 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="List a channel's members",
         description=(
-            "The members of a private channel. Public and personal channels have no members and "
-            "read as an empty list. 404 when the channel is not visible to the requester."
+            "List the members of a private channel. Return an empty list for public and personal channels. "
+            "Return 404 if the requester cannot access the channel."
         ),
     )
-    # pagination_class=None so the member responses are typed as a bare array, not the
-    # LimitOffset envelope the viewset default would otherwise advertise. The mapped PUT
-    # shares this action's initkwargs, so one setting covers both verbs. Both handlers
-    # always return the full list.
     @action(methods=["GET"], detail=True, pagination_class=None)
     def members(self, request, pk=None, **kwargs):
         members = tasks_facade.list_channel_members(pk, self.team_id, self._user_id())
@@ -497,8 +487,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Replace a private channel's members",
         description=(
-            "Replace a private space's member set. Any member can manage members. The creator is "
-            "always kept. Public and personal channels have no members and are rejected."
+            "Replace the members of a private channel. Any member can update this list. "
+            "The creator remains a member. Return 400 for public and personal channels."
         ),
     )
     @members.mapping.put

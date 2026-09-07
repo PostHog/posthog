@@ -1,174 +1,97 @@
-# Channels & Threads (PostHog Desktop / Bluebird)
+# Channels and threads
 
-A channel is the backend model for a space. Public spaces are visible to project members.
-`#me` is a private space that only its owner can access. A task with a channel inherits
-that channel's visibility. Null-channel tasks keep the legacy creator and product-origin
-rules until their product adopts spaces.
+A channel is the backend model for a space in PostHog Desktop. Tasks in a channel use that channel's access rules.
+Each task has one thread. A human message reaches the agent only when the task owner forwards it.
 
-Each task has one thread. Human messages reach the agent only when the task author
-explicitly forwards one.
+## Models and access
 
-## Django models
+| Channel type | Who can access it                   | Name rule                                          |
+| ------------ | ----------------------------------- | -------------------------------------------------- |
+| `public`     | Project members                     | Unique among active public channels in the project |
+| `personal`   | The creator                         | One active `#me` channel per user per project      |
+| `private`    | Channel members with project access | Duplicate names are allowed; use the channel ID    |
 
-```python
-class Channel(models.Model):
-    class ChannelType(models.TextChoices):
-        PUBLIC = "public", "Public"        # visible to the whole team
-        PERSONAL = "personal", "Personal"  # the user's private "#me" channel
-        PRIVATE = "private", "Private"     # visible only to its members (below)
+`ChannelMembership` records a private channel's members. Each row has a team, channel, user, and creation time.
+The `(channel, user)` pair is unique. Public and personal channels do not use membership rows.
+Any private channel member can update the member list. The creator remains a member.
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    name = models.CharField(max_length=128)  # rendered as "#<name>"; personal channels are named "me"
-    channel_type = models.CharField(max_length=16, choices=ChannelType, default=ChannelType.PUBLIC)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    deleted = models.BooleanField(default=False)
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
+The membership table has no database foreign key constraints on `team` or `user`.
+This prevents the migration from locking the shared team and user tables. Django manages these relations and deletion rules.
+The `channel` relation has a database foreign key constraint.
 
-    class Meta:
-        db_table = "posthog_task_channel"
-        constraints = [
-            # public channel names are unique per team (soft-deleted names are reusable)
-            models.UniqueConstraint(
-                fields=["team", "name"],
-                condition=Q(channel_type="public", deleted=False),
-                name="task_channel_team_name_public_unique",
-            ),
-            # exactly one live "#me" channel per user per team
-            models.UniqueConstraint(
-                fields=["team", "created_by"],
-                condition=Q(channel_type="personal", deleted=False),
-                name="task_channel_team_user_personal_unique",
-            ),
-        ]
+`Task.channel` can be null for older tasks and tasks from other products.
+These tasks use the existing creator and product access rules.
+For tasks with a channel, `Channel.visible_to_q` defines access. Task origin and ownership cannot grant additional access.
+Thread messages, runs, artifacts, conversations, and task activity use the task's access rules.
 
+`TaskThreadMessage` stores the task, author, content, and creation time.
+When the task owner forwards a message, the row also records the forwarding user, time, and run.
 
-class ChannelMembership(models.Model):
-    """One person's access to a private channel. Membership is the only thing that
-    makes a private channel visible; public and personal channels do not use it.
-    Any member can add or remove members, so there is no role or added-by column."""
+## Channel API
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, related_name="memberships")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    created_at = models.DateTimeField(default=django_timezone.now)
+Base path: `/api/projects/{id}/task_channels/`.
 
-    class Meta:
-        db_table = "posthog_task_channel_membership"
-        constraints = [
-            models.UniqueConstraint(fields=["channel", "user"], name="task_channel_membership_unique"),
-        ]
+| Request                                         | Result                                                                                         |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `GET /`                                         | List all accessible channels, sorted by name and ID.                                           |
+| `POST / {name, channel_type, member_ids, star}` | Create a channel or return an existing public channel with the same name.                      |
+| `PATCH /{id}/ {name}`                           | Rename an accessible public or private channel. Personal and general spaces cannot be renamed. |
+| `DELETE /{id}/`                                 | Delete an empty public or private channel. Personal and general spaces cannot be deleted.      |
+| `GET /{id}/members/`                            | List private channel members. Return an empty list for public and personal channels.           |
+| `PUT /{id}/members/ {user_ids}`                 | Replace a private channel's members. Keep the creator.                                         |
 
+Listing channels does not create them. Call `provision_defaults` to create the default channels.
+Send `limit` and `offset` to get one page with `count`, `next`, `previous`, and `results`.
+Without `limit`, the response is an array of all accessible channels.
 
-class Task(...):
-    # Ordinary user tasks get a channel; legacy and product tasks can remain NULL.
-    channel = models.ForeignKey(
-        "tasks.Channel", on_delete=models.SET_NULL, null=True, blank=True, related_name="tasks", db_index=False
-    )
-    # + Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx") for the feed
+Channel creation defaults to `public`. Public names use lowercase letters and hyphens.
+A private channel always gets a new UUID, even if another channel has the same name.
+The requester becomes a member. The endpoint adds users from `member_ids` who have project access and skips the others.
+A retry creates another private channel.
 
+Membership replacement requires `user_ids`. Each submitted user must have project access.
+An empty list removes all members except the creator.
+A creator who loses project access remains in the member list but cannot access the channel.
+Removing a member leaves their tasks in the channel and removes their access.
+The endpoint returns 400 for invalid users or public or personal channels. It returns 404 for inaccessible channels.
 
-class TaskThreadMessage(models.Model):
-    """One human message in a task's thread. Threads are human-only side
-    conversations; a message reaches the agent only when the task author
-    forwards it (send_to_agent), which stamps the forwarded_* fields."""
+Channel updates, deletion, membership changes, private channel handoffs, feed posts, instructions, context generation, and stars lock the channel row.
+Each write checks access after it acquires the lock. A request from a removed member fails even if it started before removal.
+Membership replacement checks project access after it acquires the lock.
+Handoff locks the private channel before the task. It fails if the task moved to another channel during the wait.
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="thread_messages")
-    author = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    content = models.TextField()
-    forwarded_to_agent_at = models.DateTimeField(null=True, blank=True)
-    forwarded_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    forwarded_run = models.ForeignKey("tasks.TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_index=False)
-    created_at = models.DateTimeField(default=django_timezone.now)
+## Task API
 
-    class Meta:
-        db_table = "posthog_task_thread_message"
-        indexes = [models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created")]
-```
+- `TaskCreateSerializer` accepts a channel UUID from the same project. The requester must have access to the channel.
+- An ordinary user task without a channel goes into the user's `#me` space.
+- A user who controls a task can move it to a public channel, their own `#me` channel, or a private channel they belong to.
+- Existing callers can still clear `channel` for compatibility.
+- `TaskSerializer` and `TaskDetailDTO` return `channel`.
+- `GET /tasks/?channel=<uuid>` lists tasks in a channel.
 
-### Visibility
+`POST /tasks/{task_id}/handoff/ {user}` transfers ownership to another project member.
+Only the current owner can transfer a task. The recipient must have project access and must differ from the current owner.
+All runs must have ended, and all sandbox sessions must be closed.
 
-A task with a channel uses only channel visibility:
+| Current channel        | Channel after handoff                            |
+| ---------------------- | ------------------------------------------------ |
+| Personal `#me` or none | The recipient's `#me` channel                    |
+| Private                | The same channel; the recipient becomes a member |
+| Public                 | The same channel                                 |
 
-- `PUBLIC` is readable by project members.
-- `PERSONAL` is readable only by `Channel.created_by` and is shown as a private space.
-- `PRIVATE` is readable only by users with a `ChannelMembership` row for it.
-- Task origin and creator fallbacks never widen a task with a channel.
+Future runs use the recipient for GitHub authorship and notifications.
+Handoff changes the ownership version and revokes sandbox OAuth tokens for the task.
+Runs from the previous ownership version become read-only. The recipient must start a new run.
+Handoff clears the saved GitHub user integration and MCP credential owner.
+It adds a `task_handed_off` message to the thread and notifies the recipient.
 
-A null-channel task uses the legacy creator and team-readable origin rules. Thread
-messages, runs, artifacts, conversations, and task activity inherit task visibility.
-All of this flows through `Channel.visible_to_q`, so the private-membership clause
-extends visibility without adding any permission to `Task`.
+## Canvas API
 
-## API
+Project members can create and read canvases in public channels.
+Only the canvas creator can change its metadata or source.
+Any project member can queue a build of the current source through `publish-current-version`.
 
-### `/api/projects/{id}/task_channels/`
-
-- `GET /` — list channels: every space the requester can see — all live public
-  channels, the requester's personal `#me` channel when it exists, and any private
-  channel they are a member of. Listing does not provision; call
-  `provision_defaults` to create the default channels. Paging is opt-in:
-  `?limit=&offset=` returns one page in a `count`/`next`/`previous` envelope,
-  and a request without `limit` returns every channel as a plain array.
-- `POST / {name, channel_type, member_ids, star}` — create a channel. `channel_type`
-  defaults to `public` (resolve-or-create by name, so concurrent creates and
-  name-bridging are race-safe). `channel_type: private` always creates a fresh space
-  keyed by UUID (names need not be unique) with the requester plus `member_ids` as its
-  members; ids without project access are dropped.
-- `PATCH /{id}/ {name}` - any project member can rename or configure a public channel. Private `#me` spaces cannot be renamed.
-- `DELETE /{id}/` - any project member can delete an empty public channel. Private `#me` and non-empty spaces cannot be deleted.
-- `GET /{id}/members/` — the members of a private channel (empty for public and
-  personal channels), as user display info. 404 when the channel is not visible.
-- `PUT /{id}/members/ {user_ids}` — replace a private channel's member set. Any member
-  can manage members; the creator is always kept. 400 for a public or personal channel,
-  or when a target lacks project access. Removing a member who owns tasks leaves those
-  tasks in place; they simply lose visibility.
-
-Channel updates, deletion, membership changes, private-space handoffs, feed posts,
-instructions, context-generation markers, and stars serialize on the channel row. Each write checks visibility after
-acquiring the lock, so a pending request cannot write after another request removes
-the caller's membership. Membership replacement validates invitees' project access after
-acquiring the lock. Handoff locks the private channel before the task and rejects a task
-that moved to another channel while the request waited.
-
-### Task endpoints
-
-- `TaskCreateSerializer` accepts `channel` (UUID). It must belong to the team. A
-  personal `#me` space is accepted only from its owner, and a private space only from
-  a member.
-- Omitting `channel` for an ordinary user task files it into the user's `#me` space.
-- A task controller can move a task by updating `channel` to a public space, their own
-  `#me` space, or a private space they belong to. Existing callers can still clear
-  `channel` for legacy compatibility.
-- `TaskSerializer` / `TaskDetailDTO` emit `channel`.
-- `GET /tasks/?channel=<uuid>` filters the list to a channel's feed.
-- `POST /tasks/{task_id}/handoff/ {user}`: hand a task off to a colleague. The
-  requester must own the task; the target must have access to the project and not
-  be the current owner. Ownership (`created_by`)
-  moves to the recipient, so they drive the task afterwards and future runs
-  resolve GitHub authorship and notification recipients from them. A task in a
-  personal `#me` space (or with no channel) moves into the recipient's `#me`, so a
-  handoff never strands a task the recipient can't open. A task in a private space
-  stays put and the recipient is added as a member. A task in a public space stays
-  put. All task runs must be terminal and every sandbox session must be
-  closed before a handoff. The handoff rotates the task's server-owned ownership
-  version, revokes task-bound sandbox OAuth tokens, and makes runs from the old
-  ownership version read-only. The recipient must start a fresh run. The handoff
-  also clears the stored GitHub user-integration preference and any borrowed MCP
-  credential owner, posts a system `task_handed_off` announcement into the task's
-  thread, and notifies the recipient.
-
-### Canvas endpoints
-
-- Project members can create and read Canvases in public channels.
-- Only a Canvas creator can change Canvas metadata or source.
-- Any project member can queue a build for the current source version through `publish-current-version`.
-
-Task sandboxes use the authenticated OAuth token user for the creator boundary across public and personal spaces:
+Task sandboxes use the authenticated OAuth token user to check canvas access:
 
 | Canvas space | Token user                    | Read | Write |
 | ------------ | ----------------------------- | ---- | ----- |
@@ -177,44 +100,41 @@ Task sandboxes use the authenticated OAuth token user for the creator boundary a
 | Personal     | Canvas creator                | Yes  | Yes   |
 | Personal     | Another user or no token user | No   | No    |
 
-An exact task-to-Canvas link does not grant additional write access. Canvas creation remains limited to the bound task's space.
+A task linked to a canvas gains no additional write access.
+A sandbox can create a canvas only in its task's space.
 
-### `/api/projects/{id}/tasks/{task_id}/thread_messages/`
+## Thread API
 
-- `GET /` — thread messages, ascending `created_at` (paginated).
-- `POST / {content}` — add a message as the requester. Anyone who can see the task can post.
-- `DELETE /{id}/` — author-only.
-- `POST /{id}/send_to_agent/` — task author only. Signals the latest run's
-  workflow with `[Thread comment from <author>] <content>` via
-  `signal_task_run_user_message`, then stamps `forwarded_to_agent_at`,
-  `forwarded_by`, `forwarded_run`. 400 when the task has no signalable run.
+Base path: `/api/projects/{id}/tasks/{task_id}/thread_messages/`.
 
-## Client (PostHog Desktop, bluebird mode)
+| Request                     | Result                                                                   |
+| --------------------------- | ------------------------------------------------------------------------ |
+| `GET /`                     | List messages by creation time, oldest first, with pagination.           |
+| `POST / {content}`          | Add a message. Anyone with task access can post.                         |
+| `DELETE /{id}/`             | Delete a message. Only its author can delete it.                         |
+| `POST /{id}/send_to_agent/` | Forward a message to the latest run. Only the task owner can forward it. |
 
-- **Channel feed** — the channel view becomes a Slack-like feed: each item is
-  the kickoff message (author avatar + name + prompt) with a task card
-  (title, status badge, repo, replies count) underneath. The composer at the
-  bottom kicks off a task owned by the channel; the author stays in the feed
-  and the card updates live (poll). The existing tabs (Inbox / Artifacts /
-  Recents / CONTEXT.md) stay above the feed.
-- **Threads** — a collapsible right-side panel shows a task's thread: message
-  list plus reply composer. Each message row has a hover menu; the task author
-  gets "Send to agent" there. Forwarded messages show a "Sent to agent" badge.
-  Opening a thread from a feed card shows the panel next to the feed; opening
-  a task shows the same panel next to the task detail (collapsible).
-- **#me** — the sidebar pins the personal channel (`#me`) above the channel
-  list; it is each user's private feed.
-- **One identity** — the backend `Channel` UUID keys everything: task
-  ownership, feeds, threads, canvases (`Canvas.channel`), CONTEXT.md
-  instructions, and per-user stars. (The former desktop-file-system folder
-  bridge — folders mapped to channels by name — was retired when canvases
-  became first-class rows; see `products/canvas/`.)
+Forwarding uses `signal_task_run_user_message` with `[Thread comment from <author>] <content>`.
+It records `forwarded_to_agent_at`, `forwarded_by`, and `forwarded_run`.
+The endpoint returns 400 if no run can receive the message.
 
-## Out of scope (v1)
+## Desktop client
 
-- Per-member roles or permissions (any member manages membership).
-- Activity-log entries for membership changes.
-- Real-time push of membership changes (clients poll).
-- Converting an existing public space to private.
+The channel feed shows each task's initial message and a card with its title, status, repository, and reply count.
+The message input creates a task in the channel. The feed updates through polling.
+Inbox, Artifacts, Recents, and CONTEXT.md tabs appear above the feed.
+
+A panel beside the feed or task details shows the task's thread and a reply input.
+The task owner can select "Send to agent" from a message menu.
+Forwarded messages show "Sent to agent". The panel can be collapsed.
+
+The sidebar pins the user's personal `#me` channel above the channel list.
+The backend channel UUID identifies the space across tasks, feeds, threads, canvases, instructions, and stars.
+
+## Out of scope
+
+- Per-member roles or permissions.
+- Activity log entries for membership changes.
+- Push notifications for membership, feed, or thread changes. Clients poll.
+- Converting a public space to private.
 - Message editing and emoji reactions.
-- Real-time push for feed/thread updates (clients poll; SSE can come later).

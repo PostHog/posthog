@@ -17171,12 +17171,9 @@ export namespace Schemas {
       base_version?: number | null;
     }
 
-    /**
-     * Request body for replacing a private channel's member set.
-     */
     export interface ChannelMembersWrite {
       /**
-         * The full set of member user ids. Required — send an explicit empty list to clear members. The creator is always kept, so removing them has no effect. Every id must be a project member.
+         * Required list of member user IDs. This list replaces the current members. The creator remains a member. Send an empty list to remove all other members. Each submitted user must have project access.
          * @maxItems 100
          */
       user_ids: number[];
@@ -17221,28 +17218,23 @@ export namespace Schemas {
       Private: 'private',
     } as const;
 
-    /**
-     * Request body for creating a channel. A public channel is resolve-or-create by name;
-     * a private channel is always created fresh with the requester and ``member_ids`` as its
-     * members.
-     */
     export interface ChannelWrite {
       /**
-         * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+         * Channel name, shown as #<name>. Uses lowercase letters and hyphens.
          * @maxLength 128
          */
       name: string;
-      /** Visibility of the channel. 'public' (default) is visible to every project member. 'private' is visible only to its members. Personal #me spaces are not created here.
+      /** Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.
        *
        * * `public` - public
        * * `private` - private */
       channel_type?: TaskChannelWriteTypeEnum;
       /**
-         * User ids to add to a private channel besides the requester, who is always a member. Ignored for a public channel. Ids without project access are dropped.
+         * User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.
          * @maxItems 100
          */
       member_ids?: number[];
-      /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+      /** Star a new channel for the requester. This field does not change stars on an existing channel. */
       star?: boolean;
     }
 
@@ -68598,13 +68590,6 @@ export namespace Schemas {
       FullAccess: 'full-access',
     } as const;
 
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export interface PatchedTaskWrite {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
@@ -85289,13 +85274,6 @@ export namespace Schemas {
       next: string | null;
     }
 
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export interface TaskCreate {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
@@ -86694,13 +86672,6 @@ export namespace Schemas {
       total_cost_usd: number;
     }
 
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export interface TaskWrite {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.

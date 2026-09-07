@@ -169,12 +169,6 @@ class InvalidTaskOriginError(ValueError):
 
 
 class Channel(TeamScopedRootMixin):
-    """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
-    owned by the channel it was kicked off in. Each user gets one private "personal"
-    channel ("#me") per team, and each team gets a public "general" channel, Slack-style.
-    Listing creates neither; provisioning does. The general channel can't be renamed or
-    deleted."""
-
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"
         PERSONAL = "personal", "Personal"
@@ -194,10 +188,6 @@ class Channel(TeamScopedRootMixin):
 
     @classmethod
     def visible_to_q(cls, user_id: int | None, *, relation: Literal["", "channel", "task__channel"] = "") -> models.Q:
-        """The channel-visibility rule as a queryset filter: a public channel is visible
-        to everyone, a personal channel only to its creator, and a private channel only to
-        members. ``relation`` names the join to ``Channel`` when filtering another model's
-        queryset (e.g. ``"channel"``); empty filters ``Channel`` rows directly."""
         prefix = {"": "", "channel": "channel__", "task__channel": "task__channel__"}[relation]
         visible_q = models.Q(**{f"{prefix}channel_type": cls.ChannelType.PUBLIC})
         if user_id is not None:
@@ -210,12 +200,6 @@ class Channel(TeamScopedRootMixin):
             visible_q |= models.Q(
                 **{
                     f"{prefix}channel_type": cls.ChannelType.PRIVATE,
-                    # A membership join, not an id__in subquery. A nested subquery mis-binds an
-                    # OuterRef caller — the thread-message push query passes OuterRef("id") for
-                    # the user — to the immediately enclosing query rather than the user query.
-                    # The (channel, user) unique constraint keeps this join to at most one row
-                    # per channel, so it needs no distinct(), and the outer query is already
-                    # team-scoped, so a membership in another team can never match a channel row.
                     f"{prefix}memberships__user_id": user_id,
                 }
             )
@@ -281,15 +265,9 @@ class Channel(TeamScopedRootMixin):
 
 
 class ChannelMembership(TeamScopedRootMixin):
-    """One person's access to a private channel. Membership is the only thing that makes a
-    private channel visible; public and personal channels do not use it. Any member can add
-    or remove members, so there is no role or added-by column to carry."""
-
-    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    # nosemgrep: prefer-uuid7-django-pk -- UUIDv4 matches existing task models.
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # db_constraint=False on the team/user FKs: posthog_team and posthog_user are written on
-    # virtually every request, and an FK constraint takes a SHARE ROW EXCLUSIVE lock on them
-    # that stalls deploys. Django still enforces the relation and on_delete at the app level.
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, related_name="memberships")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)

@@ -585,13 +585,6 @@ class TaskSerializer(DataclassSerializer):
 
 
 class TaskWriteSerializer(serializers.Serializer):
-    """Request body for creating or updating a task.
-
-    Field required/default semantics match the ``Task`` model. The view passes
-    ``validated_data`` (integration/report PK fields already resolved to instances) to the
-    facade ``create_task`` / ``update_task`` functions.
-    """
-
     title = serializers.CharField(
         max_length=255,
         required=False,
@@ -800,8 +793,7 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("Space not found")
         if value.channel_type == "personal" and value.created_by_id != user_id:
             raise serializers.ValidationError("Private spaces can only be used by their owner")
-        # A private channel is usable only by its members; report it as missing to a non-member
-        # so its existence never leaks.
+
         if value.channel_type == "private" and not tasks_facade.channel_exists(
             self.context["team"].id, value.id, user_id
         ):
@@ -2187,19 +2179,15 @@ CHANNEL_MEMBERS_MAX = 100
 
 
 class ChannelWriteSerializer(serializers.Serializer):
-    """Request body for creating a channel. A public channel is resolve-or-create by name;
-    a private channel is always created fresh with the requester and ``member_ids`` as its
-    members."""
-
     name = serializers.CharField(
-        max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+        max_length=128, help_text="Channel name, shown as #<name>. Uses lowercase letters and hyphens."
     )
     channel_type = serializers.ChoiceField(
         choices=CHANNEL_WRITE_TYPE_CHOICES,
         default="public",
         help_text=(
-            "Visibility of the channel. 'public' (default) is visible to every project member. "
-            "'private' is visible only to its members. Personal #me spaces are not created here."
+            "Use 'public' for access by all project members. Use 'private' for access by channel members only. "
+            "Defaults to 'public'. This endpoint cannot create personal #me spaces."
         ),
     )
     member_ids = serializers.ListField(
@@ -2208,41 +2196,31 @@ class ChannelWriteSerializer(serializers.Serializer):
         default=list,
         max_length=CHANNEL_MEMBERS_MAX,
         help_text=(
-            "User ids to add to a private channel besides the requester, who is always a member. "
-            "Ignored for a public channel. Ids without project access are dropped."
+            "User IDs to add to a private channel. The requester is always a member. "
+            "The endpoint ignores this field for public channels and skips users without project access."
         ),
     )
     star = serializers.BooleanField(
         required=False,
         default=True,
-        help_text=(
-            "Star the channel for the requester when this call creates it. "
-            "Ignored when the channel already exists, which leaves existing stars untouched."
-        ),
+        help_text=("Star a new channel for the requester. This field does not change stars on an existing channel."),
     )
 
     def validate_name(self, value: str) -> str:
-        # "general" resolves the team's general space here, so only the personal names are
-        # refused.
         if tasks_facade.is_personal_space_name(value):
             raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
         return value
 
 
 class ChannelMembersWriteSerializer(serializers.Serializer):
-    """Request body for replacing a private channel's member set."""
-
     user_ids = serializers.ListField(
         child=serializers.IntegerField(),
-        # Required (no default): this endpoint replaces the whole set, so an omitted field
-        # would silently clear every non-creator member. An explicit [] stays valid for a
-        # deliberate clear.
         allow_empty=True,
         max_length=CHANNEL_MEMBERS_MAX,
         help_text=(
-            "The full set of member user ids. Required — send an explicit empty list to clear "
-            "members. The creator is always kept, so removing them has no effect. Every id must "
-            "be a project member."
+            "Required list of member user IDs. This list replaces the current members. "
+            "The creator remains a member. Send an empty list to remove all other members. "
+            "Each submitted user must have project access."
         ),
     )
 

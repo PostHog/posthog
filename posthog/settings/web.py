@@ -658,9 +658,6 @@ SPECTACULAR_SETTINGS = {
             # Python enum's values, or a per-widget constant. Converting each producer to
             # a TextChoices class would delete its entry here.
             "TaskChannelWriteTypeEnum": "products.tasks.backend.facade.enums.CHANNEL_WRITE_TYPE_CHOICES",
-            # Error-tracking alert destinations pass this choice set as a plain value list, so it
-            # falls to the field-name default. Pin its name so a second "channel_type" field
-            # elsewhere never suffixes it and breaks its generated type.
             "ChannelTypeEnum": "products.error_tracking.backend.facade.alerts.ALERT_CHANNEL_TYPES",
             "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
             "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",

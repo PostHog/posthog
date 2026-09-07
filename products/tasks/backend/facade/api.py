@@ -1,20 +1,3 @@
-"""
-Facade API for the tasks product — the data surface other apps may import.
-
-Responsibilities:
-- Accept ids / DTOs as input.
-- Call into the product's models and logic.
-- Convert Django models to DTOs before returning — never return ORM instances.
-- Stay thin and stable.
-
-This module is deliberately light: it imports the models and small helpers only. The
-heavy behavioral surfaces (sandbox provisioning, warming, the multi-turn agent machinery,
-temporal workflows, max tools) live in sibling facade submodules (``sandbox``, ``warm``,
-``agents``, ``temporal``, ``max_tools``, ``webhooks``, ``streams``, ``repo_selection``) so a
-config-only importer never drags docker/temporalio onto the ``django.setup()`` path.
-Functions that bridge to those heavy surfaces import them lazily inside the function body.
-"""
-
 import re
 import time
 import hashlib
@@ -6005,34 +5988,6 @@ class TaskHandoffError(Exception):
 def handoff_task(
     task_id: str | UUID, team_id: int, user_id: int | None, *, target_user_id: int
 ) -> contracts.TaskDetailDTO | None:
-    """Hand ``task_id`` off to ``target_user_id``: they become the task's owner.
-
-    Ownership is what `task_control_q` keys on, so the recipient drives the task
-    afterwards (steer, archive, forward thread messages), and future runs resolve
-    GitHub authorship and notification recipients from them. Membership in the
-    project's organization is required — anything weaker would hand control of a
-    task to someone who can't see the project.
-
-    Visibility follows the recipient when the task lives in a private space: a
-    task in the actor's ``#me`` (or a legacy channel-less task) moves into the
-    recipient's ``#me`` so they can open what's now theirs. Public channels stay
-    put; both sides keep the shared view.
-
-    Only the owner can hand a task off: ``task_control_q`` also grants control
-    over team-owned origin products, and giving a task away is stricter than
-    driving it. The recipient must be an org member with access to this project
-    (``all_users_with_access`` honors private-project access control), otherwise
-    they'd end up owning a task they can't open.
-
-    Returns the updated task detail, or ``None`` when the actor can't control the
-    task or no longer owns it. Raises ``TaskHandoffError`` for invalid targets
-    (not a member with project access, or the current owner).
-
-    All task runs must be terminal and every sandbox session must be closed
-    before a handoff. The transfer rotates a server-owned ownership version and
-    revokes task-bound sandbox OAuth tokens, so old runs cannot execute or refresh
-    credentials under the recipient's identity.
-    """
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
@@ -6046,13 +6001,10 @@ def handoff_task(
     channel = task.channel
     with transaction.atomic():
         if channel is not None and channel.channel_type == Channel.ChannelType.PRIVATE:
-            # Channel deletion locks the channel before its tasks. NO KEY UPDATE also
-            # lets a concurrent task move finish its foreign-key check before we lock it.
             if _locked_visible_channel(channel.id, team_id, user_id, no_key=True) is None:
                 return None
         locked = Task.objects.select_for_update().get(pk=task.pk)
-        # Under the lock: two concurrent handoffs settle last-writer-loses
-        # instead of double-announcing and rerouting mid-flight.
+
         if locked.deleted or locked.channel_id != task.channel_id:
             return None
         if locked.created_by_id != previous_owner_id:
@@ -6088,23 +6040,16 @@ def handoff_task(
 
         channel = locked.channel
         if channel is None or channel.channel_type == Channel.ChannelType.PERSONAL:
-            # Never widen: a task in the actor's #me (or a legacy channel-less task)
-            # joins the recipient's #me where they'll find it.
             locked.channel = _ensure_personal_channel(team_id, target.id)[0]
         elif channel.channel_type == Channel.ChannelType.PRIVATE:
-            # Keep the task in its shared private space; add the recipient so they can see it.
             ChannelMembership.objects.for_team(team_id).get_or_create(
                 channel_id=channel.id, user_id=target.id, defaults={"team_id": team_id}
             )
         locked.created_by = target
-        # The stored GitHub-user preference names the old owner's installation; the
-        # recipient picks their own on their next run. Carrying it across would
-        # defer to user-scoped resolution anyway (it keys on created_by), so clear it.
+
         if locked.github_user_integration_id is not None:
             locked.github_user_integration = None
-        # A stamped built-in agent task may borrow its credential owner's MCP Store
-        # grants. Handing ownership off while keeping that borrow would hand the old
-        # owner's connected accounts to whoever drives the run now, so drop the borrow.
+
         locked.state = {
             key: value for key, value in (locked.state or {}).items() if key != MCP_CREDENTIAL_OWNER_STATE_KEY
         }
@@ -6119,8 +6064,6 @@ def handoff_task(
             payload={
                 "from_user_id": previous_owner_id,
                 "to_user_id": target.id,
-                # Clients render names straight from the payload (ids alone would need a
-                # member lookup); both are same-org members, so carrying names is safe.
                 "from_display_name": actor_name if user_id is not None else None,
                 "to_display_name": target_name,
             },
@@ -6136,8 +6079,7 @@ def handoff_task(
     )
 
     notify_task_handoff(locked, recipient=target, actor=actor, message_id=message.id)
-    # Task.capture_event would attribute to the new owner (it keys on created_by);
-    # the actor initiated the handoff, so capture under their identity instead.
+
     try:
         posthoganalytics.capture(
             distinct_id=str(actor.distinct_id) if actor is not None and actor.distinct_id else str(locked.team.uuid),
@@ -7808,14 +7750,10 @@ def provision_default_channels(team_id: int, user_id: int) -> contracts.Provisio
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
-    """Every space the requester can see, by name. ``starred`` reflects the requester's
-    stars. Creates nothing, which is what lets a caller gate on a space existing."""
     channels = list(
         _team_channels(team_id)
         .select_related("created_by")
         .filter(Channel.visible_to_q(user_id))
-        # id is the tiebreaker: private names are not unique, so equal names would otherwise
-        # have no stable order across paginated requests.
         .order_by("name", "id")
     )
     starred_ids: set = (
@@ -7900,10 +7838,6 @@ def _channel_member_infos(channel: Channel, team_id: int) -> list[contracts.Task
 def create_private_channel(
     team_id: int, user_id: int, *, name: str, member_ids: list[int], star: bool
 ) -> contracts.ChannelDTO | None:
-    """Create a private channel and seed its membership. ``None`` for an empty or reserved
-    name. The creator is always a member; ``member_ids`` add others (deduped, and dropped when
-    they lack project access). Private channels are UUID-keyed, so their names need not be
-    unique. Stars the channel for the creator when ``star``."""
     normalized = normalize_channel_name(name)
     if not normalized or is_reserved_channel_name(normalized):
         return None
@@ -7918,7 +7852,6 @@ def create_private_channel(
             created_by_id=user_id,
         )
         for member_id in target_ids:
-            # for_team filters reads; create still needs team_id passed in (scoping caveat).
             ChannelMembership.objects.for_team(team_id).create(
                 team_id=team_id, channel_id=channel.id, user_id=member_id
             )
@@ -7933,9 +7866,6 @@ def create_private_channel(
 def list_channel_members(
     channel_id: str | UUID, team_id: int, user_id: int | None
 ) -> list[contracts.TaskUserBasicInfo] | None:
-    """The members of a channel the requester can see, as display info. ``None`` when the
-    channel is not visible. Public and personal channels carry no membership, so they read
-    as an empty list."""
     channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return None
@@ -7945,20 +7875,13 @@ def list_channel_members(
 def set_channel_members(
     channel_id: str | UUID, team_id: int, user_id: int | None, *, member_ids: list[int]
 ) -> list[contracts.TaskUserBasicInfo] | str:
-    """Replace a private channel's membership with ``member_ids`` plus the creator, who can
-    never be removed. Returns the updated members, or a status string: ``"not_found"`` when
-    the channel is not visible, ``"not_private"`` for a public or personal channel,
-    ``"invalid_member"`` when a target is not a project member. Removing a member who owns
-    tasks leaves those tasks in place; they just lose visibility, Slack-like."""
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
             return "not_found"
         if channel.channel_type != Channel.ChannelType.PRIVATE:
             return "not_private"
-        # Validate only the submitted ids against project access. The creator is added
-        # afterwards, unconditionally: a creator who later loses project access must not
-        # freeze the member set (they cannot be revalidated, but they are always kept).
+
         submitted = {*member_ids}
         accessible = set(channel.team.all_users_with_access().filter(id__in=submitted).values_list("id", flat=True))
         if accessible != submitted:
@@ -7989,7 +7912,6 @@ def update_channel(
     repositories: list[str] | None = None,
     auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
 ) -> contracts.ChannelDTO | str:
-    """Update a visible channel."""
     try:
         with transaction.atomic():
             channel = _locked_visible_channel(channel_id, team_id, user_id)
@@ -8027,11 +7949,7 @@ def update_channel(
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public or private channel. Archived tasks do not count as content."""
     with transaction.atomic():
-        # Emptiness is checked under a row lock because filing a task takes FOR KEY SHARE on
-        # its channel: unlocked, a task can land after the check and be orphaned in a channel
-        # this call goes on to delete.
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
             return "not_found"
@@ -8044,9 +7962,7 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
             or channel.canvases.filter(deleted=False).exists()
         ):
             return "not_empty"
-        # Not filtered on `archived`: flipping that flag leaves the FK untouched, so it takes
-        # no lock on the channel and can happen after the check above. Task visibility joins
-        # through the channel, so a task left pointing at a deleted one leaves every list.
+
         channel.tasks.filter(deleted=False).update(channel=None)
         channel.deleted = True
         channel.save(update_fields=["deleted", "updated_at"])
@@ -8090,8 +8006,6 @@ def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) ->
 
 
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
-    """A live public channel, the requester's personal channel, or a private channel
-    they belong to. ``None`` when missing or inaccessible."""
     return (
         _team_channels(team_id)
         .select_related("created_by")
@@ -8103,8 +8017,7 @@ def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) 
 def _locked_visible_channel(
     channel_id: str | UUID, team_id: int, user_id: int | None, *, no_key: bool = False
 ) -> Channel | None:
-    # Membership replacements take this same lock. Read visibility in a separate query
-    # so its snapshot includes revocations committed while the lock query was waiting.
+
     channel = (
         Channel.objects.for_team(team_id).select_for_update(no_key=no_key).filter(id=channel_id, deleted=False).first()
     )
@@ -8139,13 +8052,6 @@ def create_channel_feed_message(
     payload: dict,
     created_at: datetime | None = None,
 ) -> contracts.ChannelFeedMessageDTO | None | str:
-    """Post an announcement into a channel's feed as the requester. ``None`` when the
-    channel isn't visible; ``"full"`` when the channel's feed is at capacity. The row is
-    marked human-authored — ``system``/``agent`` kinds are reserved for server-side
-    writers, so a client can't forge rows other clients render as trusted. ``author``
-    records the acting user so the client can render "Adam …". ``created_at`` lets a
-    client order a burst of announcements deterministically (else the server stamps
-    ``now``)."""
     with transaction.atomic():
         if _locked_visible_channel(channel_id, team_id, user_id) is None:
             return None
@@ -8165,7 +8071,7 @@ def create_channel_feed_message(
         if created_at is not None:
             fields["created_at"] = created_at
         message = ChannelFeedMessage.objects.create(**fields)
-        # Fresh row: author lazy-loads once for the DTO.
+
         return _channel_feed_message_to_dto(message)
 
 
@@ -8327,13 +8233,6 @@ def publish_channel_instructions(
     content: str,
     base_version: int | None = None,
 ) -> contracts.ChannelInstructionsDTO | None:
-    """Publish a new instructions version, superseding the current latest.
-
-    ``base_version`` guards against lost updates: when the current latest no
-    longer matches, ``ChannelInstructionsVersionConflictError`` is raised.
-    ``None`` when the channel isn't visible. Publishing clears the channel's
-    in-progress context-generation marker.
-    """
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
@@ -8354,8 +8253,6 @@ def publish_channel_instructions(
         if current_latest is not None:
             ChannelInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
         try:
-            # Keep conflict recovery outside the failed insert's savepoint so the
-            # transaction remains usable when reading the conflicting version.
             with transaction.atomic():
                 published = ChannelInstructions.objects.create(
                     team_id=team_id,
@@ -8366,21 +8263,18 @@ def publish_channel_instructions(
                     created_by_id=user_id,
                 )
         except IntegrityError:
-            # Surface the race as the conflict the view maps to 409, not a 500.
             latest = (
                 ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
                 .order_by("-version", "-created_at", "-id")
                 .first()
             )
             raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
-        # Publishing produced a result, so drop the in-progress generation marker.
+
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
     return _instructions_to_dto(published)
 
 
 def delete_channel_instructions(channel_id: str | UUID, team_id: int, user_id: int | None) -> int | None:
-    """Soft-delete every instructions version. Returns the count, or ``None``
-    when the channel isn't visible."""
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
@@ -8408,7 +8302,6 @@ def get_channel_context_generation(
 def set_channel_context_generation(
     channel_id: str | UUID, team_id: int, user_id: int | None, *, task_id: str | UUID | None
 ) -> str | None | Literal["not_found", "invalid_task"]:
-    """Set or clear the task associated with the channel's CONTEXT.md generation."""
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:
@@ -8422,7 +8315,6 @@ def set_channel_context_generation(
 
 
 def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred: bool) -> bool:
-    """Star or unstar a channel for the requesting user. False when the channel isn't visible."""
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team_id, user_id)
         if channel is None:

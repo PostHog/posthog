@@ -1639,7 +1639,7 @@
         "feature_entitlement": "approvals"
     },
     "channel-create": {
-        "description": "Create a channel. A public channel (the default `channel_type`) is resolve-or-create by name (normalized to lowercase-dashed): it returns the existing channel when one with the name already exists, so call channel-list first to resolve a public name. A private channel (`channel_type: \"private\"`) is always created fresh with the requester and any `member_ids` as its members, even when a channel with the same name already exists — private names are not unique, so a retry creates a duplicate.",
+        "description": "Create a channel. The default `channel_type` is public. Public names use lowercase letters and hyphens. If a public channel has that name, return it. Use channel-list to find an existing channel's ID. Set `channel_type` to \"private\" to create a private channel with the requester and the users in `member_ids`. Users in `member_ids` must have project access. Private channels always get a new ID, so a retry creates another channel.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Create a channel",
@@ -1685,7 +1685,7 @@
         "feature_flag_behavior": "disable"
     },
     "channel-list": {
-        "description": "List the project's channels the requester can see: public channels, the requester's personal #me channel, and any private channel they are a member of. Use this to resolve a channel id from its name before creating or listing canvases or reading instructions. Private names are not unique, so resolve those by id, not name. A project can hold hundreds of channels, so pass `limit` (with `offset`) to read one page: the paged response carries `count` and `next`, and without `limit` you get every channel in one array.",
+        "description": "List channels the requester can access: public channels, their personal #me channel, and private channels they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `next`, `previous`, and `results`. Without `limit`, the response is an array of all accessible channels.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List channels",
