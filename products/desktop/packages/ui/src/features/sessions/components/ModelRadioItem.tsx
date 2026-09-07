@@ -41,10 +41,13 @@ export function ModelRadioItem({
       <span className="whitespace-nowrap">{model.name}</span>
       {unavailableReason ? (
         <Prohibit size={11} className="ml-auto text-muted-foreground" />
-      ) : restricted ? (
-        <Lock size={11} className="ml-auto text-muted-foreground" />
       ) : (
-        <ModelCostChip modelId={model.value} />
+        <span className="ml-auto flex items-center">
+          <ModelCostChip modelId={model.value} />
+          {restricted ? (
+            <Lock size={11} className="ml-1 text-muted-foreground" />
+          ) : null}
+        </span>
       )}
     </DropdownMenuRadioItem>
   );

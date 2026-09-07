@@ -17,6 +17,11 @@ const MODELS = [
   { value: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
   { value: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
   { value: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+  {
+    value: "gpt-6-astra",
+    name: "GPT-6 Astra",
+    _meta: { "posthog.code/restrictedModel": true },
+  },
   { value: "glm-5.3", name: "GLM 5.3" },
   { value: "some-custom-model", name: "Custom model" },
 ];
