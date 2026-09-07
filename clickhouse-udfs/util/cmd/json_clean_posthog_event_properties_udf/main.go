@@ -27,6 +27,7 @@ type propertiesKind byte
 const (
 	eventProperties propertiesKind = iota
 	personProperties
+	temporaryProperties
 )
 
 type pathRule struct {
@@ -52,7 +53,6 @@ var droppedEventPropertyKeys = map[string]struct{}{
 	"$ai_output_state":                   {},
 	"$ai_tools":                          {},
 	"ph_product_tours":                   {},
-	"$session_recording_remote_config":   {},
 	"$product_tours_activated":           {},
 	"$product_tours_enabled_server_side": {},
 	"$surveys_activated":                 {},
@@ -61,12 +61,22 @@ var droppedEventPropertyKeys = map[string]struct{}{
 	"$feature_flag_bootstrapped_payload": {},
 	"$feature_flag_original_payload":     {},
 	"$feature_flag_payloads":             {},
-	"$set":                               {},
-	"$set_once":                          {},
-	"$unset":                             {},
 	"$transformations_succeeded":         {},
 	"$transformations_skipped":           {},
 	unparseablePropertiesKey:             {},
+}
+
+func isTemporaryProperty(key string) bool {
+	root, _, _ := strings.Cut(key, ".")
+	switch root {
+	case "$set", "$set_once", "$unset", "$group_set", "$feature_flag_request_id",
+		"$debug_first_full_snapshot_timestamp", "$snapshot_max_depth_exceeded",
+		"$sess_rec_flush_size", "$session_recording_remote_config",
+		"$session_recording_network_payload_capture", "$session_recording_canvas_recording",
+		"$replay_script_config", "$sent_at", "$lib_rate_limit_remaining_tokens", "$lib_custom_api_host":
+		return true
+	}
+	return strings.HasPrefix(root, "$sdk_debug_")
 }
 
 func makePathRules(paths ...string) *pathRule {
@@ -172,7 +182,7 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	parsed, err := p.parseValue()
 	if err != nil {
 		if errors.Is(err, errMaxJSONDepth) {
-			writeUnparseableProperties(buf, rawLine)
+			p.writeUnparseableProperties(buf, rawLine)
 			return nil
 		}
 		return fmt.Errorf("json parse error: %w", err)
@@ -187,7 +197,7 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	if err != nil {
 		p.recycle(parsed)
 		if errors.Is(err, errMaxJSONDepth) {
-			writeUnparseableProperties(buf, rawLine)
+			p.writeUnparseableProperties(buf, rawLine)
 			return nil
 		}
 		return fmt.Errorf("json clean error: %w", err)
@@ -205,10 +215,31 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 }
 
 func (p *processor) cleanProperties(v *value) (*value, error) {
+	if p.kind == temporaryProperties {
+		return p.cleanTemporaryProperties(v)
+	}
 	if p.kind == personProperties {
 		return p.cleanNode(nil, v)
 	}
 	return p.cleanEventProperties(v)
+}
+
+func (p *processor) cleanTemporaryProperties(v *value) (*value, error) {
+	if v.kind != kindObject {
+		return nil, fmt.Errorf("temporary properties must be a JSON object")
+	}
+	writeIdx := 0
+	for _, property := range v.entries {
+		if !isTemporaryProperty(property.key) {
+			p.mutated = true
+			p.recycle(property.value)
+			continue
+		}
+		v.entries[writeIdx] = property
+		writeIdx++
+	}
+	v.entries = v.entries[:writeIdx]
+	return p.cleanNode(nil, v)
 }
 
 func (p *processor) cleanEventProperties(v *value) (*value, error) {
@@ -233,7 +264,7 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	writeIdx := 0
 	for _, property := range v.entries {
 		_, drop := droppedEventPropertyKeys[property.key]
-		if drop || hasFeatureProperties && property.key == "$feature_flags" && property.value != featureFlags {
+		if drop || isTemporaryProperty(property.key) || hasFeatureProperties && property.key == "$feature_flags" && property.value != featureFlags {
 			p.mutated = true
 			p.recycle(property.value)
 			continue
@@ -758,8 +789,13 @@ func (p *processor) leaveJSONDepth() {
 	p.depth--
 }
 
-func writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
+func (p *processor) writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
 	buf.Reset()
+	if p.kind == temporaryProperties {
+		// The permanent cleaner quarantines the raw document; do not duplicate it outside the allowlist.
+		buf.WriteString("{}")
+		return
+	}
 	buf.Grow(len(raw) + len(unparseablePropertiesKey) + 8)
 	buf.WriteByte('{')
 	writeJSONString(buf, unparseablePropertiesKey)
@@ -1291,7 +1327,12 @@ func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
 	chunked := flag.Bool("chunked", false, "read a row-count header before each input chunk")
 	cleanPersonProperties := flag.Bool("person-properties", false, "clean person properties without event-specific transformations")
+	cleanTemporaryProperties := flag.Bool("temporary-properties", false, "retain only temporary event properties")
 	flag.Parse()
+	if *cleanPersonProperties && *cleanTemporaryProperties {
+		fmt.Fprintln(os.Stderr, "person-properties and temporary-properties are mutually exclusive")
+		os.Exit(1)
+	}
 
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
@@ -1317,6 +1358,9 @@ func main() {
 	kind := eventProperties
 	if *cleanPersonProperties {
 		kind = personProperties
+	}
+	if *cleanTemporaryProperties {
+		kind = temporaryProperties
 	}
 	if err := runner(os.Stdin, os.Stdout, kind); err != nil {
 		fmt.Fprintln(os.Stderr, err)
