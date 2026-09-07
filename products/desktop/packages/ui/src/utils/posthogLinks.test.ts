@@ -1,10 +1,14 @@
 import {
+  parseDesktopPreviewManifest,
+  registerPreviewDeployment,
+} from "@posthog/shared";
+import {
   canvasShareUrl,
   errorTrackingIssueUrl,
   inboxReportUrl,
   parseShareLink,
 } from "@posthog/ui/utils/posthogLinks";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/utils/urls", () => ({
   getPostHogUrl: (path: string) => `https://us.posthog.com${path}`,
@@ -27,6 +31,10 @@ describe("inboxReportUrl", () => {
 });
 
 describe("parseShareLink", () => {
+  afterEach(() => {
+    registerPreviewDeployment(null);
+  });
+
   it.each([
     [
       "canvas link",
@@ -69,6 +77,28 @@ describe("parseShareLink", () => {
     ["a malformed url", "not a url"],
   ])("returns null for %s", (_label, href) => {
     expect(parseShareLink(href)).toBeNull();
+  });
+
+  // Registered inside the test, after this module imported the parser: a build
+  // registers its manifest later than the first shared module that resolves a
+  // region URL, so the host set has to be resolved per call.
+  it("accepts a preview host registered after import", () => {
+    registerPreviewDeployment(
+      parseDesktopPreviewManifest({
+        schemaVersion: 1,
+        kind: "desktop-preview",
+        repository: "PostHog/posthog",
+        prNumber: 123,
+        commitSha: "1".repeat(40),
+        backendOrigin: "https://preview.example.com",
+        gatewayBaseUrl: null,
+        oauthClientId: "example-public-client-id-1234",
+      }),
+    );
+
+    expect(
+      parseShareLink("https://preview.example.com/code/channel/chan1"),
+    ).toEqual({ kind: "channel", channelId: "chan1" });
   });
 });
 
