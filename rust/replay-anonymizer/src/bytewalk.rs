@@ -945,10 +945,8 @@ impl<'c, 'a> Walker<'c, 'a> {
             return self.copy_value(start, out);
         }
         let mut stashes: Vec<(String, String)> = Vec::new();
-        let mut hidden_pixel_counted = false;
         let end = {
             let stashes = &mut stashes;
-            let hidden_pixel_counted = &mut hidden_pixel_counted;
             self.walk_object(start, out, &mut |w, key, vstart, out| {
                 let name = std::str::from_utf8(&w.bytes[key.0..key.1]).ok()?;
                 // Existing internal refs need provenance validation and may need removing. The
@@ -963,7 +961,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         vstart,
                         tag,
                         parent_is_picture,
-                        hidden_pixel.then_some(hidden_pixel_counted),
+                        hidden_pixel,
                         out,
                         stashes,
                     );
@@ -1021,8 +1019,8 @@ impl<'c, 'a> Walker<'c, 'a> {
     /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
     /// blurred; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
     /// host-scrubbed original are stashed alongside.
-    /// `hidden_pixel` is `Some` for an `img` nobody can see. The flag inside records whether this
-    /// element's decline was counted, so that `src` and `srcset` on one element count once.
+    /// `hidden_pixel` is true for an `img` nobody can see. The collector counts that refusal once
+    /// per URL, so `src` and `srcset` naming one URL, and a re-walk after a fallback, count once.
     #[allow(clippy::too_many_arguments)]
     fn blur_media_src(
         &mut self,
@@ -1030,7 +1028,7 @@ impl<'c, 'a> Walker<'c, 'a> {
         vstart: usize,
         tag: &str,
         parent_is_picture: bool,
-        hidden_pixel: Option<&mut bool>,
+        hidden_pixel: bool,
         out: &mut Vec<u8>,
         stashes: &mut Vec<(String, String)>,
     ) -> Option<usize> {
@@ -1067,11 +1065,8 @@ impl<'c, 'a> Walker<'c, 'a> {
         } else {
             let collected = if !is_fetchable_image_attr(name, tag, parent_is_picture) {
                 None
-            } else if let Some(counted) = hidden_pixel {
-                if !*counted {
-                    self.ctx.decline_url("hidden_pixel");
-                    *counted = true;
-                }
+            } else if hidden_pixel {
+                self.ctx.decline_url(&selected, "hidden_pixel");
                 None
             } else {
                 self.ctx

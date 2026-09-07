@@ -171,7 +171,6 @@ pub fn apply_blur(
     // Computed only when a remote image is about to be collected, because the inline style is
     // parsed for it and most elements never reach that branch.
     let mut hidden_pixel: Option<bool> = None;
-    let mut hidden_pixel_counted = false;
     for key in MEDIA_SRC_ATTRS {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
@@ -211,10 +210,7 @@ pub fn apply_blur(
                 } else if *hidden_pixel.get_or_insert_with(|| {
                     tag.eq_ignore_ascii_case("img") && is_hidden_pixel(attrs)
                 }) {
-                    if !hidden_pixel_counted {
-                        ctx.decline_url("hidden_pixel");
-                        hidden_pixel_counted = true;
-                    }
+                    ctx.decline_url(&selected, "hidden_pixel");
                     None
                 } else {
                     ctx.collect_url_from(&selected, ImageSource::HtmlAttribute(key))

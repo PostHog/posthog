@@ -57,7 +57,7 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly skipped = new Counter({
         name: 'ml_image_fetch_consumer_skipped_total',
-        help: 'Frontier jobs the parser dropped on their own because the URL policy refuses the URL as unwanted, by decline reason. The record and its other jobs proceed, no dead-letter record is written, and the count lands with the source commit',
+        help: 'Frontier jobs the parser dropped on their own because the URL policy refuses the URL as unwanted, by decline reason. The record and its other jobs proceed and no dead-letter record is written. The count lands after the batch finishes its durable work, so a failed batch is not counted twice; a crash before the offset store can count it once more, like every counter in this consumer',
         labelNames: ['reason'],
     })
     private static readonly deadLettered = new Counter({

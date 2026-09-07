@@ -322,7 +322,7 @@ fn a_hidden_pixel_or_a_beacon_keeps_its_placeholder_and_is_declined() {
         ),
         (json!({ "src": src, "hidden": "" }), "hidden_pixel"),
         (
-            json!({ "src": src, "srcset": "https://cdn.example.com/spacer@2x.gif 2x", "width": "1", "height": "1" }),
+            json!({ "src": src, "srcset": format!("{src} 2x"), "width": "1", "height": "1" }),
             "hidden_pixel",
         ),
         (
@@ -381,6 +381,7 @@ fn an_escaped_or_repeated_dimension_key_still_declines_a_hidden_pixel() {
     for attributes_json in [
         r#"{"src":"https://cdn.example.com/spacer.gif","w\u0069dth":"1","height":"1"}"#,
         r#"{"src":"https://cdn.example.com/spacer.gif","width":"100","width":"1","height":"1"}"#,
+        r#"{"src":"https://cdn.example.com/spacer.gif","src":"https://cdn.example.com/spacer.gif","width":"1","height":"1"}"#,
     ] {
         let inner = format!(
             r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s","$window_id":"w","$snapshot_items":[{{"type":3,"timestamp":{TS0},"data":{{"source":0,"adds":[{{"parentId":1,"nextId":null,"node":{{"type":2,"tagName":"img","id":42,"attributes":{attributes_json},"childNodes":[]}}}}]}}}}]}}}}"#
