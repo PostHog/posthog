@@ -109,7 +109,7 @@ When you want a scout to behave differently, climb this ladder from cheapest to 
    Right for: feedback, pointers, and context with a shelf life — "the spike you keep flagging is known noise", "dig into EU signups this week", "new checkout shipped Tuesday".
    Notes are advisory: they direct attention but never lower the evidence bar or force a report.
 3. **Tune the config** (`posthog:scout-config-update`).
-   Right for: _when and whether_ it runs, not _what it looks at_ — slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), or exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`).
+   Right for: _when and whether_ it runs, and _what it can reach_, but not _what it investigates_ — slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), give a code scout a checkout (`repositories=["organization/repository"]`, read-only), or exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`).
 4. **Edit the skill body, or author a new scout** (via `authoring-scouts`).
    Right for: permanent policy — a disqualifier, a threshold, a scope change, a new surface.
    For a **custom scout** this is the strongest steer there is: the skill body is yours, edit it freely — it's where recurring notes and repeated dismissal reasons should end up.

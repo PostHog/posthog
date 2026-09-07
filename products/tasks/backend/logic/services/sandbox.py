@@ -34,6 +34,7 @@ from posthog.dataclasses import frozen
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
+    SANDBOX_REPOSITORIES_ROOT,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
@@ -254,7 +255,7 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
 def sandbox_repo_path(repository: str) -> str:
     """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
     org, repo = repository.lower().split("/")
-    return f"{WORKING_DIR}/repos/{org}/{repo}"
+    return f"{SANDBOX_REPOSITORIES_ROOT}/{org}/{repo}"
 
 
 def redact_sandbox_command(command: str) -> str:
@@ -499,7 +500,7 @@ class SandboxBase(ABC):
         )
 
         target_path = sandbox_repo_path(repository)
-        org_path = f"{WORKING_DIR}/repos/{org}"
+        org_path = f"{SANDBOX_REPOSITORIES_ROOT}/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""

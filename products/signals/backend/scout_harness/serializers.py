@@ -82,6 +82,7 @@ from products.skills.backend.api.skill_serializers import (
     validate_skill_name_value,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -2467,6 +2468,66 @@ def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
     return [str(server_id) for server_id in value]
 
 
+# Matches the cap on a task's repositories: a scout's sandbox provisions through the same clone
+# path, and every extra repo is another clone on every run.
+MAX_SCOUT_REPOSITORIES = 10
+
+_REPOSITORIES_HELP = (
+    "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. "
+    "Set them for a scout that reads code, so it can search the tree and run the project's own "
+    "tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox "
+    "without a checkout. The scout's GitHub access stays read-only either way, so a repository "
+    f"listed here is never writable from a run. At most {MAX_SCOUT_REPOSITORIES}, each reachable "
+    "through the project's GitHub connection. Applies from the scout's next run."
+)
+
+
+def _scout_repositories_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        read_only=read_only,
+        required=False,
+        max_length=MAX_SCOUT_REPOSITORIES,
+        help_text=_REPOSITORIES_HELP,
+    )
+
+
+def _validate_scout_repositories(value: list[str], context: dict) -> list[str]:
+    """Normalize pinned repositories and refuse any the scout's runs could not clone.
+
+    Checked against the installation a read-only sandbox token is minted from, which is the
+    credential a scout run clones with. Anything else would accept a pin that only fails once the
+    scout is already running. A team with no reachable GitHub connection can only pin nothing.
+    """
+    repositories: list[str] = []
+    for repository in value:
+        normalized = repository.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError(f"'{repository}' must be in the format organization/repo.")
+        if normalized in repositories:
+            raise serializers.ValidationError(f"'{normalized}' is listed twice.")
+        repositories.append(normalized)
+    if not repositories:
+        return repositories
+
+    get_team = context.get("get_team")
+    # Some create paths pass a `team` object instead of the routed `get_team` lambda.
+    team = get_team() if callable(get_team) else context.get("team")
+    if not isinstance(team, Team):
+        raise RuntimeError("Scout config repository validation requires team in its context")
+    integration_id = tasks_facade.readonly_github_integration_id(team.id)
+    if integration_id is None:
+        raise serializers.ValidationError("Connect GitHub to this project before pinning repositories to a scout.")
+    inaccessible = tasks_facade.inaccessible_repositories_via_integration(team.id, integration_id, repositories)
+    if inaccessible:
+        raise serializers.ValidationError(
+            f"Not reachable through this project's GitHub connection: {', '.join(inaccessible)}. "
+            "Check the spelling, or add the repository to the project's GitHub installation."
+        )
+    return repositories
+
+
 # Sorted so the help text, the error message, and the picker all name the scopes in one order.
 GRANTABLE_WRITE_SCOPES: list[str] = sorted(SCOUT_GRANTABLE_WRITE_SCOPES)
 
@@ -2681,6 +2742,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=_SCOUT_TAGS_HELP_TEXT,
     )
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field(read_only=True)
+    # Writable-shaped for the same reason as `tags`: a read-only array serializes as
+    # `readonly string[]`, which a client cannot hand straight back to the patch call.
+    repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field(read_only=True)
 
     @extend_schema_field(OpenApiTypes.STR)
@@ -2725,6 +2789,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "network_access",
             "model",
             "mcp_gateway_server_ids",
+            "repositories",
             "write_scopes",
             "last_run_at",
             "consecutive_failure_count",
@@ -2853,6 +2918,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
     )
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
@@ -2872,6 +2938,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
         return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        return _validate_scout_repositories(value, self.context)
 
     def validate_write_scopes(self, value: list[str]) -> list[str]:
         return _validate_write_scopes(value)
@@ -2952,6 +3021,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "auto_pause_exempt",
             "tags",
             "mcp_gateway_server_ids",
+            "repositories",
             "write_scopes",
         ]
 
@@ -3023,6 +3093,7 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
     )
 
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
@@ -3046,6 +3117,9 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
         return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        return _validate_scout_repositories(value, self.context)
 
     def validate_write_scopes(self, value: list[str]) -> list[str]:
         return _validate_write_scopes(value)

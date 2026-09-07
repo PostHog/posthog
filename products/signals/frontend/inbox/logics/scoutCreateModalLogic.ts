@@ -48,6 +48,7 @@ type ScoutCreateConfigFormValues = Required<
         | 'run_cron_schedule'
         | 'tags'
         | 'mcp_gateway_server_ids'
+        | 'repositories'
         | 'write_scopes'
     >
 > &
@@ -99,6 +100,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
         run_cron_schedule: null,
         tags: [],
         mcp_gateway_server_ids: [],
+        repositories: [],
         write_scopes: [],
     },
 }

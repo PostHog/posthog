@@ -951,13 +951,13 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
     """
     try:
-        return _resolve_mintable_team_integration(team_id) is not None
+        return resolve_readonly_github_integration(team_id) is not None
     except Exception:
         logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
         return False
 
 
-def _resolve_mintable_team_integration(team_id: int) -> GitHubIntegration | None:
+def resolve_readonly_github_integration(team_id: int) -> GitHubIntegration | None:
     """The team-level integration a read-only mint may use, or None.
 
     Refuses the resolver's org-owner personal-integration fallback (its installation can span
@@ -989,7 +989,7 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
     nicety, and its absence must not fail the run.
     """
     try:
-        integration = _resolve_mintable_team_integration(team_id)
+        integration = resolve_readonly_github_integration(team_id)
         if integration is None:
             logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None

@@ -33,6 +33,7 @@ import {
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
 import { ScoutWriteAccessSection } from './ScoutWriteAccessSection'
@@ -312,6 +313,13 @@ export function ScoutConfigForm({
                 onChange={(serverIds) => onUpdate(config.id, { mcp_gateway_server_ids: serverIds })}
                 // Editable while the scout is disabled, like network access: the selection must be
                 // settable BEFORE the enable or the first run races out with the wrong toolset.
+                disabledReason={updating ? 'Saving scout settings' : undefined}
+            />
+            <ScoutRepositoriesPicker
+                compact
+                selectedRepositories={[...(config.repositories ?? [])]}
+                onChange={(repositories) => onUpdate(config.id, { repositories })}
+                // Editable while the scout is disabled, for the same reason as the MCP selection.
                 disabledReason={updating ? 'Saving scout settings' : undefined}
             />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />

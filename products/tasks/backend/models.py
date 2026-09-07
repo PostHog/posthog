@@ -902,6 +902,7 @@ class Task(DeletedMetaFields, models.Model):
         user_id: int,
         title_manually_set: bool = False,
         repository: str | None = None,
+        repositories: list[str] | None = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
@@ -940,6 +941,15 @@ class Task(DeletedMetaFields, models.Model):
         GitHub-integration resolution and authorship logic from drifting between them.
         """
         created_by = User.objects.get(id=user_id)
+
+        # One repo set for the whole path: `repositories` is what provisioning clones and what
+        # snapshot reuse is keyed on, `repository` the singular column older readers still use.
+        # Callers may send either, so resolve them into agreement here rather than leaving each
+        # creation path to patch the row afterwards.
+        resolved_repositories = [
+            repository_name.lower() for repository_name in (repositories or ([repository] if repository else []))
+        ]
+        repository = resolved_repositories[0] if resolved_repositories else None
 
         from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
         from products.tasks.backend.temporal.process_task.utils import (
@@ -1043,6 +1053,7 @@ class Task(DeletedMetaFields, models.Model):
             github_integration=github_integration,
             github_user_integration=github_user_integration,
             repository=repository,
+            repositories=resolved_repositories,
             channel=channel,
             internal=internal,
             runtime=runtime,
@@ -1173,6 +1184,7 @@ class Task(DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,
         repository: str | None = None,
+        repositories: list[str] | None = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
@@ -1202,6 +1214,7 @@ class Task(DeletedMetaFields, models.Model):
             origin_product=origin_product,
             user_id=user_id,
             repository=repository,
+            repositories=repositories,
             channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
@@ -1230,6 +1243,7 @@ class Task(DeletedMetaFields, models.Model):
         user_id: int,
         title_manually_set: bool = False,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        repositories: list[str] | None = None,
         channel: Channel | None = None,
         create_pr: bool = True,
         mode: str = "background",
@@ -1282,6 +1296,7 @@ class Task(DeletedMetaFields, models.Model):
             user_id=user_id,
             title_manually_set=title_manually_set,
             repository=repository,
+            repositories=repositories,
             channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
@@ -1321,7 +1336,9 @@ class Task(DeletedMetaFields, models.Model):
             run_extra_state.update(extra_run_state)
         if github_read_access:
             # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
-            # GitHub token into the (repo-less) sandbox instead of the full credential path.
+            # GitHub token instead of taking the full credential path. It holds for the whole run
+            # whether or not the run clones, so a repo-pinned caller that asks for read access
+            # gets a checkout it can read and never write capability it did not ask for.
             run_extra_state["github_read_access"] = True
         # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
         # reconciler can re-dispatch faithfully if the workflow start is ever lost.
