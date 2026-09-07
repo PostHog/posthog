@@ -30,6 +30,7 @@ import {
 } from "@posthog/ui/utils/posthogLinks";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { clipTimeForMoment } from "./recordingClipTime";
 import {
   type SignalInteractionAction,
   SignalInteractionContext,
@@ -728,24 +729,6 @@ function EvidenceActionPill({
 }
 
 /**
- * Map a moment in the session onto a time in the clip. A render covers one
- * window of the session at one speed, so the moment is only reachable when it
- * falls inside that window.
- */
-function clipTimeForMoment(
-  clip: RecordingExport,
-  sessionOffsetSeconds: number,
-  clipDuration: number,
-): number | null {
-  const clipTime =
-    (sessionOffsetSeconds - clip.startOffsetSeconds) / clip.speed;
-  if (!Number.isFinite(clipTime) || clipTime < 0 || clipTime > clipDuration) {
-    return null;
-  }
-  return clipTime;
-}
-
-/**
  * The recording affordance on an evidence card: a pill that opens the rendered
  * clip in a modal player, at the moment the finding describes. The clip
  * downloads only once that modal opens, so a report full of evidence costs one
@@ -765,7 +748,9 @@ function SessionRecordingPreview({
   const hasFiredPlayRef = useRef(false);
   const interaction = useSignalInteraction();
   const [open, setOpen] = useState(false);
-  const [momentReachable, setMomentReachable] = useState(false);
+  // Null until the clip reports its length, since only then can the player say
+  // whether the moment is in it.
+  const [momentReachable, setMomentReachable] = useState<boolean | null>(null);
 
   const exportQuery = useAuthenticatedQuery<RecordingExport | null>(
     ["recording-export", projectId, exportedAssetId, sessionId],
@@ -799,17 +784,16 @@ function SessionRecordingPreview({
   const seekToMoment = useCallback(() => {
     const video = videoRef.current;
     if (!video || seekSeconds == null || clip == null) return;
-    const target = clipTimeForMoment(clip, seekSeconds, video.duration);
-    if (target != null) video.currentTime = target;
+    const target = clipTimeForMoment(clip, seekSeconds);
+    if (target == null) return;
+    video.currentTime = Math.min(target, video.duration);
   }, [clip, seekSeconds]);
 
   const handleLoadedMetadata = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || seekSeconds == null || clip == null) return;
-    const target = clipTimeForMoment(clip, seekSeconds, video.duration);
-    setMomentReachable(target != null);
-    if (target != null) video.currentTime = target;
-  }, [clip, seekSeconds]);
+    if (seekSeconds == null || clip == null) return;
+    setMomentReachable(clipTimeForMoment(clip, seekSeconds) != null);
+    seekToMoment();
+  }, [clip, seekSeconds, seekToMoment]);
 
   // No clip was rendered for this session, so the web player is the only route
   // to the recording.
@@ -846,9 +830,11 @@ function SessionRecordingPreview({
           <DialogHeader>
             <DialogTitle>Session recording</DialogTitle>
             <DialogDescription>
-              {momentLabel
-                ? `The rendered clip, at ${momentLabel} in the session.`
-                : "The rendered clip from this session."}
+              {momentLabel == null
+                ? "The rendered clip from this session."
+                : momentReachable === false
+                  ? `The clip stops before ${momentLabel}. Open the session in PostHog to reach that moment.`
+                  : `The rendered clip, at ${momentLabel} in the session.`}
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -883,7 +869,7 @@ function SessionRecordingPreview({
             </div>
           </DialogBody>
           <DialogFooter className="sm:items-center sm:justify-between">
-            {momentLabel && momentReachable ? (
+            {momentLabel && momentReachable === true ? (
               <Button variant="outline" size="sm" onClick={seekToMoment}>
                 Back to {momentLabel}
               </Button>

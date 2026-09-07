@@ -224,19 +224,50 @@ interface RecordingExportRow {
     end_offset_s?: number | null;
     timestamp?: number | null;
     duration?: number | null;
-    speed?: number | null;
+    video_duration_s?: number | null;
+    truncated?: boolean | null;
+    inactivity_periods?: Array<{
+      ts_from_s?: number | null;
+      ts_to_s?: number | null;
+      active?: boolean | null;
+      recording_ts_from_s?: number | null;
+      recording_ts_to_s?: number | null;
+    }> | null;
   } | null;
 }
 
-/** A rendered mp4 of one window of a session recording. */
+/**
+ * One stretch of the session, and where it landed in the rendered clip. An
+ * idle stretch is dropped from the render, so it occupies no clip time and its
+ * two clip values are equal.
+ */
+export interface RecordingClipSegment {
+  /** Session time the stretch covers, in seconds from the session start. */
+  sessionFromSeconds: number;
+  sessionToSeconds: number | null;
+  /** Where the stretch sits in the rendered clip, in seconds. */
+  clipFromSeconds: number;
+  clipToSeconds: number;
+  active: boolean;
+}
+
+/** A rendered mp4 of a session recording. */
 export interface RecordingExport {
   id: number;
   /** Where the clip starts in the session, in seconds from the session start. */
   startOffsetSeconds: number;
   /** Where the clip ends in the session. Null when the render did not record it. */
   endOffsetSeconds: number | null;
-  /** Playback speed the clip rendered at, so clip time maps back to session time. */
-  speed: number;
+  /** Rendered length of the clip. Null on a render that did not record it. */
+  clipDurationSeconds: number | null;
+  /** The render stopped early, so the clip can end before the session does. */
+  truncated: boolean;
+  /**
+   * Session time to clip time, stretch by stretch. The render drops the idle
+   * stretches of a session, so clip time runs behind session time by however
+   * much idle time came before it. Empty on a render that kept every stretch.
+   */
+  segments: RecordingClipSegment[];
 }
 
 type SessionLogsPage =
@@ -6718,9 +6749,9 @@ export class PostHogAPIClient {
   }
 
   /**
-   * Read the clip window off an export row. A rendered recording covers one
-   * window of the session at one playback speed, so a caller needs both to map
-   * a moment in the session onto a time in the clip.
+   * Read the clip window and the session-to-clip time map off an export row.
+   * The render drops the idle stretches of a session, so a caller cannot treat
+   * a session offset as a clip time.
    */
   private parseRecordingExport(row: RecordingExportRow): RecordingExport {
     const context = row.export_context ?? {};
@@ -6728,11 +6759,29 @@ export class PostHogAPIClient {
     const endOffsetSeconds =
       context.end_offset_s ??
       (context.duration != null ? startOffsetSeconds + context.duration : null);
+
+    const segments: RecordingClipSegment[] = [];
+    for (const period of context.inactivity_periods ?? []) {
+      if (period.ts_from_s == null || period.recording_ts_from_s == null) {
+        continue;
+      }
+      segments.push({
+        sessionFromSeconds: period.ts_from_s,
+        sessionToSeconds: period.ts_to_s ?? null,
+        clipFromSeconds: period.recording_ts_from_s,
+        clipToSeconds: period.recording_ts_to_s ?? period.recording_ts_from_s,
+        active: period.active !== false,
+      });
+    }
+    segments.sort((a, b) => a.sessionFromSeconds - b.sessionFromSeconds);
+
     return {
       id: row.id,
       startOffsetSeconds,
       endOffsetSeconds,
-      speed: context.speed && context.speed > 0 ? context.speed : 1,
+      clipDurationSeconds: context.video_duration_s ?? null,
+      truncated: context.truncated === true,
+      segments,
     };
   }
 
