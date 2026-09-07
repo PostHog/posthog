@@ -1439,11 +1439,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not requested_team_ids:
             return
 
-        matching_team_ids = set(
-            Team.objects.filter(organization=organization, id__in=requested_team_ids).values_list("id", flat=True)
+        # Billing lists every project that has reported usage for the organization, so a request
+        # can name a project PostHog has since deleted. Billing scopes the read to the organization
+        # in the token, so such an id only reads that organization's own history. What must not
+        # pass is a project that belongs to another organization.
+        foreign_team_ids = (
+            Team.objects.filter(id__in=requested_team_ids)
+            .exclude(organization=organization)
+            .values_list("id", flat=True)
         )
 
-        if requested_team_ids != matching_team_ids:
+        if foreign_team_ids.exists():
             raise PermissionDenied("One or more requested projects are not in this organization.")
 
     def _get_org(self) -> Optional[Organization]:

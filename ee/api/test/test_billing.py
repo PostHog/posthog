@@ -1536,6 +1536,23 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get_spend_data.assert_not_called()
 
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_reads_a_project_the_organization_has_since_deleted(self, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        deleted_team = Team.objects.create(organization=self.organization, name="Retired project")
+        deleted_team_id = deleted_team.pk
+        deleted_team.delete()
+        headers = self._personal_api_key_headers(["billing:read"])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01", "team_ids": f"[{deleted_team_id}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_usage_data.call_args[0][1]["team_ids"], f"[{deleted_team_id}]")
+
     def test_get_usage_rejects_personal_api_key_without_billing_read_scope(self):
         headers = self._personal_api_key_headers(["project:read"])
         response = self.client.get(
