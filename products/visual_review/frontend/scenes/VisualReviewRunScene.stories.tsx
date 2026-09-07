@@ -99,11 +99,8 @@ const snapshots = {
             row_shift: {
                 inserted_rows: 1,
                 deleted_rows: 0,
-                changed_rows: 0,
-                residual_pixel_count: 0,
                 residual_percentage: 0.001,
                 raw_diff_percentage: 2.4,
-                raw_ssim_score: 0.76,
                 bands: [{ y: 60, rows: 1, kind: 'inserted' }],
             },
         }),
@@ -120,11 +117,8 @@ const snapshots = {
             row_shift: {
                 inserted_rows: 40,
                 deleted_rows: 0,
-                changed_rows: 0,
-                residual_pixel_count: 0,
                 residual_percentage: 0.0,
                 raw_diff_percentage: 31.6,
-                raw_ssim_score: 0.42,
                 bands: [{ y: 80, rows: 40, kind: 'inserted' }],
             },
         }),

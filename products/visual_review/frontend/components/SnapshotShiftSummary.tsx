@@ -1,16 +1,8 @@
 import type { RowShiftApi } from '../generated/api.schemas'
+import { describeBand } from '../lib/shiftCopy'
 
 interface SnapshotShiftSummaryProps {
     rowShift: RowShiftApi
-}
-
-function pluralRows(count: number): string {
-    return `${count} ${count === 1 ? 'row' : 'rows'}`
-}
-
-function describeBand(kind: string, rows: number, y: number): string {
-    const verb = kind === 'deleted' ? 'deleted' : 'inserted'
-    return `${pluralRows(rows)} ${verb} at y=${y}`
 }
 
 /**
@@ -29,7 +21,7 @@ export function SnapshotShiftSummary({ rowShift }: SnapshotShiftSummaryProps): J
             <h4 className="text-xs font-semibold text-muted mb-1">Row shift</h4>
             <div className="flex flex-col gap-0.5 text-[11px] text-muted tabular-nums">
                 {rowShift.bands.map((band, i) => (
-                    <span key={i}>{describeBand(band.kind, band.rows, band.y)}</span>
+                    <span key={i}>{describeBand(band)}</span>
                 ))}
             </div>
         </div>

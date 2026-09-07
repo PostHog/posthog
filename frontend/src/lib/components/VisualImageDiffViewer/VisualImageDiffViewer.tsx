@@ -17,6 +17,12 @@ export interface DiffOverlayBox {
     height: number
 }
 
+/** A run of rows the current image gained or lost, in natural image coordinates. */
+export interface DiffOverlayBand {
+    y: number
+    rows: number
+}
+
 export interface VisualImageDiffViewerProps {
     baselineUrl: string | null
     currentUrl: string | null
@@ -48,12 +54,13 @@ export interface VisualImageDiffViewerProps {
      */
     diffOverlayBoxes?: DiffOverlayBox[]
     /**
-     * Rows the current image gained or lost, in the same coord space as
-     * `diffOverlayBoxes`. Drawn in their own color because a shift band is
-     * where content moved, not where it changed, and unlike clusters they
-     * stay visible when the cluster toggle is off.
+     * Rows the current image gained or lost, in the same vertical coord space
+     * as `diffOverlayBoxes`. Each band spans the full width, so it carries no
+     * x. Drawn in their own color because a band is where content moved, not
+     * where it changed, and unlike clusters they stay visible when the cluster
+     * toggle is off.
      */
-    diffOverlayBands?: DiffOverlayBox[]
+    diffOverlayBands?: DiffOverlayBand[]
     /**
      * Natural-pixel dimensions of the bbox coord space — the diff
      * image's dimensions, which equal current/baseline when sizes
@@ -105,7 +112,7 @@ interface ImagePanelProps {
     /** When set, draw bbox outlines over the image at these natural-coord positions. */
     overlayBoxes?: DiffOverlayBox[]
     /** Shift bands, drawn in the same coord space as `overlayBoxes`. */
-    overlayBands?: DiffOverlayBox[]
+    overlayBands?: DiffOverlayBand[]
     overlayWidth?: number
     overlayHeight?: number
     /** Highlighted cluster index — that one box renders emphasized. */
@@ -187,7 +194,7 @@ function ImagePanel({
 interface BboxOverlayProps {
     boxes: DiffOverlayBox[]
     /** Rows the current image gained or lost. Not numbered and not hoverable. */
-    bands?: DiffOverlayBox[]
+    bands?: DiffOverlayBand[]
     /** Natural pixel coord space the bboxes live in. */
     width: number
     height: number
@@ -213,6 +220,58 @@ const BAND_FILL = 'rgba(124, 92, 214, 0.22)'
 // is non-scaling so it still draws, but the fill needs a floor to be visible.
 const MIN_OVERLAY_SIDE_PX = 3
 
+interface OverlayRectProps {
+    x: number
+    y: number
+    width: number
+    height: number
+    fill: string
+    stroke: string
+    strokeWidth: number
+    strokeDasharray?: string
+    opacity?: number
+    onHover?: (index: number | null) => void
+    index?: number
+}
+
+/** One overlay rectangle, clamped so a one-pixel side still has an area to fill. */
+function OverlayRect({
+    x,
+    y,
+    width,
+    height,
+    fill,
+    stroke,
+    strokeWidth,
+    strokeDasharray,
+    opacity,
+    onHover,
+    index,
+}: OverlayRectProps): JSX.Element {
+    const hoverable = !!onHover && index !== undefined
+    return (
+        <rect
+            x={x}
+            y={y}
+            width={Math.max(width, MIN_OVERLAY_SIDE_PX)}
+            height={Math.max(height, MIN_OVERLAY_SIDE_PX)}
+            fill={fill}
+            stroke={stroke}
+            strokeWidth={strokeWidth}
+            strokeDasharray={strokeDasharray}
+            opacity={opacity}
+            vectorEffect="non-scaling-stroke"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                pointerEvents: hoverable ? 'auto' : 'none',
+                cursor: hoverable ? 'pointer' : undefined,
+            }}
+            onMouseEnter={hoverable ? () => onHover(index) : undefined}
+            onMouseLeave={hoverable ? () => onHover(null) : undefined}
+        />
+    )
+}
+
 function BboxOverlay({ boxes, bands, width, height, highlightedIndex, onHover }: BboxOverlayProps): JSX.Element {
     return (
         <>
@@ -228,42 +287,37 @@ function BboxOverlay({ boxes, bands, width, height, highlightedIndex, onHover }:
                 viewBox={`0 0 ${width} ${height}`}
                 preserveAspectRatio="none"
             >
-                {(bands ?? []).map((b, i) => (
-                    <rect
+                {/* A band spans the whole image, so it reads as a rule across the
+                 * diff rather than as a region of it. */}
+                {(bands ?? []).map((band, i) => (
+                    <OverlayRect
                         key={`band-${i}`}
-                        x={b.x}
-                        y={b.y}
-                        width={Math.max(b.width, MIN_OVERLAY_SIDE_PX)}
-                        height={Math.max(b.height, MIN_OVERLAY_SIDE_PX)}
+                        x={0}
+                        y={band.y}
+                        width={width}
+                        height={band.rows}
                         fill={BAND_FILL}
                         stroke={BAND_STROKE}
                         strokeWidth={2}
-                        vectorEffect="non-scaling-stroke"
                     />
                 ))}
                 {boxes.map((b, i) => {
                     const isHighlighted = highlightedIndex === i
                     const isDimmed = highlightedIndex !== null && !isHighlighted
                     return (
-                        <rect
+                        <OverlayRect
                             key={i}
                             x={b.x}
                             y={b.y}
-                            width={Math.max(b.width, MIN_OVERLAY_SIDE_PX)}
-                            height={Math.max(b.height, MIN_OVERLAY_SIDE_PX)}
+                            width={b.width}
+                            height={b.height}
                             fill={isHighlighted ? OVERLAY_FILL_HIGHLIGHT : OVERLAY_FILL_DEFAULT}
                             stroke={OVERLAY_STROKE}
                             strokeWidth={isHighlighted ? 3 : 2}
                             strokeDasharray={isHighlighted ? undefined : '4 3'}
                             opacity={isDimmed ? 0.4 : 1}
-                            vectorEffect="non-scaling-stroke"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                pointerEvents: onHover ? 'auto' : 'none',
-                                cursor: onHover ? 'pointer' : undefined,
-                            }}
-                            onMouseEnter={onHover ? () => onHover(i) : undefined}
-                            onMouseLeave={onHover ? () => onHover(null) : undefined}
+                            onHover={onHover}
+                            index={i}
                         />
                     )
                 })}
@@ -356,7 +410,11 @@ export function VisualImageDiffViewer({
     const overlayBoxesIfShown = showClusters ? diffOverlayBoxes : undefined
     // Bands stay on with the cluster toggle off. A shift band is what the
     // toggle is meant to leave behind: where the page moved, not what changed.
-    const hasOverlayContent = hasOverlayBoxes || (!!diffOverlayBands && diffOverlayBands.length > 0)
+    const hasOverlayContent = (overlayBoxesIfShown?.length ?? 0) + (diffOverlayBands?.length ?? 0) > 0
+    // Overlays live in the diff image's coord space. When that space is the
+    // padded size they line up with neither the baseline nor the current
+    // image, so every surface that draws over one of those two has to check.
+    const overlayCoordsMatch = overlayCoordWidth === imageWidth && overlayCoordHeight === imageHeight
     const supportsComparison = isComparisonResult(result)
     const hasBothImages = Boolean(baselineUrl && currentUrl)
     const hasDiffImage = Boolean(diffUrl)
@@ -529,7 +587,6 @@ export function VisualImageDiffViewer({
             // judge against, and bboxes were computed against current.
             // Skip when the bbox coord space doesn't match the rendered
             // image (size-mismatch case).
-            const overlaySafeOnAfter = overlayCoordWidth === imageWidth && overlayCoordHeight === imageHeight
             return (
                 <div className="flex flex-col gap-3 p-3 lg:flex-row lg:justify-center lg:items-start">
                     <ImagePanel
@@ -553,8 +610,8 @@ export function VisualImageDiffViewer({
                         onClick={
                             currentUrl ? () => setZoomedImage({ url: currentUrl, label: 'After snapshot' }) : undefined
                         }
-                        overlayBoxes={overlaySafeOnAfter ? overlayBoxesIfShown : undefined}
-                        overlayBands={overlaySafeOnAfter ? diffOverlayBands : undefined}
+                        overlayBoxes={overlayCoordsMatch ? overlayBoxesIfShown : undefined}
+                        overlayBands={overlayCoordsMatch ? diffOverlayBands : undefined}
                         overlayWidth={overlayCoordWidth}
                         overlayHeight={overlayCoordHeight}
                         highlightedOverlayIndex={highlightedOverlayIndex}
@@ -670,8 +727,7 @@ export function VisualImageDiffViewer({
                             hasOverlayContent &&
                             !!overlayCoordWidth &&
                             !!overlayCoordHeight &&
-                            overlayCoordWidth === imageWidth &&
-                            overlayCoordHeight === imageHeight && (
+                            overlayCoordsMatch && (
                                 <BboxOverlay
                                     boxes={overlayBoxesIfShown ?? []}
                                     bands={diffOverlayBands}
@@ -732,14 +788,13 @@ export function VisualImageDiffViewer({
                                  * After side still syncs with the sidebar
                                  * panel (without it the After-side bboxes were
                                  * silently non-interactive). */}
-                                {!!overlayBoxesIfShown &&
-                                    overlayBoxesIfShown.length > 0 &&
+                                {hasOverlayContent &&
                                     !!overlayCoordWidth &&
                                     !!overlayCoordHeight &&
-                                    overlayCoordWidth === imageWidth &&
-                                    overlayCoordHeight === imageHeight && (
+                                    overlayCoordsMatch && (
                                         <BboxOverlay
-                                            boxes={overlayBoxesIfShown}
+                                            boxes={overlayBoxesIfShown ?? []}
+                                            bands={diffOverlayBands}
                                             width={overlayCoordWidth}
                                             height={overlayCoordHeight}
                                             highlightedIndex={highlightedOverlayIndex ?? null}
