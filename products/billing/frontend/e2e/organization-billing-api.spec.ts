@@ -77,6 +77,12 @@ test.describe('Organization billing API', () => {
 
             const invoices = await (await get('invoices/')).json()
             expect(invoices).toEqual({ next: null, previous: null, results: [] })
+
+            const csv = await get('usage/export/', { ...SERIES, breakdowns: '["type","team"]' })
+            expect(csv.status()).toBe(200)
+            expect(csv.headers()['content-type']).toContain('text/csv')
+            expect(csv.headers()['content-disposition']).toContain('attachment; filename="posthog_usage_')
+            expect((await csv.text()).split('\n')[0]).toMatch(/^Product,Project,Project ID,Total/)
         })
 
         test('invoice parameters are validated before billing is asked', async ({ request, playwrightSetup }) => {
@@ -169,6 +175,7 @@ test.describe('Organization billing API', () => {
             expect((await get('spend/')).status()).toBe(403)
             const withFlag = memberHasReadFlag ? 200 : 403
             expect((await get('usage/timeseries/', SERIES)).status()).toBe(withFlag)
+            expect((await get('usage/export/', SERIES)).status()).toBe(withFlag)
             expect((await get('projects/')).status()).toBe(withFlag)
         })
     })
