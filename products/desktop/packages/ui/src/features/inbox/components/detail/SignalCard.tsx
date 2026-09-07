@@ -3,17 +3,34 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   CheckCircleIcon,
+  PlayIcon,
   TagIcon,
 } from "@phosphor-icons/react";
+import type { RecordingExport } from "@posthog/api-client/posthog-client";
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
 import type { Signal, SignalFindingContent } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { errorTrackingIssueUrl } from "@posthog/ui/utils/posthogLinks";
+import {
+  colonOffsetToSeconds,
+  errorTrackingIssueUrl,
+  sessionRecordingUrl,
+} from "@posthog/ui/utils/posthogLinks";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { clipTimeForMoment } from "./recordingClipTime";
 import {
   type SignalInteractionAction,
   SignalInteractionContext,
@@ -154,6 +171,20 @@ interface ErrorTrackingExtra {
   fingerprint?: string;
 }
 
+interface ScannerFindingExtra {
+  scanner_name?: string;
+  session_id?: string;
+  problem_type?: string;
+  start_time?: number;
+  end_time?: number;
+  exported_asset_id?: number;
+  distinct_id?: string;
+  recording_start_time?: string;
+  recording_end_time?: string;
+  recording_duration?: number;
+  recording_active_seconds?: number;
+}
+
 function resolveLabels(
   raw: GitHubIssueExtra["labels"],
 ): { name: string; color?: string }[] {
@@ -241,12 +272,16 @@ function isLlmEvalExtra(
   return "evaluation_id" in extra && "trace_id" in extra;
 }
 
-function isSessionProblemExtra(
+function isSessionExtra(
   extra: Record<string, unknown>,
 ): extra is Record<string, unknown> & SessionProblemExtra {
-  return (
-    "session_id" in extra && "problem_type" in extra && "segment_title" in extra
-  );
+  return "session_id" in extra && "segment_title" in extra;
+}
+
+function isScannerFindingExtra(
+  extra: Record<string, unknown>,
+): extra is Record<string, unknown> & ScannerFindingExtra {
+  return "session_id" in extra && "scanner_name" in extra;
 }
 
 function isErrorTrackingExtra(
@@ -539,6 +574,17 @@ function formatSessionDuration(seconds: number): string {
   return remainMins > 0 ? `${hrs}h ${remainMins}m` : `${hrs}h`;
 }
 
+function colonOffset(seconds: number): string {
+  const total = Math.round(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  const hrs = Math.floor(mins / 60);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return hrs > 0
+    ? `${pad(hrs)}:${pad(mins % 60)}:${pad(secs)}`
+    : `${pad(mins)}:${pad(secs)}`;
+}
+
 function SessionProblemSignalCard({
   signal,
   extra,
@@ -570,9 +616,14 @@ function SessionProblemSignalCard({
       <CollapsibleBody body={signal.content} />
 
       {extra.session_id && (
-        <SessionRecordingVideo
+        <SessionRecordingPreview
           exportedAssetId={extra.exported_asset_id}
           sessionId={extra.session_id}
+          seekSeconds={
+            extra.start_time
+              ? colonOffsetToSeconds(extra.start_time)
+              : undefined
+          }
         />
       )}
 
@@ -632,62 +683,279 @@ function SessionProblemSignalCard({
   );
 }
 
-function SessionRecordingVideo({
+/**
+ * A compact action on an evidence card: a glyph and a label in a pill, sized to
+ * sit beside the card's metadata. Every evidence type puts its affordance in
+ * this one shape, so a card gains an action without gaining a block.
+ */
+function EvidenceActionPill({
+  glyph,
+  label,
+  href,
+  onClick,
+}: {
+  glyph: ReactNode;
+  label: string;
+  href?: string;
+  onClick?: () => void;
+}) {
+  const className =
+    "group inline-flex items-center gap-1.5 rounded-full border border-(--gray-5) bg-(--gray-2) py-1 pr-2.5 pl-1.5 font-medium text-[12px] text-gray-11 no-underline transition-colors hover:border-(--gray-7) hover:bg-(--gray-3) hover:text-gray-12";
+  const body = (
+    <>
+      <span className="flex size-4 items-center justify-center rounded-full bg-(--accent-9) text-white transition-transform duration-150 group-hover:scale-110">
+        {glyph}
+      </span>
+      {label}
+    </>
+  );
+
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={className}>
+        {body}
+      </a>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${className} cursor-pointer`}
+    >
+      {body}
+    </button>
+  );
+}
+
+/**
+ * The recording affordance on an evidence card: a pill that opens the rendered
+ * clip in a modal player, at the moment the finding describes. The clip
+ * downloads only once that modal opens, so a report full of evidence costs one
+ * cheap lookup per card rather than one mp4 per card.
+ */
+function SessionRecordingPreview({
   exportedAssetId,
   sessionId,
+  seekSeconds,
 }: {
   exportedAssetId?: number;
   sessionId: string;
+  seekSeconds?: number | null;
 }) {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasFiredPlayRef = useRef(false);
   const interaction = useSignalInteraction();
-  const videoQuery = useAuthenticatedQuery<string | null>(
-    ["export-video", projectId, exportedAssetId, sessionId],
+  const [open, setOpen] = useState(false);
+  // Null until the clip reports its length, since only then can the player say
+  // whether the moment is in it.
+  const [momentReachable, setMomentReachable] = useState<boolean | null>(null);
+
+  const exportQuery = useAuthenticatedQuery<RecordingExport | null>(
+    ["recording-export", projectId, exportedAssetId, sessionId],
     async (client) => {
       if (!projectId) return null;
-      let assetId: number | null = exportedAssetId ?? null;
-      // If no asset ID in the signal, look up the export by session_id
-      if (assetId == null) {
-        assetId = await client.findExportBySessionRecordingId(
-          projectId,
-          sessionId,
-        );
-        if (assetId == null) return null;
-      }
-      return client.getExportContentUrl(projectId, assetId);
+      return exportedAssetId != null
+        ? await client.getRecordingExport(projectId, exportedAssetId)
+        : await client.findRecordingExport(projectId, sessionId);
     },
     { enabled: !!projectId, staleTime: Infinity },
   );
+  const clip = exportQuery.data ?? null;
 
-  if (videoQuery.isError || videoQuery.data === null) return null;
-  if (videoQuery.isLoading || videoQuery.data === undefined) {
+  const clipQuery = useAuthenticatedQuery<string | null>(
+    ["recording-clip", projectId, clip?.id],
+    async (client) => {
+      if (!projectId || clip == null) return null;
+      return await client.getExportContentUrl(projectId, clip.id);
+    },
+    { enabled: open && !!projectId && clip != null, staleTime: Infinity },
+  );
+
+  const playerUrl = sessionRecordingUrl(sessionId, {
+    secondsOffsetFromStart: seekSeconds,
+  });
+  const momentLabel = seekSeconds != null ? colonOffset(seekSeconds) : null;
+  const pillLabel = momentLabel
+    ? `Watch at ${momentLabel}`
+    : "Watch the recording";
+
+  const seekToMoment = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || seekSeconds == null || clip == null) return;
+    const target = clipTimeForMoment(clip, seekSeconds);
+    if (target == null) return;
+    video.currentTime = Math.min(target, video.duration);
+  }, [clip, seekSeconds]);
+
+  const handleLoadedMetadata = useCallback(() => {
+    if (seekSeconds == null || clip == null) return;
+    setMomentReachable(clipTimeForMoment(clip, seekSeconds) != null);
+    seekToMoment();
+  }, [clip, seekSeconds, seekToMoment]);
+
+  // No clip was rendered for this session, so the web player is the only route
+  // to the recording.
+  if (exportQuery.isError || (exportQuery.isFetched && clip == null)) {
+    if (!playerUrl) return null;
     return (
-      <Box
-        mt="2"
-        className="flex h-24 items-center justify-center rounded bg-gray-3 text-[12px] text-gray-9"
-      >
-        Loading recording…
-      </Box>
+      <div className="mt-2 flex">
+        <EvidenceActionPill
+          glyph={<ArrowSquareOutIcon size={9} weight="bold" />}
+          label={pillLabel}
+          href={playerUrl}
+        />
+      </div>
     );
   }
 
+  const clipUnavailable = clipQuery.isError || clipQuery.data === null;
+  const clipPending = !clipUnavailable && clipQuery.data == null;
+
   return (
-    <Box mt="2" className="overflow-hidden rounded">
-      <video
-        ref={videoRef}
-        src={videoQuery.data}
-        controls
-        muted
-        preload="metadata"
-        className="max-h-[300px] w-full rounded"
-        onPlay={() => {
-          if (hasFiredPlayRef.current) return;
-          hasFiredPlayRef.current = true;
-          interaction?.onInteraction({ type: "play_session_recording" });
-        }}
-      />
+    <>
+      <div className="mt-2 flex">
+        <EvidenceActionPill
+          glyph={
+            <PlayIcon size={9} weight="fill" className="translate-x-[0.5px]" />
+          }
+          label={pillLabel}
+          onClick={() => setOpen(true)}
+        />
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent size="wide">
+          <DialogHeader>
+            <DialogTitle>Session recording</DialogTitle>
+            <DialogDescription>
+              {momentLabel == null
+                ? "The rendered clip from this session."
+                : momentReachable === false
+                  ? `The clip stops before ${momentLabel}. Open the session in PostHog to reach that moment.`
+                  : `The rendered clip, at ${momentLabel} in the session.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div className="overflow-hidden rounded-(--radius-2) bg-black">
+              {clipUnavailable ? (
+                <div className="flex aspect-video items-center justify-center px-6 text-center text-[13px] text-gray-10">
+                  This clip is no longer available.
+                </div>
+              ) : clipPending ? (
+                <div className="flex aspect-video items-center justify-center text-[13px] text-gray-10">
+                  Loading the recording…
+                </div>
+              ) : (
+                <video
+                  ref={videoRef}
+                  src={clipQuery.data ?? undefined}
+                  controls
+                  autoPlay
+                  muted
+                  playsInline
+                  className="aspect-video w-full"
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onPlay={() => {
+                    if (hasFiredPlayRef.current) return;
+                    hasFiredPlayRef.current = true;
+                    interaction?.onInteraction({
+                      type: "play_session_recording",
+                    });
+                  }}
+                />
+              )}
+            </div>
+          </DialogBody>
+          <DialogFooter className="sm:items-center sm:justify-between">
+            {momentLabel && momentReachable === true ? (
+              <Button variant="outline" size="sm" onClick={seekToMoment}>
+                Back to {momentLabel}
+              </Button>
+            ) : (
+              <span />
+            )}
+            {playerUrl && (
+              <a
+                href={playerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[12px] text-gray-10 no-underline hover:text-gray-12"
+              >
+                Open in PostHog
+                <ArrowSquareOutIcon size={12} />
+              </a>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function ScannerFindingSignalCard({
+  signal,
+  extra,
+  verified,
+  codePaths,
+  dataQueried,
+}: {
+  signal: Signal;
+  extra: ScannerFindingExtra;
+  verified?: boolean;
+  codePaths?: string[];
+  dataQueried?: string;
+}) {
+  return (
+    <Box className="min-w-0 overflow-hidden rounded-(--radius-2) border border-(--gray-6) bg-gray-1 p-3">
+      <SignalCardHeader signal={signal} verified={verified} />
+      {extra.scanner_name && (
+        <Text mt="1" className="font-medium text-[14px] text-gray-11" as="p">
+          {extra.scanner_name}
+        </Text>
+      )}
+      <CollapsibleBody body={signal.content} />
+
+      {extra.session_id && (
+        <SessionRecordingPreview
+          exportedAssetId={extra.exported_asset_id}
+          sessionId={extra.session_id}
+          seekSeconds={extra.start_time}
+        />
+      )}
+
+      <Flex
+        align="center"
+        gap="2"
+        wrap="wrap"
+        mt="2"
+        className="text-[12px] text-gray-10"
+      >
+        {extra.distinct_id && (
+          <Text className="font-mono text-[12px]">
+            {extra.distinct_id.slice(0, 10)}…
+          </Text>
+        )}
+        {extra.start_time != null && extra.end_time != null && (
+          <>
+            <span>·</span>
+            <span>
+              {colonOffset(extra.start_time)} – {colonOffset(extra.end_time)}
+            </span>
+          </>
+        )}
+        {extra.recording_duration != null && (
+          <>
+            <span>·</span>
+            <span>
+              {formatSessionDuration(extra.recording_duration)} session
+            </span>
+          </>
+        )}
+      </Flex>
+      <CodePathsCollapsible paths={codePaths ?? []} />
+      <DataQueriedCollapsible text={dataQueried ?? ""} />
     </Box>
   );
 }
@@ -895,13 +1163,22 @@ export function SignalCard({
   );
 
   let content: React.ReactNode;
-  if (
-    signal.source_product === "session_replay" &&
-    signal.source_type === "session_problem" &&
-    isSessionProblemExtra(extra)
-  ) {
+  if (signal.source_product === "session_replay" && isSessionExtra(extra)) {
     content = (
       <SessionProblemSignalCard
+        signal={signal}
+        extra={extra}
+        verified={verified}
+        codePaths={codePaths}
+        dataQueried={dataQueried}
+      />
+    );
+  } else if (
+    signal.source_product === "replay_vision" &&
+    isScannerFindingExtra(extra)
+  ) {
+    content = (
+      <ScannerFindingSignalCard
         signal={signal}
         extra={extra}
         verified={verified}
