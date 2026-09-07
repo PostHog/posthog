@@ -1191,7 +1191,9 @@ export class CdpApi {
             // request to this flow id, and cancelJobs filters on (team_id, function_id).
 
             // UUID-shaped ids only: cancelJobs binds them as ::uuid[], so a malformed id must be a
-            // 400 here rather than a Postgres cast error surfaced as a 500. The cap is the same
+            // 400 here rather than a Postgres cast error surfaced as a 500. Match the shape only:
+            // invocation ids are UUIDTs, whose version and variant nibbles carry a series counter
+            // and random bytes, so a version-aware check rejects every real id. The cap is the same
             // env-driven one the Django cancel serializer validates against, so raising the env
             // var lifts both sides together instead of leaving Django accepting ids this route
             // then rejects with a 400 (which Django surfaces as a 500).
@@ -1200,7 +1202,7 @@ export class CdpApi {
             const parsed = z
                 .object({
                     invocation_ids: z
-                        .array(z.string().uuid(idsMessage))
+                        .array(z.string().refine((id) => UUID.validateString(id, false), idsMessage))
                         .min(1, idsMessage)
                         .max(maxInvocationIds, idsMessage)
                         .optional(),

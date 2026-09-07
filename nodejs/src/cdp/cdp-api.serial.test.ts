@@ -1863,6 +1863,26 @@ describe('CDP API', () => {
             )
         })
 
+        // A version-aware id check rejects every id the runs list hands the Cancel action,
+        // because the invocation store issues UUIDTs. Only the shape must hold, to keep a
+        // malformed id away from cancelJobs' ::uuid[] bind.
+        it.each([
+            ['ids the invocation store issues', [new UUIDT().toString(), new UUIDT().toString()], 200],
+            ['an id that is not UUID-shaped', ['not-a-uuid'], 400],
+        ])('cancelling by %s', async (_desc, invocationIds, expectedStatus) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${cancelFlowId}/invocations/cancel`)
+                .set(cancelAuth(team.id, cancelFlowId))
+                .send({ invocation_ids: invocationIds })
+
+            expect(res.status).toEqual(expectedStatus)
+            if (expectedStatus === 200) {
+                expect(mockCancelJobs).toHaveBeenCalledWith(expect.objectContaining({ jobIds: invocationIds }))
+            } else {
+                expect(mockCancelJobs).not.toHaveBeenCalled()
+            }
+        })
+
         it.each([
             ['no token', () => ({})],
             [
