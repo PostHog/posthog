@@ -33,6 +33,17 @@ export interface pinnedProfilePropertiesLogicActions {
     createConfig: (config: Partial<CustomerProfileConfigType>) => {
         config: Partial<CustomerProfileConfigType>
     } // customerProfileConfigLogic
+    createConfigSuccess: (
+        configs: CustomerProfileConfigType[],
+        payload?: {
+            config: Partial<CustomerProfileConfigType>
+        }
+    ) => {
+        configs: CustomerProfileConfigType[]
+        payload?: {
+            config: Partial<CustomerProfileConfigType>
+        }
+    } // customerProfileConfigLogic
     setPinnedGroupProperties: (
         scope: CustomerProfileScope,
         props: string[] | null
@@ -49,6 +60,19 @@ export interface pinnedProfilePropertiesLogicActions {
     ) => {
         config: Partial<CustomerProfileConfigType>
         id: string
+    } // customerProfileConfigLogic
+    updateConfigSuccess: (
+        configs: CustomerProfileConfigType[],
+        payload?: {
+            config: Partial<CustomerProfileConfigType>
+            id: string
+        }
+    ) => {
+        configs: CustomerProfileConfigType[]
+        payload?: {
+            config: Partial<CustomerProfileConfigType>
+            id: string
+        }
     } // customerProfileConfigLogic
     pinProperty: (property: string) => {
         property: string
@@ -115,7 +139,7 @@ export const pinnedProfilePropertiesLogic = kea<pinnedProfilePropertiesLogicType
             userPreferencesLogic,
             ['setPinnedPersonProperties', 'setPinnedGroupProperties'],
             customerProfileConfigLogic({ scope: props.scope }),
-            ['createConfig', 'updateConfig'],
+            ['createConfig', 'updateConfig', 'createConfigSuccess', 'updateConfigSuccess'],
         ],
     })),
 
@@ -196,13 +220,23 @@ export const pinnedProfilePropertiesLogic = kea<pinnedProfilePropertiesLogicType
         ],
     }),
 
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, cache }) => {
         const setOwnPins = (pins: string[] | null): void => {
             if (props.scope === CustomerProfileScope.PERSON) {
                 actions.setPinnedPersonProperties(pins)
             } else {
                 actions.setPinnedGroupProperties(props.scope, pins)
             }
+        }
+
+        // A layout save writes the same row and resolves through the same action, so only a
+        // response to the write this logic sent counts as a share.
+        const captureShare = (config?: Partial<CustomerProfileConfigType>): void => {
+            if (!cache.pendingShare || !config || !('pinned_properties' in config)) {
+                return
+            }
+            posthog.capture('customer profile pinned properties shared with team', cache.pendingShare)
+            cache.pendingShare = null
         }
 
         // Every write below reads the resolved pins or the scoped config, and both are wrong
@@ -236,17 +270,21 @@ export const pinnedProfilePropertiesLogic = kea<pinnedProfilePropertiesLogicType
                 }
                 const pinned_properties = values.pinnedProperties
                 const config = values.customerProfileConfig
+                // Read before the save lands, because the stored config then holds the list we
+                // are sending, and what it replaced can no longer be told.
+                cache.pendingShare = {
+                    scope: props.scope,
+                    property_count: pinned_properties.length,
+                    replaced_existing_default: values.teamPinnedProperties !== null,
+                }
                 if (config) {
                     actions.updateConfig(config.id, { pinned_properties })
                 } else {
                     actions.createConfig({ scope: props.scope, pinned_properties })
                 }
-                posthog.capture('customer profile pinned properties shared with team', {
-                    scope: props.scope,
-                    property_count: pinned_properties.length,
-                    replaced_existing_default: values.teamPinnedProperties !== null,
-                })
             },
+            createConfigSuccess: ({ payload }) => captureShare(payload?.config),
+            updateConfigSuccess: ({ payload }) => captureShare(payload?.config),
             useTeamDefault: () => {
                 setOwnPins(null)
             },

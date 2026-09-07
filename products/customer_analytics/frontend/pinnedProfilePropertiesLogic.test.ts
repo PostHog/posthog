@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 
@@ -10,6 +11,8 @@ import { pinnedProfilePropertiesLogic } from './pinnedProfilePropertiesLogic'
 
 const CONFIGS_URL = '/api/environments/:team_id/customer_profile_configs/'
 const CONFIG_URL = '/api/environments/:team_id/customer_profile_configs/:id/'
+
+const SHARE_EVENT = 'customer profile pinned properties shared with team'
 
 // Group pins made before they were kept per group type live under the key kea-localstorage
 // derives from the reducer's path.
@@ -92,7 +95,13 @@ describe('pinnedProfilePropertiesLogic', () => {
     afterEach(() => {
         mounted.forEach((logic) => logic.unmount())
         localStorage.clear()
+        jest.restoreAllMocks()
     })
+
+    const spyOnCapture = (): jest.SpyInstance => jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+
+    const shareEvents = (capture: jest.SpyInstance): any[] =>
+        capture.mock.calls.filter(([event]) => event === SHARE_EVENT)
 
     it('shows the team default to somebody who has pinned nothing', async () => {
         useMocks(mocksFor(['plan', 'arr']))
@@ -140,6 +149,40 @@ describe('pinnedProfilePropertiesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(patchedBodies).toEqual([{ pinned_properties: ['plan', 'arr'] }])
+    })
+
+    it('records the share when the save lands, not when it is sent', async () => {
+        useMocks(mocksFor(['plan']))
+        const logic = await mount()
+        const capture = spyOnCapture()
+
+        logic.actions.setAsTeamDefault()
+        expect(shareEvents(capture)).toHaveLength(0)
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture).toHaveBeenCalledWith(SHARE_EVENT, {
+            scope: CustomerProfileScope.PERSON,
+            property_count: 1,
+            replaced_existing_default: true,
+        })
+
+        // A layout save writes the same row through the same action, and is not a share.
+        logic.actions.updateConfig('config-person', { content: [] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(shareEvents(capture)).toHaveLength(1)
+    })
+
+    it('records no share when the save fails', async () => {
+        useMocks({ ...mocksFor(['plan']), patch: { [CONFIG_URL]: () => [500, { detail: 'nope' }] } })
+        const logic = await mount()
+        const capture = spyOnCapture()
+
+        logic.actions.setAsTeamDefault()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(shareEvents(capture)).toHaveLength(0)
     })
 
     it.each<[string, (logic: BuiltLogic) => void]>([
