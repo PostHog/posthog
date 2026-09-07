@@ -41,6 +41,8 @@ with workflow.unsafe.imports_passed_through():
 STATUS_DEBOUNCE_SECONDS = 1.0
 STATUS_MIN_INTERVAL_SECONDS = 2.0
 TURN_IDLE_TIMEOUT_MINUTES = 5
+# Comfortably above the 45s of Slack I/O the artifact delivery inside this activity budgets.
+STOP_STREAM_START_TO_CLOSE = timedelta(seconds=90)
 _STEP_FIELD_LIMIT = 256
 _NARRATIVE_STEP_TITLE = "💭"
 
@@ -319,6 +321,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                         final_markdown=final_for_stop,
                         run_id=input.run_id,
                     ),
-                    start_to_close_timeout=timedelta(seconds=10),
+                    # Longer than its siblings: this one also delivers the turn's artifacts,
+                    # which uploads images Slack cannot fetch by url. The activity budgets
+                    # that I/O below this timeout so it stops rather than being replayed.
+                    start_to_close_timeout=STOP_STREAM_START_TO_CLOSE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )

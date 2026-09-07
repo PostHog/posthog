@@ -16,7 +16,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.logic.services.living_artifacts import SlackFileDeliveryResult
+from products.tasks.backend.logic.services.living_artifacts import SlackArtifactDeliveryResult
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
@@ -930,9 +930,9 @@ class TestRelaySlackMessageChunking(TestCase):
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_footer")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_image_artifacts")
-    @patch("products.tasks.backend.temporal.slack_relay.activities.deliver_pending_slack_file_artifacts")
-    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_file_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_card_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.deliver_pending_slack_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_artifacts")
     def test_answer_composed_with_charts_still_gets_its_footer(
         self,
         mock_has_files,
@@ -946,7 +946,7 @@ class TestRelaySlackMessageChunking(TestCase):
         # own to close — without this the reply would carry no provenance at all.
         mock_has_files.return_value = True
         mock_has_images.return_value = True
-        mock_deliver.return_value = SlackFileDeliveryResult(answer_posted=True, delivered_count=1)
+        mock_deliver.return_value = SlackArtifactDeliveryResult(answer_posted=True, delivered_count=1)
 
         relay_slack_message(
             RelaySlackMessageInput(
@@ -963,9 +963,9 @@ class TestRelaySlackMessageChunking(TestCase):
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_footer")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_image_artifacts")
-    @patch("products.tasks.backend.temporal.slack_relay.activities.deliver_pending_slack_file_artifacts")
-    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_file_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_card_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.deliver_pending_slack_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_artifacts")
     def test_answer_falls_back_to_plain_messages_when_compose_does_not_post(
         self,
         mock_has_files,
@@ -979,7 +979,7 @@ class TestRelaySlackMessageChunking(TestCase):
         # ordinary way and closes itself — a second standalone footer would duplicate it.
         mock_has_files.return_value = True
         mock_has_images.return_value = True
-        mock_deliver.return_value = SlackFileDeliveryResult(answer_posted=False)
+        mock_deliver.return_value = SlackArtifactDeliveryResult(answer_posted=False)
 
         relay_slack_message(
             RelaySlackMessageInput(

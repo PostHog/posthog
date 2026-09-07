@@ -50,8 +50,12 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         handler.stop_status_stream(ts="1234.9999", final_markdown="Answering <@U094TR1E59V|Radu Raicea> now.")
 
-        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
-        streamed = "".join(chunk.get("text", "") for chunk in chunks)
+        # The answer, the artifacts and the closing mention each get their own append.
+        streamed = "".join(
+            chunk.get("text", "")
+            for call in mock_client.chat_appendStream.call_args_list
+            for chunk in call.kwargs["chunks"]
+        )
         assert "<@U094TR1E59V>" in streamed
         assert "Radu Raicea" not in streamed
 

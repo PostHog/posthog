@@ -22,11 +22,15 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
-    _chart_card_blocks,
+    PreparedSlackArtifacts,
+    _artifact_card_blocks,
+    _pending_slack_artifact_version,
     _post_composed_answer_message,
     _section_blocks,
-    _SlackImageCard,
+    _SlackArtifactCard,
+    _trusted_slack_canvas_url,
     create_living_artifact,
+    deliver_pending_slack_artifacts,
     edit_living_artifact,
     get_task_artifact_for_run,
     get_task_artifacts_for_run,
@@ -190,13 +194,11 @@ class TestLivingArtifacts(TestCase):
         edit_change = edit_payload["changes"][0]
         self.assertEqual(edit_change["operation"], "replace")
         self.assertEqual(edit_change["document_content"]["markdown"], "# Updated report")
-        slack.chat_postMessage.assert_called_once_with(
-            channel="C123",
-            thread_ts="1111.1",
-            text="Created Slack canvas <https://app.slack.com/docs/T123/F123|Report canvas> (`F123`).",
-            unfurl_links=False,
-            unfurl_media=False,
-        )
+        # The canvas is announced as a card composed with the answer at end of turn, so
+        # creating one posts nothing on its own and leaves the version pending.
+        slack.chat_postMessage.assert_not_called()
+        self.assertEqual(updated.location["delivery_status"], "pending")
+        self.assertEqual(updated.versions[-1]["delivery_status"], "pending")
         slack_integration.missing_scopes.assert_called()
 
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -275,6 +277,71 @@ class TestLivingArtifacts(TestCase):
                 artifact_type=TaskArtifact.ArtifactType.SLACK_CANVAS,
                 content="# Report",
             )
+
+    def test_canvas_written_before_staged_delivery_is_not_announced_again(self):
+        # A canvas from before delivery handled them announced itself on creation and carries
+        # no delivery status. Reading that as pending would post a card for a canvas the
+        # thread already shows, on every later turn of the task.
+        artifact = TaskArtifact.objects.for_team(self.team.pk).create(
+            team=self.team,
+            task=self.task,
+            task_run=self.task_run,
+            name="Report canvas",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            adapter=TaskArtifact.Adapter.SLACK_CANVAS,
+            status=TaskArtifact.Status.ACTIVE,
+            location={"kind": "slack_canvas", "canvas_id": "F123", "url": "https://app.slack.com/docs/T123/F123"},
+            versions=[{"version": 1, "adapter": TaskArtifact.Adapter.SLACK_CANVAS, "location": {"canvas_id": "F123"}}],
+            current_version=1,
+        )
+
+        self.assertIsNone(_pending_slack_artifact_version(artifact))
+
+    @patch("products.tasks.backend.logic.services.living_artifacts.slack_message_exists", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_relayed_answer_carries_the_canvas_card(self, mock_integration_for_mapping, _mock_message_exists):
+        # The relay is the whole delivery path for a workspace without agent-design streaming,
+        # so a canvas that no longer announces itself has to arrive with the relayed answer.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write,canvases:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.api_call.return_value = {"canvas_id": "F123"}
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        slack_integration = MagicMock(client=slack)
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Daily active users",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            content="# Daily active users",
+        )
+        result = deliver_pending_slack_artifacts(self.task_run, answer_sections=["Traffic is flat."])
+
+        self.assertTrue(result.answer_posted)
+        blocks = slack.chat_postMessage.call_args.kwargs["blocks"]
+        self.assertEqual([b["type"] for b in blocks], ["section", "section", "actions"])
+        self.assertEqual(blocks[0]["text"]["text"], "Traffic is flat.")
+        self.assertEqual(blocks[1]["text"]["text"], "*Daily active users*")
+        self.assertEqual(blocks[2]["elements"][0]["url"], "https://app.slack.com/docs/T123/F123")
+
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
 
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
@@ -689,6 +756,17 @@ class TestLivingArtifacts(TestCase):
 
 
 @override_settings(SITE_URL="http://localhost:8010")
+def _prepared(slack: Any, cards: list[_SlackArtifactCard], *, channel="C123", thread_ts="1111.1"):
+    return PreparedSlackArtifacts(
+        run=MagicMock(team_id=1),
+        mapping=MagicMock(channel=channel, thread_ts=thread_ts),
+        slack=slack,
+        has_file_scope=True,
+        deadline=time.monotonic() + 30,
+        cards=cards,
+    )
+
+
 class TestChartCardBlockBuilders(SimpleTestCase):
     @parameterized.expand(
         [
@@ -705,8 +783,23 @@ class TestChartCardBlockBuilders(SimpleTestCase):
     )
     def test_button_only_added_for_trusted_url_within_slack_cap(self, _name, url, expected_block_types):
         artifact = TaskArtifact(name="Chart", metadata={"posthog_url": url})
-        blocks = _chart_card_blocks(_SlackImageCard(artifact, {}, file_id="F123"))
+        blocks = _artifact_card_blocks(_SlackArtifactCard(artifact, {}, file_id="F123"))
         self.assertEqual([b["type"] for b in blocks], expected_block_types)
+
+    @parameterized.expand(
+        [
+            ("slack_url", "https://app.slack.com/docs/T123/F123", ["section", "actions"]),
+            # A canvas card renders a button as the PostHog bot, so an off-Slack url — however
+            # it got into the artifact's location — must not become one.
+            ("off_slack_origin", "https://phishing.example/docs/T123/F123", ["section"]),
+            ("no_url", None, ["section"]),
+        ]
+    )
+    def test_canvas_card_links_only_a_slack_url(self, _name, url, expected_block_types):
+        artifact = TaskArtifact(name="Daily active users", adapter=TaskArtifact.Adapter.SLACK_CANVAS)
+        blocks = _artifact_card_blocks(_SlackArtifactCard(artifact, {}, canvas_url=_trusted_slack_canvas_url(url)))
+        self.assertEqual([b["type"] for b in blocks], expected_block_types)
+        self.assertEqual(blocks[0]["text"]["text"], "*Daily active users*")
 
     def test_oversized_sections_split_below_block_char_cap(self):
         blocks = _section_blocks(["a" * 6500, "short"])
@@ -755,14 +848,14 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         )
 
     def test_card_without_a_minted_url_references_the_uploaded_file(self):
-        card = _SlackImageCard(TaskArtifact(name="Chart"), {}, file_id="F123")
-        blocks = _chart_card_blocks(card)
+        card = _SlackArtifactCard(TaskArtifact(name="Chart"), {}, file_id="F123")
+        blocks = _artifact_card_blocks(card)
         self.assertEqual(blocks[1], {"type": "image", "slack_file": {"id": "F123"}, "alt_text": "Chart"})
 
     def test_card_with_a_minted_url_references_it_directly(self):
         image_url = "http://localhost:8010/exporter/export-1.png?token=abc"
-        card = _SlackImageCard(TaskArtifact(name="Chart"), {}, image_url=image_url)
-        blocks = _chart_card_blocks(card)
+        card = _SlackArtifactCard(TaskArtifact(name="Chart"), {}, image_url=image_url)
+        blocks = _artifact_card_blocks(card)
         self.assertEqual(blocks[1], {"type": "image", "image_url": image_url, "alt_text": "Chart"})
 
     @parameterized.expand(
@@ -778,17 +871,14 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         slack = MagicMock()
         slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
         cards = [
-            _SlackImageCard(TaskArtifact(name="<!channel> spike.png"), {}, file_id=f"F{index}")
+            _SlackArtifactCard(TaskArtifact(name="<!channel> spike.png"), {}, file_id=f"F{index}")
             for index in range(card_count)
         ]
 
         _post_composed_answer_message(
-            slack,
-            mapping=MagicMock(channel="C123", thread_ts="1111.1"),
-            image_cards=cards,
+            _prepared(slack, cards),
             answer_sections=[],
             mark_delivered=lambda card: None,
-            deadline=time.monotonic() + 30,
         )
 
         self.assertEqual(slack.chat_postMessage.call_count, 1 if card_count == 1 else card_count)
@@ -807,16 +897,13 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         # marking it delivered would drop it from every later relay pass.
         slack = MagicMock()
         slack.conversations_history.return_value = {"messages": []}  # the message is gone
-        delivered: list[_SlackImageCard] = []
-        cards = [_SlackImageCard(TaskArtifact(name="Chart"), {}, file_id=f"F{index}") for index in range(card_count)]
+        delivered: list[_SlackArtifactCard] = []
+        cards = [_SlackArtifactCard(TaskArtifact(name="Chart"), {}, file_id=f"F{index}") for index in range(card_count)]
 
         answer_posted = _post_composed_answer_message(
-            slack,
-            mapping=MagicMock(channel="C_DELETED", thread_ts="8888.1"),
-            image_cards=cards,
+            _prepared(slack, cards, channel="C_DELETED", thread_ts="8888.1"),
             answer_sections=[],
             mark_delivered=delivered.append,
-            deadline=time.monotonic() + 30,
         )
 
         self.assertEqual(delivered, [])
