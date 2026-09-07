@@ -68,8 +68,12 @@ export const INBOX_ACTIONABLE_ACTIONABILITY_FILTER =
  */
 export const INBOX_REPORTS_TAB_STATUS_FILTER = "ready";
 
-/** Polling interval for inbox queries while the Electron window is focused. */
-export const INBOX_REFETCH_INTERVAL_MS = 3000;
+/**
+ * Polling interval for inbox queries while the Electron window is focused. The
+ * inbox mounts one query per section, so this interval multiplies into repeat
+ * traffic across every section. Kept in step with the task polls (30s).
+ */
+export const INBOX_REFETCH_INTERVAL_MS = 30_000;
 
 function normalizeReviewerId(value: string): string {
   return value.trim();
