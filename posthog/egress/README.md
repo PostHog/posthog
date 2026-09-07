@@ -17,8 +17,8 @@ Adding a new outbound API is another `<domain>/` folder, not a change to the mec
 
 ## Non-goals
 
-This section records what egress does not do.
-Each item below was a real proposal, so read the reason before you reopen one.
+This section records what egress does not do, and why.
+Each item below was a real proposal.
 
 **Egress does not store response data.**
 The limiter keeps control state about a budget, which stays O(1) per scope and expires on its own, so its footprint does not grow with traffic.
