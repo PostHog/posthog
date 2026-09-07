@@ -61,6 +61,10 @@ class StaleFeatureFlagsCheck(HealthCheck):
     # Dry until the feature-flags scout can consume these issues; flipping this is an
     # operational checkpoint, not a code change to make casually.
     dry_run = True
+    # dry_run stops the writes, not the detection queries. Sample teams until one batch of
+    # this check has a measured cost, because filter_stale_flags has only ever run paginated
+    # for a single team.
+    rollout_percentage = 0.01
     remediation = Remediation(
         human="""
             Open the flag and confirm the staleness evidence is still current. Check every
@@ -138,7 +142,10 @@ class StaleFeatureFlagsCheck(HealthCheck):
 
 
 def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
-    """Flag ids that known blockers reference, a superset of the candidate ids.
+    """Flag ids that known blockers reference, not limited to the candidate ids.
+
+    The survey, dependency, and replay lookups are scoped by team or project, so they
+    also return ids for flags outside this batch.
 
     Every lookup is one set-wise query over the batch; the count stays fixed as the
     candidate volume grows. These exclusions remove known blockers only. They do not prove
