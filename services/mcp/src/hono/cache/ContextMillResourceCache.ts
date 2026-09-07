@@ -9,6 +9,9 @@ import { SharedBlobCache, type SharedBlobCacheOptions } from './SharedBlobCache'
 
 const NAMESPACE = 'context-mill'
 const BODY_KEY_PREFIX = `mcp:shared-blob:${NAMESPACE}:body`
+// A local archive run writes its bodies under a separate prefix, so a
+// developer's skills never reach the keys the release-backed runs read.
+const LOCAL_BODY_KEY_PREFIX = `mcp:shared-blob:${NAMESPACE}:local:body`
 const DEFAULT_BODY_TTL_SECONDS = 7 * 24 * 60 * 60
 const BODY_SIZE_WARN_BYTES = 256 * 1024
 
@@ -33,7 +36,7 @@ export interface ContextMillResourceCacheOptions extends SharedBlobCacheOptions 
     localUrl?: string
 }
 
-export type ContextMillCacheResult = 'fresh_hit' | 'stale_hit' | 'cold_refresh' | 'waited' | 'fallback'
+export type ContextMillCacheResult = 'fresh_hit' | 'stale_hit' | 'cold_refresh' | 'waited' | 'fallback' | 'local_load'
 
 export interface ContextMillLoadResult {
     manifest: SlimManifest
@@ -61,14 +64,21 @@ export interface ContextMillLoadResult {
  * stop getting their TTL refreshed and age out naturally. This gives clients
  * holding stale URIs graceful access to the previous content until the body
  * fully expires.
+ *
+ * `localUrl` (`POSTHOG_MCP_LOCAL_SKILLS_URL`) changes both layers: the archive
+ * is read on every revalidation instead of through the shared manifest, and the
+ * bodies get their own key prefix. A developer editing skills locally must see
+ * every edit, and must not publish it into the shared keys.
  */
 export class ContextMillResourceCache extends SharedBlobCache {
     private readonly bodyTtlSeconds: number
     private readonly localUrl: string | undefined
+    private readonly bodyKeyPrefix: string
 
     constructor(redis: RedisLike, opts: ContextMillResourceCacheOptions = {}) {
         super(redis, `${NAMESPACE}:manifest`, opts)
         this.localUrl = opts.localUrl
+        this.bodyKeyPrefix = opts.localUrl ? LOCAL_BODY_KEY_PREFIX : BODY_KEY_PREFIX
         this.bodyTtlSeconds = opts.bodyTtlSeconds ?? DEFAULT_BODY_TTL_SECONDS
     }
 
@@ -86,6 +96,14 @@ export class ContextMillResourceCache extends SharedBlobCache {
     }
 
     private async fetch(): Promise<{ bytes: Uint8Array; result: ContextMillCacheResult }> {
+        if (this.localUrl) {
+            // The shared manifest stays fresh for ten minutes, which would hide
+            // the override behind release content. Read the local archive on
+            // every revalidation instead, and leave the shared keys alone.
+            contextMillCacheEventsTotal.inc({ event: 'local_load' })
+            return { bytes: await this.loadBlob(), result: 'local_load' }
+        }
+
         const cached = await this.readCache()
 
         if (cached && cached.fresh) {
@@ -188,7 +206,7 @@ export class ContextMillResourceCache extends SharedBlobCache {
      * and degrade the current request to empty contents."
      */
     async readBody(uri: string): Promise<ResourceBody | null> {
-        const raw = await this.redis.get(bodyKey(uri))
+        const raw = await this.redis.get(this.bodyKey(uri))
         if (raw === null) {
             contextMillBodyReadsTotal.inc({ status: 'miss' })
             return null
@@ -216,14 +234,14 @@ export class ContextMillResourceCache extends SharedBlobCache {
                         `[ContextMillResourceCache] body for "${entry.uri}" is ${serialized.length} bytes — approaching Redis bulk-len limits`
                     )
                 }
-                await this.redis.set(bodyKey(entry.uri), serialized, 'EX', this.bodyTtlSeconds)
+                await this.redis.set(this.bodyKey(entry.uri), serialized, 'EX', this.bodyTtlSeconds)
             })
         )
     }
-}
 
-function bodyKey(uri: string): string {
-    return `${BODY_KEY_PREFIX}:${sha256(uri)}`
+    private bodyKey(uri: string): string {
+        return `${this.bodyKeyPrefix}:${sha256(uri)}`
+    }
 }
 
 function sha256(input: string): string {

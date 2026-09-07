@@ -144,6 +144,29 @@ describe('ContextMillResourceCache', () => {
         expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'fresh_hit' })
     })
 
+    it('reads the local archive on every load and leaves the shared keys alone', async () => {
+        const release = new TestContextMillResourceCache(redis, async () => [makeEntry('a', 'release content')])
+        await release.loadOrRefresh()
+        const publishedManifest = redis._store.get(MANIFEST_BYTES_KEY)
+
+        const upstream = vi.fn(async () => [makeEntry('a', 'local content')])
+        const local = new TestContextMillResourceCache(redis, upstream, {
+            localUrl: 'http://127.0.0.1:9999/skills-mcp-resources.zip',
+        })
+
+        const first = await local.loadOrRefresh()
+        const second = await local.loadOrRefresh()
+
+        expect(upstream).toHaveBeenCalledTimes(2)
+        expect(first.result).toBe('local_load')
+        expect(second.result).toBe('local_load')
+        expect((await local.readBody('posthog://skill/a'))!.text).toBe('local content')
+
+        // A release-backed instance must still serve the published content.
+        expect(redis._store.get(MANIFEST_BYTES_KEY)).toBe(publishedManifest)
+        expect((await release.readBody('posthog://skill/a'))!.text).toBe('release content')
+    })
+
     it('reads a body by uri', async () => {
         const entry = makeEntry('a')
         const cache = new TestContextMillResourceCache(redis, async () => [entry])
