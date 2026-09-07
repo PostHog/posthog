@@ -42,7 +42,10 @@ export async function resolveStartupLocation(
   identity: string,
   client: FirstRunClient,
   spacesEnabled: boolean,
+  /** Route the host stopped loading because it crashed the renderer. */
+  quarantinedRoute: string | null = null,
 ): Promise<StartupLocation> {
+  const isQuarantined = (href: string): boolean => href === quarantinedRoute;
   // Provisioning is what says whether this is a first run, so it is read before anything looks at
   // where the user was last. A saved location is written on every navigation and is shared by every
   // account on the project, so it answers neither question reliably.
@@ -56,14 +59,20 @@ export async function resolveStartupLocation(
   const legacy = await stateStorage.getItem(legacyStorageKey(identity));
   if (legacy) {
     if (provisioned) void stateStorage.removeItem(legacyStorageKey(identity));
-    return { href: rewriteLegacyHref(legacy), firstRun: null };
+    const href = rewriteLegacyHref(legacy);
+    if (!isQuarantined(href)) return { href, firstRun: null };
   }
 
   const firstRunHere = isFirstRun(provisioned);
 
   if (!firstRunHere) {
     const saved = await stateStorage.getItem(storageKey(identity));
-    if (saved) return { href: rewriteLegacyHref(saved), firstRun: null };
+    // A quarantined route is the last route the app was on, so it is also the
+    // saved one. Falling through sends this launch somewhere that loads.
+    if (saved) {
+      const href = rewriteLegacyHref(saved);
+      if (!isQuarantined(href)) return { href, firstRun: null };
+    }
   }
   if (!provisioned) return { href: "/code", firstRun: null };
 
@@ -80,10 +89,11 @@ export async function resolveStartupLocation(
   if (!spacesEnabled) return { href: "/code", firstRun: null };
 
   const sessionTaskId = await cappedSessionTaskId(sessionTaskIdPromise);
+  const sessionHref = sessionTaskId
+    ? `/spaces/${general.id}/tasks/${sessionTaskId}`
+    : `/spaces/${general.id}`;
   return {
-    href: sessionTaskId
-      ? `/spaces/${general.id}/tasks/${sessionTaskId}`
-      : `/spaces/${general.id}`,
+    href: isQuarantined(sessionHref) ? `/spaces/${general.id}` : sessionHref,
     firstRun: firstRunHere ? { generalChannelId: general.id } : null,
   };
 }
