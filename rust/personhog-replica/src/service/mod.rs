@@ -33,7 +33,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
     GroupTypeMappingsBatchResponse, GroupTypeMappingsByKey, GroupTypeMappingsResponse,
     GroupWithKey, GroupsResponse, HashKeyOverride,
-    HashKeyOverrideContext as ProtoHashKeyOverrideContext, InsertCohortMembersRequest,
+    HashKeyOverrideContext as ProtoHashKeyOverrideContext,
+    HashKeyOverrideCursor as ProtoHashKeyOverrideCursor, InsertCohortMembersRequest,
     InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
     ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
@@ -519,14 +520,25 @@ impl PersonHogReplica for PersonHogReplicaService {
             )));
         }
 
-        let deleted_count = self
+        let cursor = req.cursor.map(|c| storage::HashKeyOverrideCursor {
+            team_id: c.team_id,
+            person_id: c.person_id,
+            feature_flag_key: c.feature_flag_key,
+        });
+
+        let batch = self
             .storage
-            .delete_hash_key_overrides_by_teams(&req.team_ids, req.batch_size)
+            .delete_hash_key_overrides_by_teams(&req.team_ids, req.batch_size, cursor.as_ref())
             .await
             .map_err(|e| log_and_convert_error(e, "delete_hash_key_overrides_by_teams"))?;
 
         Ok(Response::new(DeleteHashKeyOverridesByTeamsResponse {
-            deleted_count,
+            deleted_count: batch.deleted_count,
+            cursor: batch.cursor.map(|c| ProtoHashKeyOverrideCursor {
+                team_id: c.team_id,
+                person_id: c.person_id,
+                feature_flag_key: c.feature_flag_key,
+            }),
         }))
     }
 

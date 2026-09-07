@@ -164,13 +164,17 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
     client = require_personhog_client()
 
     def _fn() -> None:
+        # Carrying the cursor keeps each batch scanning forward, instead of walking
+        # the index entries of the rows that earlier batches already deleted.
+        cursor = None
         while True:
-            resp = client.delete_hash_key_overrides_by_teams(
-                DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=TEAM_DELETE_BATCH_SIZE),
-                timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
+            request = DeleteHashKeyOverridesByTeamsRequest(
+                team_ids=team_ids, batch_size=TEAM_DELETE_BATCH_SIZE, cursor=cursor
             )
+            resp = client.delete_hash_key_overrides_by_teams(request, timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS)
             if resp.deleted_count == 0:
                 break
+            cursor = resp.cursor
 
     personhog_call(
         "delete_hash_key_overrides_for_teams",

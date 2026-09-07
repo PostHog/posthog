@@ -2,7 +2,9 @@ use async_trait::async_trait;
 
 use crate::storage::error::StorageResult;
 use crate::storage::postgres::ConsistencyLevel;
-use crate::storage::types::HashKeyOverrideContext;
+use crate::storage::types::{
+    HashKeyOverrideContext, HashKeyOverrideCursor, HashKeyOverrideDeleteBatch,
+};
 
 /// Feature flag hash key override operations
 #[async_trait]
@@ -50,11 +52,16 @@ pub trait FeatureFlagStorage: Send + Sync {
     ) -> StorageResult<i64>;
 
     /// Delete up to `batch_size` hash key overrides across the specified teams.
-    /// Selects rows with FOR UPDATE SKIP LOCKED so concurrent batches don't contend.
-    /// Returns the number of deleted rows; 0 means no more rows to delete.
+    ///
+    /// Callers loop until `deleted_count` is 0, and pass the returned cursor back on
+    /// the next call. The cursor keeps each batch scanning forward along the
+    /// (team_id, person_id, feature_flag_key) unique index. Without it the scan
+    /// restarts at the start of the team's index range every batch, and walks the
+    /// dead entries of the rows that earlier batches deleted.
     async fn delete_hash_key_overrides_by_teams(
         &self,
         team_ids: &[i64],
         batch_size: i64,
-    ) -> StorageResult<i64>;
+        cursor: Option<&HashKeyOverrideCursor>,
+    ) -> StorageResult<HashKeyOverrideDeleteBatch>;
 }
