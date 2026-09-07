@@ -80,7 +80,7 @@ const InboxReportArtefactsListSchema = () => {
 
 const inboxReportArtefactsList = (): ToolBase<
     ReturnType<typeof InboxReportArtefactsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>
+    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>>
 > => ({
     name: 'inbox-report-artefacts-list',
     schema: InboxReportArtefactsListSchema(),
@@ -94,7 +94,10 @@ const inboxReportArtefactsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        return withAgentNote(
+            await withPostHogUrl(context, result, '/inbox'),
+            'Before you change code for this report, find the newest note that starts with `## Steps to verify fix`. Run those checks against current data. If the issue no longer occurs, do not implement the old fix. Record the result in the report log, and reassess the report.\n'
+        )
     },
 })
 
@@ -304,7 +307,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nRead the report's work log via inbox-report-artefacts-list before acting. Before you change code, run the newest `Steps to verify fix` note against current data. If the issue no longer occurs, do not implement the old fix.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -331,7 +334,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nRead the report's work log via inbox-report-artefacts-list before acting. Before you change code, run the newest `Steps to verify fix` note against current data. If the issue no longer occurs, do not implement the old fix.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
