@@ -58281,16 +58281,10 @@ export namespace Schemas {
       inserted_rows: number;
       /** Rows the current image lost. */
       deleted_rows: number;
-      /** Rows present in both images whose content differs. */
-      changed_rows: number;
-      /** Differing pixels inside the changed rows, excluding the shift itself. */
-      residual_pixel_count: number;
-      /** residual_pixel_count as a percentage of the image, 0 to 100. The classifier thresholds on this. */
+      /** Percentage of pixels that differ inside the rows present in both images, 0 to 100. Excludes the shift itself, and is what the classifier thresholds on. */
       residual_percentage: number;
       /** Percentage of pixels that differ without alignment, which is what the shift would have cost. */
       raw_diff_percentage: number;
-      /** Structural similarity without alignment, 0 to 1, where 1 is identical. */
-      raw_ssim_score: number;
     }
 
     export interface SnapshotHistoryEntry {
