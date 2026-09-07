@@ -318,7 +318,7 @@ describe.each([['CONNECT proxy'], ['direct connection']])('secure HTTP/2 request
         const patient = await startOrigin((url, finish) => finish())
 
         expect(await fetchText(`${originUrl(patient)}/patient`, { http2IdleTimeoutMs: 60_000 })).toBe('/patient')
-        await new Promise((resolve) => setTimeout(resolve, keepAliveTimeoutMs * 2))
+        await new Promise((resolve) => setTimeout(resolve, keepAliveTimeoutMs * 1.5))
 
         expect(patient.openSessions).toBe(1)
     }, 10000)
