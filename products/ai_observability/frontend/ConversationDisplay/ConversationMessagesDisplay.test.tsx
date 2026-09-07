@@ -480,6 +480,7 @@ describe('ConversationMessagesDisplay', () => {
                     outputNormalized={outputNormalized}
                     errorData={null}
                     raisedError={false}
+                    generationEventId="generation-1"
                 />
             </Provider>
         )
@@ -506,17 +507,18 @@ describe('ConversationMessagesDisplay', () => {
         rerender(
             <Provider>
                 <ConversationMessagesDisplay
-                    inputNormalized={[...inputNormalized, { role: 'user', content: 'extra user input' }]}
+                    inputNormalized={inputNormalized}
                     outputNormalized={outputNormalized}
                     errorData={null}
                     raisedError={false}
+                    generationEventId="generation-2"
                 />
             </Provider>
         )
 
         // A different conversation must clear the active menu key, or its matching
         // message would mount with the menu already open and steal focus.
-        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(6)
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(5)
         expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(0)
     })
 

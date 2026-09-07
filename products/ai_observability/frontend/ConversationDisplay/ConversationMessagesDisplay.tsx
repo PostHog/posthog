@@ -143,6 +143,7 @@ export function ConversationMessagesDisplay({
     searchQuery,
     displayOption,
     traceId,
+    generationEventId,
     generationSentiment,
     highlightMessageIndex,
 }: {
@@ -361,7 +362,9 @@ export function ConversationMessagesDisplay({
             : null
 
     return (
-        <MessageActionsMenuProvider resetKey={`${traceId ?? ''}:${inputRolesSignature}:${outputRolesSignature}`}>
+        <MessageActionsMenuProvider
+            resetKey={`${generationEventId ?? ''}:${traceId ?? ''}:${inputRolesSignature}:${outputRolesSignature}`}
+        >
             <LLMInputOutput
                 inputDisplay={inputDisplay}
                 outputDisplay={

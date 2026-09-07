@@ -48,10 +48,6 @@ const ActiveMessageActionsMenu = ({
     const { showConsentPopover, dataProcessingAccepted } = useValues(logic)
     const { setShowTranslatePopover, setShowConsentPopover } = useActions(logic)
 
-    if (!content || content.trim().length === 0) {
-        return null
-    }
-
     const insertQuoteIntoEditor = (quotedContent: string, retries = 0): void => {
         // The logic can be unmounted before this deferred callback runs (e.g. the user navigates
         // away or switches traces), so bail out rather than reading `.values` off a torn-down store.
