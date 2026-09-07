@@ -89,6 +89,7 @@ For each candidate, gather context before recommending action:
 Exclude a candidate when any of these apply:
 
 - tied to an experiment (`experiment_set` non-empty) — check the experiment's status before touching it
+- linked to a survey (`surveys` non-empty) — a survey can target its audience through the flag even while the flag reads as stale
 - linked to an early access feature, session replay settings, or used as remote configuration
 - an internal or permanent operational flag (kill switches, tier gates)
 - archived or deleted
