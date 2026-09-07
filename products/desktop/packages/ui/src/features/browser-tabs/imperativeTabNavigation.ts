@@ -44,13 +44,20 @@ export function focusExistingTab(destination: BrowserTabDestination): boolean {
   const history = getRouterOrNull()?.history;
   if (!window || !history) return false;
 
-  const tab = mirror.tabs.find(
-    (candidate) =>
-      candidate.windowId === window.id &&
-      tabShowsDestination(candidate, destination),
+  const matchesDestination = (candidate: BrowserTab) =>
+    candidate.windowId === window.id &&
+    tabShowsDestination(candidate, destination);
+
+  // Tabs are not deduplicated, so several tabs can show one target. Keep the
+  // active tab when it is one of them, instead of a switch to an older twin.
+  const activeTabId = history.location.state.tabId;
+  const activeTab = mirror.tabs.find(
+    (candidate) => candidate.id === activeTabId,
   );
+  if (activeTab && matchesDestination(activeTab)) return true;
+
+  const tab = mirror.tabs.find(matchesDestination);
   if (!tab) return false;
-  if (tab.id === history.location.state.tabId) return true;
 
   pushTabHistoryEntry(history, tab.href ?? destination.href, tab.id);
   return true;

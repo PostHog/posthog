@@ -162,6 +162,18 @@ describe("focusExistingTab", () => {
     expect(focusExistingTab({ href: "/new" })).toBe(true);
   });
 
+  it("keeps the active tab when an earlier tab shows the same destination", () => {
+    const mirror = snapshot();
+    mirror.tabs[0] = { ...mirror.tabs[0], href: "/tasks/task-1" };
+    mirror.tabs[1] = { ...mirror.tabs[1], href: "/tasks/task-1" };
+    mocks.readMirror.mockReturnValue(mirror);
+    const push = vi.fn();
+    mocks.getRouterOrNull.mockReturnValue({ history: { ...history, push } });
+
+    expect(focusExistingTab({ href: "/tasks/task-1" })).toBe(true);
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it("returns false when no tab shows the destination", () => {
     expect(focusExistingTab({ href: "/tasks/other" })).toBe(false);
   });
