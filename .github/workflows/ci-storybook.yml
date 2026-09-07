@@ -313,9 +313,9 @@ jobs:
     vr-setup:
         name: Create Visual Review run
         runs-on: ubuntu-latest
-        # The VR CLI install dominates this job, and it runs against a cold npm cache
-        # whenever the restore misses. vr-complete allows the same budget for the same
-        # install.
+        # The VR CLI build dominates this job whenever the cache misses, and it then
+        # downloads the whole dependency tree. vr-complete allows the same budget for the
+        # same build.
         timeout-minutes: 15
         needs: [changes, build-storybook, select-stories]
         # A status function is required because select-stories is skipped on forced-full
@@ -374,29 +374,50 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # The CLI is a standalone npm package outside the pnpm workspace, so no other
-            # job warms its tarballs. Without this cache, every run downloads the whole
-            # dependency tree, which includes the sharp binaries and the test toolchain
-            # that the build never uses.
-            - name: Restore VR CLI npm cache
+            # job warms it. Cache the built output, not the tarballs: a hit runs no npm
+            # command, and the install is the part that fails on a registry blip.
+            # The key covers the CLI source, the generated types it compiles, the Node
+            # version, and the architecture, because sharp ships one binary per architecture.
+            # No restore-keys: a prefix match would hand the job a build of other source.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
-                  restore-keys: npm-vr-cli-${{ runner.os }}-
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'vr-cli/products/visual_review/cli/**', 'vr-cli/products/visual_review/frontend/generated/api.schemas.ts') }}
 
-            - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci --no-audit --no-fund && npm run build
+            # Runs only on a miss. A reset during a tarball read is a plain stream error
+            # that npm does not retry, so retry the install once. The random wait spreads
+            # the jobs that all miss on the same CLI change. fetch_retries=0 stops npm from
+            # stacking its own attempts under ours, and the fetch timeout bounds a stalled
+            # registry. The prune drops the build toolchain from the cached tree.
+            - name: Build VR CLI
+              if: steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: vr-cli/products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
 
-            - name: Save VR CLI npm cache
-              # The only writer for every VR CLI install, here and in
-              # ci-e2e-playwright.yml. They key on the same lockfile, so one entry serves
-              # them all and no two jobs save the same content at once. A job that finds
-              # no entry downloads the dependency tree instead.
-              if: github.ref == 'refs/heads/master'
+            - name: Save VR CLI build
+              # Master only: the key is immutable once written, so a PR must never take it.
+              # The cache-hit check skips packing a tree that already has an entry, because
+              # actions/cache builds the archive before it reserves the key. The shards save
+              # their own version of this entry, see there.
+              if: github.ref == 'refs/heads/master' && steps.restore-vr-cli.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
 
             - name: Create VR run
               id: create
@@ -609,24 +630,38 @@ jobs:
                       products/visual_review/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
-            # Every shard installs the CLI, so this is the highest-volume reader of the
-            # entry vr-setup writes. Restore only: a save here would race the other
-            # shards for one key. npm stores its cache by content, so the entry moves
-            # between the runner home and the container home without a rewrite.
-            - name: Restore VR CLI npm cache
+            # Same key as vr-setup. The entry vr-setup writes is invisible here: this
+            # container has no zstd, and actions/cache folds the compression method into
+            # the cache version. The save below writes the container version.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
               if: always() && needs.vr-setup.outputs.run_id != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
-                  restore-keys: npm-vr-cli-${{ runner.os }}-
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'vr-cli/products/visual_review/cli/**', 'vr-cli/products/visual_review/frontend/generated/api.schemas.ts') }}
 
-            - name: Install VR CLI
-              if: always() && needs.vr-setup.outputs.run_id != ''
-              run: cd vr-cli/products/visual_review/cli && npm ci --no-audit --no-fund && npm run build
+            # Runs only on a miss, and retries the install for the reason given at vr-setup.
+            - name: Build VR CLI
+              id: build-vr-cli
+              if: always() && needs.vr-setup.outputs.run_id != '' && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: vr-cli/products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
 
+            # always() keeps the upload after a test-runner failure. A failed build drops
+            # it. A skipped build (cache hit) is not a failure.
             - name: Upload snapshots to Visual Review
-              if: always() && needs.vr-setup.outputs.run_id != ''
+              if: always() && needs.vr-setup.outputs.run_id != '' && steps.build-vr-cli.outcome != 'failure'
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
@@ -635,6 +670,24 @@ jobs:
                     --dir frontend/__snapshots__/ \
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
+
+            # Saves the container version of the entry from one shard, master only. Runs
+            # after the upload so packing never delays a snapshot. !cancelled() because the
+            # tests run before the build, and a red test still warms a correct cache. The
+            # outcome check keeps a partial tree from taking the immutable key.
+            - name: Save VR CLI build
+              if: >-
+                  !cancelled()
+                  && github.ref == 'refs/heads/master'
+                  && matrix.shard == 1
+                  && matrix.browser == 'chromium'
+                  && steps.build-vr-cli.outcome == 'success'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
 
             - name: Upload test results
               if: always()
@@ -872,16 +925,30 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            # Reads the cache that vr-setup writes. This job never saves it.
-            - name: Restore VR CLI npm cache
+            # Keys the cached build the same way vr-setup does, and reads the host entry
+            # vr-setup writes. This job never saves it.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
-                  restore-keys: npm-vr-cli-${{ runner.os }}-
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'vr-cli/products/visual_review/cli/**', 'vr-cli/products/visual_review/frontend/generated/api.schemas.ts') }}
 
-            - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci --no-audit --no-fund && npm run build
+            # Runs only on a miss, and retries the install for the reason given at vr-setup.
+            - name: Build VR CLI
+              if: steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: vr-cli/products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
 
             - name: Complete Visual Review run
               # Pass the same --purpose vr-setup created the run with. The backend reports zero

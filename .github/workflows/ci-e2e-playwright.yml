@@ -965,23 +965,50 @@ jobs:
 
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
-            # Shares the entry ci-storybook.yml writes, keyed on the same lockfile. A miss
-            # only means the install downloads the tree, which is what it does today.
-            - name: Restore VR CLI npm cache
+            # Caches the built CLI, see vr-setup in ci-storybook.yml. The paths sit at the
+            # workspace root here, so this is a separate entry. No restore-keys.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
               if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
-                  restore-keys: npm-vr-cli-${{ runner.os }}-
+                  path: |
+                      products/visual_review/cli/dist
+                      products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'products/visual_review/cli/**', 'products/visual_review/frontend/generated/api.schemas.ts') }}
 
-            - name: Install VR CLI
-              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
-              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
+            # Runs only on a miss, and retries the install for the reason given at vr-setup
+            # in ci-storybook.yml.
+            - name: Build VR CLI
+              id: build-vr-cli
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
 
+            - name: Save VR CLI build
+              # Master only, because the key is immutable once written. vr-complete reads
+              # this entry, so it runs on the same runner provider.
+              if: github.ref == 'refs/heads/master' && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      products/visual_review/cli/dist
+                      products/visual_review/cli/node_modules
+                  key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
+
+            # A failed build must not reach this step, where it would only report a
+            # missing module. A skipped build (cache hit) is not a failure.
             - name: Create VR run
               id: vr-create
-              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              if: always() && steps.build-vr-cli.outcome != 'failure' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -998,7 +1025,7 @@ jobs:
                   # default-branch fence forces is_partial=false there anyway).
                   VR_PARTIAL: ${{ needs.select-specs.outputs.mode == 'selected' && '--partial' || '' }}
               run: |
-                  RUN_ID=$(vr run create \
+                  RUN_ID=$(node products/visual_review/cli/dist/cli/src/index.js run create \
                     --type playwright \
                     --baseline playwright/snapshots.yml \
                     --branch "$VR_BRANCH" \
@@ -1015,7 +1042,7 @@ jobs:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_RUN_ID: ${{ steps.vr-create.outputs.run_id }}
               run: |
-                  vr run upload \
+                  node products/visual_review/cli/dist/cli/src/index.js run upload \
                     --run-id "$VR_RUN_ID" \
                     --dir playwright/__snapshots__/ \
                     --baseline playwright/snapshots.yml \
@@ -1223,7 +1250,9 @@ jobs:
 
     vr-complete:
         name: Complete Visual Review run
-        runs-on: ubuntu-latest
+        # Same runner provider as the playwright job, whose VR CLI cache entry this job
+        # reads: GitHub-hosted and Depot runners keep separate cache stores.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         needs: [playwright]
         # !cancelled() is load-bearing. select-specs is skipped on every full-run event (push to
@@ -1264,26 +1293,40 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            # Shares the entry ci-storybook.yml writes, keyed on the same lockfile.
-            - name: Restore VR CLI npm cache
+            # Reads the entry the playwright job writes. This job never saves it.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ~/.npm
-                  key: npm-vr-cli-${{ runner.os }}-${{ hashFiles('**/products/visual_review/cli/package-lock.json') }}
-                  restore-keys: npm-vr-cli-${{ runner.os }}-
+                  path: |
+                      products/visual_review/cli/dist
+                      products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'products/visual_review/cli/**', 'products/visual_review/frontend/generated/api.schemas.ts') }}
 
-            - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci --no-audit --no-fund && npm run build && npm link
+            # Runs only on a miss, and retries the install for the reason given at vr-setup
+            # in ci-storybook.yml.
+            - name: Build VR CLI
+              if: steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only), but
-              # `vr run complete` still exits 1 whenever visual changes are detected. Treat that as
+              # `run complete` still exits 1 whenever visual changes are detected. Treat that as
               # informational on push; PRs still gate. Mirrors ci-storybook.yml.
               continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  vr run complete \
+                  node products/visual_review/cli/dist/cli/src/index.js run complete \
                     --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
