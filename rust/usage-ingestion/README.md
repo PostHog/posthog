@@ -1,9 +1,8 @@
 # Usage ingestion service
 
-`usage-ingestion` is the internal gRPC gateway for durable usage records. It
-validates records, resolves an omitted organization ID from core PostgreSQL,
-caches successful lookups in memory for five minutes, and publishes
-JSONEachRow messages to `clickhouse_billing_usage_records`.
+`usage-ingestion` processes durable usage records received over gRPC or Kafka.
+Both transports use the same validation, organization resolution, counters,
+and JSONEachRow producer for `clickhouse_billing_usage_records`.
 
 The service is the shared gateway for every usage stream; `IngestBillingUsage`
 is the tenant-billing stream, which is exact, idempotent, and retained
@@ -26,6 +25,23 @@ docker compose -f docker-compose.dev.yml up usage-ingestion
 The gRPC endpoint listens on port 7143 and metrics/readiness on port 7144.
 PostgreSQL is the source of truth. The service retains successful team-to-
 organization lookups in its process-local cache for five minutes.
+
+## Transport modes
+
+`USAGE_INGESTION_MODE` selects one transport per process and defaults to `grpc`.
+Kafka mode consumes protobuf-encoded `IngestBillingUsageRequest` messages from
+`USAGE_INGESTION_KAFKA_INPUT_TOPIC` (`usage_ingestion` by default). It commits
+an input offset only after the output Kafka cluster confirms every accepted
+record, so an interrupted message is replayed safely.
+
+The input topic can live on a different cluster from the ClickHouse output:
+
+| Env var | Default |
+| --- | --- |
+| `USAGE_INGESTION_KAFKA_INPUT_HOSTS` | `KAFKA_HOSTS` |
+| `USAGE_INGESTION_KAFKA_INPUT_TLS` | `KAFKA_TLS` |
+| `USAGE_INGESTION_KAFKA_INPUT_TOPIC` | `usage_ingestion` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_GROUP` | `usage-ingestion` |
 
 When `DEBUG` is set, the service writes readable, colorized logs for local
 development. It uses structured JSON logs otherwise.
@@ -65,21 +81,15 @@ still rejects an intentionally cross-slot transaction.
 
 | Resource | Placement |
 | --- | --- |
-| Kafka cluster | `warpstream-shared` |
-| Topic | `clickhouse_billing_usage_records`, 8 partitions, 7-day retention |
+| Kafka input | `warpstream-ingestion` / `usage_ingestion`, 8 partitions, 7-day retention |
+| Kafka output | `warpstream-shared` / `clickhouse_billing_usage_records`, 8 partitions, 7-day retention |
 | ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
 | ClickHouse storage table | `NodeRole.AUX` |
 | ClickHouse read table | `NodeRole.DATA` |
 | Reachability | in-cluster only; no external proxy and no request authentication |
 | Owning team | `team-ingestion` |
 
-`warpstream-shared` carries the low-volume topics that do not justify a cluster
-of their own, which is what usage records are.
-The alternative was `warpstream-ingestion`, where `usage_report_events_preagg`
-lives, but that cluster carries the event hot path.
-Usage records come from a standalone gateway rather than the event pipeline, so
-putting them there would couple billing data to the noisiest cluster for no gain.
-The producer and the ClickHouse Kafka engine table must name the same cluster:
+The processor's output and the ClickHouse Kafka engine table must name the same cluster:
 the table takes it from `CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION`,
 and the service takes its topic from `USAGE_INGESTION_TOPIC`.
 
@@ -130,9 +140,11 @@ The service reads the same topic from `USAGE_INGESTION_TOPIC`.
 flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion -- --ignored --nocapture'
 ```
 
-`tests/e2e.rs` checks that a retry with the original event timestamp collapses
-to one canonical row. A correction must use a new version, and any correction
-that moves event time becomes a distinct billable row.
+`tests/e2e.rs` publishes a protobuf request to Kafka and checks that the fully
+processed row reaches ClickHouse. It also checks that a gRPC retry with the
+original event timestamp collapses to one canonical row. A correction must use
+a new version, and any correction that moves event time becomes a distinct
+billable row.
 
 ### Load test
 

@@ -14,8 +14,10 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
-use usage_ingestion::config::Config;
+use usage_ingestion::config::{Config, TransportMode};
 use usage_ingestion::counters::{spawn_flush_task, CounterAccumulator};
+use usage_ingestion::grpc::GrpcUsageIngestion;
+use usage_ingestion::kafka::KafkaUsageIngestion;
 use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
@@ -80,13 +82,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_max_connection_age = config.grpc_max_connection_age();
     let redis_counter_config = config.redis_counter_config();
     let counters = (!config.redis_url.is_empty()).then(|| Arc::new(CounterAccumulator::default()));
-    let service = UsageIngestionService::new(
+    let service = Arc::new(UsageIngestionService::new(
         producer,
         resolver,
         config.max_batch_size,
         config.topic.clone(),
         counters.as_ref().map(Arc::clone),
-    );
+    ));
 
     // Buckets only for the shared gRPC histogram, so it renders the same way personhog's does
     // and quantiles aggregate across pods. Left global, these millisecond bounds would also
@@ -103,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(accumulator) = counters {
         spawn_flush_task(
             accumulator,
-            config.redis_url,
+            config.redis_url.clone(),
             Duration::from_secs(config.redis_flush_interval_seconds),
             redis_counter_config,
         );
@@ -132,21 +134,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("usage-ingestion metrics server failed");
     });
 
-    tracing::info!(address = %config.grpc_address, "Starting usage-ingestion gRPC service");
-    // This listener is limited to trusted in-cluster callers. Add authenticated caller identity
-    // before exposing it beyond that boundary because records affect tenant billing.
-    // Producers pin one HTTP/2 connection for the life of the process, so a scale-up takes no
-    // traffic until connections churn. A periodic GOAWAY makes them re-resolve the service.
-    // ponytail: tonic 0.12 adds no jitter here. Move to client-side round-robin if the
-    // synchronized reconnect shows up as a latency sawtooth.
-    let mut builder = Server::builder();
-    if let Some(age) = grpc_max_connection_age {
-        builder = builder.max_connection_age(age);
+    match config.transport_mode {
+        TransportMode::Grpc => {
+            tracing::info!(address = %config.grpc_address, "Starting usage-ingestion gRPC service");
+            // This listener is limited to trusted in-cluster callers. Add authenticated caller identity
+            // before exposing it beyond that boundary because records affect tenant billing.
+            // Producers pin one HTTP/2 connection for the life of the process, so a scale-up takes no
+            // traffic until connections churn. A periodic GOAWAY makes them re-resolve the service.
+            // ponytail: tonic 0.12 adds no jitter here. Move to client-side round-robin if the
+            // synchronized reconnect shows up as a latency sawtooth.
+            let mut builder = Server::builder();
+            if let Some(age) = grpc_max_connection_age {
+                builder = builder.max_connection_age(age);
+            }
+            builder
+                .layer(GrpcMetricsLayer)
+                .add_service(UsageIngestionServer::new(GrpcUsageIngestion::new(service)))
+                .serve(config.grpc_address.parse()?)
+                .await?;
+        }
+        TransportMode::Kafka => {
+            tracing::info!(
+                topic = %config.kafka_input_topic,
+                group = %config.kafka_consumer_group,
+                "Starting usage-ingestion Kafka consumer"
+            );
+            KafkaUsageIngestion::new(
+                &config.kafka_consumer_config(),
+                &config.kafka_input_topic,
+                service,
+            )?
+            .run()
+            .await?;
+        }
     }
-    builder
-        .layer(GrpcMetricsLayer)
-        .add_service(UsageIngestionServer::new(service))
-        .serve(config.grpc_address.parse()?)
-        .await?;
     Ok(())
 }

@@ -1,7 +1,10 @@
+use std::str::FromStr;
 use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
+use common_kafka_consumer::config::ConsumerConfigBuilder;
 use envconfig::Envconfig;
+use rdkafka::ClientConfig;
 
 use crate::counters::CounterConfig;
 
@@ -16,8 +19,30 @@ const METADATA_REFRESH_INTERVAL_MS: u32 = 60_000;
 
 const _: () = assert!(MESSAGE_MAX_BYTES > BATCH_SIZE);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportMode {
+    Grpc,
+    Kafka,
+}
+
+impl FromStr for TransportMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "grpc" => Ok(Self::Grpc),
+            "kafka" => Ok(Self::Kafka),
+            other => Err(format!(
+                "unknown usage ingestion transport {other:?}; expected grpc or kafka"
+            )),
+        }
+    }
+}
+
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(from = "USAGE_INGESTION_MODE", default = "grpc")]
+    pub transport_mode: TransportMode,
     #[envconfig(from = "USAGE_INGESTION_GRPC_ADDRESS", default = "0.0.0.0:7143")]
     pub grpc_address: String,
     #[envconfig(from = "USAGE_INGESTION_METRICS_ADDRESS", default = "0.0.0.0:7144")]
@@ -28,6 +53,22 @@ pub struct Config {
     pub kafka_hosts: String,
     #[envconfig(from = "KAFKA_TLS", default = "false")]
     pub kafka_tls: bool,
+    /// Empty uses `KAFKA_HOSTS`, which keeps the single-cluster local setup simple.
+    #[envconfig(from = "USAGE_INGESTION_KAFKA_INPUT_HOSTS", default = "")]
+    pub kafka_input_hosts: String,
+    /// Unset follows `KAFKA_TLS`; production can override it when input and output differ.
+    #[envconfig(from = "USAGE_INGESTION_KAFKA_INPUT_TLS")]
+    pub kafka_input_tls: Option<bool>,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_INPUT_TOPIC",
+        default = "usage_ingestion"
+    )]
+    pub kafka_input_topic: String,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_GROUP",
+        default = "usage-ingestion"
+    )]
+    pub kafka_consumer_group: String,
     /// Only "none", "gzip", "snappy" and "lz4" work. "zstd" needs an rdkafka feature the
     /// workspace does not enable, so librdkafka refuses it when it builds the producer.
     #[envconfig(from = "KAFKA_COMPRESSION_CODEC", default = "lz4")]
@@ -125,6 +166,20 @@ impl Config {
             ..Default::default()
         }
     }
+
+    pub fn kafka_consumer_config(&self) -> ClientConfig {
+        let hosts = if self.kafka_input_hosts.is_empty() {
+            &self.kafka_hosts
+        } else {
+            &self.kafka_input_hosts
+        };
+        ConsumerConfigBuilder::for_batch_consumer(hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_input_tls.unwrap_or(self.kafka_tls))
+            .with_offset_reset("earliest")
+            .with_sticky_partition_assignment(None, false)
+            .set("client.id", "usage-ingestion-consumer")
+            .build()
+    }
 }
 
 #[cfg(test)]
@@ -133,11 +188,16 @@ mod tests {
 
     fn config() -> Config {
         Config {
+            transport_mode: TransportMode::Grpc,
             grpc_address: "0.0.0.0:7143".to_string(),
             metrics_address: "0.0.0.0:7144".to_string(),
             database_url: "postgres://localhost/test".to_string(),
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
+            kafka_input_hosts: String::new(),
+            kafka_input_tls: None,
+            kafka_input_topic: "usage_ingestion".to_string(),
+            kafka_consumer_group: "usage-ingestion".to_string(),
             kafka_compression_codec: "lz4".to_string(),
             kafka_producer_linger_ms: 100,
             max_batch_size: 500,
@@ -188,6 +248,25 @@ mod tests {
 
         assert_eq!(kafka.kafka_compression_codec, "none");
         assert_eq!(kafka.kafka_producer_linger_ms, 5);
+    }
+
+    #[test]
+    fn the_input_consumer_can_use_a_different_cluster() {
+        let config = Config {
+            kafka_input_hosts: "ingestion:9092".to_string(),
+            kafka_input_tls: Some(true),
+            ..config()
+        };
+
+        let kafka = config.kafka_consumer_config();
+
+        assert_eq!(kafka.get("metadata.broker.list"), Some("ingestion:9092"));
+        assert_eq!(kafka.get("security.protocol"), Some("ssl"));
+        assert_eq!(kafka.get("enable.auto.commit"), Some("false"));
+        assert_eq!(
+            kafka.get("partition.assignment.strategy"),
+            Some("cooperative-sticky")
+        );
     }
 
     #[test]
