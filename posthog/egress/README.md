@@ -27,7 +27,7 @@ A response body is the opposite, because its footprint tracks request volume.
 Storing bodies therefore needs a size budget, an eviction policy, and a Redis of its own.
 `CACHES["default"]` is not that Redis: it also serves flags, org access, and cohort dependencies, so a body store there competes with the request path.
 Cache what a caller needs in that caller's own cache, where the data is already smaller and better shaped than the raw response.
-`posthog/models/integration_repository_cache.py` is the pattern to copy. It keeps the derived file tree and revalidates with a cheap SHA check.
+`posthog/models/integration_repository_cache.py` is one existing example: it keeps the derived file tree and revalidates with a cheap SHA check.
 
 **Egress does not hide an API's response semantics from callers.**
 A transport that replays a `304` as a `200`, or an error as an empty result, leaves the caller unable to act on what the API said.
@@ -37,10 +37,6 @@ The rate-limit path shows the shape to follow: a 403 with an exhausted window be
 **Egress does not decide what a caller should request.**
 A caller that fetches data it does not need is a product bug, and the limiter only makes that bug cheaper to survive.
 Fix the request pattern first, then measure what is left.
-
-**Egress does not retry.**
-The transport classifies the response and returns it.
-Retry and backoff belong to the caller, which knows whether a repeat is safe and how long it can wait.
 
 ## Rate limiting
 
