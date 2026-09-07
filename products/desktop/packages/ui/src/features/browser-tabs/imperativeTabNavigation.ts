@@ -29,13 +29,6 @@ export function isBrowserTabOpen(tabId: string | null): boolean {
   return readMirror().tabs.some((candidate) => candidate.id === tabId);
 }
 
-/**
- * Whether a tab shows this destination. The reference fields match both route
- * forms of one target (a task tab can sit on `/tasks/$id` or
- * `/spaces/$channelId/tasks/$id`); the href matches destinations outside that
- * vocabulary. Identity answers which tab, never where it is: the switch lands
- * on the tab's own href.
- */
 function tabShowsDestination(
   tab: BrowserTab,
   dest: BrowserTabDestination,
@@ -45,14 +38,6 @@ function tabShowsDestination(
   return tab.href === dest.href;
 }
 
-/**
- * Focus an existing tab that shows this destination, instead of opening a
- * duplicate. The switch goes through pushTabHistoryEntry, the same path a tab
- * click uses, so the navigation effect sees a tagged entry and settles it
- * (durable focus, view-state restore). Returns false when no tab matches or
- * the router is not mounted; a matching tab that is already active reports
- * success without a navigation.
- */
 export function focusExistingTab(destination: BrowserTabDestination): boolean {
   const mirror = readMirror();
   const window = primaryWindow(mirror);

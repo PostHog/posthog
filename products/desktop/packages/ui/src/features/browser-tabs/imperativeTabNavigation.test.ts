@@ -179,8 +179,6 @@ describe("focusExistingTab", () => {
     expect(focusExistingTab({ href: "/tasks/task-9", taskId: "task-9" })).toBe(
       true,
     );
-    // The switch lands on the tab's own href, or the destination when the
-    // persisted href is null.
     expect(push).toHaveBeenCalledWith(href ?? "/tasks/task-9", {
       tabId: "tab-a",
     });

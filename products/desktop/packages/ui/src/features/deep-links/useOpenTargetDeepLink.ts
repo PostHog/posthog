@@ -18,7 +18,6 @@ import { useCallback, useEffect } from "react";
 
 const log = logger.scope("open-target-deep-link");
 
-/** The tab destination a target opens at. */
 function targetDestination(target: NotificationTarget): BrowserTabDestination {
   switch (target.kind) {
     case "task":
@@ -40,10 +39,6 @@ export function useOpenTargetDeepLink() {
   const client = useHostTRPCClient();
   const handleOpenTask = useHandleOpenTask();
 
-  // A tab that already shows the target wins over opening a duplicate: the
-  // intent becomes a tab switch, and only an unmatched target opens anew. The
-  // mirror can still be unseeded right after a cold start (the click launched
-  // the app), so an unmatched first look re-checks after the boot fetch.
   const handleTarget = useCallback(
     (target: NotificationTarget) => {
       log.info("Opening notification target", { kind: target.kind });
